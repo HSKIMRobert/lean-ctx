@@ -7,6 +7,8 @@ mod commands;
 mod config;
 mod contribute;
 mod db;
+mod devices;
+mod digest;
 mod feedback;
 mod gain;
 mod global_stats;
@@ -17,7 +19,9 @@ mod knowledge;
 mod models;
 mod oauth;
 mod site_theme;
+mod sso;
 mod stats;
+mod team_join;
 mod wrapped;
 
 use axum::routing::{delete, get, patch, post, put};
@@ -37,6 +41,10 @@ pub async fn run() -> anyhow::Result<()> {
 
     let state = auth::AppState::new(pool, cfg.clone(), mailer);
 
+    // Email digests (GL #386): monthly Pro / weekly Team summaries with
+    // one-click opt-out. No-op while SMTP is unconfigured.
+    digest::spawn_digest_job(state.clone());
+
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list([
             "https://leanctx.com"
@@ -52,6 +60,8 @@ pub async fn run() -> anyhow::Result<()> {
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::PATCH,
             axum::http::Method::DELETE,
             axum::http::Method::OPTIONS,
         ])
@@ -68,6 +78,10 @@ pub async fn run() -> anyhow::Result<()> {
         .route("/oauth/token", post(oauth::token))
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))
+        // Self-serve OIDC SSO (GL #482): start → IdP → callback → handoff.
+        .route("/api/auth/sso/start", post(sso::sso_start))
+        .route("/api/auth/sso/callback", get(sso::sso_callback))
+        .route("/api/auth/sso/handoff", post(sso::sso_handoff))
         .route("/api/auth/forgot-password", post(auth::forgot_password))
         .route("/api/auth/reset-password", post(auth::reset_password))
         .route("/api/auth/verify-email", get(auth::verify_email))
@@ -158,13 +172,36 @@ pub async fn run() -> anyhow::Result<()> {
         // privacy-preserving footprint of what the account has synced. Drives
         // the dashboard-vs-upsell split on /account/cloud for every plan.
         .route("/api/account/cloud", get(account_cloud::get_account_cloud))
+        // Device overview (GL #387): list machines that synced (from the
+        // X-Device-Label header on pushes) + forget a stale row. Display
+        // metadata only — no auth or quota semantics attached to a device.
+        .route("/api/account/devices", get(devices::list_devices))
+        .route(
+            "/api/account/devices/{label}",
+            delete(devices::forget_device),
+        )
         // Hosted Team server dashboard: proxy status + token management to the
         // private plane on behalf of the logged-in owner. 503 when billing is
         // unset; 404 (from the plane) until a Team subscription provisions one.
+        // Email digests (GL #386): one-click unsubscribe (from the email link,
+        // no login) + the authenticated dashboard toggle.
+        .route("/api/digest/opt-out", get(digest::opt_out))
+        .route(
+            "/api/account/digest",
+            get(digest::get_digest_pref).put(digest::put_digest_pref),
+        )
         .route("/api/account/team", get(billing_edge::get_account_team))
         .route(
             "/api/account/team/savings",
             get(billing_edge::get_account_team_savings),
+        )
+        .route(
+            "/api/account/team/savings/member/{signer}",
+            get(billing_edge::get_account_team_savings_member),
+        )
+        .route(
+            "/api/account/team/settings",
+            axum::routing::put(billing_edge::put_account_team_settings),
         )
         .route(
             "/api/account/team/owner-token",
@@ -177,6 +214,42 @@ pub async fn run() -> anyhow::Result<()> {
         .route(
             "/api/account/team/members/{token_id}",
             delete(billing_edge::delete_account_team_member),
+        )
+        // Invite links (GL #385): owner-side mint/list/revoke plus the public,
+        // login-less redeem behind leanctx.com/join/?code=… (rate-limited).
+        .route(
+            "/api/account/team/invites",
+            get(billing_edge::get_account_team_invites)
+                .post(billing_edge::post_account_team_invite),
+        )
+        .route(
+            "/api/account/team/invites/{invite_id}",
+            delete(billing_edge::delete_account_team_invite),
+        )
+        .route("/api/team/join", post(team_join::post_team_join))
+        // Org SSO settings (GL #482): owner-side IdP config on the dashboard.
+        .route(
+            "/api/account/org/sso",
+            get(billing_edge::get_account_org_sso)
+                .put(billing_edge::put_account_org_sso)
+                .delete(billing_edge::delete_account_org_sso),
+        )
+        .route(
+            "/api/account/org/sso/verify",
+            post(billing_edge::post_account_org_sso_verify),
+        )
+        .route(
+            "/api/account/org/sso/required",
+            put(billing_edge::put_account_org_sso_required),
+        )
+        // Org audit log (GL #484): owner-side governance history + CSV export.
+        .route(
+            "/api/account/org/audit",
+            get(billing_edge::get_account_org_audit),
+        )
+        .route(
+            "/api/account/org/audit/export.csv",
+            get(billing_edge::get_account_org_audit_export),
         )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted

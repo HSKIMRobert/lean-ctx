@@ -53,6 +53,27 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   revoked_at TIMESTAMPTZ
 );
 
+-- OIDC SSO login flow (GL #482). One row per in-flight authorization
+-- round-trip; consumed (deleted) on callback, swept by TTL otherwise. Only
+-- hashes of state/handoff tokens are stored.
+CREATE TABLE IF NOT EXISTS sso_login_states (
+  state_sha256 TEXT PRIMARY KEY,
+  email_domain TEXT NOT NULL,
+  nonce TEXT NOT NULL,
+  pkce_verifier TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One-time handoff between the SSO callback redirect and the login page:
+-- the api_key never appears in a URL. 60s TTL, single use.
+CREATE TABLE IF NOT EXISTS sso_handoff_codes (
+  code_sha256 TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  api_key TEXT NOT NULL,
+  email TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS stats_daily (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   date DATE NOT NULL,
@@ -73,6 +94,30 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
   value TEXT NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (user_id, category, key)
+);
+
+-- Zero-knowledge knowledge vault (GL #467): one client-side-encrypted blob
+-- per account, replacing plaintext knowledge_entries for E2E clients. The
+-- server never sees plaintext — entry_count is client-declared display
+-- metadata only. Legacy knowledge_entries rows are deleted on first vault
+-- push (the client re-encrypts its full local state by construction).
+CREATE TABLE IF NOT EXISTS knowledge_blobs (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  blob BYTEA NOT NULL,
+  entry_count BIGINT NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Zero-knowledge gotcha vault (GL #467 follow-up): same construction as
+-- knowledge_blobs, own table + own HKDF domain (gotcha-vault-v1). Legacy
+-- gotchas rows are deleted on first vault push.
+CREATE TABLE IF NOT EXISTS gotcha_blobs (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  blob BYTEA NOT NULL,
+  entry_count BIGINT NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Hosted Personal Index buckets (GL #392): one client-side-encrypted bundle
@@ -103,6 +148,40 @@ CREATE TABLE IF NOT EXISTS magic_links (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   expires_at TIMESTAMPTZ NOT NULL,
   consumed_at TIMESTAMPTZ
+);
+
+-- Email digest preferences (GL #386). One row per user, created lazily on the
+-- first digest. The opt-out token authorizes the one-click unsubscribe link in
+-- every digest (no login required); only its SHA-256 is stored.
+CREATE TABLE IF NOT EXISTS email_prefs (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  digest_opt_out BOOLEAN NOT NULL DEFAULT FALSE,
+  opt_out_token_sha256 TEXT UNIQUE NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Digest idempotency ledger (GL #386): one row per (user, kind, period) ever
+-- sent. INSERT … ON CONFLICT DO NOTHING is the send gate, so a digest goes out
+-- at most once per period even across restarts and concurrent ticks.
+CREATE TABLE IF NOT EXISTS digest_log (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  period_key TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, kind, period_key)
+);
+
+-- Device overview (GL #387): one row per (user, device label), upserted as a
+-- side effect of every authenticated sync push that carries X-Device-Label.
+-- Pure display metadata — labels are client-chosen hostnames, never identity.
+CREATE TABLE IF NOT EXISTS devices (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_label TEXT NOT NULL,
+  first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_surface TEXT,
+  sync_count BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (user_id, device_label)
 );
 
 CREATE TABLE IF NOT EXISTS email_verifications (

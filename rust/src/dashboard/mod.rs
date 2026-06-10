@@ -32,6 +32,9 @@ const COCKPIT_COMPONENT_REMAINING_JS: &str = include_str!("static/components/coc
 const COCKPIT_COMPONENT_COMMANDER_JS: &str = include_str!("static/components/cockpit-commander.js");
 const COCKPIT_COMPONENT_PALETTE_JS: &str = include_str!("static/components/cockpit-palette.js");
 const COCKPIT_COMPONENT_ROI_JS: &str = include_str!("static/components/cockpit-roi.js");
+const COCKPIT_COMPONENT_AREA_TABS_JS: &str = include_str!("static/components/cockpit-area-tabs.js");
+const COCKPIT_COMPONENT_PROTECTION_JS: &str =
+    include_str!("static/components/cockpit-protection.js");
 
 // Vendored third-party libraries — embedded so the dashboard works fully offline
 // (no external CDN). Served as text via the standard route pipeline.
@@ -756,6 +759,27 @@ mod tests {
             "missing profile.profile.name"
         );
         assert!(v.get("available").and_then(|a| a.as_array()).is_some());
+    }
+
+    #[test]
+    fn api_billing_badge_returns_cosmetic_shape() {
+        let (status, ct, body) =
+            routes::route_response("/api/billing-badge", "", None, None, false, "GET", "");
+        assert_eq!(status, "200 OK");
+        assert_eq!(ct, "application/json");
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert!(v.get("plan").and_then(|p| p.as_str()).is_some());
+        assert!(v
+            .get("supporter")
+            .and_then(serde_json::Value::as_bool)
+            .is_some());
+        assert!(
+            matches!(
+                v.get("source").and_then(|s| s.as_str()),
+                Some("live" | "cached" | "expired" | "none")
+            ),
+            "unexpected source: {body}"
+        );
     }
 
     #[test]

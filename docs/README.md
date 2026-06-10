@@ -28,6 +28,11 @@ End-user documentation lives at **https://leanctx.com/docs/getting-started**.
 
 - Monorepo usage: [`guides/monorepo.md`](guides/monorepo.md)
 
+## Compliance
+
+- Context Governance Benchmark (CGB) self-assessment — honest grading incl.
+  declared gaps: [`compliance/cgb-self-assessment.md`](compliance/cgb-self-assessment.md)
+
 ## Design notes / tickets
 
 - Cache correctness + heatmap plan: [`premium-cache-heatmap.md`](premium-cache-heatmap.md)

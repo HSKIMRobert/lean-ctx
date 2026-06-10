@@ -566,7 +566,18 @@ stale_files: {}\n",
                         key: id.clone(),
                         action: "record".to_string(),
                     });
-                    format!("Episode recorded: {id}")
+                    // Auto-learning (GL #478): every new episode re-runs workflow
+                    // detection, so Procedures fill themselves over time.
+                    let learned = crate::core::procedural_memory::auto_detect_from_episodes(
+                        &hash,
+                        &policy.procedural,
+                    );
+                    match learned {
+                        Some(n) if n > 0 => {
+                            format!("Episode recorded: {id} (procedures auto-updated: {n} known workflows)")
+                        }
+                        _ => format!("Episode recorded: {id}"),
+                    }
                 }
                 Some(v) if v.starts_with("search ") => {
                     let q = v.trim_start_matches("search ").trim();

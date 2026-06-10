@@ -118,6 +118,12 @@ body{
 html.support-bar-off{--support-bar-h:0px}
 html.support-bar-off .support-bar{display:none}
 @media(max-width:640px){.support-bar-sub{display:none}}
+/* Supporter thank-you state (GL #393): calm, no hover-lift, heart accent. */
+.support-bar-thanks .support-bar-cta{
+  pointer-events:none;background:transparent;
+  color:var(--accent);border-color:var(--accent-dim);
+}
+.support-bar-thanks .support-bar-heart{color:var(--accent)}
 
 .sidebar{
   position:fixed;top:var(--support-bar-h,0px);left:0;bottom:0;width:var(--sidebar-w);
@@ -150,6 +156,10 @@ html.support-bar-off .support-bar{display:none}
   opacity:0;transition:opacity .2s .05s;
 }
 .sidebar:hover .nav-section-label,.sidebar.pinned .nav-section-label{opacity:0.6}
+.nav-section-job{
+  display:block;font-size:8px;font-weight:500;letter-spacing:.06em;text-transform:none;
+  color:var(--muted);opacity:.75;margin-top:1px;
+}
 .nav-divider{height:1px;background:var(--border);margin:6px 8px}
 .nav-item{
   display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:var(--rs);
@@ -236,6 +246,23 @@ html.support-bar-off .support-bar{display:none}
 }
 
 .tf-bar{display:flex;gap:4px;margin-bottom:12px}
+/* Slim-Home status strip (GL #486): one compact line instead of 4 cards */
+.status-strip{display:flex;flex-wrap:wrap;gap:8px 28px;align-items:center;padding:12px 16px}
+.status-strip .status-chip{display:inline-flex;align-items:baseline;gap:8px;min-width:0}
+.status-strip .status-chip .sl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);white-space:nowrap}
+.status-strip .status-chip .sv{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+.status-strip .status-chip-sub{font-weight:400;color:var(--muted);font-size:11px}
+.cko-cmd-toggle{
+  display:block;width:100%;margin-top:10px;padding:7px 12px;border-radius:var(--rs);
+  border:1px solid var(--border);background:transparent;color:var(--muted);
+  font-family:var(--mono);font-size:11px;cursor:pointer;transition:all .15s;
+}
+.cko-cmd-toggle:hover{color:var(--text);border-color:var(--accent);background:var(--bg-hover,rgba(255,255,255,.03))}
+.cks-open-lab{
+  margin-left:auto;padding:3px 10px;border-radius:var(--rs);border:1px solid var(--border);
+  background:transparent;color:var(--muted);font-family:var(--mono);font-size:10px;cursor:pointer;
+}
+.cks-open-lab:hover{color:var(--text);border-color:var(--accent)}
 .tf-btn{
   padding:6px 14px;font-size:11px;font-weight:500;border-radius:var(--rs);
   border:1px solid var(--border);background:none;color:var(--muted);
@@ -709,6 +736,8 @@ tr:hover td{background:var(--surface-2)}
 .exp-tree>.exp-list{padding-left:0}
 .exp-row{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:6px;cursor:pointer;user-select:none}
 .exp-row:hover{background:color-mix(in srgb,var(--bg) 55%,transparent)}
+/* Keyboard tree navigation (GL #478): the roving-tabindex row needs a visible focus ring. */
+.exp-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:color-mix(in srgb,var(--bg) 55%,transparent)}
 .exp-row[data-leaf="1"]{cursor:default}
 .exp-caret{display:inline-block;width:12px;color:var(--muted);transition:transform .12s;font-size:10px}
 .exp-node:not(.collapsed)>.exp-row>.exp-caret{transform:rotate(90deg)}
@@ -919,6 +948,18 @@ tr:hover td{background:var(--surface-2)}
 .cks-result-line{font-size:11px;color:var(--muted);font-family:var(--mono)}
 .cks-result-score{margin-left:auto;flex-shrink:0}
 .cks-result-content{margin:10px 0 0;padding:10px;background:var(--bg);border-radius:6px;font-size:11px;line-height:1.6;color:var(--text);overflow-x:auto;max-height:120px;white-space:pre-wrap;word-break:break-word}
+/* Inline file preview on result click (GL #478) */
+.cks-result-header[role="button"]{cursor:pointer;border-radius:6px}
+.cks-result-header[role="button"]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cks-result-chevron{flex-shrink:0;color:var(--muted);font-size:10px;transition:transform .12s}
+.cks-open .cks-result-chevron{transform:rotate(90deg)}
+.cks-result-preview{margin-top:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);overflow:hidden}
+.cks-preview-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface)}
+.cks-preview-head code{font-size:11px;color:var(--green);word-break:break-all}
+.cks-preview-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px;line-height:1.55}
+.cks-ln{width:1%;padding:0 10px;text-align:right;color:var(--muted);user-select:none;border-right:1px solid var(--border);vertical-align:top}
+.cks-code{padding:0 12px;white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.cks-hitline .cks-code,.cks-hitline .cks-ln{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--text-bright)}
 
 .ckm-tab-bar{display:flex;gap:4px;padding:4px;background:var(--surface-2);border-radius:var(--rs);margin-bottom:20px}
 .ckm-tab{flex:1;padding:10px 16px;background:transparent;border:none;color:var(--muted);font-family:var(--font);font-size:12px;font-weight:500;cursor:pointer;border-radius:6px;transition:all .15s;text-align:center}
@@ -1504,3 +1545,71 @@ tr:hover td{background:var(--surface-2)}
 .tour-nav button:hover:not(:disabled){background:var(--green);color:var(--bg);border-color:var(--green)}
 .tour-nav button:disabled{opacity:.4;cursor:default}
 .tour-highlight{outline:2px solid var(--green);outline-offset:2px;border-radius:4px;transition:outline .3s}
+
+/* ---- #487 area tab strip (one page per job area, views as tabs) ---- */
+cockpit-area-tabs{display:block}
+cockpit-area-tabs[hidden]{display:none}
+.area-tabs{
+  display:flex;gap:2px;margin:0 0 14px;border-bottom:1px solid var(--border);
+  overflow-x:auto;scrollbar-width:none;
+}
+.area-tabs::-webkit-scrollbar{display:none}
+.area-tab{
+  padding:8px 14px;font-size:12px;font-weight:500;color:var(--muted);
+  text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;
+  transition:color .15s,border-color .15s;
+}
+.area-tab:hover{color:var(--text)}
+.area-tab.active{color:var(--green);border-bottom-color:var(--green)}
+.area-tab:focus-visible{outline:none;box-shadow:0 0 0 2px rgba(52,211,153,0.25) inset;border-radius:4px 4px 0 0}
+
+/* Area nav entries carry the job promise as a second line */
+.nav-item-area .nav-label{display:flex;flex-direction:column;line-height:1.25;overflow:hidden}
+.nav-label-job{
+  font-size:9px;font-weight:400;color:var(--muted);opacity:.7;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.nav-item-area.active .nav-label-job{color:var(--green);opacity:.65}
+
+/* ---- #487 Protection / Risk & Policies ---- */
+.prot-kpis{display:flex;flex-wrap:wrap;gap:10px}
+.prot-kpi{
+  flex:1 1 140px;min-width:120px;padding:10px 14px;border:1px solid var(--border);
+  border-radius:var(--rs);background:var(--surface-2);
+}
+.prot-kpi-v{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--text-bright)}
+.prot-kpi-l{font-size:10px;color:var(--muted);margin-top:2px}
+.prot-kpi.ok .prot-kpi-v{color:var(--green)}
+.prot-kpi.warn .prot-kpi-v{color:var(--yellow)}
+.prot-warning{
+  padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--yellow);
+  border-radius:var(--rs);margin-bottom:8px;
+}
+.prot-warning.sev-high{border-left-color:var(--red)}
+.prot-warning-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.prot-warning-head code{font-size:11px;color:var(--text-bright)}
+.prot-warning-msg{font-size:12px;color:var(--text);margin-top:5px}
+.prot-warning-fix{font-size:11px;color:var(--muted);margin-top:3px;font-style:italic}
+.prot-owasp-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;
+}
+.prot-owasp-card{
+  padding:12px 14px;border:1px solid var(--border);border-radius:var(--rs);
+  background:var(--surface-2);display:flex;flex-direction:column;gap:6px;
+}
+.prot-owasp-head{display:flex;justify-content:space-between;align-items:center}
+.prot-owasp-id{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.05em}
+.prot-coverage{
+  font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;
+}
+.prot-coverage.ok{color:var(--green);background:var(--green-dim)}
+.prot-coverage.warn{color:var(--yellow);background:var(--yellow-dim)}
+.prot-coverage.dim{color:var(--muted);background:var(--surface)}
+.prot-owasp-title{font-size:13px;font-weight:600;color:var(--text-bright)}
+.prot-owasp-risk{font-size:11px;color:var(--muted);line-height:1.5}
+.prot-mitigations{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+.prot-mitigation{
+  font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:10px;
+  border:1px solid var(--border);color:var(--text);cursor:help;
+}
+.prot-mitigation:hover{border-color:var(--green);color:var(--green)}

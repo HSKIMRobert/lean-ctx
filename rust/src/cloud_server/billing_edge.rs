@@ -7,8 +7,9 @@
 //! [`Plan::Free`](crate::core::billing::Plan) — so the open backend runs fully
 //! standalone and **no local capability is ever gated** (Local-Free Invariant).
 
-use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::extract::{Path, Query, State};
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -23,11 +24,21 @@ use super::config::Config;
 /// (unconfigured, network error, bad response) degrades gracefully to
 /// [`Plan::Free`] — the safe default that grants no commercial entitlements.
 pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
+    resolve_entitlements_raw(cfg, user_id)
+        .await
+        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
+        .unwrap_or(Plan::Free)
+}
+
+/// The raw entitlements payload from the private billing service (plan,
+/// entitlements, org membership — GL #468). `None` on any failure, so callers
+/// degrade exactly like [`resolve_plan`].
+async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> {
     let (Some(base), Some(key)) = (
         cfg.billing_base_url.clone(),
         cfg.billing_internal_key.clone(),
     ) else {
-        return Plan::Free;
+        return None;
     };
 
     let url = format!("{base}/api/billing/entitlements/{user_id}");
@@ -42,13 +53,9 @@ pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
     })
     .await
     .ok()
-    .flatten();
+    .flatten()?;
 
-    let Some(body) = body else { return Plan::Free };
-    serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
-        .unwrap_or(Plan::Free)
+    serde_json::from_str::<Value>(&body).ok()
 }
 
 /// Whether this deployment leaves cloud sync **ungated** for everyone: either no
@@ -126,17 +133,27 @@ pub(super) async fn hosted_index_quota_mb(state: &AppState, user_id: Uuid) -> u3
     1_000
 }
 
-/// `GET /api/account/entitlements` — the logged-in user's plan and the
-/// additive Team/Cloud entitlements it grants.
+/// `GET /api/account/entitlements` — the logged-in user's plan, the additive
+/// Team/Cloud entitlements it grants, and the org membership (GL #468) the
+/// plan may be inherited through (`org: null` for solo accounts).
 pub(super) async fn get_account_entitlements(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let (user_id, _email) = auth_user(&state, &headers).await?;
-    let plan = resolve_plan(&state.cfg, user_id).await;
+    let raw = resolve_entitlements_raw(&state.cfg, user_id).await;
+    let plan = raw
+        .as_ref()
+        .and_then(|v| v.get("plan").and_then(Value::as_str).map(Plan::parse))
+        .unwrap_or(Plan::Free);
+    let org = raw
+        .as_ref()
+        .and_then(|v| v.get("org").cloned())
+        .unwrap_or(Value::Null);
     Ok(Json(json!({
         "plan": plan.as_str(),
         "entitlements": plan.entitlements(),
+        "org": org,
     })))
 }
 
@@ -260,15 +277,15 @@ async fn billing_forward(
         let resp = match method {
             "GET" => agent.get(&url).header("X-Internal-Key", &key).call(),
             "DELETE" => agent.delete(&url).header("X-Internal-Key", &key).call(),
-            // Body methods (POST default, PATCH for partial updates such as
-            // pausing/resuming a connector). Both carry the caller's JSON unchanged.
+            // Body methods (POST default, PATCH for partial updates, PUT for
+            // full settings replacement). All carry the caller's JSON unchanged.
             _ => {
                 let bytes = serde_json::to_vec(&payload.unwrap_or_else(|| json!({})))
                     .map_err(|e| e.to_string())?;
-                let builder = if method == "PATCH" {
-                    agent.patch(&url)
-                } else {
-                    agent.post(&url)
+                let builder = match method {
+                    "PATCH" => agent.patch(&url),
+                    "PUT" => agent.put(&url),
+                    _ => agent.post(&url),
                 };
                 builder
                     .header("X-Internal-Key", &key)
@@ -353,6 +370,72 @@ pub(super) async fn get_account_team_savings(
     finish(status, json)
 }
 
+/// `GET /api/account/team/savings/member/{signer}` — per-member drilldown
+/// (GL #389): the signer's own 90-day cumulative series plus model/tool
+/// breakdowns. 404 when the signer never reported a batch. The signer id is
+/// the truncated public key from `summary.by_member[].signer` (URL-safe by
+/// construction; anything else is rejected upstream).
+pub(super) async fn get_account_team_savings_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(signer): axum::extract::Path<String>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    // Tight allowlist before the id is embedded in an upstream URL.
+    if signer.is_empty()
+        || signer.len() > 64
+        || !signer
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return Err((StatusCode::BAD_REQUEST, "invalid signer id".into()));
+    }
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/savings/member/{signer}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Internal GET against the billing plane for the digest job (GL #386) —
+/// no user session involved, the job acts on the server's own behalf.
+/// `None` when billing is unconfigured or unreachable.
+pub(super) async fn forward_for_digest(cfg: &Config, path: String) -> Option<(u16, Value)> {
+    match billing_forward(cfg, "GET", path, None).await {
+        Ok((status, json)) => Some((status.as_u16(), json)),
+        Err(_) => None,
+    }
+}
+
+/// Request body for team settings (GL #388).
+#[derive(Deserialize)]
+pub(super) struct TeamSettingsBody {
+    #[serde(default, rename = "roiWebhookUrl")]
+    roi_webhook_url: Option<String>,
+}
+
+/// `PUT /api/account/team/settings` — owner-tunable team-server settings
+/// (currently the weekly ROI webhook URL, GL #388). Validation and the
+/// config re-render happen in the control plane; this edge only forwards.
+pub(super) async fn put_account_team_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<TeamSettingsBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/team/{user_id}/settings"),
+        Some(json!({ "roiWebhookUrl": body.roi_webhook_url })),
+    )
+    .await?;
+    finish(status, json)
+}
+
 /// `POST /api/account/team/owner-token` — (re)issue the owner token, returned
 /// exactly once. Rotates any prior owner credential and redeploys the server.
 pub(super) async fn post_account_team_owner_token(
@@ -386,6 +469,324 @@ pub(super) async fn post_account_team_member(
     )
     .await?;
     finish(status, json)
+}
+
+// ── Invite links (GL #385) ────────────────────────────────────────────────────
+
+/// Request body for `POST /api/account/team/invites`.
+#[derive(Deserialize)]
+pub(super) struct InviteBody {
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
+}
+
+/// `POST /api/account/team/invites` — mint a one-time invite link for the
+/// logged-in owner's team. The code is returned exactly once; the dashboard
+/// turns it into `https://leanctx.com/join/?code=…`.
+pub(super) async fn post_account_team_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<InviteBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/team/{user_id}/invites"),
+        Some(json!({ "label": body.label, "role": body.role })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/team/invites` — the owner's invite audit list
+/// (pending / used / revoked / expired; never the codes themselves).
+pub(super) async fn get_account_team_invites(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/team/{user_id}/invites"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/team/invites/{invite_id}` — revoke a pending invite.
+pub(super) async fn delete_account_team_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(invite_id): Path<Uuid>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/team/{user_id}/invites/{invite_id}"),
+        None,
+    )
+    .await?;
+    if status == StatusCode::NO_CONTENT {
+        return Ok(Json(json!({ "revoked": true })));
+    }
+    finish(status, json)
+}
+
+/// Forward an invite redemption to the control plane on behalf of the (login-
+/// less) teammate. Used by the public join endpoint (`team_join.rs`).
+pub(super) async fn forward_invite_redeem(
+    cfg: &Config,
+    code: &str,
+) -> Result<(StatusCode, Value), (StatusCode, String)> {
+    billing_forward(
+        cfg,
+        "POST",
+        "/api/billing/invites/redeem".to_string(),
+        Some(json!({ "code": code })),
+    )
+    .await
+}
+
+// ── Org SSO settings (GL #482) ────────────────────────────────────────────────
+
+/// Request body for `PUT /api/account/org/sso`.
+#[derive(Deserialize)]
+pub(super) struct OrgSsoBody {
+    email_domain: String,
+    issuer: String,
+    client_id: String,
+    #[serde(default)]
+    client_secret: Option<String>,
+}
+
+/// `GET /api/account/org/sso` — the caller's org SSO config (never the secret).
+pub(super) async fn get_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/org/{user_id}/sso"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `PUT /api/account/org/sso` — create/update the org's IdP configuration.
+pub(super) async fn put_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OrgSsoBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/org/{user_id}/sso"),
+        Some(json!({
+            "email_domain": body.email_domain,
+            "issuer": body.issuer,
+            "client_id": body.client_id,
+            "client_secret": body.client_secret,
+        })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `POST /api/account/org/sso/verify` — run the DNS-TXT domain check.
+pub(super) async fn post_account_org_sso_verify(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/org/{user_id}/sso/verify"),
+        Some(json!({})),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for `PUT /api/account/org/sso/required`.
+#[derive(Deserialize)]
+pub(super) struct OrgSsoRequiredBody {
+    sso_required: bool,
+}
+
+/// `PUT /api/account/org/sso/required` — toggle SSO enforcement.
+pub(super) async fn put_account_org_sso_required(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<OrgSsoRequiredBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/org/{user_id}/sso/required"),
+        Some(json!({ "sso_required": body.sso_required })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `DELETE /api/account/org/sso` — remove the IdP configuration.
+pub(super) async fn delete_account_org_sso(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "DELETE",
+        format!("/api/billing/org/{user_id}/sso"),
+        None,
+    )
+    .await?;
+    if status == StatusCode::NO_CONTENT {
+        return Ok(Json(json!({ "removed": true })));
+    }
+    finish(status, json)
+}
+
+/// Read-side query for the org audit log (GL #484). Mirrors the control-plane
+/// contract; all three are optional.
+#[derive(Deserialize)]
+pub(super) struct AuditQuery {
+    #[serde(default)]
+    before: Option<i64>,
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    event: Option<String>,
+}
+
+/// Build the sanitized upstream query string. `before`/`limit` are numeric and
+/// safe; `event` is allowlisted to our snake_case event ids so nothing
+/// untrusted is ever spliced into the upstream URL.
+fn build_audit_query(q: &AuditQuery) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(b) = q.before {
+        if b > 0 {
+            parts.push(format!("before={b}"));
+        }
+    }
+    if let Some(l) = q.limit {
+        parts.push(format!("limit={}", l.clamp(1, 200)));
+    }
+    if let Some(ev) = q.event.as_deref() {
+        let ev = ev.trim();
+        if !ev.is_empty()
+            && ev.len() <= 48
+            && ev.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        {
+            parts.push(format!("event={ev}"));
+        }
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
+}
+
+/// `GET /api/account/org/audit` — the owner's paginated governance audit log.
+pub(super) async fn get_account_org_audit(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<AuditQuery>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let qs = build_audit_query(&q);
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "GET",
+        format!("/api/billing/org/{user_id}/audit{qs}"),
+        None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// `GET /api/account/org/audit/export.csv` — the owner's audit log as a CSV
+/// download. The control plane renders the CSV; this edge streams it through
+/// with the right headers (the body is not JSON, so it bypasses `finish`).
+pub(super) async fn get_account_org_audit_export(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, body) = billing_forward_text(
+        &state.cfg,
+        format!("/api/billing/org/{user_id}/audit/export.csv"),
+    )
+    .await?;
+    if !status.is_success() {
+        return Err((status, "audit export failed".to_string()));
+    }
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"leanctx-audit-log.csv\"",
+            ),
+        ],
+        body,
+    )
+        .into_response())
+}
+
+/// Like [`billing_forward`] but returns the raw upstream body unparsed — used
+/// for the CSV export, whose body is `text/csv`, not JSON.
+async fn billing_forward_text(
+    cfg: &Config,
+    path: String,
+) -> Result<(StatusCode, String), (StatusCode, String)> {
+    let (Some(base), Some(key)) = (
+        cfg.billing_base_url.clone(),
+        cfg.billing_internal_key.clone(),
+    ) else {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "billing is not enabled on this deployment".to_string(),
+        ));
+    };
+    let url = format!("{base}{path}");
+    let (code, text) = tokio::task::spawn_blocking(move || -> Result<(u16, String), String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let resp = agent
+            .get(&url)
+            .header("X-Internal-Key", &key)
+            .call()
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let body = resp
+            .into_body()
+            .read_to_string()
+            .map_err(|e| e.to_string())?;
+        Ok((code, body))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
+    .map_err(|e| (StatusCode::BAD_GATEWAY, format!("billing upstream: {e}")))?;
+    let status = StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_GATEWAY);
+    Ok((status, text))
 }
 
 /// `GET /api/supporters` — the public supporters wall (no auth). Proxies the

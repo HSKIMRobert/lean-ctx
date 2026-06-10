@@ -13,6 +13,7 @@ pub mod eval_ab;
 pub mod eval_harness;
 pub mod information_bottleneck;
 pub mod output_sanitizer;
+pub mod policy;
 pub mod pop_pruning;
 pub mod predictive_coding;
 pub mod predictive_prefetch;
@@ -356,6 +357,7 @@ pub mod io_boundary;
 pub mod io_health;
 pub mod journal;
 pub mod jsonc;
+pub mod knowledge_vault;
 pub mod language_capabilities;
 #[cfg(target_os = "macos")]
 pub mod launchd;

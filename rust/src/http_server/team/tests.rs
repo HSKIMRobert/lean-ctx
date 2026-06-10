@@ -65,6 +65,8 @@ fn cfg_two(tmp: &tempfile::TempDir) -> TeamServerConfig {
         request_timeout_ms: 30_000,
         stateful_mode: false,
         json_response: true,
+        storage_quota_bytes: None,
+        roi_webhook_url: None,
     }
 }
 
@@ -85,6 +87,11 @@ async fn build_app(cfg: TeamServerConfig) -> Router {
         .open(&cfg.audit_log_path)
         .await
         .unwrap();
+    let workspace_roots: Vec<(String, std::path::PathBuf)> = cfg
+        .workspaces
+        .iter()
+        .map(|w| (w.id.clone(), w.root.clone()))
+        .collect();
     let team = Arc::new(TeamState {
         auth: Arc::new(cfg.tokens.clone()),
         engine,
@@ -94,6 +101,14 @@ async fn build_app(cfg: TeamServerConfig) -> Router {
                 .parent()
                 .unwrap_or(std::path::Path::new("."))
                 .join("savings"),
+        )),
+        storage_roots: super::super::team_billing::storage_roots_from_config(
+            &cfg.audit_log_path,
+            &workspace_roots,
+            cfg.storage_quota_bytes,
+        ),
+        storage_cache: Arc::new(tokio::sync::Mutex::new(
+            super::super::team_billing::StorageCache::default(),
         )),
     });
     let state = TeamAppState {
@@ -111,6 +126,12 @@ async fn build_app(cfg: TeamServerConfig) -> Router {
             "/v1/savings/summary",
             get(super::super::savings_summary::v1_savings_summary),
         )
+        .route(
+            "/v1/savings/member/{signer}",
+            get(super::super::savings_summary::v1_savings_member),
+        )
+        .route("/v1/storage", get(super::super::team_billing::v1_storage))
+        .route("/v1/usage", get(super::super::team_billing::v1_usage))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             team_auth_middleware,
@@ -156,6 +177,8 @@ fn cfg_savings(tmp: &tempfile::TempDir) -> TeamServerConfig {
         request_timeout_ms: 30_000,
         stateful_mode: false,
         json_response: true,
+        storage_quota_bytes: None,
+        roi_webhook_url: None,
     }
 }
 
@@ -356,4 +379,246 @@ async fn savings_summary_scope_gated_and_aggregated() {
     assert_eq!(v["by_tool"][0]["saved_tokens"], 6000);
     // The cumulative daily series is present (geometry is unit-tested separately).
     assert!(v["series"].is_array());
+}
+
+/// End-to-end proof of the member drilldown (GL #389) through the real auth
+/// middleware: audit-gated like the summary, 404 for unknown signers, 400 for
+/// ids that could never be a signer (path-traversal defense), and the member
+/// payload carries its own series + breakdowns.
+#[tokio::test]
+async fn savings_member_drilldown_scope_gated() {
+    use crate::core::savings_ledger::signed_batch::BatchTotals;
+    use crate::core::savings_ledger::SignedSavingsBatchV1;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = cfg_savings(&tmp);
+
+    let savings_dir = tmp.path().join("savings");
+    std::fs::create_dir_all(&savings_dir).unwrap();
+    let batch = SignedSavingsBatchV1 {
+        schema_version: 1,
+        kind: "lean-ctx.savings-batch".into(),
+        created_at: "2026-06-08T00:00:00Z".into(),
+        lean_ctx_version: "test".into(),
+        agent_id: "agent-a".into(),
+        period: "all".into(),
+        first_entry_hash: "genesis".into(),
+        last_entry_hash: "head".into(),
+        chain_valid: true,
+        totals: BatchTotals {
+            total_events: 7,
+            saved_tokens: 4200,
+            net_saved_tokens: 4200,
+            saved_usd: 0.042,
+            bounce_tokens: 0,
+            bounce_events: 0,
+            tokenizers: vec!["o200k_base".into()],
+            by_model: vec![("claude-opus".into(), 4200, 0.042)],
+            by_tool: vec![("ctx_read".into(), 4200)],
+        },
+        signer_public_key: Some("aaaaaaaaaaaaaaaa".into()),
+        signature: Some("sig".into()),
+    };
+    std::fs::write(
+        savings_dir.join("savings_aaaaaaaaaaaaaaaa.jsonl"),
+        serde_json::to_string(&batch).unwrap() + "\n",
+    )
+    .unwrap();
+
+    let app = build_app(cfg).await;
+
+    // Non-audit token → 403.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/savings/member/aaaaaaaaaaaaaaaa")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer member-secret")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+
+    // Audit token + known signer → 200 with member-scoped payload.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/savings/member/aaaaaaaaaaaaaaaa")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer owner-secret")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["signer"], "aaaaaaaaaaaaaaaa");
+    assert_eq!(v["agent_id"], "agent-a");
+    assert_eq!(v["totals"]["net_saved_tokens"], 4200);
+    assert_eq!(v["totals"]["total_events"], 7);
+    assert_eq!(v["by_model"][0]["model"], "claude-opus");
+    assert_eq!(v["by_tool"][0]["tool"], "ctx_read");
+    assert!(v["series"].is_array());
+    assert_eq!(v["window_days"], 90);
+
+    // Unknown signer → 404.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/savings/member/ffffffffffffffff")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer owner-secret")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+
+    // Path-traversal shaped id → 400 before touching the filesystem.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/savings/member/..%2F..%2Fetc%2Fpasswd")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer owner-secret")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        app.oneshot(req).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+/// End-to-end proof of the billing-plane surface (GL #463) through the real
+/// auth middleware: `/v1/storage` and `/v1/usage` are audit-gated and report
+/// the shapes `lean-ctx-cloud`'s metering job/proxy parse (`usedBytes`
+/// camelCase on storage; snake_case `storage.used_bytes` inside usage).
+#[tokio::test]
+async fn storage_and_usage_scope_gated_with_metering_shapes() {
+    use crate::core::savings_ledger::signed_batch::BatchTotals;
+    use crate::core::savings_ledger::SignedSavingsBatchV1;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let cfg = cfg_savings(&tmp);
+
+    // Real on-disk footprint: a savings snapshot (under the data root) and
+    // workspace `.lean-ctx` state.
+    let savings_dir = tmp.path().join("savings");
+    std::fs::create_dir_all(&savings_dir).unwrap();
+    let batch = SignedSavingsBatchV1 {
+        schema_version: 1,
+        kind: "lean-ctx.savings-batch".into(),
+        created_at: "2026-06-08T00:00:00Z".into(),
+        lean_ctx_version: "test".into(),
+        agent_id: "agent-a".into(),
+        period: "all".into(),
+        first_entry_hash: "genesis".into(),
+        last_entry_hash: "head".into(),
+        chain_valid: true,
+        totals: BatchTotals {
+            total_events: 7,
+            saved_tokens: 4200,
+            net_saved_tokens: 4000,
+            saved_usd: 0.042,
+            bounce_tokens: 200,
+            bounce_events: 1,
+            tokenizers: vec!["o200k_base".into()],
+            by_model: vec![("claude-opus".into(), 4200, 0.042)],
+            by_tool: vec![("ctx_read".into(), 4200)],
+        },
+        signer_public_key: Some("aaaaaaaaaaaaaaaa".into()),
+        signature: Some("sig".into()),
+    };
+    std::fs::write(
+        savings_dir.join("savings_aaaaaaaaaaaaaaaa.jsonl"),
+        serde_json::to_string(&batch).unwrap() + "\n",
+    )
+    .unwrap();
+    let ws_state = tmp.path().join("ws1").join(".lean-ctx");
+    std::fs::create_dir_all(&ws_state).unwrap();
+    std::fs::write(ws_state.join("events.jsonl"), vec![b'e'; 8_192]).unwrap();
+
+    let app = build_app(cfg).await;
+
+    for path in ["/v1/storage", "/v1/usage"] {
+        // 1) No bearer token → 401.
+        let req = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("Host", "localhost")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED,
+            "{path} without token"
+        );
+
+        // 2) Valid token WITHOUT audit scope → 403.
+        let req = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("Host", "localhost")
+            .header("Authorization", "Bearer member-secret")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::FORBIDDEN,
+            "{path} without audit scope"
+        );
+    }
+
+    // 3) Audit token → 200, camelCase report covering the real footprint.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/storage")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer owner-secret")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["schemaVersion"], 1);
+    let used = v["usedBytes"].as_u64().expect("usedBytes");
+    // Savings snapshot + audit log live under the data root; the workspace
+    // state dir is nested inside the tempdir too, so everything is covered by
+    // the server-data component — and the 8 KiB events file must be visible.
+    assert!(used >= 8_192, "usedBytes {used} misses workspace state");
+    assert!(v["components"].as_array().is_some_and(|c| !c.is_empty()));
+    assert!(v["measuredAt"].is_string());
+    // No storageQuotaBytes in team.json + no env override ⇒ the Team-tier
+    // default applies (#282) and the quota is always concrete.
+    assert_eq!(
+        v["quotaBytes"].as_u64(),
+        Some(super::super::team_billing::DEFAULT_TEAM_STORAGE_QUOTA_BYTES)
+    );
+
+    // 4) /v1/usage carries the savings roll-up + snake_case storage block.
+    let req = Request::builder()
+        .method("GET")
+        .uri("/v1/usage")
+        .header("Host", "localhost")
+        .header("Authorization", "Bearer owner-secret")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+    let v: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["schemaVersion"], 1);
+    assert_eq!(v["savings"]["memberCount"], 1);
+    assert_eq!(v["savings"]["netSavedTokens"], 4000);
+    assert_eq!(v["toolCalls"], 7);
+    let storage_used = v["storage"]["used_bytes"].as_u64().expect("used_bytes");
+    assert_eq!(
+        storage_used, used,
+        "usage storage block must match /v1/storage"
+    );
+    assert_eq!(
+        v["storage"]["quota_bytes"].as_u64(),
+        Some(super::super::team_billing::DEFAULT_TEAM_STORAGE_QUOTA_BYTES),
+        "usage storage block must carry the resolved quota"
+    );
 }

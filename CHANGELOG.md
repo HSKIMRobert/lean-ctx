@@ -6,6 +6,263 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`lean-ctx policy coverage` — automated partial CGB assessment**
+  (GL #426): statically grades a resolved policy pack against the Context
+  Governance Benchmark v1.0-draft — credential fixtures vs. redaction
+  patterns, regulated-identifier classes, budget cap, retention, tool
+  posture, egress restriction. PASS/FAIL/INCONCLUSIVE per aspect, `--json`
+  for CI gating (exit 1 on FAIL), and an explicit honesty line instead of a
+  maturity grade: 7 of 32 controls are statically checkable, the rest need
+  the manual assessment.
+- **Context Governance Benchmark — spec + self-assessment** (GL #426): CGB
+  v1.0-draft published as its own tool-neutral spec repo
+  (`context-governance-benchmark`): 32 measurable controls in 6 domains
+  (sensitivity/redaction, provenance, budget, audit/evidence, access
+  scoping, lifecycle/retention), three levels (Basic/Hardened/Audited),
+  maturity grades C1–C4, CC-BY-4.0, RFC-light governance and a CI wordlist
+  lint that bans product names from normative text. LeanCTX's own honest
+  self-assessment lands in `docs/compliance/cgb-self-assessment.md`:
+  **C2 — Managed** (Basic 96%, Hardened 80%, Audited 50%), with declared
+  gaps incl. no independent redaction verification and no one-step egress
+  inventory — graded down where claims couldn't be hard-verified.
+- **Dashboard: one tabbed page per job area** (GL #487, Redesign P2): the
+  sidebar now carries six destinations — Home plus one entry per four-jobs
+  area (Context, Memory, Protection, Proof, Project Map) — and each area is a
+  single page whose views are tabs with canonical `#area/tab` deep links
+  (`#context/triage`, `#proof/roi`, …). Every pre-#487 hash (`#live`,
+  `#health`, `#graph`, …) still resolves and is rewritten to its canonical
+  form; the last-used tab per area is remembered. New Protection area: the
+  Guards tab hosts the existing reliability view, the new Risk & Policies tab
+  shows live session-risk warnings (`/api/context-risk`) and the OWASP
+  agentic-risk coverage map served by the new `/api/owasp` endpoint (same data
+  as `lean-ctx audit`). The in-component Project-Map tab bar was removed in
+  favour of the area strip.
+- **Dashboard: four-jobs language pass** (GL #488, Redesign P3): onboarding
+  modal tells the four-jobs story (decides · remembers · guards · proves)
+  with token savings framed as the receipt, includes Protection, and the
+  status bar links the estimated figure to the signed ledger in Proof.
+- **Agent-task benchmark v1 harness** (GL #493): outcome evidence instead of
+  token arithmetic — does lean-ctx change task success rate and cost per
+  solved task? `bench/agent-task/` runs two identical Claude-Code-headless
+  arms (native vs. lean-ctx MCP, fresh HOME per run, hard-pinned MCP surface
+  via `--strict-mcp-config`) over a deterministic SWE-bench-Verified subset
+  (sorted round-robin by repo, frozen as `tasks.lock.json`), judged by the
+  official SWE-bench evaluation; usage/cost come from the runtime's own final
+  report — nothing is estimated. Pre-registered protocol with numbered
+  amendments (`PROTOCOL.md`), self-hashing result artifact ready for
+  `ssh-keygen -Y sign`; negative results publish unchanged.
+
+### Changed
+- **Parallel dashboard tracks consolidated** (GL #476–#479, #486, #490): the
+  four-jobs IA from the redesign epic and the incremental UX/data passes that
+  shipped in parallel now live on one branch. The epic layout wins (slim Home,
+  Proof group with ROI & Plan + Trends, Simple = Home only); the data passes
+  win correctness and language — relative search scores (top hit = 100%),
+  the verified-bridge line in the Home hero (estimated ⇄ signed ledger),
+  Context Triage / Context Contents / Episodes labels, estimate-methodology
+  tooltips, per-task episode metrics, the dead Symbols signature column
+  removed and vendor noise filtered from the Compression Lab. Search keeps
+  the inline ±12-line preview and gains an "Open in Lab →" handoff. On the
+  Rust side `ctx_search` now returns a `SearchOutcome` that separates the
+  modeled native-grep baseline (estimated stats) from raw observed tokens
+  (verified ledger), so the two series can never cross-contaminate.
+- **Four-jobs cockpit navigation + slim Home** (GL #470/#486, phase 1): the
+  sidebar now tells the same story as the website — Context *(decides what
+  agents read)*, Memory *(remembers what agents learn)*, Proof *(proves what
+  you save)* and Project Map *(understands your codebase)* — instead of 17
+  flat entries. Simple mode is the 5-second answer: Home only. Home itself
+  slimmed down to status strip + receipt + gauge/triage + one trend + top-3
+  commands (expandable); the cost-analysis card moved to ROI & Plan (labelled
+  as the estimated, all-time view next to the verified-ledger methodology)
+  and the MCP-vs-shell / task-breakdown doughnuts moved to Trends. Every view
+  stays reachable via Advanced mode, deep links and the command palette.
+
+### Fixed
+- **`ctx_edit` evidence diff corrupted by terse post-processing** (GH #382):
+  the `evidence (diff)` block embeds verbatim source lines, but the generic
+  terse stage still ran over `ctx_edit` output — dictionary abbreviation
+  (`return 0` → `ret 0`), blank-line stripping and line-score filtering
+  silently dropped/mangled diff lines, making agents conclude a correct edit
+  went wrong (the file on disk was always right). Two-layer fix: `ctx_edit`
+  joins the read family in the terse exemption, and the terse pipeline itself
+  is now fence-aware — content inside ``` / ~~~ fences passes through
+  byte-exact while surrounding prose still compresses, protecting every
+  current and future tool that embeds code blocks.
+- **CI green again across all three OS runners**: the billing-catalog golden
+  fixture now normalizes CRLF before comparing (Windows autocrlf checkouts),
+  the `path_resolve` CWD-independence test canonicalizes both sides before
+  comparing (macOS `/var` symlink, Windows 8.3 short names), the
+  `team_billing` module doc no longer intra-doc-links a private const
+  (rustdoc `-D warnings`), and the six new org/cloud contract docs are
+  classified (Experimental) in `contract_docs()`. The frozen
+  `team-server-contract-v1.md` is restored byte-exact; its additive
+  `storageQuotaBytes`/`roiWebhookUrl` keys moved to a new
+  `team-server-contract-v2.md` (Stable), per the contract-file rule.
+- **Cockpit backlog triple** (GL #454, #455, #456): the Routes view now
+  understands axum — `.route("/path", get(handler))` incl. chained methods
+  (`get(a).post(b)`), qualified forms (`axum::routing::post`) and module-path
+  handlers — plus hand-rolled `"/api/…" =>` match routers, taking this
+  codebase from 0 to 136 detected routes. The Call Graph starts framed: an
+  initial zoom-to-fit runs once the force layout settles (manual pan/zoom is
+  never overridden) and link opacity now fades with edge density, so 150-node
+  graphs stop rendering as an over-zoomed hairball. And when token auth is on
+  but the browser has none, the first 401 swaps the page for a single
+  centered token prompt (validates against `/api/health`, stores in
+  sessionStorage, reloads) instead of two dozen raw `unauthorized` cards.
+- **Dashboard polish from the function audit** (GL #478): the Explorer tree is
+  now a real WAI-ARIA tree — `role=tree/treeitem/group`, `aria-expanded`,
+  roving tabindex and full keyboard support (arrows expand/collapse/navigate,
+  Enter/Space toggle, Home/End jump) with a visible focus ring. Search results
+  stopped pretending: clicking a hit opens an inline file preview (±12 lines
+  around the match, hit line highlighted) served by the existing
+  `compression-demo` endpoint, with full keyboard access. Procedures now
+  auto-learn: every recorded episode re-runs workflow detection
+  (`procedural_memory::auto_detect_from_episodes`), so recurring tool
+  sequences appear on the Memory page without anyone calling `detect` by
+  hand. The status-bar daemon indicator finally explains itself — the tooltip
+  describes what green/red means and how to recover (`lean-ctx serve -d`).
+- **Data truthfulness** (GL #479): the dashboard now tells the whole story
+  behind its savings numbers. The verified ledger covers measured shell and
+  search compression (`cli_shell`, `ctx_shell`, `ctx_search` events with raw,
+  unmultiplied baselines) instead of only `ctx_read` — closing the unexplained
+  24x gap between Home and the ROI view. The 2.5x native-grep counterfactual
+  used by the *estimated* stats is now a documented, named constant
+  (`NATIVE_SEARCH_BASELINE_FACTOR`), surfaced in the Home tooltips and in a
+  new "Methodology: verified vs. estimated" card on the ROI view. Inferred
+  agent activity no longer shows negative ages on UTC+N machines (event
+  timestamps are local wall-clock and are now interpreted as such).
+
+### Added
+- **Context policy packs** (GL #489): governance presets as code. A pack pins
+  a team's context-governance expectations in reviewable TOML — default read
+  mode, allowed/denied tools, named redaction regexes, audit-retention
+  expectation, context-budget cap — with single inheritance (`extends`) whose
+  semantics are security-first: denies and redaction accumulate down the
+  chain, scalars override, allowlists replace deliberately. Five curated
+  built-ins ship embedded (`baseline`, `strict-redaction`, `finance-eu`,
+  `healthcare`, `open-source`); `lean-ctx policy list|show|validate` lists,
+  resolves and lints packs (project pack: `.lean-ctx/policy.toml`). v1 is the
+  format + tooling; runtime enforcement follows. Contract:
+  `docs/contracts/context-policy-packs-v1.md`; guide:
+  `docs/guides/policy-packs.md`.
+- **Org audit log + retention** (GL #484): a unified, append-only governance
+  audit log for orgs, surfaced to the owner at `/account/audit` with a
+  filterable table and CSV export. Every governance path now writes
+  best-effort events (SSO config/verify/enforce/remove/login, invite
+  create/redeem/revoke) into one `org_audit_log`; the retired SSO-only table
+  is migrated and dropped by an idempotent boot migration. Retention is the
+  owner-plan window from the `billing-plane-v1` SSOT (Team 90 days, Enterprise
+  ~10 years) and is enforced server-side both by a daily fleet sweep and on
+  read, so an owner never sees a row older than they're entitled to keep. Reads
+  are owner-only, cursor-paginated, and bounded. Contract:
+  `docs/contracts/org-audit-log-v1.md`.
+- **Org SSO (OIDC)** (GL #482): self-serve single sign-on for Team and
+  Enterprise orgs. Owners configure an OIDC provider (Okta, Entra ID, Google
+  Workspace, any compliant OP) under Account → Billing, prove domain ownership
+  via a DNS-TXT record (checked over DNS-over-HTTPS), and optionally require
+  SSO for everyone — the owner stays password-exempt (break-glass). Members
+  click *Continue with SSO*, authenticate at the IdP, and land in a normal
+  session with just-in-time user + org-membership provisioning. Edge runs the
+  Relying Party (Authorization Code + PKCE, discovery/JWKS cache, ID-token
+  verification with nonce binding and HS*/none rejection); the control plane
+  is the system of record (AEAD-sealed client secret, append-only
+  `billing_sso_audit`). API keys never touch URLs — a single-use 60-second
+  handoff code carries the session to the browser. Contract:
+  `docs/contracts/org-sso-oidc-v1.md`; setup guide:
+  `docs/guides/org-sso-setup.md`.
+- **Team invite links** (GL #385): owners mint one-time links
+  (`leanctx.com/join/?code=…`) instead of copy-pasting tokens. Codes are
+  256-bit, stored hashed, expire after 7 days, and redeem exactly once
+  (atomic claim; a failed seat check releases the claim for retry). The
+  public join page issues the member token once, with prefilled CLI + MCP
+  setup snippets; pending invites are revocable from the dashboard like
+  member tokens. Redeem endpoint is rate-limited per IP and answers every
+  dead code with one neutral 404. Contract:
+  `docs/contracts/team-invite-links-v1.md`.
+- **Device overview** (GL #387): every authenticated Personal-Cloud push now
+  carries an `X-Device-Label` header (the machine's hostname), tracked
+  server-side as fire-and-forget display metadata — never auth, quota, or
+  billing input. `/account/cloud` lists each machine with last sync, last
+  surface and push count, plus a per-row Forget control
+  (`GET/DELETE /api/account/devices`). Contract:
+  `docs/contracts/device-overview-v1.md`.
+- **Supporters wall + dashboard badge** (GL #393): the public supporters wall
+  is live end-to-end — Stripe checkout fields (display name, message, opt-in)
+  are captured idempotently by the billing webhook, clamped to 60/140 chars,
+  profanity-gated and served via the public `GET /api/supporters` edge;
+  `leanctx.com/support/` renders the wall client-side (plaintext-only,
+  tier pills, newest first). Cancelling the subscription hides the entry on
+  the next `subscription.deleted` webhook, and an internal-key moderation API
+  (`GET …/supporters/moderation`, `PATCH …/supporters/{id}`) provides an
+  audited kill-switch. Locally, the dashboard's support bar now swaps its ask
+  for a thank-you when the machine is linked to a supporting account — served
+  by the new `/api/billing-badge` endpoint from the cached plan only (no
+  network, purely cosmetic, never gates a local capability).
+- **Email digests** (GL #386): the cloud server now sends a monthly Pro digest
+  (tokens saved, agent actions, sessions, CEP score — from synced snapshots)
+  and a weekly Team digest (net tokens, USD, actions, top model/tool — from
+  the hosted server's savings summary). Idempotent per period with automatic
+  catch-up and SMTP retry; silent when a period has no real data. Every email
+  carries a one-click, login-free unsubscribe (hashed, rotating tokens);
+  `GET/PUT /api/account/digest` exposes the preference to the dashboard.
+  Contract: `docs/contracts/email-digest-v1.md`. Cloud-server CORS now allows
+  `PUT`/`PATCH` (digest toggle + team settings).
+- **Weekly team-ROI webhook** (GL #388): team servers post a weekly savings
+  summary (net tokens, USD, measured actions, 7-day window, top mover, top
+  model/tool) to Slack, Discord, or any JSON webhook. Configured via
+  `roiWebhookUrl` in `team.json` (https-only, validated at boot) or self-serve
+  through the team dashboard's new Integrations card
+  (`PUT /api/account/team/settings` → control plane re-renders the config).
+  Posts once per ISO week with retry-on-failure; weeks without reported data
+  stay silent — no synthetic numbers. Payload shape auto-detects the vendor
+  (Slack `text`, Discord `content`, generic both).
+- **Per-member savings drilldown** (GL #389): new audit-scoped team-server
+  endpoint `GET /v1/savings/member/{signer}` — one member's latest totals,
+  model/tool breakdowns and a member-only 90-day cumulative series (carry-
+  forward replay of that signer's snapshot history). Signer ids are validated
+  against `[A-Za-z0-9_-]{1,64}` before any filesystem access; unknown signers
+  are a clean 404. Proxied through the control plane
+  (`/api/billing/team/{id}/savings/member/{signer}`) and the account edge
+  (`/api/account/team/savings/member/{signer}`); the team dashboard's member
+  rows are now clickable and open an inline drilldown panel (own series chart,
+  top models, top tools). Contract: `docs/contracts/billing-plane-v2.md`.
+- **model2vec static-embedding support** (GL #452): the embedding engine now
+  drives EmbeddingBag-topology ONNX graphs (model2vec exports like
+  `hf:minishlab/potion-base-8M`) next to classic transformers. Topology is
+  detected from the graph's input signature (`input_ids` + `offsets`) at load
+  time; the adapter feeds flat ids + batch offsets, skips mean-pooling (the
+  graph pools internally) and probes dimensions off the rank-2 output. ~500x
+  faster inference at ~30 MB — built for initial indexing of large repos and
+  semantic search on weak hardware. Live-verified end-to-end (256d, L2-normed,
+  semantic sanity); guide section in `docs/guides/custom-embeddings.md`.
+- **Minimal org model on the cloud plane** (GL #468): team checkouts now
+  create an organization with the buyer as owner; memberships inherit the
+  owners' best active plan at the entitlements edge (never downgrading a
+  personal plan) and `/api/account/entitlements` carries the org
+  `{id, name, role}` for the dashboard's new organization section.
+- **Zero-knowledge Personal Cloud vaults** (GL #467): knowledge *and* gotchas
+  now sync as client-side-encrypted blobs (XChaCha20-Poly1305, domain-separated
+  HKDF keys `knowledge-vault-v1` / `gotcha-vault-v1` derived from the account
+  API key the server only stores hashed). The first vault push purges the
+  account's legacy plaintext rows; dashboards read the client-declared
+  `entry_count` from blob metadata. Contract:
+  `docs/contracts/personal-cloud-encryption-v1.md`.
+- **Team server billing-plane endpoints** (GL #463): `GET /v1/storage` reports
+  the hosted workspace footprint (allocated-blocks sizing, hard links counted
+  once, symlinks never followed, 60 s cache; `camelCase` per
+  `billing-plane-v2`) and `GET /v1/usage` serves the unified snapshot —
+  signed-ledger savings roll-up, measured `toolCalls`, and a `snake_case`
+  `storage` block. Both audit-scope-gated like `/v1/metrics`; quota via
+  `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`. Unblocks the control plane's hourly
+  Stripe metering job and threshold mails against real team servers.
+- **`lean-ctx doctor --migrate-check`** (GL #396): v1.0 migration-readiness
+  audit — config.toml keys validated against the schema (free-form sections
+  like `ide_paths` respected), active deprecations, data-layout writability,
+  frozen-contract set. `--json` for fleet rollouts; exit 0 = "ready for 1.0".
+  Plus the launch program docs: `docs/releases/v1.0-runbook.md` (RC/freeze/
+  bug-bash/rollback/launch-day plan), `docs/releases/migration-1.0.md`
+  (zero-breaking-changes guide) and `marketing/launch-v1/` (Show HN + Product
+  Hunt drafts with tokbench-informed Q&A prep).
 - **Custom embedding models** (GL #397, upstream #328): `ctx_semantic_search` can now
   load any HuggingFace repo with an ONNX export via `model = "hf:org/repo[@revision]"`
   (`[embedding]` in `config.toml` or `LEAN_CTX_EMBEDDING_MODEL`). Includes revision

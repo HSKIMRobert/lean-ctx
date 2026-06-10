@@ -5,6 +5,7 @@ mod common;
 mod deprecations;
 mod fix;
 mod integrations;
+mod migrate;
 mod workspace_scope;
 
 #[allow(clippy::wildcard_imports)]
@@ -608,6 +609,7 @@ pub fn run_cli(args: &[String]) -> i32 {
 
     let fix = rest.iter().any(|a| a == "--fix");
     let json = rest.iter().any(|a| a == "--json");
+    let migrate_check = rest.iter().any(|a| a == "--migrate-check");
     let help = rest.iter().any(|a| a == "--help" || a == "-h");
 
     if help {
@@ -615,7 +617,12 @@ pub fn run_cli(args: &[String]) -> i32 {
         println!("  lean-ctx doctor");
         println!("  lean-ctx doctor integrations [--json]");
         println!("  lean-ctx doctor --fix [--json]");
+        println!("  lean-ctx doctor --migrate-check [--json]");
         return 0;
+    }
+
+    if migrate_check {
+        return migrate::run_migrate_check(json);
     }
 
     if sub == "integrations" {

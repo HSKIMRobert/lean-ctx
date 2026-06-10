@@ -91,7 +91,16 @@ class CockpitRoi extends HTMLElement {
     try {
       // Individual + local only. The team roll-up is a separate surface
       // (web /account/team, or `lean-ctx savings team`) — not this cockpit.
-      this._data = await fetchJson('/api/roi', { timeoutMs: 12000 });
+      // Stats feed the estimated cost-analysis card (moved here from Home,
+      // GL #486) and are clearly labelled as estimates next to the ledger.
+      var cached = window.LctxApi && window.LctxApi.cachedFetch
+        ? window.LctxApi.cachedFetch : fetchJson;
+      var results = await Promise.all([
+        fetchJson('/api/roi', { timeoutMs: 12000 }),
+        cached('/api/stats', { timeoutMs: 12000 }).catch(function () { return null; }),
+      ]);
+      this._data = results[0];
+      this._stats = results[1];
       this._updatedAt = new Date();
       // Output-echo summary (#501) rides on /api/stats; non-fatal if missing.
       try {
@@ -144,11 +153,83 @@ class CockpitRoi extends HTMLElement {
     body += this._renderLiveStamp(esc);
     body += this._renderOutputEfficiency(esc);
     body += this._renderVerification(esc);
+    body += this._renderMethodology();
+    body += this._renderCostAnalysis(esc);
     body += this._renderPlan(esc);
     body += this._renderTrendCard(esc);
     body += this._renderBreakdown(esc);
     body += this._renderShare(esc);
     this.innerHTML = body;
+  }
+
+  /**
+   * Estimated cost comparison (moved from Home, GL #486). Sits right after
+   * the methodology card on purpose: these are the modelled all-time numbers
+   * the methodology explains, not the verified ledger above.
+   */
+  _renderCostAnalysis(esc) {
+    var stats = this._stats;
+    if (!stats) return '';
+    var F = croiFmt();
+    var fu = F.fu || function (a) { return '$' + Number(a).toFixed(2); };
+    var gc = F.gc;
+    if (!gc) return '';
+
+    var totalIn = stats.total_input_tokens || 0;
+    var totalOut = stats.total_output_tokens || 0;
+    var calls = stats.total_commands || 0;
+    if (totalIn <= 0) return '';
+    var c = gc(totalIn, totalOut, calls);
+
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Cost analysis (estimated, all-time)</h3></div>' +
+      '<div class="cost-row">' +
+      '<div class="cost-box bad">' +
+      '<div class="amt" style="color:var(--red)">' +
+      esc(fu(c.tW)) + '</div>' +
+      '<div class="lb">Without lean-ctx</div></div>' +
+      '<div class="cost-arrow">\u2192</div>' +
+      '<div class="cost-box good">' +
+      '<div class="amt" style="color:var(--green)">' +
+      esc(fu(c.tC)) + '</div>' +
+      '<div class="lb">With lean-ctx</div></div>' +
+      '</div>' +
+      '<div class="cost-detail">' +
+      '<div class="cd-item"><div class="v" style="color:var(--green)">' +
+      esc(fu(c.sv)) + '</div><div class="l">Total saved</div></div>' +
+      '<div class="cd-item"><div class="v">' +
+      esc(fu(c.iW - c.iC)) + '</div><div class="l">Input saved</div></div>' +
+      '<div class="cd-item"><div class="v">' +
+      esc(fu(c.oW - c.oC)) + '</div><div class="l">Output saved</div></div>' +
+      '<div class="cd-item"><div class="v">' +
+      esc(fu(c.tC)) + '</div><div class="l">Actual cost</div></div>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
+  /**
+   * "Why is this number smaller than Home?" — the two surfaces count
+   * differently on purpose (GL #479). Static copy, no user data involved.
+   */
+  _renderMethodology() {
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Methodology: verified vs. estimated</h3></div>' +
+      '<div class="sr"><span class="sl">This page (verified)</span><span class="sv">' +
+      'Only <b>measured</b> compression: raw bytes that actually entered a tool vs. what was sent. ' +
+      'No counterfactual multipliers. Append-only, hash-chained, signable.</span></div>' +
+      '<div class="sr"><span class="sl">Home (estimated)</span><span class="sv">' +
+      'All-time stats including modelled baselines: search assumes a native grep costs ' +
+      '<b>2.5\u00d7</b> the raw matched output (refinement runs, wider context), and a cache hit ' +
+      'counts the full original as saved (the re-read counterfactual).</span></div>' +
+      '<div class="sr"><span class="sl">Why smaller here</span><span class="sv">' +
+      'The ledger starts later than the all-time stats, skips zero-saving calls and never ' +
+      'applies estimate factors \u2014 so the verified total is the conservative floor, ' +
+      'not a contradiction.</span></div>' +
+      '</div>'
+    );
   }
 
   /** Muted liveness line so the view is visibly auto-updating, not frozen. */

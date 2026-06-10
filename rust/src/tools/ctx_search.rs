@@ -16,12 +16,12 @@ pub(crate) const MAX_FILE_SIZE: u64 = 512_000;
 pub(crate) const MAX_WALK_DEPTH: usize = 20;
 const MAX_MATCH_LINE_WIDTH: usize = 150;
 
-/// Modeled baseline for the *estimated* savings series: a native agent grep
-/// tool ships matches with surrounding context lines, per-file headers and
-/// line numbers, which is roughly 2.5x the tokens of the bare match lines
-/// lean-ctx observes. This factor is a documented model assumption — it feeds
-/// `stats.json` ("estimated") only. The signed savings ledger ("verified")
-/// records `observed_tokens` without any factor applied.
+/// Modeled baseline for the *estimated* savings series (GL #479 D1): a native
+/// agent grep tool ships matches with surrounding context lines, per-file
+/// headers and line numbers, which is roughly 2.5x the tokens of the bare
+/// match lines lean-ctx observes. This factor is a documented model
+/// assumption — it feeds `stats.json` ("estimated") only. The signed savings
+/// ledger ("verified") records `observed_tokens` without any factor applied.
 pub const NATIVE_GREP_BASELINE_FACTOR: f64 = 2.5;
 
 /// Result of a search: the rendered output plus both baseline figures.

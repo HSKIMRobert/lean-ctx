@@ -246,8 +246,9 @@ class CockpitSearch extends HTMLElement {
       if (r.score != null && Number(r.score) > maxScore) maxScore = Number(r.score);
     });
 
-    var items = this._results.results.map(function (r) {
-      var path = esc(r.file_path || r.path || '—');
+    var items = this._results.results.map(function (r, idx) {
+      var rawPath = String(r.file_path || r.path || '');
+      var path = esc(rawPath || '—');
       var line = r.start_line != null ? String(r.start_line) : (r.line != null ? String(r.line) : '');
       var symName = r.symbol_name || '';
       var kind = r.kind || '';
@@ -261,14 +262,17 @@ class CockpitSearch extends HTMLElement {
         var rel = Math.round((Number(r.score) / maxScore) * 100);
         header += '<span class="cks-result-score tag tg" title="Relevance relative to the best match">' + rel + '%</span>';
       }
+      header += '<span class="cks-result-chevron" aria-hidden="true">\u25B8</span>';
 
-      var rawPath = String(r.file_path || r.path || '');
+      // The whole header is the disclosure control for an inline file preview
+      // (GL #478): results used to *look* clickable but did nothing.
       return (
-        '<div class="cks-result-item" data-cks-open="' + esc(rawPath) + '" ' +
-        'role="button" tabindex="0" ' +
-        'title="Open in Compression Lab \u2014 see how lean-ctx compresses this file">' +
-        '<div class="cks-result-header">' + header + '</div>' +
+        '<div class="cks-result-item" data-idx="' + idx + '">' +
+        '<div class="cks-result-header" role="button" tabindex="0" aria-expanded="false" ' +
+        'title="Show file preview" data-path="' + esc(rawPath) + '" data-line="' + esc(line || '1') + '">' +
+        header + '</div>' +
         (content ? '<pre class="cks-result-content">' + content + '</pre>' : '') +
+        '<div class="cks-result-preview" hidden></div>' +
         '</div>'
       );
     }).join('');
@@ -282,20 +286,109 @@ class CockpitSearch extends HTMLElement {
       '<div class="cks-results-list">' + items + '</div>' +
       '</div>';
 
-    // Clicking a result opens the file in the Compression Lab (sessionStorage
-    // handoff — the Lab may not be mounted yet when we navigate).
-    container.querySelectorAll('[data-cks-open]').forEach(function (item) {
-      function open() {
-        var p = item.getAttribute('data-cks-open');
-        if (!p) return;
-        try { sessionStorage.setItem('lctx_lab_file', p); } catch (e) { /* private mode */ }
-        location.hash = '#compression';
-      }
-      item.addEventListener('click', open);
-      item.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    this._bindResultClicks(container);
+  }
+
+  /* ---- inline file preview on result click (GL #478) ---- */
+
+  _bindResultClicks(container) {
+    var self = this;
+    var headers = container.querySelectorAll('.cks-result-header[role="button"]');
+    headers.forEach(function (h) {
+      h.addEventListener('click', function () { self._togglePreview(h); });
+      h.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          self._togglePreview(h);
+        }
       });
     });
+  }
+
+  async _togglePreview(headerEl) {
+    var item = headerEl.closest('.cks-result-item');
+    if (!item) return;
+    var panel = item.querySelector('.cks-result-preview');
+    if (!panel) return;
+
+    if (!panel.hidden) {
+      panel.hidden = true;
+      headerEl.setAttribute('aria-expanded', 'false');
+      item.classList.remove('cks-open');
+      return;
+    }
+
+    headerEl.setAttribute('aria-expanded', 'true');
+    item.classList.add('cks-open');
+    panel.hidden = false;
+
+    if (panel._loaded) return;
+    panel.innerHTML = '<div class="loading-state" style="padding:8px">Loading preview\u2026</div>';
+
+    var fetchJson = api();
+    var path = headerEl.getAttribute('data-path') || '';
+    var line = parseInt(headerEl.getAttribute('data-line') || '1', 10) || 1;
+    if (!fetchJson || !path) {
+      panel.innerHTML = '<p class="hs" style="color:var(--red);padding:8px">No preview available.</p>';
+      return;
+    }
+
+    try {
+      var data = await fetchJson('/api/compression-demo?path=' + encodeURIComponent(path), { timeoutMs: 10000 });
+      if (!data || data.error || typeof data.original !== 'string') {
+        panel.innerHTML = '<p class="hs" style="padding:8px;color:var(--muted)">Preview unavailable: ' +
+          (data && data.error ? String(data.error) : 'no content') + '</p>';
+        panel._loaded = true;
+        return;
+      }
+      panel.innerHTML = this._previewHtml(data.original, line, data.original_lines || 0, path);
+      var labBtn = panel.querySelector('.cks-open-lab');
+      if (labBtn) {
+        labBtn.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var p = labBtn.getAttribute('data-lab-path');
+          if (!p) return;
+          try { sessionStorage.setItem('lctx_lab_file', p); } catch (e) { /* private mode */ }
+          location.hash = '#compression';
+        });
+      }
+      panel._loaded = true;
+    } catch (e) {
+      panel.innerHTML = '<p class="hs" style="color:var(--red);padding:8px">Preview failed: ' +
+        ((e && e.error) || 'request error') + '</p>';
+    }
+  }
+
+  /** Window of ±12 lines around the hit, line numbers, hit line highlighted. */
+  _previewHtml(content, hitLine, totalLines, path) {
+    var F = fmtLib();
+    var _el = document.createElement('span');
+    var esc = F.esc || function (s) { _el.textContent = s; return _el.innerHTML; };
+
+    var lines = String(content).split('\n');
+    var from = Math.max(1, hitLine - 12);
+    var to = Math.min(lines.length, hitLine + 12);
+    var rows = '';
+    for (var i = from; i <= to; i++) {
+      var cls = i === hitLine ? ' class="cks-hitline"' : '';
+      rows += '<tr' + cls + '><td class="cks-ln">' + i + '</td>' +
+        '<td class="cks-code">' + esc(lines[i - 1] != null ? lines[i - 1] : '') + '</td></tr>';
+    }
+    var truncated = lines.length < totalLines
+      ? '<p class="hs" style="margin:6px 8px;color:var(--muted)">Preview covers the first ' +
+        lines.length + ' of ' + totalLines + ' lines.</p>'
+      : '';
+    // Secondary action from the preview: hand the file to the Compression
+    // Lab via sessionStorage (the Lab may not be mounted yet when we navigate).
+    return (
+      '<div class="cks-preview-head"><code>' + esc(path) + '</code>' +
+      '<span class="hs">lines ' + from + '\u2013' + to + '</span>' +
+      '<button type="button" class="cks-open-lab" data-lab-path="' + esc(path) + '" ' +
+      'title="Open in Compression Lab \u2014 see how lean-ctx compresses this file">' +
+      'Open in Lab \u2192</button></div>' +
+      '<table class="cks-preview-table"><tbody>' + rows + '</tbody></table>' +
+      truncated
+    );
   }
 
   _bindInputs() {

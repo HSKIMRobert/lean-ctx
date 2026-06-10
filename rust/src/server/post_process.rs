@@ -114,7 +114,7 @@ pub(super) fn context_ir_source_kind(name: &str) -> ContextIrSourceKindV1 {
 }
 
 /// Whether the terse compression stage must be skipped for this call (raw shell,
-/// any read-family output, or structural shell output).
+/// any read-family output, edit evidence, or structural shell output).
 ///
 /// Read-family tools return file content the agent reads and *edits against*. The
 /// prose terse pipeline (dictionary `return`→`ret`, `string`→`str`, … plus
@@ -125,6 +125,11 @@ pub(super) fn context_ir_source_kind(name: &str) -> ContextIrSourceKindV1 {
 /// terse layer must never post-process their output. Previously this only skipped
 /// when the read had *already saved* tokens, so verbatim `full`/`lines:` reads
 /// (0 savings) were silently dictionary-mangled and de-duplicated.
+///
+/// `ctx_edit` is exempt for the same reason (#382): its `evidence (diff)` block
+/// embeds verbatim source lines that must stay byte-accurate — agents treat the
+/// evidence as proof of what was written. The rest of its output (status line,
+/// pre/postimage hashes) is already minimal, so terse has nothing to gain.
 fn skip_terse(name: &str, args: Option<&Map<String, Value>>, is_raw_shell: bool) -> bool {
     let is_read_family = matches!(
         name,
@@ -132,6 +137,7 @@ fn skip_terse(name: &str, args: Option<&Map<String, Value>>, is_raw_shell: bool)
     );
     is_raw_shell
         || is_read_family
+        || name == "ctx_edit"
         || (name == "ctx_shell"
             && crate::server::helpers::get_str(args, "command")
                 .is_some_and(|c| crate::shell::compress::has_structural_output(&c)))
@@ -264,6 +270,13 @@ mod tests {
         assert!(
             !skip_terse("ctx_grep", None, false),
             "ordinary tool output is eligible for terse"
+        );
+        // #382: ctx_edit embeds verbatim source in its evidence diff — the
+        // terse dictionary (`return`→`ret`) and line-score filtering corrupted
+        // it into a false "the edit went wrong" signal for agents.
+        assert!(
+            skip_terse("ctx_edit", None, false),
+            "edit evidence must stay byte-accurate"
         );
     }
 

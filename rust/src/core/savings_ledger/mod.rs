@@ -98,28 +98,32 @@ fn new_event(tool: &str) -> SavingsEvent {
 /// Best-effort append of one auditable savings event for a value-producing read.
 /// Skips zero-saving events (keeps the ledger meaningful and cheap) and never panics.
 pub fn record_read_event(original_tokens: usize, saved_tokens: usize) {
-    record_tool_event("ctx_read", original_tokens, saved_tokens);
+    record_tool_event(
+        "ctx_read",
+        original_tokens,
+        original_tokens.saturating_sub(saved_tokens),
+    );
 }
 
-/// Best-effort append of one auditable savings event for any compressing tool
-/// (shell hooks, grep/search, reads). `original_tokens` MUST be an *observed*
-/// figure — what was actually measured before compression — never a modeled
-/// baseline (the estimated stats series owns those). This keeps the verified
-/// ledger strictly evidence-based.
-pub fn record_tool_event(tool: &str, original_tokens: usize, saved_tokens: usize) {
-    if saved_tokens == 0 || !enabled() {
+/// Best-effort append of one auditable savings event for any non-read tool
+/// (GL #479 D2: shell, grep/search, …). Callers MUST pass the **measured**
+/// baseline — the raw tokens the uncompressed output would have cost — never a
+/// counterfactual estimate (e.g. the search 2.5x factor stays out of here, so
+/// `lean-ctx ledger verify` only ever attests measured numbers). Skips events
+/// where compression saved nothing and never panics.
+pub fn record_tool_event(tool: &str, baseline_tokens: usize, actual_tokens: usize) {
+    let saved = baseline_tokens.saturating_sub(actual_tokens);
+    if saved == 0 || !enabled() {
         return;
     }
     let Some(path) = store::default_path() else {
         return;
     };
-    let baseline = original_tokens as u64;
-    let saved = saved_tokens as u64;
 
     let mut event = new_event(tool);
-    event.baseline_tokens = baseline;
-    event.actual_tokens = baseline.saturating_sub(saved);
-    event.saved_tokens = saved;
+    event.baseline_tokens = baseline_tokens as u64;
+    event.actual_tokens = actual_tokens as u64;
+    event.saved_tokens = saved as u64;
     event.saved_usd = saved as f64 / 1_000_000.0 * event.unit_price_per_m_usd;
     let _ = store::append(&path, event);
 }
@@ -201,5 +205,39 @@ mod tests {
         let h = repo_hash();
         assert_eq!(h.len(), 16);
         assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// GL #479 D2: tool events must never panic and must skip the degenerate
+    /// cases (no saving / inverted inputs) so the ledger only carries value.
+    #[test]
+    fn record_tool_event_skips_zero_and_inverted_savings() {
+        // actual >= baseline → saved == 0 → no-op (must not panic or write).
+        record_tool_event("cli_shell", 100, 100);
+        record_tool_event("ctx_search", 50, 80);
+        record_tool_event("cli_shell", 0, 0);
+    }
+
+    /// GL #479 D2 wiring proof: a measured shell/search saving lands in the
+    /// ledger with the *raw* baseline and the right tool tag.
+    #[test]
+    fn record_tool_event_appends_measured_event() {
+        let dir = std::env::temp_dir().join(format!("lctx-ledger-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        record_tool_event("cli_shell", 5000, 800);
+
+        let ledger = dir.join("savings").join("ledger.jsonl");
+        let content = std::fs::read_to_string(&ledger).expect("ledger written");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let last = content.lines().last().expect("one event");
+        let ev: SavingsEvent = serde_json::from_str(last).expect("valid event JSON");
+        assert_eq!(ev.tool, "cli_shell");
+        assert_eq!(ev.baseline_tokens, 5000, "raw baseline, no estimate factor");
+        assert_eq!(ev.actual_tokens, 800);
+        assert_eq!(ev.saved_tokens, 4200);
     }
 }

@@ -61,7 +61,14 @@ pub fn compress(
 
     let mut result = match pattern_compressed {
         Some(after_patterns) => compress_with_patterns(input, after_patterns, level),
-        None => compress_direct(input, level),
+        // Fenced code blocks (``` / ~~~) carry verbatim source — diffs, file
+        // excerpts, edit evidence (#382). The dictionary/line-score layers
+        // would corrupt them, so prose is compressed around the fences and
+        // fence content stays byte-exact.
+        None => match compress_fence_aware(input, level) {
+            Some(fenced) => fenced,
+            None => compress_direct(input, level),
+        },
     };
 
     if deadline.elapsed().as_millis() < TERSE_BUDGET_MS {
@@ -125,6 +132,97 @@ fn reorder_cdc_stable(output: &str) -> String {
         result.push_str(v);
     }
     result
+}
+
+/// Returns true when `line` opens/closes a fenced code block (CommonMark:
+/// at most 3 leading spaces, then ≥ 3 backticks or tildes).
+fn is_fence_delimiter(line: &str) -> Option<char> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    ['`', '~']
+        .into_iter()
+        .find(|&ch| trimmed.chars().take_while(|&c| c == ch).count() >= 3)
+}
+
+/// Compress prose around fenced code blocks, keeping fence content (and the
+/// fence delimiter lines) byte-exact. Returns `None` when the input contains
+/// no fence — callers fall back to the plain path. An unterminated fence
+/// protects everything from its opener to the end of input (conservative:
+/// never corrupt what might be code).
+fn compress_fence_aware(input: &str, level: &CompressionLevel) -> Option<TerseResult> {
+    if !input.contains("```") && !input.contains("~~~") {
+        return None;
+    }
+
+    // Split into alternating prose/fence segments, preserving line endings.
+    let mut segments: Vec<(bool, String)> = Vec::new(); // (is_fence, text)
+    let mut current = String::new();
+    let mut fence_char: Option<char> = None;
+
+    for line in input.split_inclusive('\n') {
+        let stripped = line.strip_suffix('\n').unwrap_or(line);
+        match fence_char {
+            None => {
+                if let Some(ch) = is_fence_delimiter(stripped) {
+                    if !current.is_empty() {
+                        segments.push((false, std::mem::take(&mut current)));
+                    }
+                    fence_char = Some(ch);
+                    current.push_str(line);
+                } else {
+                    current.push_str(line);
+                }
+            }
+            Some(ch) => {
+                current.push_str(line);
+                if is_fence_delimiter(stripped) == Some(ch) {
+                    segments.push((true, std::mem::take(&mut current)));
+                    fence_char = None;
+                }
+            }
+        }
+    }
+    if !current.is_empty() {
+        // Unterminated fence stays protected; trailing prose is compressible.
+        segments.push((fence_char.is_some(), current));
+    }
+
+    if !segments.iter().any(|(is_fence, _)| *is_fence) {
+        return None;
+    }
+
+    let mut output = String::with_capacity(input.len());
+    for (is_fence, text) in &segments {
+        if *is_fence {
+            output.push_str(text);
+        } else {
+            let res = engine::compress(text, level);
+            if res.quality.passed && res.tokens_after < res.tokens_before {
+                output.push_str(&res.output);
+                // Keep prose/fence boundaries on separate lines.
+                if !output.ends_with('\n') && text.ends_with('\n') {
+                    output.push('\n');
+                }
+            } else {
+                output.push_str(text);
+            }
+        }
+    }
+
+    let tokens_before = counter::count(input);
+    let tokens_after = counter::count(&output);
+    Some(TerseResult {
+        output,
+        tokens_before,
+        tokens_after,
+        savings_pct: counter::savings_pct(tokens_before, tokens_after),
+        layers_applied: vec!["deterministic", "fence-guard"],
+        pattern_savings: 0,
+        terse_savings: tokens_before.saturating_sub(tokens_after),
+        quality_passed: true,
+    })
 }
 
 fn compress_direct(input: &str, level: &CompressionLevel) -> TerseResult {
@@ -209,5 +307,42 @@ mod tests {
         let result = compress("", &CompressionLevel::Max, None);
         assert_eq!(result.output, "");
         assert_eq!(result.tokens_before, 0);
+    }
+
+    /// #382: fenced code (edit evidence diffs) must survive byte-exact —
+    /// no dictionary abbreviation, no blank-line stripping, no line drops.
+    #[test]
+    fn fenced_code_is_byte_exact() {
+        let fence = "```diff\n--- a.py\n+++ a.py\n         \"\"\"Опубликовать задачу.\n\n-        return 0\n+        return 1\n\n             flag=True,\n             flag=True,\n```\n";
+        let input = format!(
+            "edit applied successfully to the file\n\n{fence}\nthe operation finished and the file was written\n"
+        );
+        let result = compress(&input, &CompressionLevel::Max, None);
+        assert!(
+            result.output.contains(fence),
+            "fence must be untouched, got:\n{}",
+            result.output
+        );
+        assert!(
+            result.output.contains("return 0"),
+            "no abbreviation inside fence"
+        );
+    }
+
+    #[test]
+    fn unterminated_fence_is_protected() {
+        let input = "prose before\n```python\nreturn 0\n\nreturn 1\n";
+        let result = compress(input, &CompressionLevel::Max, None);
+        assert!(
+            result.output.contains("```python\nreturn 0\n\nreturn 1\n"),
+            "everything after an unterminated opener stays verbatim, got:\n{}",
+            result.output
+        );
+    }
+
+    #[test]
+    fn no_fence_returns_none_from_fence_path() {
+        assert!(compress_fence_aware("plain text, no code", &CompressionLevel::Max).is_none());
+        assert!(compress_fence_aware("inline `code` only", &CompressionLevel::Max).is_none());
     }
 }

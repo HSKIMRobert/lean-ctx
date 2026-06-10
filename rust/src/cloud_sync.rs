@@ -24,6 +24,20 @@ pub fn should_auto_sync(
     auto_sync && logged_in && last_auto_sync != Some(today)
 }
 
+/// Whether the background index push should run for this project (GL #392):
+/// separate opt-in, logged in, a local index actually exists, and this
+/// project hasn't pushed today. Pure for unit testing.
+#[must_use]
+pub fn should_auto_push_index(
+    auto_index: bool,
+    logged_in: bool,
+    local_index_exists: bool,
+    last_push_for_project: Option<&str>,
+    today: &str,
+) -> bool {
+    auto_index && logged_in && local_index_exists && last_push_for_project != Some(today)
+}
+
 /// Classify per-surface push results into one [`AutoSyncOutcome`]. A 402
 /// anywhere wins (the account is gated); otherwise total failure means the
 /// network is down; anything else counts as synced.
@@ -126,6 +140,44 @@ pub fn cloud_background_tasks() {
         ) && auto_sync_personal_cloud() != AutoSyncOutcome::NetworkFailure
         {
             config.cloud.last_auto_sync = Some(today.clone());
+        }
+
+        // Opt-in hosted-index auto-push (GL #392): once per project per day,
+        // only when a local index exists. Quota/Pro rejections consume the
+        // slot (one quiet attempt per day); network failures leave it open.
+        if let Ok(root) = std::env::current_dir() {
+            let project_hash = crate::core::index_namespace::namespace_hash(&root);
+            if should_auto_push_index(
+                config.cloud.auto_index,
+                true,
+                crate::core::index_bundle::local_index_present(&root),
+                config
+                    .cloud
+                    .last_index_push
+                    .get(&project_hash)
+                    .map(String::as_str),
+                &today,
+            ) {
+                match crate::cloud_client::push_index_bundle(&root) {
+                    Ok((hash, bytes)) => {
+                        tracing::debug!(project = %hash, bytes, "auto-index: pushed");
+                        config
+                            .cloud
+                            .last_index_push
+                            .insert(project_hash, today.clone());
+                    }
+                    Err(e) if e.contains("Pro") || e.contains("Quota") => {
+                        tracing::debug!(error = %e, "auto-index: gated, retry tomorrow");
+                        config
+                            .cloud
+                            .last_index_push
+                            .insert(project_hash, today.clone());
+                    }
+                    Err(e) => {
+                        tracing::debug!(error = %e, "auto-index: push failed, slot stays open");
+                    }
+                }
+            }
         }
     }
 
@@ -553,6 +605,27 @@ mod tests {
             true,
             Some("2026-06-09"),
             "2026-06-10"
+        ));
+    }
+
+    #[test]
+    fn auto_index_push_needs_flag_login_index_and_fresh_slot() {
+        let t = "2026-06-10";
+        // All preconditions met → push.
+        assert!(should_auto_push_index(true, true, true, None, t));
+        // Separate opt-in: auto_sync users are NOT auto-enrolled.
+        assert!(!should_auto_push_index(false, true, true, None, t));
+        // Logged out / no local index → silently skip, no error path.
+        assert!(!should_auto_push_index(true, false, true, None, t));
+        assert!(!should_auto_push_index(true, true, false, None, t));
+        // Per-project debounce: today consumed, yesterday frees the slot.
+        assert!(!should_auto_push_index(true, true, true, Some(t), t));
+        assert!(should_auto_push_index(
+            true,
+            true,
+            true,
+            Some("2026-06-09"),
+            t
         ));
     }
 

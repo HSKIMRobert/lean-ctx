@@ -97,14 +97,20 @@ fn build_agents_json() -> String {
     .to_string()
 }
 
-/// Interpret a naive timestamp written by `chrono::Local::now()` in the local
-/// timezone and convert it to UTC for age math.
-fn local_to_utc(ts: chrono::NaiveDateTime) -> Option<chrono::DateTime<chrono::Utc>> {
+/// Event timestamps are written by `events.rs` with `chrono::Local::now()` and
+/// carry no offset, so they MUST be interpreted as *local* time. Reading them
+/// as UTC made agents appear "active 2h in the future" on UTC+2 machines
+/// (`last_active_minutes_ago = -119`, GL #479 D3).
+fn local_event_ts_to_utc(ts: chrono::NaiveDateTime) -> chrono::DateTime<chrono::Utc> {
     use chrono::TimeZone as _;
-    chrono::Local
-        .from_local_datetime(&ts)
-        .earliest()
-        .map(|dt| dt.with_timezone(&chrono::Utc))
+    match chrono::Local.from_local_datetime(&ts) {
+        chrono::LocalResult::Single(t) | chrono::LocalResult::Ambiguous(t, _) => {
+            t.with_timezone(&chrono::Utc)
+        }
+        // A nonexistent local time (DST spring-forward gap): fall back to UTC,
+        // which is at most one DST shift off — never negative by hours.
+        chrono::LocalResult::None => ts.and_utc(),
+    }
 }
 
 fn infer_agents_from_events() -> Vec<serde_json::Value> {
@@ -118,12 +124,7 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
     for ev in &evts {
         let ts_str = &ev.timestamp;
         if let Ok(ts) = chrono::NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%dT%H:%M:%S%.f") {
-            // Event timestamps are written with Local::now() (no offset suffix);
-            // interpreting them as UTC made agents appear active "in the future"
-            // (negative minutes at UTC+2, #479).
-            let Some(aware) = local_to_utc(ts) else {
-                continue;
-            };
+            let aware = local_event_ts_to_utc(ts);
             if aware >= cutoff {
                 if matches!(&ev.kind, crate::core::events::EventKind::ToolCall { .. }) {
                     recent_tool_count += 1;
@@ -139,9 +140,10 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
         return Vec::new();
     }
 
-    let age_min = latest_ts
-        .and_then(local_to_utc)
-        .map_or(0, |ts| (now - ts).num_minutes().max(0));
+    // Clamp at zero: clock skew must never render a negative age.
+    let age_min = latest_ts.map_or(0, |ts| {
+        (now - local_event_ts_to_utc(ts)).num_minutes().max(0)
+    });
 
     let status = if age_min <= 5 { "active" } else { "idle" };
 
@@ -218,4 +220,22 @@ struct ToolAgg {
     calls: u64,
     tokens_saved: u64,
     tokens_original: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_event_ts_to_utc;
+
+    /// GL #479 D3: event timestamps are local wall-clock strings; interpreting
+    /// "now" as local must yield an age of ~0 — not a negative UTC-offset age.
+    #[test]
+    fn local_event_ts_age_is_never_hours_in_the_future() {
+        let now_local = chrono::Local::now().naive_local();
+        let aware = local_event_ts_to_utc(now_local);
+        let age_min = (chrono::Utc::now() - aware).num_minutes();
+        assert!(
+            (-1..=1).contains(&age_min),
+            "a just-written event must be ~0 minutes old, got {age_min}"
+        );
+    }
 }

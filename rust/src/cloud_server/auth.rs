@@ -72,6 +72,24 @@ impl Mailer {
         Ok(())
     }
 
+    /// Generic plain-text mail — used by the digest job (GL #386), which
+    /// renders subject and body itself.
+    pub(super) async fn send_digest(
+        &self,
+        to_email: &str,
+        subject: &str,
+        body: &str,
+    ) -> anyhow::Result<()> {
+        let to: Mailbox = to_email.parse()?;
+        let email = Message::builder()
+            .from(self.from.clone())
+            .to(to)
+            .subject(subject)
+            .body(body.to_string())?;
+        self.transport.send(email).await?;
+        Ok(())
+    }
+
     pub(super) async fn send_password_reset(
         &self,
         to_email: &str,
@@ -118,6 +136,14 @@ pub(super) async fn register(
         return Err((
             StatusCode::BAD_REQUEST,
             "Password must be at least 8 characters".into(),
+        ));
+    }
+    // SSO-required orgs (GL #482): password accounts for the org's domain are
+    // refused up front — the IdP is the only door (owner = break-glass).
+    if super::sso::password_login_blocked(&state.cfg, &email).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Your organization requires SSO sign-in. Use \u{201c}Continue with SSO\u{201d} instead.".into(),
         ));
     }
 
@@ -235,6 +261,15 @@ pub(super) async fn login(
         return Err((
             StatusCode::BAD_REQUEST,
             "Email and password required".into(),
+        ));
+    }
+
+    // SSO-required orgs (GL #482): refuse the password path before touching
+    // credentials, so enforcement cannot leak whether the account exists.
+    if super::sso::password_login_blocked(&state.cfg, &email).await {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Your organization requires SSO sign-in. Use \u{201c}Continue with SSO\u{201d} instead.".into(),
         ));
     }
 
@@ -543,7 +578,7 @@ pub(super) async fn auth_user(
 
 // ─── Database helpers ─────────────────────────────────────────
 
-async fn upsert_user(
+pub(super) async fn upsert_user(
     pool: &Pool,
     email: &str,
     password_hash: Option<&str>,
@@ -602,7 +637,7 @@ async fn is_email_verified(pool: &Pool, user_id: Uuid) -> anyhow::Result<bool> {
     Ok(row.get(0))
 }
 
-async fn mark_email_verified(pool: &Pool, user_id: Uuid) -> anyhow::Result<()> {
+pub(super) async fn mark_email_verified(pool: &Pool, user_id: Uuid) -> anyhow::Result<()> {
     let client = pool.get().await?;
     client
         .execute(
@@ -624,7 +659,11 @@ async fn update_password(pool: &Pool, user_id: Uuid, password_hash: &str) -> any
     Ok(())
 }
 
-async fn rotate_api_key(pool: &Pool, user_id: Uuid, api_key_sha: &str) -> anyhow::Result<()> {
+pub(super) async fn rotate_api_key(
+    pool: &Pool,
+    user_id: Uuid,
+    api_key_sha: &str,
+) -> anyhow::Result<()> {
     let client = pool.get().await?;
     client
         .execute("DELETE FROM api_keys WHERE user_id=$1", &[&user_id])
@@ -797,7 +836,7 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 // ─── Token/key generation ─────────────────────────────────────
 
-fn generate_api_key() -> String {
+pub(super) fn generate_api_key() -> String {
     let bytes: [u8; 32] = rand::random();
     hex::encode(bytes)
 }

@@ -90,6 +90,7 @@ Status of every contract document (SSOT: `rust/src/core/contracts.rs::contract_d
 | Workflow Evidence Ledger | `docs/contracts/workflow-evidence-ledger-v1.md` | 1 | stable |
 | Wrapped Permalink | `docs/contracts/wrapped-permalink-v1.md` | 1 | stable |
 | Hosted Personal Index | `docs/contracts/hosted-personal-index-v1.md` | 1 | experimental |
+| Personal Cloud Encryption | `docs/contracts/personal-cloud-encryption-v1.md` | 1 | experimental |
 
 ¹ The capabilities document is additive **by design**: its drift test binds the doc's key list to `server_capabilities::TOP_LEVEL_KEYS`, so the doc must grow whenever a key is added. Freezing the file would contradict its own contract; removal or mutation of existing keys remains a breaking change.
 

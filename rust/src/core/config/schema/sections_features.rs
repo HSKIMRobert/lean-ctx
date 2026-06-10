@@ -586,6 +586,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Minimum hours between automatic publishes (throttle; default 24)",
         ),
     );
+    gain.insert(
+        "last_auto_publish".into(),
+        key(
+            "string?",
+            serde_json::json!(null),
+            "Timestamp of the last automatic publish (written by lean-ctx for throttling — not meant to be edited)",
+        ),
+    );
     sections.insert(
         "gain".into(),
         SectionSchema {

@@ -148,6 +148,14 @@ fn now_unix() -> i64 {
         .as_secs() as i64
 }
 
+/// This machine's display label for the device overview (GL #387): the
+/// hostname, attached as `X-Device-Label` to every sync push. Display
+/// metadata only — the server treats it as an opaque, sanitized string and
+/// silently skips tracking when it is empty.
+fn device_label() -> String {
+    gethostname::gethostname().to_string_lossy().into_owned()
+}
+
 fn auth_bearer_token() -> Result<String, String> {
     let mut creds = load_credentials().ok_or("Not logged in. Run: lean-ctx login")?;
 
@@ -357,6 +365,7 @@ pub fn sync_stats(stats: &[serde_json::Value]) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Sync failed: {e}"))?;
 
@@ -436,16 +445,22 @@ pub fn unpublish_wrapped(id: &str, edit_token: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Push the knowledge store as a zero-knowledge vault (GL #467): entries are
+/// sealed client-side (XChaCha20-Poly1305, domain-separated HKDF key) — the
+/// backend stores ciphertext and can never read them. The first vault push
+/// also purges the account's legacy plaintext rows server-side.
 pub fn push_knowledge(entries: &[serde_json::Value]) -> Result<String, String> {
     let bearer = auth_bearer_token()?;
+    let key = knowledge_vault_key()?;
+    let blob = crate::core::knowledge_vault::seal(entries, &key).map_err(|e| e.to_string())?;
     let url = format!("{}/api/sync/knowledge", api_url());
-
-    let body = serde_json::json!({ "entries": entries });
 
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
-        .header("Content-Type", "application/json")
-        .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
+        .header("Content-Type", "application/octet-stream")
+        .header("X-Entry-Count", &entries.len().to_string())
+        .header("X-Device-Label", &device_label())
+        .send(blob.as_slice())
         .map_err(|e| format!("Push failed: {e}"))?;
 
     let resp_body = resp
@@ -457,9 +472,19 @@ pub fn push_knowledge(entries: &[serde_json::Value]) -> Result<String, String> {
         serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
 
     Ok(format!(
-        "{} entries synced",
-        json["synced"].as_i64().unwrap_or(0)
+        "{} entries synced (end-to-end encrypted)",
+        json["entry_count"].as_i64().unwrap_or(entries.len() as i64)
     ))
+}
+
+/// The account's knowledge-vault key — same stable-API-key derivation rule as
+/// [`index_bundle_key`], different HKDF domain (`knowledge-vault-v1`).
+fn knowledge_vault_key() -> Result<[u8; 32], String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
+    if api_key.trim().is_empty() {
+        return Err("Not logged in. Run: lean-ctx login".into());
+    }
+    Ok(crate::core::knowledge_vault::derive_vault_key(&api_key))
 }
 
 pub fn pull_cloud_models() -> Result<serde_json::Value, String> {
@@ -694,6 +719,7 @@ pub fn push_commands(entries: &[serde_json::Value]) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
@@ -715,6 +741,7 @@ pub fn push_cep(entries: &[serde_json::Value]) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
@@ -736,6 +763,7 @@ pub fn push_gain(entries: &[serde_json::Value]) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
@@ -750,14 +778,22 @@ pub fn push_gain(entries: &[serde_json::Value]) -> Result<String, String> {
     ))
 }
 
+/// Push gotchas as a zero-knowledge vault (GL #467 follow-up): sealed
+/// client-side under the `gotcha-vault-v1` HKDF domain — the backend stores
+/// ciphertext only and purges the account's legacy plaintext rows on the
+/// first vault push.
 pub fn push_gotchas(entries: &[serde_json::Value]) -> Result<String, String> {
     let bearer = auth_bearer_token()?;
+    let key = gotcha_vault_key()?;
+    let blob = crate::core::knowledge_vault::seal(entries, &key).map_err(|e| e.to_string())?;
     let url = format!("{}/api/sync/gotchas", api_url());
-    let body = serde_json::json!({ "gotchas": entries });
+
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
-        .header("Content-Type", "application/json")
-        .send(&serde_json::to_vec(&body).map_err(|e| format!("JSON error: {e}"))?)
+        .header("Content-Type", "application/octet-stream")
+        .header("X-Entry-Count", &entries.len().to_string())
+        .header("X-Device-Label", &device_label())
+        .send(blob.as_slice())
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
         .into_body()
@@ -766,8 +802,20 @@ pub fn push_gotchas(entries: &[serde_json::Value]) -> Result<String, String> {
     let json: serde_json::Value =
         serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
     Ok(format!(
-        "{} gotchas synced",
-        json["synced"].as_i64().unwrap_or(0)
+        "{} gotchas synced (end-to-end encrypted)",
+        json["entry_count"].as_i64().unwrap_or(entries.len() as i64)
+    ))
+}
+
+/// The account's gotcha-vault key — own HKDF domain (`gotcha-vault-v1`),
+/// derivation rule identical to [`knowledge_vault_key`].
+fn gotcha_vault_key() -> Result<[u8; 32], String> {
+    let api_key = load_api_key().ok_or("Not logged in. Run: lean-ctx login")?;
+    if api_key.trim().is_empty() {
+        return Err("Not logged in. Run: lean-ctx login".into());
+    }
+    Ok(crate::core::knowledge_vault::derive_gotcha_vault_key(
+        &api_key,
     ))
 }
 
@@ -777,6 +825,7 @@ pub fn push_buddy(data: &serde_json::Value) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(data).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
@@ -794,6 +843,7 @@ pub fn push_feedback(entries: &[serde_json::Value]) -> Result<String, String> {
     let resp = ureq::post(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/json")
+        .header("X-Device-Label", &device_label())
         .send(&serde_json::to_vec(entries).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Push failed: {e}"))?;
     let resp_body = resp
@@ -833,9 +883,46 @@ pub fn fetch_account_cloud() -> Result<serde_json::Value, String> {
     serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))
 }
 
+/// Pull the knowledge store: vault-first (encrypted blob, decrypted locally),
+/// with a legacy plaintext fallback for accounts that never pushed a vault.
 pub fn pull_knowledge() -> Result<Vec<serde_json::Value>, String> {
     let bearer = auth_bearer_token()?;
     let url = format!("{}/api/sync/knowledge", api_url());
+
+    // Vault path (GL #467).
+    match ureq::get(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .header("Accept", "application/octet-stream")
+        .call()
+    {
+        Ok(resp) => {
+            let is_blob = resp
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v.starts_with("application/octet-stream"));
+            if is_blob {
+                let mut blob = Vec::new();
+                use std::io::Read;
+                resp.into_body()
+                    .into_reader()
+                    .read_to_end(&mut blob)
+                    .map_err(|e| format!("Failed to read vault: {e}"))?;
+                let key = knowledge_vault_key()?;
+                return crate::core::knowledge_vault::open(&blob, &key).map_err(|e| e.to_string());
+            }
+            // Pre-vault server ignored the Accept header and answered with
+            // the legacy JSON listing — parse it directly.
+            let body = resp
+                .into_body()
+                .read_to_string()
+                .map_err(|e| format!("Failed to read response: {e}"))?;
+            return serde_json::from_str(&body).map_err(|e| format!("Invalid JSON: {e}"));
+        }
+        // No vault yet → fall through to the legacy listing.
+        Err(ureq::Error::StatusCode(404)) => {}
+        Err(e) => return Err(format!("Pull failed: {e}")),
+    }
 
     let resp = ureq::get(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
@@ -881,6 +968,7 @@ pub fn push_index_bundle(project_root: &std::path::Path) -> Result<(String, u64)
     let resp = ureq::put(&url)
         .header("Authorization", &format!("Bearer {bearer}"))
         .header("Content-Type", "application/octet-stream")
+        .header("X-Device-Label", &device_label())
         .send(blob.as_slice())
         .map_err(|e| match e {
             ureq::Error::StatusCode(402) => {

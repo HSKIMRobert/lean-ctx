@@ -136,6 +136,7 @@ Token-savings recap publishing (gain --publish / auto-publish)
 - `auto_publish` (bool, default `false`) — Automatically (re)publish your Wrapped recap when you run `lean-ctx gain` (opt-in, off by default; throttled and sends only an aggregate payload)
 - `auto_publish_interval_hours` (u64, default `24`) — Minimum hours between automatic publishes (throttle; default 24)
 - `display_name` (string?, default `null`) — Optional display name shown on your published card / leaderboard entry
+- `last_auto_publish` (string?, default `null`) — Timestamp of the last automatic publish (written by lean-ctx for throttling — not meant to be edited)
 - `leaderboard` (bool, default `true`) — When auto-publishing, also list the card on the public opt-in leaderboard
 
 ## `[gateway]`

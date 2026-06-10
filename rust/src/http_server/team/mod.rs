@@ -72,6 +72,17 @@ pub struct TeamServerConfig {
     pub stateful_mode: bool,
     #[serde(default = "default_true")]
     pub json_response: bool,
+    /// Hosted-storage quota in bytes (`storageQuotaBytes` in `team.json`),
+    /// rendered per plan by the control plane's provisioning bridge (#282).
+    /// Omitted ⇒ the server defaults to the Team tier's 5 GiB; the
+    /// `LEANCTX_TEAM_STORAGE_QUOTA_BYTES` env var overrides both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage_quota_bytes: Option<u64>,
+    /// Slack/Discord/generic webhook for the weekly team-ROI summary
+    /// (`roiWebhookUrl` in `team.json`, GL #388). HTTPS only — the server
+    /// refuses to start with a plaintext URL. Omitted ⇒ no webhook posts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roi_webhook_url: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -257,6 +268,10 @@ pub struct TeamState {
     engine: Arc<TeamContextEngine>,
     audit: Arc<tokio::sync::Mutex<tokio::fs::File>>,
     pub savings_store_dir: Arc<tokio::sync::Mutex<std::path::PathBuf>>,
+    /// Measurement roots for the billing-plane storage report (GL #463).
+    pub storage_roots: super::team_billing::StorageRoots,
+    /// 60 s cache for the measured storage report.
+    pub storage_cache: Arc<tokio::sync::Mutex<super::team_billing::StorageCache>>,
 }
 
 #[derive(Clone)]
@@ -779,14 +794,23 @@ async fn team_auth_middleware(
         }
     }
 
-    if path0 == "/v1/savings/summary" {
+    // Billing-plane reads (savings roll-up, storage/usage reports) share the
+    // audit sensitivity class: owner/admin + the control plane's audit token.
+    let audit_gated = match path0 {
+        "/v1/savings/summary" => Some("savings_summary"),
+        "/v1/storage" => Some("storage"),
+        "/v1/usage" => Some("usage"),
+        p if p.starts_with("/v1/savings/member/") => Some("savings_member"),
+        _ => None,
+    };
+    if let Some(action) = audit_gated {
         let allow = tok_scopes.contains(&TeamScope::Audit);
         let _ = audit_write(
             &state.team.audit,
             &tok.id,
             &workspace_id_for_audit,
             None,
-            Some("savings_summary"),
+            Some(action),
             allow,
             if allow { None } else { Some("scope_denied") },
             None,
@@ -1346,11 +1370,24 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .parent()
         .unwrap_or(std::path::Path::new("."))
         .join("savings");
+    let workspace_roots: Vec<(String, std::path::PathBuf)> = cfg
+        .workspaces
+        .iter()
+        .map(|w| (w.id.clone(), w.root.clone()))
+        .collect();
     let team = Arc::new(TeamState {
         auth: Arc::new(cfg.tokens.clone()),
         engine,
         audit: Arc::new(tokio::sync::Mutex::new(audit_file)),
         savings_store_dir: Arc::new(tokio::sync::Mutex::new(savings_dir)),
+        storage_roots: super::team_billing::storage_roots_from_config(
+            &cfg.audit_log_path,
+            &workspace_roots,
+            cfg.storage_quota_bytes,
+        ),
+        storage_cache: Arc::new(tokio::sync::Mutex::new(
+            super::team_billing::StorageCache::default(),
+        )),
     });
 
     let state = TeamAppState {
@@ -1370,6 +1407,15 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         ),
         streamable_http_config(&cfg),
     );
+
+    // Weekly team-ROI webhook (GL #388): validated at boot so a bad URL is a
+    // loud startup error, not a silent weekly no-op.
+    if let Some(url) = &cfg.roi_webhook_url {
+        super::roi_webhook::validate_webhook_url(url)
+            .map_err(|e| anyhow!("invalid roiWebhookUrl in team config: {e}"))?;
+        super::roi_webhook::spawn_weekly_roi_webhook(state.clone(), url.clone());
+        tracing::info!("team ROI webhook enabled (weekly)");
+    }
 
     let app = Router::new()
         .route("/health", get(super::health))
@@ -1394,6 +1440,12 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
             "/v1/savings/summary",
             get(super::savings_summary::v1_savings_summary),
         )
+        .route(
+            "/v1/savings/member/{signer}",
+            get(super::savings_summary::v1_savings_member),
+        )
+        .route("/v1/storage", get(super::team_billing::v1_storage))
+        .route("/v1/usage", get(super::team_billing::v1_usage))
         .route(
             "/api/v1/savings/ingest",
             axum::routing::post(super::savings_ingest::v1_savings_ingest),
