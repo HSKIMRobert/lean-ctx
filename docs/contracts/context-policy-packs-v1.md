@@ -70,7 +70,17 @@ lean-ctx policy show <name> [--toml]  # resolved effective policy / raw TOML
 lean-ctx policy show project          # the .lean-ctx/policy.toml pack
 lean-ctx policy show ./custom.toml    # any pack file
 lean-ctx policy validate [path]       # lint (default .lean-ctx/policy.toml); exit 1 on INVALID
+lean-ctx policy coverage [name] [--benchmark cgb] [--json]
+                                      # automated PARTIAL CGB assessment; exit 1 on any FAIL
 ```
+
+`coverage` statically checks a resolved pack against the Context Governance
+Benchmark v1.0-draft: credential fixtures vs. redaction patterns (CGB-1.1),
+named declarative rules (1.2), regulated-identifier classes (1.3), budget
+cap (3.2), retention expectation (4.3), tool posture (5.4), egress
+restriction (5.5). It prints PASS/FAIL/INCONCLUSIVE per aspect and an
+honesty line — never a maturity grade (7 of 32 controls are statically
+checkable; see `docs/compliance/cgb-self-assessment.md`).
 
 `show --toml` prints the **unresolved** pack definition — the natural starting
 point for an org-specific pack:
@@ -92,7 +102,9 @@ lean-ctx policy show baseline --toml > .lean-ctx/policy.toml
    at the hot path. Deliberately decoupled so v1 carries zero hot-path churn
    (lands after the in-flight engine refactor merges).
 2. **Signing + trust pipeline**, registry/marketplace distribution (#403/MKT).
-3. **Conformance scoring** against live project telemetry (#426 benchmark).
+3. **Conformance scoring against live telemetry** — `policy coverage` (v1)
+   is static pack analysis; runtime evidence (actual redaction hits, budget
+   refusals) is the follow-up.
 4. Multi-file packs, non-built-in parents (`extends` against local files).
 
 ## Module map
@@ -100,6 +112,7 @@ lean-ctx policy show baseline --toml > .lean-ctx/policy.toml
 | Piece | Path |
 |---|---|
 | Types, parse, validate, resolve | `rust/src/core/policy/mod.rs` |
+| CGB coverage checks | `rust/src/core/policy/coverage.rs` |
 | Built-in registry | `rust/src/core/policy/builtin.rs` |
 | Built-in pack sources | `rust/src/core/policy/builtin/*.toml` |
 | CLI | `rust/src/cli/policy_cmd.rs` (dispatch key `policy`) |

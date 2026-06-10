@@ -216,7 +216,7 @@ COMMANDS:
                                    Manage lean-ctx plugins
     rules sync|diff|lint|status|init
                                    ContextOps: cross-agent rules governance
-    policy list|show|validate      Context policy packs (governance presets as code)
+    policy list|show|validate|coverage  Context policy packs (governance presets as code)
     uninstall [--keep-config] [--keep-binary] [--dry-run]
                                    Full clean removal: stops all processes, removes hooks,
                                    MCP configs, rules, autostart, data, AND the binary itself.

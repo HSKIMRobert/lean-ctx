@@ -21,6 +21,7 @@
 //!   deliberate posture choice, not an accumulating set).
 
 pub mod builtin;
+pub mod coverage;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

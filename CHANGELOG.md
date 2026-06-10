@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`lean-ctx policy coverage` — automated partial CGB assessment**
+  (GL #426): statically grades a resolved policy pack against the Context
+  Governance Benchmark v1.0-draft — credential fixtures vs. redaction
+  patterns, regulated-identifier classes, budget cap, retention, tool
+  posture, egress restriction. PASS/FAIL/INCONCLUSIVE per aspect, `--json`
+  for CI gating (exit 1 on FAIL), and an explicit honesty line instead of a
+  maturity grade: 7 of 32 controls are statically checkable, the rest need
+  the manual assessment.
 - **Context Governance Benchmark — spec + self-assessment** (GL #426): CGB
   v1.0-draft published as its own tool-neutral spec repo
   (`context-governance-benchmark`): 32 measurable controls in 6 domains

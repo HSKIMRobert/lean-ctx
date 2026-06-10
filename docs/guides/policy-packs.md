@@ -83,6 +83,27 @@ lean-ctx policy show project        # the resolved, effective policy
 - `extends` to unknown packs, cycles, chains deeper than 8
 - allow/deny overlaps
 
+## Automated CGB coverage
+
+```bash
+lean-ctx policy coverage              # project pack (.lean-ctx/policy.toml)
+lean-ctx policy coverage finance-eu   # any built-in or .toml path
+lean-ctx policy coverage --json       # machine-readable, CI-friendly
+```
+
+`policy coverage` runs an automated **partial** assessment of a resolved
+pack against the [Context Governance Benchmark](../compliance/cgb-self-assessment.md)
+(v1.0-draft). It checks what a static pack analysis can honestly check —
+credential redaction against synthetic fixtures (CGB-1.1), declarative rules
+(1.2), regulated-identifier classes (1.3), budget cap (3.2), retention
+expectation (4.3), tool posture (5.4) and egress restriction (5.5) — and
+reports `PASS`/`FAIL`/`INCONCLUSIVE` per aspect.
+
+It deliberately **never prints a maturity grade**: 7 of 32 controls are
+statically touchable; the rest need the manual assessment (spec repo,
+`assessment/TEMPLATE.md`). Exit code is non-zero when any check fails, so
+you can gate CI on it.
+
 ## What v1 does and doesn't do
 
 v1 is the **format, the curated baselines and the authoring tooling** — your
