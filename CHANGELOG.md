@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **ctxpkg hosted registry — client side** (GL #406): `lean-ctx pack
+  publish` is real — preflight (parse, ed25519 signature, scoped-name
+  check) then `PUT` to the registry at ctxpkg.com with a `ctxp_…` token
+  (`--token`/`CTXPKG_TOKEN`). `lean-ctx pack install ns/name[@version]`
+  resolves, downloads, verifies the artifact SHA-256 against the index,
+  runs the standard import gates, re-verifies the signature locally and
+  pins the result in `.lean-ctx/ctxpkg.lock`. `lean-ctx pack export
+  --sign` signs bundles with an auto-managed ed25519 key
+  (`~/.lean-ctx/keys/ctxpkg-ed25519.key`, 0600). Edge: account routes for
+  namespace claim + publish-token lifecycle. Contract:
+  `docs/contracts/ctxpkg-registry-v1.md`.
 - **`lean-ctx policy coverage` — automated partial CGB assessment**
   (GL #426): statically grades a resolved policy pack against the Context
   Governance Benchmark v1.0-draft — credential fixtures vs. redaction
@@ -98,6 +109,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `team-server-contract-v1.md` is restored byte-exact; its additive
   `storageQuotaBytes`/`roiWebhookUrl` keys moved to a new
   `team-server-contract-v2.md` (Stable), per the contract-file rule.
+  Second wave: the CLI fidelity/pipe-guard integration tests pin
+  `LEAN_CTX_ALLOWLIST_WARN_ONLY=1` (they assert compression behavior, not
+  enforcement — on CI stderr is no TTY, so the new agent-mode allowlist
+  blocked their `for`/`while` test scripts with exit 126), the
+  `ISSUER_CACHE`/`ATTEMPTS` statics are documented in LOCK_ORDERING.md
+  (L45/L46), and `docs/reference/generated/mcp-tools.md` is regenerated
+  for the `ctx_agent` brief/return actions and `ctx_knowledge as_of`.
 - **Cockpit backlog triple** (GL #454, #455, #456): the Routes view now
   understands axum — `.route("/path", get(handler))` incl. chained methods
   (`get(a).post(b)`), qualified forms (`axum::routing::post`) and module-path

@@ -251,6 +251,24 @@ pub async fn run() -> anyhow::Result<()> {
             "/api/account/org/audit/export.csv",
             get(billing_edge::get_account_org_audit_export),
         )
+        // ctxpkg registry publisher self-service (GL #406): namespace claim +
+        // publish-token lifecycle. Publishing itself goes through ctxpkg.com.
+        .route(
+            "/api/account/registry",
+            get(billing_edge::get_account_registry),
+        )
+        .route(
+            "/api/account/registry/namespace",
+            put(billing_edge::put_account_registry_namespace),
+        )
+        .route(
+            "/api/account/registry/tokens",
+            post(billing_edge::post_account_registry_token),
+        )
+        .route(
+            "/api/account/registry/tokens/{token_id}",
+            delete(billing_edge::delete_account_registry_token),
+        )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
         // team dashboard's seat stepper, storage card, and connector manager work.
