@@ -13,6 +13,7 @@ pub mod eval_ab;
 pub mod eval_harness;
 pub mod information_bottleneck;
 pub mod output_sanitizer;
+pub mod policy;
 pub mod pop_pruning;
 pub mod predictive_coding;
 pub mod predictive_prefetch;

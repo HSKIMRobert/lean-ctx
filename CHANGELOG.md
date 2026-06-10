@@ -53,6 +53,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   timestamps are local wall-clock and are now interpreted as such).
 
 ### Added
+- **Context policy packs** (GL #489): governance presets as code. A pack pins
+  a team's context-governance expectations in reviewable TOML — default read
+  mode, allowed/denied tools, named redaction regexes, audit-retention
+  expectation, context-budget cap — with single inheritance (`extends`) whose
+  semantics are security-first: denies and redaction accumulate down the
+  chain, scalars override, allowlists replace deliberately. Five curated
+  built-ins ship embedded (`baseline`, `strict-redaction`, `finance-eu`,
+  `healthcare`, `open-source`); `lean-ctx policy list|show|validate` lists,
+  resolves and lints packs (project pack: `.lean-ctx/policy.toml`). v1 is the
+  format + tooling; runtime enforcement follows. Contract:
+  `docs/contracts/context-policy-packs-v1.md`; guide:
+  `docs/guides/policy-packs.md`.
 - **Org audit log + retention** (GL #484): a unified, append-only governance
   audit log for orgs, surfaced to the owner at `/account/audit` with a
   filterable table and CSV export. Every governance path now writes
