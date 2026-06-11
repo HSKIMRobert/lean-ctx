@@ -36,6 +36,10 @@ pub enum Plan {
     Pro,
     /// Shared team/org coordination: seats, shared knowledge, hosted retrieval.
     Team,
+    /// Self-serve governance (GL #460/#533): everything in Team plus OIDC SSO
+    /// (`sso_oidc`), a 1-year audit window and higher flat quotas — at a flat
+    /// price, no sales motion. SAML/SCIM stay Enterprise.
+    Business,
     /// Governance at scale: SSO/SCIM, audit retention, private registries.
     Enterprise,
 }
@@ -49,6 +53,7 @@ impl Plan {
             Plan::Supporter,
             Plan::Pro,
             Plan::Team,
+            Plan::Business,
             Plan::Enterprise,
         ]
     }
@@ -61,6 +66,7 @@ impl Plan {
             Plan::Supporter => "supporter",
             Plan::Pro => "pro",
             Plan::Team => "team",
+            Plan::Business => "business",
             Plan::Enterprise => "enterprise",
         }
     }
@@ -74,6 +80,7 @@ impl Plan {
             "supporter" | "sponsor" => Plan::Supporter,
             "pro" => Plan::Pro,
             "team" => Plan::Team,
+            "business" | "biz" => Plan::Business,
             "enterprise" | "ent" => Plan::Enterprise,
             _ => Plan::Free,
         }
@@ -89,6 +96,7 @@ impl Plan {
                 hosted_index_mb: 0,
                 managed_connectors: 0,
                 private_registry: false,
+                sso_oidc: false,
                 sso_scim: false,
                 audit_retention_days: 0,
                 revenue_share: false,
@@ -105,6 +113,7 @@ impl Plan {
                 hosted_index_mb: 0,
                 managed_connectors: 0,
                 private_registry: false,
+                sso_oidc: false,
                 sso_scim: false,
                 audit_retention_days: 0,
                 revenue_share: false,
@@ -122,6 +131,7 @@ impl Plan {
                 hosted_index_mb: 1_000,
                 managed_connectors: 0,
                 private_registry: false,
+                sso_oidc: false,
                 sso_scim: false,
                 audit_retention_days: 0,
                 revenue_share: false,
@@ -134,8 +144,29 @@ impl Plan {
                 hosted_index_mb: 5_000,
                 managed_connectors: 5,
                 private_registry: true,
+                // Catalog-wise Team has no SSO; orgs that configured OIDC while
+                // it was Team-gated are grandfathered at the enforcement edge
+                // (control plane keeps existing configs working).
+                sso_oidc: false,
                 sso_scim: false,
                 audit_retention_days: 90,
+                revenue_share: true,
+                supporter: true,
+                cloud_sync: true,
+            },
+            // Business (GL #460/#533): self-serve governance at $149/mo flat.
+            // Team's coordination plus OIDC SSO and a 1-year audit window with
+            // doubled flat quotas — without the negotiated Enterprise surface
+            // (SAML/SCIM, unbounded quotas, 10-year audit).
+            Plan::Business => Entitlements {
+                plan: self,
+                seats: 50,
+                hosted_index_mb: 20_000,
+                managed_connectors: 10,
+                private_registry: true,
+                sso_oidc: true,
+                sso_scim: false,
+                audit_retention_days: 365,
                 revenue_share: true,
                 supporter: true,
                 cloud_sync: true,
@@ -149,6 +180,7 @@ impl Plan {
                 hosted_index_mb: UNBOUNDED,
                 managed_connectors: UNBOUNDED,
                 private_registry: true,
+                sso_oidc: true,
                 sso_scim: true,
                 audit_retention_days: 3650,
                 revenue_share: true,
@@ -173,7 +205,10 @@ pub struct Entitlements {
     pub managed_connectors: u32,
     /// Private extension/persona registry access.
     pub private_registry: bool,
-    /// SSO + SCIM provisioning.
+    /// Self-serve OIDC SSO for the org (GL #482/#533) — sign-in via the org's
+    /// own IdP, configured without a sales motion. Business and Enterprise.
+    pub sso_oidc: bool,
+    /// SAML SSO + SCIM provisioning (the negotiated Enterprise surface).
     pub sso_scim: bool,
     /// Audit log retention window in days (`0` = none).
     pub audit_retention_days: u32,
@@ -208,6 +243,7 @@ pub fn entitlement_allows(plan: Plan, feature: &str) -> bool {
     let e = plan.entitlements();
     match feature {
         "private_registry" => e.private_registry,
+        "sso_oidc" => e.sso_oidc,
         "sso_scim" => e.sso_scim,
         "revenue_share" => e.revenue_share,
         "supporter" => e.supporter,
@@ -250,6 +286,7 @@ mod tests {
         assert_eq!(min_plan_for("cloud_sync"), Some(Plan::Pro));
         assert_eq!(min_plan_for("private_registry"), Some(Plan::Team));
         assert_eq!(min_plan_for("revenue_share"), Some(Plan::Team));
+        assert_eq!(min_plan_for("sso_oidc"), Some(Plan::Business));
         assert_eq!(min_plan_for("sso_scim"), Some(Plan::Enterprise));
         assert_eq!(min_plan_for("supporter"), Some(Plan::Supporter));
         // Local-always-on and unknown/local features are never gated.
@@ -275,6 +312,42 @@ mod tests {
         assert_eq!(Plan::parse("pro"), Plan::Pro);
         assert_eq!(Plan::parse("supporter"), Plan::Supporter);
         assert_eq!(Plan::parse("Sponsor"), Plan::Supporter);
+        assert_eq!(Plan::parse("business"), Plan::Business);
+        assert_eq!(Plan::parse("biz"), Plan::Business);
+    }
+
+    /// GL #533: Business sits strictly between Team and Enterprise — adds
+    /// self-serve OIDC SSO and a 1-year audit window, but never the negotiated
+    /// Enterprise surface (SAML/SCIM, unbounded quotas).
+    #[test]
+    fn business_is_team_plus_self_serve_governance() {
+        let team = Plan::Team.entitlements();
+        let biz = Plan::Business.entitlements();
+        let ent = Plan::Enterprise.entitlements();
+
+        // Strictly more than Team…
+        assert!(biz.seats > team.seats && biz.seats < ent.seats);
+        assert!(biz.hosted_index_mb > team.hosted_index_mb);
+        assert!(biz.managed_connectors > team.managed_connectors);
+        assert!(biz.audit_retention_days > team.audit_retention_days);
+        assert!(biz.audit_retention_days < ent.audit_retention_days);
+
+        // The defining additions: OIDC SSO yes, SAML/SCIM no.
+        assert!(biz.sso_oidc && !biz.sso_scim);
+        assert!(entitlement_allows(Plan::Business, "sso_oidc"));
+        assert!(!entitlement_allows(Plan::Business, "sso_scim"));
+        // Team's catalog has no SSO (existing configs grandfather at the edge).
+        assert!(!team.sso_oidc);
+        // Enterprise keeps both.
+        assert!(ent.sso_oidc && ent.sso_scim);
+
+        // Everything Team has, Business has too.
+        assert!(biz.private_registry && biz.revenue_share);
+        assert!(biz.supporter && biz.cloud_sync);
+        // Local features are never gated on Business either.
+        for feature in LOCAL_ALWAYS_ON_FEATURES {
+            assert!(entitlement_allows(Plan::Business, feature));
+        }
     }
 
     #[test]

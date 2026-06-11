@@ -412,6 +412,8 @@ class CockpitRoi extends HTMLElement {
       cta = 'Upgrade for hosted sync &amp; team ROI roll-up: <code>lean-ctx cloud upgrade</code>.';
     } else if (label === 'pro') {
       cta = 'On a team? Aggregate everyone\u2019s ROI: <code>lean-ctx cloud upgrade --plan team</code>.';
+    } else if (label === 'team') {
+      cta = 'Need org SSO + 1-year audit? <code>lean-ctx cloud upgrade --plan business</code>.';
     } else {
       cta = 'Manage billing &amp; invoices from the customer portal.';
     }
@@ -422,7 +424,8 @@ class CockpitRoi extends HTMLElement {
       ent('Personal Cloud sync', !!e.cloud_sync) +
       '<div class="sr"><span class="sl">Seats</span><span class="sv">' + esc(seats) + '</span></div>' +
       ent('Private registry', !!e.private_registry) +
-      ent('SSO / SCIM', !!e.sso_scim) +
+      ent('Org SSO (OIDC)', !!e.sso_oidc) +
+      ent('SAML SSO / SCIM', !!e.sso_scim) +
       ent('Supporter', !!e.supporter) +
       '<p class="hs" style="margin-top:8px;color:var(--muted)">' + cta + '</p>' +
       '<p class="hs" style="color:var(--muted)">The local engine is always free and never gated.</p>' +

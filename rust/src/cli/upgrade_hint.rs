@@ -16,7 +16,8 @@ fn capability_label(feature: &str) -> std::borrow::Cow<'static, str> {
     match feature {
         "cloud_sync" => "Cloud sync (Personal Cloud)".into(),
         "private_registry" => "Private extension/persona registry".into(),
-        "sso_scim" => "SSO + SCIM provisioning".into(),
+        "sso_oidc" => "Org SSO (OIDC)".into(),
+        "sso_scim" => "SAML SSO + SCIM provisioning".into(),
         "hosted_index" => "Hosted retrieval index".into(),
         "managed_connectors" => "Managed connectors".into(),
         "audit_retention" => "Audit-log retention".into(),
@@ -32,15 +33,17 @@ fn plan_display(plan: Plan) -> &'static str {
         Plan::Supporter => "Supporter",
         Plan::Pro => "Pro",
         Plan::Team => "Team",
+        Plan::Business => "Business",
         Plan::Enterprise => "Enterprise",
     }
 }
 
-/// The exact command (or pointer) that unlocks `min`. Pro/Team are self-serve via
-/// hosted Stripe Checkout; Enterprise is sales-assisted.
+/// The exact command (or pointer) that unlocks `min`. Pro/Team/Business are
+/// self-serve via hosted Stripe Checkout; Enterprise is sales-assisted.
 fn upgrade_command(min: Plan) -> &'static str {
     match min {
         Plan::Team => "lean-ctx cloud upgrade --plan team",
+        Plan::Business => "lean-ctx cloud upgrade --plan business",
         Plan::Enterprise => "Enterprise plan — see https://leanctx.com/pricing",
         // Supporter/Pro (and the defensive Free arm) resolve to the Pro tier,
         // which is the cheapest paid checkout.
@@ -128,5 +131,14 @@ mod tests {
         let text = render_hint("sso_scim", Plan::Team).expect("gated → hint");
         assert!(text.contains("lean-ctx Enterprise feature"));
         assert!(text.contains("leanctx.com/pricing"));
+    }
+
+    #[test]
+    fn oidc_sso_hint_targets_business_self_serve() {
+        let text = render_hint("sso_oidc", Plan::Team).expect("gated → hint");
+        assert!(text.contains("Org SSO (OIDC)"));
+        assert!(text.contains("lean-ctx Business feature"));
+        assert!(text.contains("You're on Team."));
+        assert!(text.contains("lean-ctx cloud upgrade --plan business"));
     }
 }

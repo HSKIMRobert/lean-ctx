@@ -72,8 +72,8 @@ fn cmd_billing_status(json: bool) {
     println!("  cloud_sync:   {}", yesno(e.cloud_sync));
     println!("  seats:        {}", quota(e.seats));
     println!(
-        "  private_registry: {}   sso_scim: {}",
-        e.private_registry, e.sso_scim
+        "  private_registry: {}   sso_oidc: {}   sso_scim: {}",
+        e.private_registry, e.sso_oidc, e.sso_scim
     );
     println!();
     println!(
@@ -157,8 +157,8 @@ fn cmd_billing_plans(json: bool) {
             e.private_registry
         );
         println!(
-            "    sso_scim: {}  audit_retention_days: {}  revenue_share: {}  supporter: {}",
-            e.sso_scim, e.audit_retention_days, e.revenue_share, e.supporter
+            "    sso_oidc: {}  sso_scim: {}  audit_retention_days: {}  revenue_share: {}  supporter: {}",
+            e.sso_oidc, e.sso_scim, e.audit_retention_days, e.revenue_share, e.supporter
         );
     }
     println!("\nThe Personal plane (local engine) is free + ungated regardless of plan.");
@@ -176,6 +176,7 @@ fn cmd_billing_entitlements(plan_arg: Option<&str>, json: bool) {
     println!("  hosted_index_mb:      {}", quota(e.hosted_index_mb));
     println!("  managed_connectors:   {}", quota(e.managed_connectors));
     println!("  private_registry:     {}", e.private_registry);
+    println!("  sso_oidc:             {}", e.sso_oidc);
     println!("  sso_scim:             {}", e.sso_scim);
     println!("  audit_retention_days: {}", e.audit_retention_days);
     println!("  revenue_share:        {}", e.revenue_share);
