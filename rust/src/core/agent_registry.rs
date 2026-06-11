@@ -137,15 +137,50 @@ fn audit(event_type: AuditEventType, agent_id: &str, role: &str, detail: Option<
     });
 }
 
+/// SHA-256 of the running binary, cached by (len, mtime) — heartbeats may
+/// fire every minute and the binary is large; re-hashing is only needed
+/// when the file on disk actually changed (which is exactly the drift
+/// signal we care about, and it changes the mtime).
+fn binary_sha256() -> String {
+    use std::sync::{Mutex, OnceLock};
+    /// (binary len, binary mtime secs) → hex digest.
+    type HashCache = Mutex<Option<((u64, u64), String)>>;
+    static CACHE: OnceLock<HashCache> = OnceLock::new();
+
+    let Ok(exe) = std::env::current_exe() else {
+        return String::new();
+    };
+    let Ok(meta) = std::fs::metadata(&exe) else {
+        return String::new();
+    };
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    let key = (meta.len(), mtime);
+
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    let mut slot = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((cached_key, hash)) = slot.as_ref() {
+        if *cached_key == key {
+            return hash.clone();
+        }
+    }
+    let hash = std::fs::read(&exe)
+        .map(|bytes| sha256_hex(&bytes))
+        .unwrap_or_default();
+    *slot = Some((key, hash.clone()));
+    hash
+}
+
 /// Best-effort attestation: hash the running binary and the role file.
 /// Detects drift; does NOT stop a determined attacker who controls the
 /// host (documented in docs/enterprise/agent-identity.md).
 pub fn attest(role: &str) -> Attestation {
-    let binary_sha256 = std::env::current_exe()
-        .ok()
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|bytes| sha256_hex(&bytes))
-        .unwrap_or_default();
+    let binary_sha256 = binary_sha256();
     let config_sha256 = role_file_path(role)
         .and_then(|p| std::fs::read(p).ok())
         .map(|bytes| sha256_hex(&bytes))
@@ -377,24 +412,23 @@ pub fn spiffe_id(record: &AgentRecord, trust_domain: &str) -> String {
 mod tests {
     use super::*;
 
-    fn isolated() -> tempfile::TempDir {
-        let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
-        tmp
+    /// Per-test registry isolation (GL #556): lock + fresh data dir,
+    /// env restored on drop even when the test panics.
+    fn isolated() -> crate::core::data_dir::IsolatedDataDir {
+        crate::core::data_dir::isolated_data_dir()
     }
 
     #[test]
     fn owner_is_mandatory_and_role_must_exist() {
-        let _tmp = isolated();
+        let _iso = isolated();
         assert!(register("a1", "coder", " ").is_err());
         assert!(register("a1", "no-such-role", "yves@org").is_err());
         assert!(register("a/1", "coder", "yves@org").is_err());
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn lifecycle_register_suspend_resume_decommission() {
-        let _tmp = isolated();
+        let _iso = isolated();
         let rec = register("agent-x", "coder", "yves@org").expect("register");
         assert_eq!(rec.status, AgentStatus::Active);
         assert_eq!(rec.public_key.len(), 64);
@@ -414,12 +448,11 @@ mod tests {
         assert!(!check("agent-x").allowed);
         assert!(resume("agent-x").is_err(), "decommissioned is final");
         assert!(get("agent-x").expect("kept").decommissioned_at.is_some());
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn owner_offboarding_suspends_only_their_active_agents() {
-        let _tmp = isolated();
+        let _iso = isolated();
         register("a-alice-1", "coder", "alice@org").expect("r1");
         register("a-alice-2", "reviewer", "alice@org").expect("r2");
         register("a-bob-1", "coder", "bob@org").expect("r3");
@@ -432,16 +465,14 @@ mod tests {
             get("a-alice-1").expect("alice").suspended_reason.as_deref(),
             Some("SCIM deactivated")
         );
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn unregistered_agents_are_flagged() {
-        let _tmp = isolated();
+        let _iso = isolated();
         let check = check("ghost");
         assert!(!check.registered);
         assert!(!check.allowed);
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -466,7 +497,7 @@ mod tests {
 
     #[test]
     fn heartbeat_updates_liveness_and_reports_no_false_drift() {
-        let _tmp = isolated();
+        let _iso = isolated();
         register("hb-1", "coder", "yves@org").expect("register");
         let drift = heartbeat("hb-1").expect("heartbeat");
         assert!(
@@ -475,6 +506,5 @@ mod tests {
         );
         assert!(get("hb-1").expect("rec").last_heartbeat.is_some());
         assert!(heartbeat("ghost").is_err());
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }
