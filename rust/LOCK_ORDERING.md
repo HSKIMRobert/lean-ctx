@@ -59,6 +59,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L46 | `ATTEMPTS` | `cloud_server/team_join.rs:32` | `Mutex<Option<HashMap<String, Vec<Instant>>>>` | Invite-redeem rate-limit attempt log (salted ip-hash → instants, pruned per insert) |
 | L47 | `SOURCE_COUNTS` | `core/auto_mode_resolver.rs:10` | `Mutex<Option<HashMap<&'static str, u64>>>` | Per-process counters of which signal decided each auto-mode resolution; surfaced by `ctx_metrics` (#496) |
 | L48 | `NO_GIT_ROOTS` | `core/git_signals.rs:23` | `Mutex<Option<HashSet<String>>>` | Roots probed and found non-git — negative cache so each root is probed at most once per process |
+| L49 | `BASELINE` | `core/datadog_push.rs:46` | `Mutex<Option<Baseline>>` | Last pushed counter totals for the Datadog agentless push — deltas are computed against it each interval (#401) |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
