@@ -41,10 +41,13 @@
     if (wh >= 1e3) return (wh / 1e3).toFixed(1) + ' kWh';
     return Math.round(wh) + ' Wh';
   };
+  // Attribute-safe HTML escape: the old textContent/innerHTML round-trip
+  // left `"` and `'` untouched, so values interpolated into title="..."/
+  // aria-label="..." could break out of the attribute (CodeQL #61-#65).
   const esc = function (s) {
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return '&#' + c.charCodeAt(0) + ';';
+    });
   };
   const CM = { i: 2.5, o: 10.0, v: 450, c: 120 };
   const isM = function (n) {

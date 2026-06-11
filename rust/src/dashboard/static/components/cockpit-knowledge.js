@@ -157,7 +157,7 @@ class CockpitKnowledge extends HTMLElement {
 
   render() {
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var fmt = F.fmt || function (n) { return String(n); };
     var S = shared();
 
@@ -291,7 +291,7 @@ class CockpitKnowledge extends HTMLElement {
     var box = this.querySelector('#kgFactsList');
     if (!box) return;
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var q = (this._factQuery || '').toLowerCase();
     var cat = this._factCat || null;
     var self = this;
@@ -674,7 +674,7 @@ class CockpitKnowledge extends HTMLElement {
 
   _tooltipHtml(d) {
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     if (d.type === 'category') {
       return (
@@ -696,7 +696,7 @@ class CockpitKnowledge extends HTMLElement {
   _onNodeClick(d) {
     if (typeof window.showDetail !== 'function') return;
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     if (d.type === 'category') {
       var facts = this._currentFacts().filter(function (f) {

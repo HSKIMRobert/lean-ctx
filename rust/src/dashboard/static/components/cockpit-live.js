@@ -486,7 +486,7 @@ class CockpitLive extends HTMLElement {
   render() {
     var F = fmtLib();
     var S = shared();
-    var esc = F.esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
     var pc = F.pc || function (a, b) { return b > 0 ? Math.round((a / b) * 100) : 0; };
     var fmt = F.fmt || function (n) { return String(n); };
@@ -926,7 +926,7 @@ class CockpitLive extends HTMLElement {
         btn.disabled = true;
         btn.textContent = 'Loading\u2026';
 
-        var esc = (fmtLib().esc || function (s) { var d = document.createElement('span'); d.textContent = s; return d.innerHTML; });
+        var esc = (fmtLib().esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); });
         var ff = (fmtLib().ff || function (n) { return String(n); });
 
         function renderComparison(origTok, origText, compTok, compText, modeKey, pct) {

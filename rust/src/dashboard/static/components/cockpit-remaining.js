@@ -103,7 +103,7 @@ class CockpitLearning extends HTMLElement {
 
   render() {
     var F = remFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     if (this._loading) {
       this.innerHTML =
@@ -146,7 +146,7 @@ class CockpitLearning extends HTMLElement {
    */
   _renderAdaptive() {
     var F = remFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var L = this._learning;
 
     var html =
@@ -495,7 +495,7 @@ class CockpitRoutes extends HTMLElement {
 
   render() {
     var F = remFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
 
     if (this._loading) {

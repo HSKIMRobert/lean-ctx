@@ -8,9 +8,10 @@
   function escHtml(s) {
     const F = window.LctxFmt;
     if (F && typeof F.esc === 'function') return F.esc(String(s));
-    const d = document.createElement('div');
-    d.textContent = s;
-    return d.innerHTML;
+    // Attribute-safe fallback: quotes must be escaped too.
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return '&#' + c.charCodeAt(0) + ';';
+    });
   }
 
   function fmtNum(n) {

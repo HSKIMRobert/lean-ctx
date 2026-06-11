@@ -114,7 +114,7 @@ class CockpitHealth extends HTMLElement {
 
   render() {
     var F = ckhFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     if (this._loading) {
       this.innerHTML =

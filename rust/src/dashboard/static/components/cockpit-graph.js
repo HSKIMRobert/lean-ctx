@@ -408,7 +408,7 @@ class CockpitGraph extends HTMLElement {
 
   _renderDepsGraph(container) {
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
 
     var rawFiles = this._graphData ? this._graphData.files : null;
@@ -725,7 +725,7 @@ class CockpitGraph extends HTMLElement {
     this._attachTooltips(nodeG, function (d) {
       var short = d.id.length > 50 ? '\u2026' + d.id.slice(-48) : d.id;
       var F2 = ckgFmt();
-      var esc2 = F2.esc || function (s) { return String(s); };
+      var esc2 = F2.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
       return (
         '<div class="nt-title">' + esc2(short) + '</div>' +
         '<div class="nt-row"><span class="nt-label">Language</span>' +
@@ -786,7 +786,7 @@ class CockpitGraph extends HTMLElement {
     if (!containerEl) return;
     var self = this;
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     var comm = {}, fileComm = {};
     files.forEach(function (f) {
@@ -895,7 +895,7 @@ class CockpitGraph extends HTMLElement {
     var surp = d.surprising_connections || [];
     if (!gods.length && !cycles.length && !bridges.length && !surp.length) return '';
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var base = function (p) { var a = String(p).split('/'); return a[a.length - 1] || p; };
 
     var html = '<div class="graph-insights" id="ckg-deps-insights">';
@@ -979,7 +979,7 @@ class CockpitGraph extends HTMLElement {
   _suggestedQuestionsHtml() {
     var d = this._graphData || {};
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var base = function (p) { var a = String(p).split('/'); return a[a.length - 1] || p; };
     var qs = [];
     var gods = d.god_nodes || [];
@@ -1154,7 +1154,7 @@ class CockpitGraph extends HTMLElement {
 
   _renderCallGraph(container) {
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
 
     if (this._callGraphBuilding) {
@@ -1356,7 +1356,7 @@ class CockpitGraph extends HTMLElement {
 
     this._attachTooltips(nodeG, function (d) {
       var F2 = ckgFmt();
-      var esc2 = F2.esc || function (s) { return String(s); };
+      var esc2 = F2.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
       return (
         '<div class="nt-title">' + esc2(d.id) + '</div>' +
         '<div class="nt-row"><span class="nt-label">File</span>' +
@@ -1427,7 +1427,7 @@ class CockpitGraph extends HTMLElement {
 
   _renderSymbolsTable(container) {
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
 
     var syms = Array.isArray(this._symbolsData)
@@ -1508,7 +1508,7 @@ class CockpitGraph extends HTMLElement {
     }
     var langs = Object.keys(counts).sort();
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var html =
       '<div class="graph-legend" id="ckg-deps-legend">' +
       '<div class="graph-legend-head">' +
@@ -1649,7 +1649,7 @@ class CockpitGraph extends HTMLElement {
     var input = box.querySelector('.gs-input');
     var results = box.querySelector('.gs-results');
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var pick = function (p) {
       results.hidden = true;
       self._focusDepsOn([p], true);
@@ -1703,7 +1703,7 @@ class CockpitGraph extends HTMLElement {
     if (!node) { this._closeInspector(); return; }
     this._inspectorPath = path;
     var F = ckgFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var base = function (p) { var a = String(p).split('/'); return a[a.length - 1] || p; };
     var outs = (this._depsOut && this._depsOut[path]) || [];
     var ins = (this._depsIn && this._depsIn[path]) || [];

@@ -130,7 +130,7 @@ class CockpitRoi extends HTMLElement {
 
   render() {
     var F = croiFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     if (this._loading) {
       this.innerHTML = '<div class="card"><div class="loading-state">Loading ROI\u2026</div></div>';

@@ -9,10 +9,11 @@ function cexpApi() {
 }
 
 function cexpEsc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  // Must stay attribute-safe (quotes included): output lands in
+  // aria-label="..." / title="..." attributes (CodeQL #62-#65).
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return '&#' + c.charCodeAt(0) + ';';
+  });
 }
 
 function cexpKindClass(kind) {

@@ -31,6 +31,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   flips, truncation and wrong keys are detected. Auditor guide:
   `docs/enterprise/reading-evidence.md`.
 
+### Security
+- **Dashboard: attribute-safe HTML escaping everywhere** (CodeQL #61–#65):
+  the central `LctxFmt.esc` used a `textContent`/`innerHTML` round-trip that
+  escapes `&<>` but not quotes, and `cexpEsc` in the explorer did the same —
+  a `"` in a file path, symbol name or knowledge value could break out of
+  `title="…"` / `aria-label="…"` attributes (DOM XSS). All escape helpers
+  (central + every per-component fallback, 35 sites across 15 files) now
+  escape `& < > " '` via numeric entities; the dangerous identity fallbacks
+  (`F.esc || String`) are gone. Verified by a functional breakout test.
+
 ### Fixed
 - **CI: deterministic test suite — no hidden embedding-engine loads**
   (pipeline red since the #551 efficiency program landed): the

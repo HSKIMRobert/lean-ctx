@@ -120,7 +120,7 @@ class CockpitSearch extends HTMLElement {
 
   render() {
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var fmt = F.fmt || function (n) { return String(n); };
 
     var body = '';
@@ -135,7 +135,7 @@ class CockpitSearch extends HTMLElement {
 
   _renderSearchBar(esc) {
     var F = fmtLib();
-    var escFn = esc || F.esc || function (s) { return String(s); };
+    var escFn = esc || F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var val = this._query ? escFn(this._query) : '';
 
     return (
@@ -161,7 +161,7 @@ class CockpitSearch extends HTMLElement {
     }
 
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var fmt = F.fmt || function (n) { return String(n); };
 
     var indexed = stats.doc_count != null ? fmt(stats.doc_count) : (stats.indexed_files != null ? fmt(stats.indexed_files) : '—');
@@ -196,8 +196,7 @@ class CockpitSearch extends HTMLElement {
     if (!container) return;
 
     var F = fmtLib();
-    var _e = document.createElement('span');
-    var esc = F.esc || function (s) { _e.textContent = s; return _e.innerHTML; };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var fmt = F.fmt || function (n) { return String(n); };
 
     if (this._loading) {
@@ -362,8 +361,7 @@ class CockpitSearch extends HTMLElement {
   /** Window of ±12 lines around the hit, line numbers, hit line highlighted. */
   _previewHtml(content, hitLine, totalLines, path) {
     var F = fmtLib();
-    var _el = document.createElement('span');
-    var esc = F.esc || function (s) { _el.textContent = s; return _el.innerHTML; };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
 
     var lines = String(content).split('\n');
     var from = Math.max(1, hitLine - 12);

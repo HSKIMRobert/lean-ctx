@@ -171,7 +171,7 @@ class CockpitOverview extends HTMLElement {
 
   render() {
     var F = fmtLib();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
     var fmt = F.fmt || function (n) { return String(n); };
     var pc = F.pc || function (a, b) { return b > 0 ? Math.round((a / b) * 100) : 0; };

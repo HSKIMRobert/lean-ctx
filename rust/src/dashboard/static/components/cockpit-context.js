@@ -78,7 +78,7 @@ function relTime(ts) {
   return Math.floor(sec / 86400) + 'd';
 }
 
-const escFallback = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const escFallback = s => String(s ?? '').replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 
 // /api/context-summary items carry the sent size as `tokens`; the render code
 // (and CSV-style sorting) speaks `sent_tokens`. Normalize once on ingest so

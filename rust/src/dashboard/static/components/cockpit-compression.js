@@ -243,7 +243,7 @@ class CockpitCompression extends HTMLElement {
 
   render() {
     var F = ckcFmt();
-    var esc = F.esc || function (s) { return String(s); };
+    var esc = F.esc || function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); };
     var ff = F.ff || function (n) { return String(n); };
     var S = ckcShared();
 
