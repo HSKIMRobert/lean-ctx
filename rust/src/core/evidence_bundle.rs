@@ -72,39 +72,55 @@ pub fn generate(spec: &BundleSpec) -> Result<BundleResult, String> {
     let trail_raw = std::fs::read_to_string(&trail_path)
         .map_err(|e| format!("no audit trail at {}: {e}", trail_path.display()))?;
 
-    let mut segment_lines: Vec<&str> = Vec::new();
+    let mut segment_lines: Vec<String> = Vec::new();
     let mut anchor_prev_hash: Option<String> = None;
     let mut head_hash = String::new();
     for (lineno, line) in trail_raw.lines().enumerate() {
-        // Unparseable lines OUTSIDE the attested window are tolerated
-        // (historic concurrent-append corruption must not block attesting
-        // a clean later period); inside the window they are a hard error —
-        // an evidence artifact must never paper over a gap.
-        let entry: AuditEntry = match serde_json::from_str(line) {
-            Ok(e) => e,
-            Err(e) => {
-                if segment_lines.is_empty() {
-                    continue;
+        // Concurrent appends have historically produced lines holding two
+        // back-to-back JSON objects (`…}{…`). A stream deserializer splits
+        // them losslessly — entry hashes are untouched, so the chain still
+        // proves integrity. Lines that don't parse AT ALL are tolerated
+        // only outside the attested window; inside it they are a hard
+        // error — an evidence artifact must never paper over a gap.
+        let mut stream = serde_json::Deserializer::from_str(line).into_iter::<serde_json::Value>();
+        let mut parsed_any = false;
+        loop {
+            let value = match stream.next() {
+                None => break,
+                Some(Ok(v)) => v,
+                Some(Err(e)) => {
+                    if segment_lines.is_empty() && !parsed_any {
+                        break; // pre-window garbage
+                    }
+                    return Err(format!(
+                        "corrupt trail line {} inside the attested period: {e}",
+                        lineno + 1
+                    ));
                 }
-                return Err(format!(
-                    "corrupt trail line {} inside the attested period: {e}",
-                    lineno + 1
-                ));
+            };
+            parsed_any = true;
+            let entry: AuditEntry = match serde_json::from_value(value) {
+                Ok(e) => e,
+                Err(e) => {
+                    if segment_lines.is_empty() {
+                        continue;
+                    }
+                    return Err(format!("malformed audit entry at line {}: {e}", lineno + 1));
+                }
+            };
+            let ts = chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
+                .map_err(|e| format!("corrupt trail timestamp at line {}: {e}", lineno + 1))?;
+            if ts < from || ts > to {
+                continue;
             }
-        };
-        let ts = chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
-            .map_err(|e| format!("corrupt trail timestamp at line {}: {e}", lineno + 1))?;
-        if ts < from || ts > to {
-            if !segment_lines.is_empty() {
-                break; // past the window — the segment is complete
+            if anchor_prev_hash.is_none() {
+                anchor_prev_hash = Some(entry.prev_hash.clone());
             }
-            continue;
+            head_hash.clone_from(&entry.entry_hash);
+            // Re-serialize one-object-per-line; field order is the struct's
+            // declaration order, identical to what `record()` writes.
+            segment_lines.push(serde_json::to_string(&entry).map_err(|e| e.to_string())?);
         }
-        if anchor_prev_hash.is_none() {
-            anchor_prev_hash = Some(entry.prev_hash.clone());
-        }
-        head_hash.clone_from(&entry.entry_hash);
-        segment_lines.push(line);
     }
     if segment_lines.is_empty() {
         return Err(format!(

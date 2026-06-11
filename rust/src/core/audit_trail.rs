@@ -3,7 +3,6 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
@@ -53,8 +52,6 @@ pub struct ChainVerifyResult {
     pub first_invalid_at: Option<usize>,
 }
 
-static LAST_HASH: Mutex<Option<String>> = Mutex::new(None);
-
 fn trail_path() -> Option<PathBuf> {
     let dir = crate::core::data_dir::lean_ctx_data_dir().ok()?;
     let audit_dir = dir.join("audit");
@@ -62,30 +59,53 @@ fn trail_path() -> Option<PathBuf> {
     Some(audit_dir.join("trail.jsonl"))
 }
 
-fn init_last_hash(path: &PathBuf) -> String {
-    let mut guard = LAST_HASH
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(ref h) = *guard {
-        return h.clone();
-    }
-    let hash = read_last_hash_from_file(path);
-    *guard = Some(hash.clone());
-    hash
-}
+/// Read the chain tail from the file itself. Called under the exclusive
+/// file lock — the file is the ONLY source of truth for `prev_hash`. (A
+/// per-process cache forked the chain whenever two processes appended
+/// concurrently — found by `leanctx-verify` on a real trail, GL #425.)
+fn read_last_hash_tail(file: &fs::File) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL: i64 = 64 * 1024;
 
-fn read_last_hash_from_file(path: &PathBuf) -> String {
-    let Ok(file) = fs::File::open(path) else {
+    let mut f = file;
+    let Ok(len) = f.seek(SeekFrom::End(0)) else {
         return "genesis".to_string();
     };
-    let reader = std::io::BufReader::new(file);
-    let mut last_hash = "genesis".to_string();
-    for line in reader.lines().map_while(Result::ok) {
-        if let Ok(entry) = serde_json::from_str::<AuditEntry>(&line) {
-            last_hash = entry.entry_hash;
+    if len == 0 {
+        return "genesis".to_string();
+    }
+    let start = if (len as i64) > TAIL {
+        -TAIL
+    } else {
+        -(len as i64)
+    };
+    if f.seek(SeekFrom::End(start)).is_err() {
+        return "genesis".to_string();
+    }
+    let mut buf = String::new();
+    if f.read_to_string(&mut buf).is_err() {
+        return "genesis".to_string();
+    }
+    // Concurrent-append history may hold multiple objects per line; a
+    // stream parse of the last non-empty line yields the true tail entry.
+    for line in buf.lines().rev() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let mut last: Option<String> = None;
+        for v in serde_json::Deserializer::from_str(line)
+            .into_iter::<serde_json::Value>()
+            .flatten()
+        {
+            if let Some(h) = v.get("entry_hash").and_then(|h| h.as_str()) {
+                last = Some(h.to_string());
+            }
+        }
+        if let Some(h) = last {
+            return h;
         }
     }
-    last_hash
+    "genesis".to_string()
 }
 
 fn compute_entry_hash(prev_hash: &str, data_json: &str) -> String {
@@ -96,8 +116,23 @@ fn compute_entry_hash(prev_hash: &str, data_json: &str) -> String {
 }
 
 pub fn record(data: AuditEntryData) {
+    use fs2::FileExt;
+
     let Some(path) = trail_path() else { return };
-    let prev_hash = init_last_hash(&path);
+    let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .read(true)
+        .open(&path)
+    else {
+        return;
+    };
+    // Advisory lock serializes appends ACROSS processes; prev_hash is read
+    // from the file under the same lock, so the chain cannot fork.
+    if file.lock_exclusive().is_err() {
+        return;
+    }
+    let prev_hash = read_last_hash_tail(&file);
 
     let partial = serde_json::json!({
         "agent_id": data.agent_id,
@@ -125,19 +160,14 @@ pub fn record(data: AuditEntryData) {
         role: data.role,
         event_type: data.event_type,
         prev_hash,
-        entry_hash: entry_hash.clone(),
+        entry_hash,
         signature,
     };
 
     if let Ok(line) = serde_json::to_string(&entry) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = writeln!(file, "{line}");
-        }
+        let _ = writeln!(file, "{line}");
     }
-
-    if let Ok(mut guard) = LAST_HASH.lock() {
-        *guard = Some(entry_hash);
-    }
+    let _ = FileExt::unlock(&file);
 }
 
 pub fn load_recent(limit: usize) -> Vec<AuditEntry> {

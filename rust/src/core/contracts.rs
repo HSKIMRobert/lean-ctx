@@ -120,6 +120,8 @@ pub fn contract_docs() -> Vec<ContractDoc> {
         // v2 = v1 + storageQuotaBytes/roiWebhookUrl (GL #387/#388); v1 stays frozen.
         doc("billing-plane-v3", "billing-plane-v3.md", 3, Stable),
         // v3 = v1 + business plan + sso_oidc entitlement (GL #460/#533); additive.
+        doc("evidence-bundle", "evidence-bundle-v1.md", 1, Stable),
+        // Offline-verifiable audit evidence ZIP (GL #425, H3 Epic A).
         doc("team-server-v2", "team-server-contract-v2.md", 2, Stable),
         doc("a2a", "a2a-contract-v1.md", 1, Stable),
         doc(

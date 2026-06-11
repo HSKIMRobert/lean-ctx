@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Evidence Bundle v1 + standalone offline verifier** (GL #425, H3
+  Epic A): `lean-ctx audit evidence --from --to [--framework]` exports a
+  deterministic ZIP (`evidence-bundle-v1` contract) — audit-chain segment,
+  resolved policy pack, CGB + framework coverage reports, Ed25519-signed
+  manifest; identical inputs produce byte-identical bundles. New
+  independent verifier `packages/leanctx-verify` (no engine code, no
+  network, 4 deps) replays the hash chain and validates signatures in
+  five auditor-readable PASS/FAIL steps; mutation tests prove 1-byte
+  flips, truncation and wrong keys are detected. Auditor guide:
+  `docs/enterprise/reading-evidence.md`.
+
+### Fixed
+- **Audit chain forked under concurrent processes** (found via GL #425
+  E2E): `prev_hash` came from a per-process cache, so two processes
+  appending simultaneously both chained onto the same parent (and could
+  interleave half-written lines). `record()` now takes an exclusive
+  advisory file lock and reads the chain tail from the file itself;
+  regression test runs 4 concurrent writers and demands one valid
+  100-entry chain. The evidence generator additionally splits historic
+  glued lines losslessly and refuses unparseable data inside an attested
+  period.
+
+### Added
 - **Framework compliance reports — EU AI Act, ISO 42001, SOC 2**
   (GL #424, H3 Epic A): machine-readable mapping matrices under
   `compliance/mappings/*.toml` (framework-edition pinned, semi-annual
