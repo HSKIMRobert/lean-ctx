@@ -58,6 +58,47 @@ async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> 
     serde_json::from_str::<Value>(&body).ok()
 }
 
+/// Billing-side account deletion (GL #518): cancels any live subscription
+/// immediately and purges the user's billing rows.
+///
+/// Tri-state by design:
+/// - billing not configured → `Ok(None)` (nothing to delete — standalone deploy)
+/// - billing reachable + 2xx → `Ok(Some(response))`
+/// - anything else → `Err(502)` — the caller MUST abort the account deletion,
+///   otherwise a paid subscription could keep charging a deleted account.
+pub(super) async fn billing_delete_account(
+    cfg: &Config,
+    user_id: Uuid,
+) -> Result<Option<Value>, (StatusCode, String)> {
+    let (Some(base), Some(key)) = (
+        cfg.billing_base_url.clone(),
+        cfg.billing_internal_key.clone(),
+    ) else {
+        return Ok(None);
+    };
+
+    let url = format!("{base}/api/billing/account/{user_id}");
+    let body = tokio::task::spawn_blocking(move || {
+        ureq::delete(&url)
+            .header("X-Internal-Key", &key)
+            .call()
+            .map_err(|e| e.to_string())?
+            .into_body()
+            .read_to_string()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("billing deletion failed — account NOT deleted, please retry: {e}"),
+        )
+    })?;
+
+    Ok(Some(serde_json::from_str(&body).unwrap_or(Value::Null)))
+}
+
 /// Whether this deployment leaves cloud sync **ungated** for everyone: either no
 /// commercial plane is wired (`billing_base_url` unset), or the operator
 /// explicitly opted out (`LEANCTX_CLOUD_SYNC_OPEN=1`). leanctx.com has neither,
@@ -150,10 +191,17 @@ pub(super) async fn get_account_entitlements(
         .as_ref()
         .and_then(|v| v.get("org").cloned())
         .unwrap_or(Value::Null);
+    // Subscription lifecycle (GL #518): lets the dashboard show a scheduled
+    // cancellation ("ends on July 10 — resume anytime") instead of silence.
+    let subscription = raw
+        .as_ref()
+        .and_then(|v| v.get("subscription").cloned())
+        .unwrap_or(Value::Null);
     Ok(Json(json!({
         "plan": plan.as_str(),
         "entitlements": plan.entitlements(),
         "org": org,
+        "subscription": subscription,
     })))
 }
 
@@ -839,6 +887,62 @@ pub(super) async fn delete_account_registry_token(
         "DELETE",
         format!("/api/billing/registry/{user_id}/tokens/{token_id}"),
         None,
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for `PUT /api/account/registry/price`.
+#[derive(Deserialize)]
+pub(super) struct RegistryPriceBody {
+    name: String,
+    /// `0` / absent clears the price (the pack becomes free again).
+    #[serde(default)]
+    price_cents: Option<i32>,
+}
+
+/// `PUT /api/account/registry/price` — set or clear a package price on the
+/// account's namespace (Paid Packs v0, GL #529).
+pub(super) async fn put_account_registry_price(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegistryPriceBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, _email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "PUT",
+        format!("/api/billing/registry/{user_id}/price"),
+        Some(json!({ "name": body.name, "price_cents": body.price_cents })),
+    )
+    .await?;
+    finish(status, json)
+}
+
+/// Request body for `POST /api/account/registry/buy`.
+#[derive(Deserialize)]
+pub(super) struct RegistryBuyBody {
+    namespace: String,
+    name: String,
+}
+
+/// `POST /api/account/registry/buy` — start a Stripe Checkout for a paid
+/// pack; returns the hosted checkout URL (GL #529).
+pub(super) async fn post_account_registry_buy(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RegistryBuyBody>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let (user_id, email) = auth_user(&state, &headers).await?;
+    let (status, json) = billing_forward(
+        &state.cfg,
+        "POST",
+        format!("/api/billing/registry/{user_id}/buy"),
+        Some(json!({
+            "namespace": body.namespace,
+            "name": body.name,
+            "email": email,
+        })),
     )
     .await?;
     finish(status, json)

@@ -237,6 +237,15 @@ fn not_found_hint(token: Option<&str>) -> &'static str {
     }
 }
 
+/// Paid packs answer 402 with an actionable message in `{"error": …}`
+/// (where to buy, how to install) — surface it verbatim (GL #529).
+fn payment_hint(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_string))
+        .unwrap_or_else(|| "this is a paid package — purchase required".to_string())
+}
+
 fn http_get(url: &str, token: Option<&str>) -> Result<String, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
@@ -256,6 +265,9 @@ fn http_get(url: &str, token: Option<&str>) -> Result<String, String> {
         .map_err(|e| format!("read registry response: {e}"))?;
     if status == 404 {
         return Err(not_found_hint(token).to_string());
+    }
+    if status == 402 {
+        return Err(payment_hint(&body));
     }
     if status >= 400 {
         return Err(format!("registry error (HTTP {status})"));
@@ -279,12 +291,15 @@ fn http_get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     if status == 404 {
         return Err(not_found_hint(token).to_string());
     }
-    if status >= 400 {
-        return Err(format!("registry error (HTTP {status})"));
-    }
     let mut reader = resp.into_body().into_reader();
     let mut buf = Vec::new();
     std::io::Read::read_to_end(&mut reader, &mut buf).map_err(|e| format!("read artifact: {e}"))?;
+    if status == 402 {
+        return Err(payment_hint(&String::from_utf8_lossy(&buf)));
+    }
+    if status >= 400 {
+        return Err(format!("registry error (HTTP {status})"));
+    }
     Ok(buf)
 }
 

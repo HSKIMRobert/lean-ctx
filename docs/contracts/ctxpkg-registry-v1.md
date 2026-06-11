@@ -49,6 +49,26 @@ signature = ed25519_sign(signing_key, message_bytes)
   `Cache-Control: private, no-store`.
 - Set at export: `lean-ctx pack export <name> --sign --private`.
 
+## Paid packs (GL #529, v0 first-party)
+
+- Price is **registry metadata** (`registry_packages.price_cents/currency`),
+  *not* part of the signed manifest — repricing never forces a release.
+  Set via `PUT /api/account/registry/price {name, price_cents}` (owner/admin;
+  `0`/`null` clears; v0 cap 50 000 cents).
+- Catalog/index expose `price: {amount_cents, currency} | null`. Discovery
+  of paid packs stays public — only the **download** is gated.
+- Download gate: no purchase and no owning-namespace token → **402** with an
+  actionable `{"error": …}` (where to buy). Purchased or owner → 200 with
+  `Cache-Control: private, no-store`.
+- Buy flow: `POST /api/account/registry/buy {namespace, name}` (session auth
+  on leanctx.com) → Stripe Checkout (`mode=payment`, metadata
+  `kind=ctxpkg_purchase`, `user_id`, `package_id`) → webhook
+  `checkout.session.completed` records the purchase (idempotent on the
+  session id). Purchases bind to the account; buyers mint **account install
+  tokens** (`ctxr_…`, no namespace required) to install.
+- Refunds: manual in v0 (Stripe dashboard; delete the purchase row to
+  revoke access).
+
 ## Public surface (ctxpkg.com → control plane `/registry/v1/*`)
 
 ctxpkg.com proxies `/api/*` → control-plane `/registry/*`. All bodies JSON
@@ -78,6 +98,8 @@ Edge routes (session auth, open `cloud_server`):
 | `PUT /api/account/registry/namespace` | `PUT /api/billing/registry/{user_id}/namespace` |
 | `POST /api/account/registry/tokens` | `POST /api/billing/registry/{user_id}/tokens` |
 | `DELETE /api/account/registry/tokens/{id}` | `DELETE /api/billing/registry/{user_id}/tokens/{id}` |
+| `PUT /api/account/registry/price` | `PUT /api/billing/registry/{user_id}/price` |
+| `POST /api/account/registry/buy` | `POST /api/billing/registry/{user_id}/buy` |
 
 Tokens (GL #524 scopes): 256-bit, plaintext shown exactly once at mint; only
 the SHA-256 is stored. Max 10 active per publisher; revocation is immediate.
@@ -85,10 +107,13 @@ the SHA-256 is stored. Max 10 active per publisher; revocation is immediate.
 | Scope | Prefix | May | Minted by |
 |---|---|---|---|
 | `publish` (default) | `ctxp_` | publish, yank, install (incl. private) | anchor / org owner / org admin |
-| `read` | `ctxr_` | install only (incl. private) — CI-safe | any org member |
+| `read` | `ctxr_` | install only (incl. private + purchased) — CI-safe | any org member; **any account** (buyer install tokens, GL #529) |
 
 `POST …/tokens` body: `{label?, scope?: "publish"\|"read"}`. The claim body
 accepts `{namespace, org_id?}`; org claims need owner/admin in that org.
+Accounts without a namespace may mint `read` tokens only (`GET
+/api/account/registry` then returns `namespace: null` plus their tokens and
+purchases).
 
 ## CLI surface
 
@@ -123,16 +148,18 @@ registry = "https://ctxpkg.com/api"
 - **WASM plugins / policy packs as registry artifacts** — blocked on the
   capability-audit pipeline (#403 signing story); v1 hosts signed `.ctxpkg`
   context packages only.
-- Payouts/monetization, namespace transfer, multiple keys per publisher
-  (key rotation = new publisher identity in v1).
+- Publisher payouts (Stripe Connect rev-share, GL #532), namespace
+  transfer, multiple keys per publisher (key rotation = new publisher
+  identity in v1).
 - ~~Server-side search~~ → shipped (GL #514). ~~Org-owned namespaces,
   private packages, read tokens~~ → shipped (GL #524, P2).
+  ~~First-party paid packs~~ → shipped (GL #529, P3 v0).
 
 ## Module map
 
 | Concern | Where |
 |---|---|
-| Server: routes + validation | control plane `src/routes/registry.rs`, `src/routes/registry_tokens.rs` |
+| Server: routes + validation | control plane `src/routes/registry.rs`, `src/routes/registry_tokens.rs`, `src/routes/registry_purchases.rs` |
 | Server: queries / blobs / verify | control plane `src/registry_db.rs`, `src/registry_store.rs`, `src/registry_verify.rs` |
 | Client: remote calls | `rust/src/core/context_package/remote.rs` |
 | Client: signing keys | `rust/src/core/context_package/keys.rs` |

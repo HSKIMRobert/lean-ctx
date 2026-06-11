@@ -1,3 +1,4 @@
+mod account_admin;
 mod account_cloud;
 mod auth;
 mod billing_edge;
@@ -172,6 +173,11 @@ pub async fn run() -> anyhow::Result<()> {
         // privacy-preserving footprint of what the account has synced. Drives
         // the dashboard-vs-upsell split on /account/cloud for every plan.
         .route("/api/account/cloud", get(account_cloud::get_account_cloud))
+        // Account self-service (GL #518): full data export (GDPR Art. 20) and
+        // irreversible deletion (Art. 17) — billing dies first, then the
+        // users row cascades through every synced table.
+        .route("/api/account/export", get(account_admin::export_account))
+        .route("/api/account", delete(account_admin::delete_account))
         // Device overview (GL #387): list machines that synced (from the
         // X-Device-Label header on pushes) + forget a stale row. Display
         // metadata only — no auth or quota semantics attached to a device.
@@ -281,6 +287,15 @@ pub async fn run() -> anyhow::Result<()> {
         .route(
             "/api/account/registry/domains/{domain_id}",
             delete(billing_edge::delete_account_registry_domain),
+        )
+        // Paid Packs v0 (GL #529): publisher pricing + buyer checkout.
+        .route(
+            "/api/account/registry/price",
+            put(billing_edge::put_account_registry_price),
+        )
+        .route(
+            "/api/account/registry/buy",
+            post(billing_edge::post_account_registry_buy),
         )
         // Team seats (prorated Stripe quantity), hosted-index storage footprint,
         // and managed connectors — thin proxies to the private plane so the hosted
