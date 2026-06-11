@@ -90,6 +90,11 @@ Tip: open a ticket via the [New Compression Pattern](.github/ISSUE_TEMPLATE/comp
 - Prefer real, runnable examples (no mock data)
 - If you add a new example app, add it under `cookbook/examples/` and ensure it talks to a real `lean-ctx serve` instance
 
+## Issues
+
+- If your issue was closed but the problem persists, comment `/reopen` on it — as the original author, this reopens the issue automatically (GitHub itself does not let authors reopen maintainer-closed issues)
+- Issues closed as *not planned* are maintainer decisions and are not reopened automatically; a comment is still welcome
+
 ## Pull requests
 
 - Keep PRs focused (one theme per PR)
