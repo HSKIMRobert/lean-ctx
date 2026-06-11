@@ -1,10 +1,12 @@
 # LeanCTX Vision
 
+> **Control what your AI can see.**
+
 ## The Cognitive Context Layer
 
 In 2026, we've moved past "just sending a prompt." High performance with LLMs isn't about bigger context windows — it's about **Information Density**.
 
-LeanCTX is the **Cognitive Context Layer** between your AI and your code — a cognitive filter and intelligence buffer in one. Not a proxy. Not a wrapper. It ensures every token reaching the LLM carries maximum signal. Every byte of noise stripped away is a byte of reasoning gained.
+LeanCTX is the **Cognitive Context Layer** between your AI and your code. Not a proxy. Not a wrapper. It puts you in control of what your AI can see: every token reaching the LLM carries maximum signal, and every byte of noise stripped away is a byte of reasoning gained.
 
 > The winners won't be those who can afford 1M token contexts.
 > They'll be those who achieve the same result with 10K.
@@ -59,9 +61,9 @@ If you send `function`, you've used 1 token to convey almost zero unique informa
 
 LeanCTX is a **Lossless Minifier for Human Thought**.
 
-## Brute Force vs. Cognitive Filter
+## Brute Force vs. Controlled Context
 
-| Dimension | Brute Force (Standard) | Cognitive Filter (LeanCTX) |
+| Dimension | Brute Force (Standard) | Controlled Context (LeanCTX) |
 |---|---|---|
 | **Data Sent** | Full files, raw logs, all history | AST signatures, diffs, state summaries |
 | **Latency** | High (large input ingestion) | Low (minimal token processing) |

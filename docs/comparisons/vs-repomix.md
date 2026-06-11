@@ -7,7 +7,7 @@
 | | lean-ctx | Repomix |
 |---|---|---|
 | **Approach** | Live context layer with session memory | Snapshot-based codebase packer |
-| **GitHub Stars** | 1,800+ | 25,000+ |
+| **GitHub Stars** | 2,600+ | 25,000+ |
 | **Language** | Rust (single binary) | TypeScript (Node.js) |
 | **License** | Apache 2.0 | MIT |
 | **MCP Tools** | 68+ | 8 |

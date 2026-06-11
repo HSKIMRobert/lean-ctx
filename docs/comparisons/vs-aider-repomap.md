@@ -7,7 +7,7 @@
 | | lean-ctx | Aider repo-map |
 |---|---|---|
 | **Approach** | MCP-available context layer with PageRank repo-map | Built-in feature of Aider CLI |
-| **GitHub Stars** | 1,800+ (lean-ctx) | 43,000+ (Aider) |
+| **GitHub Stars** | 2,600+ (lean-ctx) | 43,000+ (Aider) |
 | **Language** | Rust | Python |
 | **Availability** | MCP server (works with 28 agents) | Locked to Aider CLI |
 | **PageRank** | Session-aware personalized PageRank | Personalized PageRank |

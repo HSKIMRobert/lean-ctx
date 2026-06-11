@@ -7,7 +7,7 @@
 | | lean-ctx | codebase-memory-mcp |
 |---|---|---|
 | **Approach** | Cognitive context layer (compress + memory + governance) | Code intelligence engine (knowledge graph + structural queries) |
-| **GitHub Stars** | 1,800+ | 3,000+ |
+| **GitHub Stars** | 2,600+ | 3,000+ |
 | **Language** | Rust | C |
 | **License** | Apache 2.0 | Proprietary |
 | **MCP Tools** | 68+ | 14 |

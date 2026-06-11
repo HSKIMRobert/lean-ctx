@@ -7,7 +7,7 @@
 | | lean-ctx | claude-context |
 |---|---|---|
 | **Approach** | Local-first cognitive context layer | Cloud-dependent semantic search plugin |
-| **GitHub Stars** | 1,800+ | 11,500+ |
+| **GitHub Stars** | 2,600+ | 11,500+ |
 | **Language** | Rust (single binary) | TypeScript (Node.js monorepo) |
 | **License** | Apache 2.0 | MIT |
 | **MCP Tools** | 68+ | 3-4 |

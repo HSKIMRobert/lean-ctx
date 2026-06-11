@@ -7,7 +7,7 @@
 | | lean-ctx | Mem0 |
 |---|---|---|
 | **Approach** | Local-first context layer for coding agents | Universal memory layer for all AI agents |
-| **GitHub Stars** | 1,800+ | 55,000+ |
+| **GitHub Stars** | 2,600+ | 55,000+ |
 | **Language** | Rust (single binary) | Python |
 | **License** | Apache 2.0 | Apache 2.0 |
 | **Focus** | Code-specific (files, shells, repos) | General-purpose (conversations, preferences, entities) |
