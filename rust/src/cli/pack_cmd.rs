@@ -935,7 +935,7 @@ fn cmd_pack_publish(args: &[String]) {
             "Usage: lean-ctx pack publish <file.ctxpkg> [--registry <url>] [--token <ctxp_…>]"
         );
         eprintln!();
-        eprintln!("The token comes from your leanctx.com account (Account → Registry) or");
+        eprintln!("The token comes from your ctxpkg.com account (ctxpkg.com/account) or");
         eprintln!("the CTXPKG_TOKEN environment variable. Packages must be signed and");
         eprintln!("scoped (@namespace/name) — see `lean-ctx pack export --sign`.");
         return;
@@ -962,7 +962,7 @@ fn cmd_pack_publish(args: &[String]) {
     let base = remote::registry_base(parse_flag(args, "--registry").as_deref());
     let Some(token) = remote::publish_token(parse_flag(args, "--token").as_deref()) else {
         eprintln!("ERROR: no publish token — pass --token or set CTXPKG_TOKEN");
-        eprintln!("Mint one at leanctx.com → Account → Registry.");
+        eprintln!("Mint one at ctxpkg.com/account (sign in, then Tokens → Mint).");
         return;
     };
     if token.starts_with("ctxr_") {
