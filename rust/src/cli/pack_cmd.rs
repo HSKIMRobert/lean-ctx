@@ -40,6 +40,7 @@ pub(crate) fn cmd_pack(args: &[String]) {
         "remove" | "rm" => cmd_pack_remove(args),
         "export" => cmd_pack_export(args),
         "import" => cmd_pack_import(args, &project_root),
+        "verify" => cmd_pack_verify(args),
         "auto-load" => cmd_pack_auto_load(args),
         "publish" => cmd_pack_publish(args),
         "send" => cmd_pack_send(args, &project_root),
@@ -835,6 +836,64 @@ fn cmd_pack_import(args: &[String], project_root: &str) {
     }
 }
 
+/// `pack verify` — standalone conformance check (spec §8/§9), no install.
+/// Exit code 0 = all files valid, 1 = any failure (CI-friendly).
+fn cmd_pack_verify(args: &[String]) {
+    use crate::core::context_package::verify::{verify_package_file, CheckOutcome};
+
+    let files: Vec<&String> = args
+        .iter()
+        .filter(|a| !a.starts_with("--") && *a != "verify")
+        .collect();
+    if files.is_empty() {
+        eprintln!("Usage: lean-ctx pack verify <file.ctxpkg> [more files...]");
+        std::process::exit(2);
+    }
+
+    let label = |o: CheckOutcome| match o {
+        CheckOutcome::Pass => "pass",
+        CheckOutcome::Fail => "FAIL",
+        CheckOutcome::Skipped => "skipped",
+    };
+
+    let mut all_valid = true;
+    for file in files {
+        match verify_package_file(std::path::Path::new(file)) {
+            Ok(report) => {
+                let verdict = if report.valid() { "VALID" } else { "INVALID" };
+                let subject = match (&report.name, &report.version) {
+                    (Some(n), Some(v)) => format!("{n}@{v}"),
+                    _ => "(unparseable manifest)".into(),
+                };
+                println!("{verdict}  {file}  {subject}");
+                println!("  structure      {}", label(report.structure));
+                println!("  content hash   {}", label(report.content_hash));
+                println!("  package hash   {}", label(report.package_hash));
+                let sig = if report.signature == CheckOutcome::Skipped {
+                    "skipped (unsigned)"
+                } else {
+                    label(report.signature)
+                };
+                println!("  signature      {sig}");
+                for err in &report.errors {
+                    println!("    - {err}");
+                }
+                if !report.valid() {
+                    all_valid = false;
+                }
+            }
+            Err(e) => {
+                println!("ERROR    {file}");
+                println!("    - {e}");
+                all_valid = false;
+            }
+        }
+    }
+    if !all_valid {
+        std::process::exit(1);
+    }
+}
+
 fn cmd_pack_auto_load(args: &[String]) {
     let mut pkg_ref: Option<&str> = None;
     let mut enable = true;
@@ -1320,6 +1379,7 @@ fn print_usage() {
          Share & Distribute:\n\
          \x20 export   <name>[@version] [--output=<path>] [--sign] [--private] [--allow-secrets]  Export to .{ext} file (--sign: ed25519, required for publish; --private: hidden on the hosted registry; secret scan blocks credential-shaped content unless --allow-secrets)\n\
          \x20 import   <file.{ext}> [--apply]            Import from file\n\
+         \x20 verify   <file.{ext}> [...]                Verify integrity + signature, no install (spec \u{a7}8/\u{a7}9; exit 1 on failure)\n\
          \x20 install  <name>[@version] [--file=<path>]    Apply package to current project\n\
          \x20 install  <ns>/<name>[@version]              Install from the hosted registry\n\
          \x20                                             (ctxpkg.com; verifies sha256 + signature, pins in ctxpkg.lock)\n\

@@ -323,7 +323,10 @@ mod tests {
             "should contain box-drawing: {result}"
         );
 
+        // Restore ALL touched env — leaking LEAN_CTX_SAVINGS_FOOTER=always
+        // made footers visible in unrelated tests (GL #556 flakiness).
         std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 
     #[test]

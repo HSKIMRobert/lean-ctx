@@ -448,7 +448,19 @@ fn raw_mode_returns_exact_file_content() {
 /// provider-side prompt caching.
 #[test]
 fn process_mode_output_is_byte_stable_across_calls() {
-    let _lock = crate::core::data_dir::test_env_lock();
+    // Fresh, empty data dir (GL #556): the shared per-process test sandbox
+    // accumulates feedback/bandit/session stores from parallel tests, which
+    // feed adaptive_thresholds() and make entropy-mode output drift between
+    // two calls. Purity only holds against a stable learning state.
+    let _iso = crate::core::data_dir::isolated_data_dir();
+    // Footer visibility must be the default (`never`) for purity: with a
+    // visible footer, the process-global session accumulator appends a
+    // `session: N saved` line every 10th call across ALL tests. Other tests
+    // leaked `LEAN_CTX_SAVINGS_FOOTER=always` here in the past — neutralize
+    // defensively while we hold the env lock.
+    std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+    std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+    std::env::remove_var("LEAN_CTX_QUIET");
     let content: String = (0..120)
         .map(|i| format!("pub fn handler_{i}(x: u32) -> u32 {{ x * {i} }}"))
         .collect::<Vec<_>>()

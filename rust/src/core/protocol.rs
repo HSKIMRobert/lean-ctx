@@ -586,6 +586,9 @@ mod tests {
         std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
         assert!(!super::savings_footer_visible());
 
+        // Restore ALL touched env — leaking LEAN_CTX_SAVINGS_FOOTER made
+        // footers visible in unrelated tests (GL #556 flakiness).
         std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 }

@@ -13,6 +13,7 @@ pub mod manifest;
 pub mod registry;
 pub mod remote;
 pub mod signing;
+pub mod verify;
 
 pub use auto_load::auto_load_packages;
 pub use builder::PackageBuilder;
