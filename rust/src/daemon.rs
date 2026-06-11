@@ -79,12 +79,14 @@ pub fn start_daemon(args: &[String]) -> Result<()> {
         Err(_) => std::process::Stdio::inherit(),
     };
 
-    let child = Command::new(&exe)
-        .args(&cmd_args)
+    let mut cmd = Command::new(&exe);
+    cmd.args(&cmd_args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(stderr_cfg)
-        .spawn()
+        .stderr(stderr_cfg);
+    // Detached spawn: on Windows the daemon must escape the parent's
+    // console/Job so it survives AI-client MCP process recycling (GL #545).
+    let child = ipc::process::spawn_detached(&mut cmd)
         .with_context(|| format!("failed to spawn daemon: {}", exe.display()))?;
 
     let pid = child.id();

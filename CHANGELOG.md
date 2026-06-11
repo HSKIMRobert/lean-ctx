@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Tool schemas hardened for strict validators** (GL #545): 20 tool
+  schemas (incl. `ctx_expand`) declared `type: object` + `properties`
+  without an explicit `required` array — valid JSON Schema, but strict
+  Pydantic-based backends (OpenAI, Azure, SGLang) reject it and OpenCode
+  surfaces `Invalid schema for function 'lean-ctx_ctx_expand': None is not
+  of type 'array'`. Every advertised schema (built-ins and plugin
+  manifests) now passes `normalize_for_strict_validators()`: recursive
+  explicit `required: []` on object schemas and `items` on array schemas,
+  at every nesting level. Regression gate:
+  `rust/tests/tool_schema_strictness.rs` walks the whole registry.
+- **Windows: proxy/daemon survive AI-client MCP recycling** (GL #545):
+  the auto-started proxy and daemon were spawned as plain child processes.
+  On Windows they inherit the parent's console and Job object; AI clients
+  (OpenCode, Codex, Claude Code) run MCP servers inside kill-on-close Jobs,
+  so recycling the MCP process silently killed the proxy mid-flight —
+  observed as `Cannot connect to API: The socket connection was closed
+  unexpectedly`, cold-start latency and agents falling back to native
+  tools. Background spawns now use `ipc::process::spawn_detached()`
+  (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP |
+  CREATE_BREAKAWAY_FROM_JOB`, graceful fallback when the Job denies
+  breakaway). No behaviour change on macOS/Linux.
+
 ### Added
 - **Business plan — $149/mo flat, self-serve governance** (GL #533,
   contract `billing-plane-v3`): new tier between Team and Enterprise with

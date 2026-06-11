@@ -314,6 +314,20 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
                         &manifest.integrity.sha256[56..]
                     );
                     println!("  Stored:  {}", dir.display());
+
+                    // Early warning — export blocks these, the registry hard-rejects them.
+                    if let Ok(reg) = crate::core::context_package::LocalRegistry::open() {
+                        let findings =
+                            scan_package_content(&reg, &manifest.name, &manifest.version);
+                        if !findings.is_empty() {
+                            eprintln!(
+                                "\nWARNING: {} credential-shaped string(s) in the package content:",
+                                findings.len()
+                            );
+                            print_secret_findings(&findings);
+                            eprintln!("  Remove them and re-create — export and ctxpkg.com publishing will refuse this pack.");
+                        }
+                    }
                 }
                 Err(e) => eprintln!("ERROR: install failed: {e}"),
             }
@@ -617,11 +631,37 @@ fn cmd_pack_remove(args: &[String]) {
     }
 }
 
+/// Serialize a stored package's content and run the built-in secret scanner
+/// over it — the same patterns the hosted registry hard-blocks at publish.
+fn scan_package_content(
+    registry: &crate::core::context_package::LocalRegistry,
+    name: &str,
+    version: &str,
+) -> Vec<crate::core::secret_detection::SecretMatch> {
+    let Ok((_, content)) = registry.load_package(name, version) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::to_string_pretty(&content) else {
+        return Vec::new();
+    };
+    crate::core::secret_detection::detect_secrets(&json)
+}
+
+fn print_secret_findings(findings: &[crate::core::secret_detection::SecretMatch]) {
+    for f in findings.iter().take(10) {
+        eprintln!("    {:<22} {}", f.pattern_name, f.redacted_preview);
+    }
+    if findings.len() > 10 {
+        eprintln!("    … and {} more", findings.len() - 10);
+    }
+}
+
 fn cmd_pack_export(args: &[String]) {
     let mut pkg_ref: Option<&str> = None;
     let mut output: Option<String> = None;
     let mut sign = false;
     let mut private = false;
+    let mut allow_secrets = false;
 
     for a in args {
         if a == "export" {
@@ -635,6 +675,8 @@ fn cmd_pack_export(args: &[String]) {
             sign = true;
         } else if a == "--private" {
             private = true;
+        } else if a == "--allow-secrets" {
+            allow_secrets = true;
         } else if !a.starts_with("--") && pkg_ref.is_none() {
             pkg_ref = Some(a.as_str());
         }
@@ -642,7 +684,7 @@ fn cmd_pack_export(args: &[String]) {
 
     let Some(pkg_ref) = pkg_ref else {
         eprintln!(
-            "Usage: lean-ctx pack export <name>[@version] [--output=path] [--sign] [--private]"
+            "Usage: lean-ctx pack export <name>[@version] [--output=path] [--sign] [--private] [--allow-secrets]"
         );
         return;
     };
@@ -686,6 +728,24 @@ fn cmd_pack_export(args: &[String]) {
             return;
         }
     };
+
+    // Pre-flight secret scan — same patterns the hosted registry enforces.
+    let findings = scan_package_content(&registry, &name, &version);
+    if !findings.is_empty() {
+        eprintln!(
+            "Secret scan: {} credential-shaped string(s) in {name}@{version}:",
+            findings.len()
+        );
+        print_secret_findings(&findings);
+        if !allow_secrets {
+            eprintln!("ERROR: export blocked.");
+            eprintln!("  Remove the secrets (e.g. `lean-ctx knowledge remove --category <cat> --key <key>`),");
+            eprintln!("  rotate them if they were live, then re-create and export.");
+            eprintln!("  `--allow-secrets` forces a local-only export — ctxpkg.com rejects it at publish anyway.");
+            return;
+        }
+        eprintln!("WARNING: continuing because of --allow-secrets — do NOT publish this artifact.");
+    }
 
     if sign {
         let (key, created) = match crate::core::context_package::keys::load_or_create() {
@@ -1258,7 +1318,7 @@ fn print_usage() {
          \x20 remove   <name>[@version]  Remove a package\n\
          \n\
          Share & Distribute:\n\
-         \x20 export   <name>[@version] [--output=<path>] [--sign] [--private]  Export to .{ext} file (--sign: ed25519, required for publish; --private: hidden on the hosted registry)\n\
+         \x20 export   <name>[@version] [--output=<path>] [--sign] [--private] [--allow-secrets]  Export to .{ext} file (--sign: ed25519, required for publish; --private: hidden on the hosted registry; secret scan blocks credential-shaped content unless --allow-secrets)\n\
          \x20 import   <file.{ext}> [--apply]            Import from file\n\
          \x20 install  <name>[@version] [--file=<path>]    Apply package to current project\n\
          \x20 install  <ns>/<name>[@version]              Install from the hosted registry\n\

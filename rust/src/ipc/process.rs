@@ -43,6 +43,47 @@ pub fn run_with_timeout(
     }
 }
 
+/// Spawn a long-lived background process (proxy, daemon) detached from the
+/// current process so it survives the parent's exit.
+///
+/// On Unix a child simply outlives its parent, so this is a plain spawn. On
+/// Windows the child inherits the parent's console and — crucially — its Job
+/// object. AI clients (OpenCode, Codex, Claude Code) run MCP servers inside
+/// kill-on-close Jobs; without detachment the auto-started proxy dies the
+/// moment the client recycles its MCP process, which users observe as
+/// "Cannot connect to API: The socket connection was closed unexpectedly"
+/// plus repeated proxy cold-starts (GL #545).
+///
+/// Strategy on Windows:
+///  1. `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB`
+///     — fully detached, escapes the parent's Job.
+///  2. If the Job denies breakaway, `CreateProcess` fails with
+///     `ERROR_ACCESS_DENIED`; retry without the breakaway flag (still
+///     console-detached, which covers non-Job parents).
+pub fn spawn_detached(cmd: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+
+        let detached = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+        match cmd
+            .creation_flags(detached | CREATE_BREAKAWAY_FROM_JOB)
+            .spawn()
+        {
+            Ok(child) => Ok(child),
+            Err(_) => cmd.creation_flags(detached).spawn(),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        cmd.spawn()
+    }
+}
+
 /// Check whether a process with the given PID is still running.
 pub fn is_alive(pid: u32) -> bool {
     #[cfg(unix)]

@@ -37,13 +37,16 @@ impl McpTool for PluginTool {
     }
 
     fn tool_def(&self) -> Tool {
-        let schema: Map<String, Value> = if let Value::Object(map) = &self.spec.input_schema {
+        let mut schema: Map<String, Value> = if let Value::Object(map) = &self.spec.input_schema {
             map.clone()
         } else {
             let mut map = Map::new();
             map.insert("type".to_string(), Value::String("object".to_string()));
             map
         };
+        // Plugin manifests are external input: harden their schemas for strict
+        // validators just like the built-in tool definitions.
+        crate::tool_defs::normalize_for_strict_validators(&mut schema);
         let description = if self.spec.description.is_empty() {
             format!("Plugin tool provided by '{}'", self.spec.plugin_name)
         } else {

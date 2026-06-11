@@ -292,13 +292,14 @@ pub(super) fn spawn_proxy_if_needed() {
 
     let binary = core::portable_binary::resolve_portable_binary();
 
-    match std::process::Command::new(&binary)
-        .args(["proxy", "start", &format!("--port={port}")])
+    let mut cmd = std::process::Command::new(&binary);
+    cmd.args(["proxy", "start", &format!("--port={port}")])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
+        .stderr(std::process::Stdio::null());
+    // Detached spawn: on Windows the proxy must escape the MCP process's
+    // console/Job or it dies when the AI client recycles the MCP server.
+    match crate::ipc::process::spawn_detached(&mut cmd) {
         Ok(_) => tracing::info!("auto-started proxy on port {port}"),
         Err(e) => tracing::debug!("could not auto-start proxy: {e}"),
     }
