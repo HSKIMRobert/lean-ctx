@@ -26,7 +26,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # --test-threads=1 (env-race legacy, v3.3.5) serializes ~70 binaries that
+    # now include heavy property/fuzz/benchmark suites (#291, #493, #551) —
+    # well beyond 90 min on hosted runners. Parallelization is tracked
+    # separately; until then the gate gets the time it actually needs.
+    timeout-minutes: 180
     env:
       # ~60 integration-test binaries each statically link the full lib
       # (tree-sitter ×18, rten, aws-lc, resvg, …). With default full debug
