@@ -136,6 +136,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   stays reachable via Advanced mode, deep links and the command palette.
 
 ### Fixed
+- **Proxy history pruning defeated provider prompt caching** (GL #534): the
+  Anthropic/OpenAI proxy handlers summarized everything older than the last 6
+  messages on *every* request. That rolling boundary rewrote a
+  previously-stable message each turn, so the provider's prefix-matching
+  prompt cache (Anthropic `cache_control`, OpenAI automatic caching) missed
+  from that point on — users saw uncached input jump from ~2–10k to 80–100k+
+  tokens per turn (cache *writes* at 1.25× instead of reads at 0.1×). History
+  is now pruned at a **frozen, cache-aware compaction boundary** that only
+  advances in deterministic 16-message strides (≥8 recent messages always
+  intact): between jumps the request prefix stays byte-identical and the
+  prompt cache keeps hitting; a jump costs one re-write, then caching resumes
+  on the smaller history. Pruning is content-deterministic and preserves
+  `cache_control` breakpoints; tool-result compression is prefix-stable and
+  unchanged. New `[proxy].history_mode` config key /
+  `LEAN_CTX_PROXY_HISTORY_MODE` env: `cache-aware` (default), `rolling`
+  (legacy max-savings), `off`. Invariant locked by a byte-stability test
+  simulating 80 growing turns.
 - **`ctx_edit` evidence diff corrupted by terse post-processing** (GH #382):
   the `evidence (diff)` block embeds verbatim source lines, but the generic
   terse stage still ran over `ctx_edit` output — dictionary abbreviation

@@ -9,9 +9,49 @@ pub struct ProxyConfig {
     pub anthropic_upstream: Option<String>,
     pub openai_upstream: Option<String>,
     pub gemini_upstream: Option<String>,
+    /// History-pruning strategy for proxied chat requests.
+    /// "cache-aware" (default) | "rolling" | "off". See [`HistoryMode`].
+    pub history_mode: Option<String>,
+}
+
+/// How the proxy prunes old tool results from conversation history.
+///
+/// Provider prompt caches (Anthropic `cache_control`, OpenAI automatic prompt
+/// caching) bill cached prefix tokens at a fraction of the base rate but only
+/// match *exact* prefixes. Any mutation whose position depends on the current
+/// conversation length (a rolling window) rewrites a previously-stable message
+/// every turn, invalidating the cache from that point — turning cheap cache
+/// reads into full-price writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryMode {
+    /// Prune only at frozen generation boundaries that advance in large,
+    /// deterministic steps. Between jumps the request prefix is byte-stable,
+    /// so provider prompt caches keep hitting. Default.
+    CacheAware,
+    /// Legacy behaviour: summarize everything older than the last N messages.
+    /// Maximum raw-token reduction, but defeats provider prompt caching.
+    Rolling,
+    /// Never prune history (tool-result compression still applies — it is
+    /// content-deterministic and therefore prefix-stable).
+    Off,
 }
 
 impl ProxyConfig {
+    /// Resolved history mode: `LEAN_CTX_PROXY_HISTORY_MODE` env var wins,
+    /// then `[proxy].history_mode` in config.toml, then cache-aware.
+    /// Unknown values fall back to the default so a typo can never silently
+    /// re-enable the cache-hostile rolling mode.
+    pub fn resolved_history_mode(&self) -> HistoryMode {
+        let raw = std::env::var("LEAN_CTX_PROXY_HISTORY_MODE")
+            .ok()
+            .or_else(|| self.history_mode.clone());
+        match raw.as_deref().map(str::trim) {
+            Some(s) if s.eq_ignore_ascii_case("rolling") => HistoryMode::Rolling,
+            Some(s) if s.eq_ignore_ascii_case("off") => HistoryMode::Off,
+            _ => HistoryMode::CacheAware,
+        }
+    }
+
     pub fn resolve_upstream(&self, provider: ProxyProvider) -> String {
         let (env_var, config_val, default) = match provider {
             ProxyProvider::Anthropic => (
