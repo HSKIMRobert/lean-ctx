@@ -537,15 +537,11 @@ mod tests {
         ]));
     }
 
-    #[test]
-    #[cfg(feature = "embeddings")]
-    fn try_shared_engine_returns_none_when_not_initialized() {
-        let result = try_shared_engine();
-        assert!(
-            result.is_none(),
-            "try_shared_engine should return None without triggering load"
-        );
-    }
+    // NOTE: `try_shared_engine_returns_none_when_not_initialized` lives in
+    // `tests/embeddings_shared_engine.rs` (own process). SHARED_ENGINE is a
+    // process-wide OnceLock: in the unit-test suite any sibling test that
+    // legitimately loads the engine (or #551 background activation) would
+    // initialize it first and make the assertion order-dependent/flaky.
 
     /// Live proof for GL #397: loads a real HuggingFace repo through the
     /// `hf:org/repo@rev` scheme (download → SHA-256 lockfile → tokenizer.json →

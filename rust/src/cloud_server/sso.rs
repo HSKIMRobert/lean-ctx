@@ -771,7 +771,7 @@ mod tests {
         // An HS256 token must be refused even before signature checks.
         let hs_header = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"alg":"HS256","typ":"JWT","kid":"k1"}"#);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r#"{}"#);
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(r"{}");
         let forged = format!("{hs_header}.{payload}.c2ln");
         let err = verify_id_token(&forged, &jwks, "https://iss", "cid").unwrap_err();
         assert!(err.contains("refusing token alg"), "got: {err}");

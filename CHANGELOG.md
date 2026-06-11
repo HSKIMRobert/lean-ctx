@@ -32,6 +32,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `docs/enterprise/reading-evidence.md`.
 
 ### Fixed
+- **CI: deterministic test suite — no hidden embedding-engine loads**
+  (pipeline red since the #551 efficiency program landed): the
+  `try_shared_engine_returns_none_when_not_initialized` unit test asserted
+  on the process-global `SHARED_ENGINE` `OnceLock` while the new #551
+  background activation (triggered by any sibling test touching entropy
+  compression) could load — and in CI even *download* — the model
+  mid-suite. The test now lives in its own integration-test binary
+  (`tests/embeddings_shared_engine.rs`, fresh process = deterministic),
+  `ensure_engine_background()` is a no-op under `cfg!(test)`, and CI
+  exports `LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD=0` so the suite is hermetic.
+  Also un-sticks the Coverage job: the silent engine load made
+  `run_project_benchmark("src")` exceed tarpaulin's 180 s timeout.
 - **`ctx_shell`/`ctx_execute` failures now set MCP `isError` +
   `structuredContent`** (GitHub #389): every tool call returned
   `CallToolResult::success` regardless of the shell exit code — MCP clients

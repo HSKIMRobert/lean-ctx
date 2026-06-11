@@ -13,6 +13,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
+  # CI must be hermetic: never let tests download the embedding model
+  # (~90 MB) in the background. Without this, the #551 auto-activation can
+  # load the engine mid-suite and slow tarpaulin past its timeout.
+  LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD: "0"
 
 jobs:
   test:
