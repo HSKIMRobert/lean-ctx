@@ -8,7 +8,7 @@ lean-ctx registers **76 MCP tools** (granular profile). Each entry below lists t
 
 ## `ctx_agent`
 
-Multi-agent coordination (shared message bus + persistent diaries + stigmergic scent field). Actions: register (join with agent_type+role), post (broadcast or direct message with category), read (poll messages), status (update state: active|idle|finished), handoff (transfer task to another agent with summary), sync (agents + pending messages + decaying scent field: claims/stuck/hot), claim (atomically claim a file/task in the scent field: message=target — rejected if another agent holds it), release (drop own claim early: message=target), brief (deterministic sub-agent briefing pack: message=task, priority=token budget — returns versioned contract JSON), return (distill a sub-agent report into parent knowledge: message=lines of 'category/key: value'), diary (log discovery/decision/blocker/progress/insight — persisted across sessions), recall_diary (read agent diary), diaries (list all agent diaries), list, info.
+Multi-agent coordination: shared message bus, persistent diaries, stigmergic scent field. Actions: register (agent_type+role), post (message+category), read (poll), status (active|idle|finished), handoff (transfer task+summary), sync (agents + messages + scent: claims/stuck/hot), claim/release (atomic file/task claim, message=target), brief (sub-agent briefing pack: message=task, priority=budget), return (distill sub-agent report into knowledge: message='category/key: value' lines), diary (log discovery/decision/blocker/progress/insight), recall_diary, diaries, list, info.
 
 Parameters: `action`*, `agent_type`, `category`, `message`, `role`, `status`, `to_agent`
 
