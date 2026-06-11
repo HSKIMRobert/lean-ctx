@@ -162,11 +162,12 @@ mod correction_loop {
 mod double_compression_guard {
     #[test]
     fn scenario_dispatch_returns_saved_tokens() {
-        // Verify the dispatch_tool return type includes saved_tokens
+        // Verify the dispatch_tool return type includes saved_tokens (the
+        // third element carries the shell outcome for MCP isError, GH #389).
         let src = include_str!("../src/server/dispatch/mod.rs");
         assert!(
-            src.contains("Result<(String, usize), ErrorData>"),
-            "dispatch_tool must return (String, saved_tokens)"
+            src.contains("Result<(String, usize, Option<ShellOutcome>), ErrorData>"),
+            "dispatch_tool must return (String, saved_tokens, shell_outcome)"
         );
     }
 
@@ -717,8 +718,9 @@ mod integration {
         // Structural test: verify the pipeline
         let src = crate::server_dispatch_src();
 
-        // 1. dispatch threads saved_tokens out of the tool call
-        assert!(src.contains("let (mut result_text, tool_saved_tokens)"));
+        // 1. dispatch threads saved_tokens (+ shell outcome, GH #389) out of
+        // the tool call
+        assert!(src.contains("let (mut result_text, tool_saved_tokens, shell_outcome)"));
 
         // 2. Terse compression is gated by skip_terse()
         assert!(
