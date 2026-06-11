@@ -759,6 +759,9 @@ pub(super) async fn get_account_org_audit_export(
 #[derive(Deserialize)]
 pub(super) struct RegistryNamespaceBody {
     namespace: String,
+    /// Claim on behalf of an org (GL #524) — requires owner/admin there.
+    #[serde(default)]
+    org_id: Option<String>,
 }
 
 /// `PUT /api/account/registry/namespace` — claim the account's publisher
@@ -773,7 +776,7 @@ pub(super) async fn put_account_registry_namespace(
         &state.cfg,
         "PUT",
         format!("/api/billing/registry/{user_id}/namespace"),
-        Some(json!({ "namespace": body.namespace })),
+        Some(json!({ "namespace": body.namespace, "org_id": body.org_id })),
     )
     .await?;
     finish(status, json)
@@ -801,9 +804,13 @@ pub(super) async fn get_account_registry(
 pub(super) struct RegistryTokenBody {
     #[serde(default)]
     label: Option<String>,
+    /// `publish` (default) or `read` — read tokens are install-only (GL #524).
+    #[serde(default)]
+    scope: Option<String>,
 }
 
-/// `POST /api/account/registry/tokens` — mint a `ctxp_…` publish token.
+/// `POST /api/account/registry/tokens` — mint a `ctxp_…` publish token or a
+/// `ctxr_…` read-only install token.
 pub(super) async fn post_account_registry_token(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -814,7 +821,7 @@ pub(super) async fn post_account_registry_token(
         &state.cfg,
         "POST",
         format!("/api/billing/registry/{user_id}/tokens"),
-        Some(json!({ "label": body.label })),
+        Some(json!({ "label": body.label, "scope": body.scope })),
     )
     .await?;
     finish(status, json)

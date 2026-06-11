@@ -23,6 +23,10 @@ pub struct PackageManifest {
     pub dependencies: Vec<PackageDependency>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Registry visibility: `private` hides the package from catalog/search;
+    /// installs then need a namespace token (GL #524). `None` = public.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
     pub integrity: PackageIntegrity,
     pub provenance: PackageProvenance,
     #[serde(default)]
@@ -220,6 +224,7 @@ mod tests {
             layers: vec![PackageLayer::Knowledge],
             dependencies: vec![],
             tags: vec![],
+            visibility: None,
             integrity: PackageIntegrity {
                 sha256: "a".repeat(64),
                 content_hash: "b".repeat(64),
