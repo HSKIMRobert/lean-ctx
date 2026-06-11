@@ -157,6 +157,7 @@ impl McpTool for CtxEditTool {
                 mode: None,
                 path: Some(path),
                 changed: false,
+                shell_outcome: None,
             })
         })
     }

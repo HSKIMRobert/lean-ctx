@@ -2,6 +2,41 @@ use rmcp::model::Tool;
 use rmcp::ErrorData;
 use serde_json::{Map, Value};
 
+/// Outcome of a shell execution, carried alongside the rendered text so the
+/// MCP dispatch layer can surface failures in protocol metadata instead of
+/// only as an `[exit:N]` text footer (GitHub #389: clients had no programmatic
+/// way to detect ctx_shell failures and resorted to fragile regex matching).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellOutcome {
+    /// The command ran; carries its real exit code (0 = success).
+    Exit(i32),
+    /// The command never ran (allowlist/validation rejection, or a
+    /// precondition failure such as an unreadable/oversized input file).
+    Blocked,
+}
+
+impl ShellOutcome {
+    /// Whether this outcome must be reported as a tool error (`isError: true`).
+    pub fn is_error(self) -> bool {
+        match self {
+            ShellOutcome::Exit(code) => code != 0,
+            ShellOutcome::Blocked => true,
+        }
+    }
+
+    /// Structured payload for `CallToolResult.structuredContent`, so guards
+    /// can read `exitCode`/`blocked` instead of parsing output text. Success
+    /// (exit 0) intentionally returns `None` — the happy path stays
+    /// token-neutral for clients that render structured content.
+    pub fn structured(self) -> Option<serde_json::Value> {
+        match self {
+            ShellOutcome::Exit(0) => None,
+            ShellOutcome::Exit(code) => Some(serde_json::json!({ "exitCode": code })),
+            ShellOutcome::Blocked => Some(serde_json::json!({ "blocked": true })),
+        }
+    }
+}
+
 /// Result returned by an McpTool handler.
 pub struct ToolOutput {
     pub text: String,
@@ -13,6 +48,10 @@ pub struct ToolOutput {
     /// True when the tool mutated state that clients should know about
     /// (e.g. dynamic tool categories changed).
     pub changed: bool,
+    /// Set by shell-executing tools so dispatch can populate `isError` +
+    /// `structuredContent` on the MCP result (GitHub #389). `None` for tools
+    /// that don't run shell commands.
+    pub shell_outcome: Option<ShellOutcome>,
 }
 
 impl ToolOutput {
@@ -24,6 +63,7 @@ impl ToolOutput {
             mode: None,
             path: None,
             changed: false,
+            shell_outcome: None,
         }
     }
 
@@ -48,6 +88,7 @@ impl ToolOutput {
             mode: None,
             path: None,
             changed: false,
+            shell_outcome: None,
         }
     }
 }

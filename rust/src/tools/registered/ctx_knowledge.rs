@@ -140,6 +140,7 @@ impl McpTool for CtxKnowledgeTool {
                     mode: Some(action),
                     path: None,
                     changed: false,
+                    shell_outcome: None,
                 });
             }
 
@@ -163,6 +164,7 @@ impl McpTool for CtxKnowledgeTool {
                 mode: Some(action),
                 path: None,
                 changed: false,
+                shell_outcome: None,
             });
         }
 
@@ -188,6 +190,7 @@ impl McpTool for CtxKnowledgeTool {
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

@@ -200,9 +200,9 @@ impl LeanCtxServer {
         }
 
         let tool_start = std::time::Instant::now();
-        let (mut result_text, tool_saved_tokens) =
+        let (mut result_text, tool_saved_tokens, shell_outcome) =
             match self.dispatch_tool(name, args, minimal).await {
-                Ok(pair) => pair,
+                Ok(triple) => triple,
                 Err(e) => {
                     if let Ok(mut detector) = tokio::time::timeout(
                         std::time::Duration::from_secs(1),
@@ -772,7 +772,7 @@ impl LeanCtxServer {
                     // text in repeated markers degrades provider prompt caching.
                     let combined =
                         format!("{result_text}\n\n--- AUTO CHECKPOINT ---\n{checkpoint}");
-                    return Ok(CallToolResult::success(vec![Content::text(combined)]));
+                    return Ok(finalize_call_result(combined, shell_outcome));
                 }
             }
         }
@@ -799,7 +799,7 @@ impl LeanCtxServer {
             }
         }
 
-        Ok(CallToolResult::success(vec![Content::text(result_text)]))
+        Ok(finalize_call_result(result_text, shell_outcome))
     }
 
     /// Resolve project root from MCP client roots (once per session).
@@ -879,5 +879,105 @@ impl LeanCtxServer {
         // Indices warm lazily on first use of a tool that needs them (#152) —
         // the dispatch path for this very call handles it via
         // `index_orchestrator::ensure_warm_for_tool`, so no eager scan here.
+    }
+}
+
+/// Build the final `CallToolResult`, surfacing shell failures in MCP metadata
+/// (GitHub #389): a non-zero exit or a blocked command sets `isError: true`
+/// and a `structuredContent` payload (`{"exitCode": N}` / `{"blocked": true}`),
+/// so clients no longer have to regex-parse the `[exit:N]` text footer. The
+/// text content is identical in both cases — only the metadata changes.
+fn finalize_call_result(
+    result_text: String,
+    shell_outcome: Option<crate::server::tool_trait::ShellOutcome>,
+) -> CallToolResult {
+    let mut result = CallToolResult::success(vec![Content::text(result_text)]);
+    if let Some(outcome) = shell_outcome {
+        if outcome.is_error() {
+            result.is_error = Some(true);
+        }
+        if let Some(structured) = outcome.structured() {
+            result.structured_content = Some(structured);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod shell_outcome_tests {
+    use super::*;
+    use crate::server::tool_trait::ShellOutcome;
+
+    fn text_of(result: &CallToolResult) -> String {
+        result
+            .content
+            .first()
+            .and_then(|c| c.as_text())
+            .map(|t| t.text.clone())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn success_exit_is_not_an_error() {
+        let r = finalize_call_result("ok".into(), Some(ShellOutcome::Exit(0)));
+        assert_ne!(r.is_error, Some(true), "exit 0 must not set isError");
+        assert!(
+            r.structured_content.is_none(),
+            "happy path stays token-neutral: no structuredContent on exit 0"
+        );
+        assert_eq!(text_of(&r), "ok");
+    }
+
+    #[test]
+    fn nonzero_exit_sets_is_error_and_structured_exit_code() {
+        let r = finalize_call_result("boom\n[exit:1]".into(), Some(ShellOutcome::Exit(1)));
+        assert_eq!(
+            r.is_error,
+            Some(true),
+            "non-zero exit must set isError (#389)"
+        );
+        assert_eq!(
+            r.structured_content,
+            Some(serde_json::json!({ "exitCode": 1 })),
+            "guards must be able to read exitCode without text parsing"
+        );
+        assert_eq!(
+            text_of(&r),
+            "boom\n[exit:1]",
+            "text content must be preserved"
+        );
+    }
+
+    #[test]
+    fn negative_exit_codes_are_reported() {
+        // Signal terminations are mapped to negative/128+n codes by execute();
+        // whatever the value, non-zero must surface as an error.
+        let r = finalize_call_result("killed".into(), Some(ShellOutcome::Exit(-1)));
+        assert_eq!(r.is_error, Some(true));
+        assert_eq!(
+            r.structured_content,
+            Some(serde_json::json!({ "exitCode": -1 }))
+        );
+    }
+
+    #[test]
+    fn blocked_command_sets_is_error_and_blocked_marker() {
+        let r = finalize_call_result("[BLOCKED] nope".into(), Some(ShellOutcome::Blocked));
+        assert_eq!(
+            r.is_error,
+            Some(true),
+            "blocked commands never ran — that is a failure"
+        );
+        assert_eq!(
+            r.structured_content,
+            Some(serde_json::json!({ "blocked": true }))
+        );
+    }
+
+    #[test]
+    fn non_shell_tools_are_unaffected() {
+        let r = finalize_call_result("file contents".into(), None);
+        assert_ne!(r.is_error, Some(true));
+        assert!(r.structured_content.is_none());
     }
 }

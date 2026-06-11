@@ -141,6 +141,7 @@ impl McpTool for CtxSearchTool {
             mode: None,
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }
@@ -208,6 +209,7 @@ fn search_single(
         mode: None,
         path: Some(path.to_string()),
         changed: false,
+        shell_outcome: None,
     })
 }
 

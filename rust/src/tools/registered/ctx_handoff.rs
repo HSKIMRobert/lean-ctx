@@ -64,6 +64,7 @@ impl McpTool for CtxHandoffTool {
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

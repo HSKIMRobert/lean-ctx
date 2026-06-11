@@ -190,6 +190,7 @@ impl McpTool for CtxLedgerTool {
             mode: Some(action),
             path: None,
             changed,
+            shell_outcome: None,
         })
     }
 }

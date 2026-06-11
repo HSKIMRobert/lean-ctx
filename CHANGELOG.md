@@ -32,6 +32,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `docs/enterprise/reading-evidence.md`.
 
 ### Fixed
+- **`ctx_shell`/`ctx_execute` failures now set MCP `isError` +
+  `structuredContent`** (GitHub #389): every tool call returned
+  `CallToolResult::success` regardless of the shell exit code — MCP clients
+  (OpenCode guards, Claude Code, Cursor) had no programmatic way to detect
+  failures and were forced to regex-parse the `[exit:N]` text footer. A new
+  `ShellOutcome` (Exit(code) | Blocked) now flows from the shell tools
+  through dispatch into the MCP result: non-zero exit sets
+  `isError: true` + `structuredContent: {"exitCode": N}`, allowlist/
+  validation rejections set `isError: true` + `{"blocked": true}`.
+  Covered end-to-end: the degraded session-lock path (which previously
+  even dropped the exit footer), the auto-checkpoint early return, the
+  reference-store substitution, `ctx_call` chaining, and `ctx_execute`
+  (single/batch — first failing task fails the batch — and file
+  preconditions). Exit 0 stays byte-identical (no metadata churn).
+- **OpenClaw: `setup --auto` re-injected the legacy `mcpServers` key and
+  broke 2026.6.1+ hot-reload** (GitHub #390): OpenClaw moved to a nested
+  `mcp.servers` schema with strict validation; the editor-registry writer
+  still wrote top-level camelCase `mcpServers`, so every watchdog tick
+  produced `config reload skipped (invalid config): Unrecognized key` —
+  with gateway-down risk on restart if the stale block won. OpenClaw now
+  has a dedicated `ConfigType::OpenClaw` writer: it detects the version
+  via `meta.lastTouchedVersion` (>= 2026.6.1 or an existing `mcp.servers`
+  block → nested schema; older → legacy camelCase), migrates our stale
+  `mcpServers.lean-ctx` entry away (dropping the key when empty, foreign
+  entries preserved), and is strictly idempotent — watchdog re-runs leave
+  the file byte-identical (verified via mtime). `init --agent openclaw`,
+  `setup --auto`, `lean-ctx doctor` (flags stale legacy blocks) and both
+  uninstall paths (editor-registry + textual `lean-ctx uninstall`, which
+  now also strips an emptied `mcpServers {}` leftover) share the same
+  schema logic. Invalid JSON is never text-injected for openclaw.json —
+  a malformed write would take the gateway down.
 - **Shell parser: `>|` noclobber redirect treated as a pipe** (GitHub #387):
   `date --fsdfs >| out 2>&1` split at the `|`, so the redirect target
   (`out`) was checked against the shell allowlist as a command and

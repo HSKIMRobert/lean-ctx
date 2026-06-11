@@ -67,6 +67,7 @@ impl McpTool for CtxDeltaTool {
                 mode: Some("delta".to_string()),
                 path: Some(path),
                 changed: false,
+                shell_outcome: None,
             })
         })
     }

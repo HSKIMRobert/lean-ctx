@@ -80,6 +80,7 @@ impl McpTool for CtxIntentTool {
             mode: Some("semantic".to_string()),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

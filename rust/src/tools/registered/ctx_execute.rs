@@ -61,7 +61,7 @@ impl McpTool for CtxExecuteTool {
     ) -> Result<ToolOutput, ErrorData> {
         let action = get_str(args, "action").unwrap_or_default();
 
-        let result = if action == "batch" {
+        let (result, outcome) = if action == "batch" {
             let items_str = get_str(args, "items")
                 .ok_or_else(|| ErrorData::invalid_params("items is required for batch", None))?;
             let items: Vec<serde_json::Value> = serde_json::from_str(&items_str)
@@ -102,6 +102,7 @@ impl McpTool for CtxExecuteTool {
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: Some(outcome),
         })
     }
 }

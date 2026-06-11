@@ -100,6 +100,7 @@ impl McpTool for CtxCheckpointTool {
                     args.get("action").and_then(Value::as_str),
                     Some("snapshot" | "restore")
                 ),
+                shell_outcome: None,
             }),
             Err(e) => Err(ErrorData::invalid_params(
                 format!("ctx_checkpoint failed: {e}"),

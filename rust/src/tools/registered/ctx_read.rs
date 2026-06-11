@@ -592,6 +592,7 @@ impl CtxReadTool {
             mode: Some(resolved_mode),
             path: Some(path.to_string()),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

@@ -137,6 +137,7 @@ neighbors (direct in/out edges of a file), path (shortest connection between two
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

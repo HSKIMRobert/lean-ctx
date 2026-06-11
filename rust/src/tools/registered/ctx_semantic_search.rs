@@ -194,6 +194,7 @@ impl McpTool for CtxSemanticSearchTool {
             mode: Some("semantic".to_string()),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

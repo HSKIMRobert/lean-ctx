@@ -100,6 +100,7 @@ impl McpTool for CtxProofTool {
             mode: Some(action),
             path: Some(root),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

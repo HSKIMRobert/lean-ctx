@@ -121,6 +121,7 @@ impl McpTool for CtxFeedbackTool {
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

@@ -96,6 +96,7 @@ impl McpTool for CtxCallgraphTool {
             mode: Some(action_normalized),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

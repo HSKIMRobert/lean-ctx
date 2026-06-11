@@ -163,6 +163,7 @@ impl CtxMultiReadTool {
             mode: Some(mode),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

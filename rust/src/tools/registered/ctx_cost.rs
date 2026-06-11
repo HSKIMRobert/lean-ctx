@@ -55,6 +55,7 @@ impl McpTool for CtxCostTool {
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

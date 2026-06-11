@@ -77,6 +77,7 @@ impl McpTool for CtxOverviewTool {
             mode: Some("overview".to_string()),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

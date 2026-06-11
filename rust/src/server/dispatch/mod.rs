@@ -5,18 +5,20 @@ use rmcp::ErrorData;
 use serde_json::Value;
 
 use crate::server::helpers::get_str;
-use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ShellOutcome, ToolContext, ToolOutput};
 use crate::tools::LeanCtxServer;
 
 impl LeanCtxServer {
-    /// Returns (output_text, saved_tokens). saved_tokens > 0 indicates the tool
-    /// already applied internal compression (shell engine, cache deltas, etc.).
+    /// Returns (output_text, saved_tokens, shell_outcome). saved_tokens > 0
+    /// indicates the tool already applied internal compression (shell engine,
+    /// cache deltas, etc.). shell_outcome is `Some` for shell-executing tools
+    /// so the caller can populate MCP error metadata (#389).
     pub(super) async fn dispatch_tool(
         &self,
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<(String, usize), ErrorData> {
+    ) -> Result<(String, usize, Option<ShellOutcome>), ErrorData> {
         fn format_rate_limited(
             tool: &str,
             agent_id: &str,
@@ -50,6 +52,7 @@ impl LeanCtxServer {
                 return Ok((
                     format_rate_limited(name, &agent_id, retry_after_ms, args),
                     0,
+                    None,
                 ));
             }
         }
@@ -82,6 +85,7 @@ impl LeanCtxServer {
                     return Ok((
                         format_rate_limited(&inner, &agent_id, retry_after_ms, arg_map.as_ref()),
                         0,
+                        None,
                     ));
                 }
 
@@ -94,7 +98,7 @@ impl LeanCtxServer {
                         .first()
                         .and_then(|c| c.as_text())
                         .map_or_else(|| "Blocked by role policy".to_string(), |t| t.text.clone());
-                    return Ok((msg, 0));
+                    return Ok((msg, 0, None));
                 }
 
                 if !super::WORKFLOW_PASSTHROUGH_TOOLS.contains(&inner.as_str()) {
@@ -116,7 +120,7 @@ impl LeanCtxServer {
                                         run.spec.name,
                                         run.current,
                                         shown.join(", ")
-                                    ), 0));
+                                    ), 0, None));
                                 }
                             }
                         }
@@ -134,13 +138,13 @@ impl LeanCtxServer {
     }
 
     /// Dispatches a single tool via the trait-based registry.
-    /// Returns (output_text, saved_tokens).
+    /// Returns (output_text, saved_tokens, shell_outcome).
     async fn dispatch_inner(
         &self,
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<(String, usize), ErrorData> {
+    ) -> Result<(String, usize, Option<ShellOutcome>), ErrorData> {
         if let Some(tool) = self.registry.as_ref().and_then(|r| r.get_arc(name)) {
             let empty = serde_json::Map::new();
             let args_map = args.unwrap_or(&empty);
@@ -362,10 +366,13 @@ impl LeanCtxServer {
                     final_text.len() / 4,
                     &final_text[..preview_end]
                 );
-                return Ok((summary, saved));
+                // The outcome must survive the reference-store substitution —
+                // a failed shell command stays a failure even when its output
+                // is delivered out-of-band (#389).
+                return Ok((summary, saved, output.shell_outcome));
             }
 
-            return Ok((final_text, saved));
+            return Ok((final_text, saved, output.shell_outcome));
         }
 
         Err(ErrorData::invalid_params(

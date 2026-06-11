@@ -55,6 +55,7 @@ code block instead of the entire file. 90-97% fewer tokens than full file read."
             mode: kind,
             path: file,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

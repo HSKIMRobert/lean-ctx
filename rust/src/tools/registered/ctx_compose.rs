@@ -62,6 +62,7 @@ impl McpTool for CtxComposeTool {
             mode: Some("compose".to_string()),
             path: Some(path),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

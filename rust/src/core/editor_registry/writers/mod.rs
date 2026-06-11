@@ -61,6 +61,7 @@ pub fn write_config_with_options(
         ConfigType::GeminiSettings => write_gemini_settings(target, binary, opts),
         ConfigType::QoderSettings => write_qoder_settings(target, binary, opts),
         ConfigType::AugmentVsCode => write_augment_vscode(target, binary, opts),
+        ConfigType::OpenClaw => write_openclaw_config(target, binary, opts),
     }
 }
 
@@ -88,6 +89,7 @@ pub fn remove_lean_ctx_server(
         ConfigType::AugmentVsCode => {
             remove_lean_ctx_augment_vscode_server(&target.config_path, opts)
         }
+        ConfigType::OpenClaw => remove_lean_ctx_openclaw_server(&target.config_path, opts),
     }
 }
 

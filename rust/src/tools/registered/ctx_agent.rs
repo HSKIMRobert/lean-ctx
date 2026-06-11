@@ -138,6 +138,7 @@ list, info.",
                 mode: Some(action),
                 path: None,
                 changed: false,
+                shell_outcome: None,
             });
         }
 
@@ -148,6 +149,7 @@ list, info.",
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

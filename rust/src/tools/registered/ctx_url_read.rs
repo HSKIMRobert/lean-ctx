@@ -93,6 +93,7 @@ impl McpTool for CtxUrlReadTool {
                     mode: Some(read.mode.label().to_string()),
                     path: Some(read.final_url),
                     changed: false,
+                    shell_outcome: None,
                 })
             }
             Err(e) => Err(ErrorData::invalid_params(

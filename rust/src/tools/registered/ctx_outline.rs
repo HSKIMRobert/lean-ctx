@@ -47,6 +47,7 @@ Much fewer tokens than reading the full file.",
             mode: kind,
             path: Some(path),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

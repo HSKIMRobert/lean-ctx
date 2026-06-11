@@ -382,7 +382,19 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
         } else if is_toml {
             Some(remove_lean_ctx_from_toml(&content))
         } else {
-            remove_lean_ctx_from_json(&content)
+            let mut cleaned = remove_lean_ctx_from_json(&content);
+            // OpenClaw (GitHub #390): a leftover empty `mcpServers` object
+            // still fails the strict 2026.6.1 validator — drop it entirely.
+            if *name == "OpenClaw" {
+                if let Some(ref c) = cleaned {
+                    if let Some(stripped) =
+                        super::parsers::remove_empty_json_object_key(c, "mcpServers")
+                    {
+                        cleaned = Some(stripped);
+                    }
+                }
+            }
+            cleaned
         };
 
         if let Some(cleaned) = cleaned {

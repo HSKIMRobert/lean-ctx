@@ -42,6 +42,7 @@ impl McpTool for CtxAnalyzeTool {
             mode: None,
             path: Some(path),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

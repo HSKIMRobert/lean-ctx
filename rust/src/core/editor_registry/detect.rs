@@ -251,7 +251,10 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             agent_key: "openclaw".to_string(),
             config_path: home.join(".openclaw/openclaw.json"),
             detect_path: home.join(".openclaw"),
-            config_type: ConfigType::McpJson,
+            // NOT McpJson: OpenClaw >= 2026.6.1 validates strictly and rejects
+            // a top-level `mcpServers` key ("Unrecognized key") — it requires
+            // the nested `mcp.servers` schema (GitHub #390).
+            config_type: ConfigType::OpenClaw,
         },
     ];
 

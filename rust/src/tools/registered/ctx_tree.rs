@@ -89,6 +89,7 @@ impl McpTool for CtxTreeTool {
             mode: None,
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }
@@ -126,5 +127,6 @@ fn handle_single(
         mode: None,
         path: Some(path.to_string()),
         changed: false,
+        shell_outcome: None,
     })
 }

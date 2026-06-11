@@ -179,6 +179,73 @@ pub(super) fn remove_lean_ctx_amp_server(
     })
 }
 
+/// OpenClaw uninstall (GitHub #390): remove lean-ctx from BOTH schemas — the
+/// nested `mcp.servers` (>= 2026.6.1) and the legacy top-level `mcpServers`.
+/// Containers emptied by the removal are dropped entirely so the strict
+/// 2026.6.1 validator never sees a leftover unknown key.
+pub(super) fn remove_lean_ctx_openclaw_server(
+    path: &std::path::Path,
+    opts: WriteOptions,
+) -> Result<WriteResult, String> {
+    if !path.exists() {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("openclaw.json not found".to_string()),
+        });
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let mut json = match crate::core::jsonc::parse_jsonc(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            if !opts.overwrite_invalid {
+                return Err(e.to_string());
+            }
+            eprintln!(
+                "\x1b[33m⚠\x1b[0m  {} has JSON syntax errors — skipping removal.",
+                path.display()
+            );
+            return Ok(WriteResult {
+                action: WriteAction::Already,
+                note: Some("invalid JSON — cannot safely remove lean-ctx entry".to_string()),
+            });
+        }
+    };
+
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "root JSON must be an object".to_string())?;
+
+    let removed_legacy = super::install::remove_legacy_openclaw_entry(obj);
+
+    let mut removed_nested = false;
+    if let Some(mcp_obj) = obj.get_mut("mcp").and_then(Value::as_object_mut) {
+        if let Some(servers_obj) = mcp_obj.get_mut("servers").and_then(Value::as_object_mut) {
+            removed_nested = servers_obj.remove("lean-ctx").is_some();
+            if servers_obj.is_empty() {
+                mcp_obj.remove("servers");
+            }
+        }
+        if mcp_obj.is_empty() {
+            obj.remove("mcp");
+        }
+    }
+
+    if !removed_legacy && !removed_nested {
+        return Ok(WriteResult {
+            action: WriteAction::Already,
+            note: Some("lean-ctx not configured".to_string()),
+        });
+    }
+
+    let formatted = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    crate::config_io::write_atomic_with_backup(path, &formatted)?;
+    Ok(WriteResult {
+        action: WriteAction::Updated,
+        note: Some("removed lean-ctx from openclaw.json".to_string()),
+    })
+}
+
 pub(super) fn remove_lean_ctx_named_json_server(
     path: &std::path::Path,
     container_key: &str,

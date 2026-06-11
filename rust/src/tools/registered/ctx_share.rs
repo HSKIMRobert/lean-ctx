@@ -83,6 +83,7 @@ pull (receive files shared by other agents), list (show all shared contexts), cl
             mode: Some(action),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

@@ -74,6 +74,7 @@ impl McpTool for CtxRepomapTool {
             mode: Some("repomap".to_string()),
             path: Some(project_root),
             changed: false,
+            shell_outcome: None,
         })
     }
 }

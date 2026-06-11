@@ -92,6 +92,7 @@ impl McpTool for CtxPrefetchTool {
             mode: Some("prefetch".to_string()),
             path: None,
             changed: false,
+            shell_outcome: None,
         })
     }
 }

@@ -634,3 +634,278 @@ fn augment_vscode_remove_is_noop_when_missing() {
     let res = remove_lean_ctx_server(&t, WriteOptions::default()).unwrap();
     assert_eq!(res.action, WriteAction::Already);
 }
+
+// ---------------------------------------------------------------------------
+// OpenClaw (GitHub #390): nested mcp.servers schema since 2026.6.1, legacy
+// mcpServers migration, version detection, idempotency, dual-schema removal.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn openclaw_fresh_write_uses_nested_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let res = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Created);
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(json["mcp"]["servers"]["lean-ctx"]["command"], "lean-ctx");
+    assert!(
+        json.get("mcpServers").is_none(),
+        "fresh write must never produce the legacy camelCase key"
+    );
+}
+
+#[test]
+fn openclaw_migrates_legacy_camelcase_entry() {
+    // The reporter's exact scenario: a manually migrated mcp.servers block
+    // exists, but our old writer re-injected mcpServers. After the fix a
+    // re-run must converge to a single nested block.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "meta": { "lastTouchedVersion": "2026.6.1" },
+            "mcpServers": { "lean-ctx": { "command": "/old/lean-ctx" } },
+            "mcp": { "servers": { "lean-ctx": { "command": "/old/lean-ctx" } } }
+        }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let res = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Updated);
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(
+        json.get("mcpServers").is_none(),
+        "legacy duplicate block must be removed — it breaks the 2026.6.1 validator"
+    );
+    assert_eq!(json["mcp"]["servers"]["lean-ctx"]["command"], "lean-ctx");
+    assert_eq!(json["meta"]["lastTouchedVersion"], "2026.6.1");
+}
+
+#[test]
+fn openclaw_migration_preserves_foreign_legacy_servers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "meta": { "lastTouchedVersion": "2026.6.2" },
+            "mcpServers": {
+                "lean-ctx": { "command": "/old/lean-ctx" },
+                "github": { "command": "gh-mcp" }
+            }
+        }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        json["mcpServers"]["github"]["command"], "gh-mcp",
+        "foreign legacy servers are not ours to migrate"
+    );
+    assert!(json["mcpServers"].get("lean-ctx").is_none());
+    assert_eq!(json["mcp"]["servers"]["lean-ctx"]["command"], "lean-ctx");
+}
+
+#[test]
+fn openclaw_is_idempotent_after_migration() {
+    // The watchdog re-runs setup every 30 min — the second run must be a
+    // byte-identical no-op (Already), otherwise every tick causes a reload.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{ "mcpServers": { "lean-ctx": { "command": "/old/lean-ctx" } } }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let first = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(first.action, WriteAction::Updated);
+    let after_first = std::fs::read_to_string(&path).unwrap();
+
+    let second = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(
+        second.action,
+        WriteAction::Already,
+        "re-run must be a no-op"
+    );
+    let after_second = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(after_first, after_second, "no churn on repeated runs");
+}
+
+#[test]
+fn openclaw_legacy_version_keeps_camelcase_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{ "meta": { "lastTouchedVersion": "2026.5.9" }, "mcpServers": {} }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let res = write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Updated);
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        json["mcpServers"]["lean-ctx"]["command"], "lean-ctx",
+        "pre-2026.6.1 OpenClaw still reads the camelCase schema"
+    );
+    assert!(
+        json.get("mcp").is_none(),
+        "nested schema must not be forced onto old versions"
+    );
+}
+
+#[test]
+fn openclaw_existing_nested_block_wins_over_old_version_stamp() {
+    // If mcp.servers already exists, the schema migration has happened —
+    // regardless of what meta.lastTouchedVersion claims.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "meta": { "lastTouchedVersion": "2025.12.1" },
+            "mcp": { "servers": {} }
+        }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(json["mcp"]["servers"]["lean-ctx"]["command"], "lean-ctx");
+    assert!(json.get("mcpServers").is_none());
+}
+
+#[test]
+fn openclaw_preserves_unrelated_config_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "gateway": { "port": 8443 },
+            "meta": { "lastTouchedVersion": "2026.6.1" },
+            "mcp": { "servers": { "github": { "command": "gh-mcp" } } }
+        }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    write_config_with_options(&t, "lean-ctx", WriteOptions::default()).unwrap();
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(json["gateway"]["port"], 8443);
+    assert_eq!(json["mcp"]["servers"]["github"]["command"], "gh-mcp");
+    assert_eq!(json["mcp"]["servers"]["lean-ctx"]["command"], "lean-ctx");
+}
+
+#[test]
+fn openclaw_invalid_json_is_never_text_injected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    let broken = r#"{ "mcp": { "servers": {, } }"#;
+    std::fs::write(&path, broken).unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    // Even with overwrite_invalid the writer must refuse to patch openclaw.json
+    // textually — a malformed result would take the gateway down on restart.
+    let res = write_config_with_options(
+        &t,
+        "lean-ctx",
+        WriteOptions {
+            overwrite_invalid: true,
+        },
+    );
+    assert!(
+        res.is_err(),
+        "invalid openclaw.json must surface as an error"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        broken,
+        "file must remain untouched"
+    );
+}
+
+#[test]
+fn openclaw_remove_drops_both_schemas_and_empty_containers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{
+            "gateway": { "port": 8443 },
+            "mcpServers": { "lean-ctx": { "command": "/old/lean-ctx" } },
+            "mcp": { "servers": { "lean-ctx": { "command": "lean-ctx" } } }
+        }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let res = remove_lean_ctx_server(&t, WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Updated);
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(json.get("mcpServers").is_none(), "legacy block removed");
+    assert!(json.get("mcp").is_none(), "emptied mcp container removed");
+    assert_eq!(json["gateway"]["port"], 8443, "unrelated config preserved");
+}
+
+#[test]
+fn openclaw_remove_preserves_foreign_servers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(
+        &path,
+        r#"{ "mcp": { "servers": {
+            "lean-ctx": { "command": "lean-ctx" },
+            "github": { "command": "gh-mcp" }
+        } } }"#,
+    )
+    .unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    remove_lean_ctx_server(&t, WriteOptions::default()).unwrap();
+
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(json["mcp"]["servers"]["github"]["command"], "gh-mcp");
+    assert!(json["mcp"]["servers"].get("lean-ctx").is_none());
+}
+
+#[test]
+fn openclaw_remove_is_noop_without_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openclaw.json");
+    std::fs::write(&path, r#"{ "mcp": { "servers": {} } }"#).unwrap();
+    let t = target("OpenClaw", path.clone(), ConfigType::OpenClaw);
+
+    let res = remove_lean_ctx_server(&t, WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Already);
+}
+
+#[test]
+fn openclaw_version_parsing_handles_real_world_formats() {
+    use super::install::parse_openclaw_version as v;
+    assert_eq!(v("2026.6.1"), Some((2026, 6, 1)));
+    assert_eq!(v("2026.6"), Some((2026, 6, 0)));
+    assert_eq!(v("2026"), Some((2026, 0, 0)));
+    assert_eq!(v(" 2026.6.1 "), Some((2026, 6, 1)));
+    assert_eq!(v("2026.6.1-beta.2"), Some((2026, 6, 1)));
+    assert_eq!(v("2026.6.1+build5"), Some((2026, 6, 1)));
+    assert_eq!(v("not-a-version"), None);
+    assert_eq!(v(""), None);
+}

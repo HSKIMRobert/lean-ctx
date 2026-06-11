@@ -44,6 +44,7 @@ impl McpTool for CtxVerifyTool {
                     mode: Some(action),
                     path: None,
                     changed: false,
+                    shell_outcome: None,
                 })
             }
             "proof" | "v2" => {
@@ -56,6 +57,7 @@ impl McpTool for CtxVerifyTool {
                     mode: Some(action),
                     path: None,
                     changed: false,
+                    shell_outcome: None,
                 })
             }
             _ => Err(ErrorData::invalid_params(

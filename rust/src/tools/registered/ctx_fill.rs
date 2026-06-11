@@ -101,6 +101,7 @@ impl McpTool for CtxFillTool {
                 mode: Some(format!("budget:{budget}")),
                 path: None,
                 changed: false,
+                shell_outcome: None,
             })
         })
     }

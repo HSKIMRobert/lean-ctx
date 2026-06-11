@@ -90,6 +90,7 @@ impl McpTool for CtxMultiRepoTool {
             mode: Some("multi_repo".to_string()),
             path,
             changed: action == "add_root" || action == "remove_root",
+            shell_outcome: None,
         })
     }
 }
