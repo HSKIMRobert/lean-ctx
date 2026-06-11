@@ -248,7 +248,10 @@ fn measure_mode(content: &str, ext: &str, mode: &str, raw_tokens: usize) -> Mode
                 .join("\n")
         }
         "aggressive" => compressor::aggressive_compress(content, Some(ext)),
-        "entropy" => entropy::entropy_compress(content).output,
+        // Deterministic variant: benchmark numbers feed the scorecard's
+        // reproducibility digest (#211) and must not depend on whether the
+        // shared embedding engine happens to be loaded in this process.
+        "entropy" => entropy::entropy_compress_deterministic(content).output,
         "cache_hit" => format!(
             "F1=src/file.{ext} [unchanged, {}L, use cached context]",
             content.lines().count()

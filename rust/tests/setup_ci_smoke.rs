@@ -319,9 +319,17 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
         agents.contains("Do not overwrite."),
         "must preserve user content"
     );
+    // v3 (GL #555): the injected block is a compact pointer. It references
+    // LEAN-CTX.md *without* an `@` prefix on purpose — agents expand `@`
+    // imports inline at session start, which would defeat the footprint cut
+    // ("open on demand — do not auto-load").
     assert!(
-        agents.contains("<!-- lean-ctx -->") && agents.contains("@LEAN-CTX.md"),
-        "must add lean-ctx reference block"
+        agents.contains("<!-- lean-ctx -->") && agents.contains("LEAN-CTX.md"),
+        "must add compact lean-ctx pointer block"
+    );
+    assert!(
+        !agents.contains("@LEAN-CTX.md"),
+        "pointer must not use @-import (inline expansion defeats #555)"
     );
     assert_eq!(
         agents.matches("<!-- lean-ctx -->").count(),
@@ -392,9 +400,23 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
         claude_md.contains("<!-- lean-ctx -->"),
         "CLAUDE.md must contain lean-ctx marker block"
     );
+
+    // v3 (GL #555): the block is self-contained — Claude Code expands `@`
+    // imports inline at launch, so the old `@rules/lean-ctx.md` pointer
+    // silently multiplied the per-session footprint. Detail docs moved to
+    // the on-demand skill; the CLAUDE.md block itself must stay compact.
     assert!(
-        claude_md.contains("@rules/lean-ctx.md"),
-        "CLAUDE.md must import rules file"
+        claude_md.contains("lean-ctx-claude-v3"),
+        "CLAUDE.md must carry the v3 block version"
+    );
+    assert!(
+        !claude_md.contains("@rules/"),
+        "v3 block must not @-import rules (inline expansion defeats #555)"
+    );
+    assert!(
+        claude_md.len() < 2048,
+        "compact block contract: CLAUDE.md footprint must stay <2 KB, got {}",
+        claude_md.len()
     );
 
     assert!(
@@ -402,15 +424,10 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
         "must not create project CLAUDE.md"
     );
 
-    let rules_path = home.join(".claude/rules/lean-ctx.md");
+    let skill_path = home.join(".claude/skills/lean-ctx/SKILL.md");
     assert!(
-        rules_path.exists(),
-        "must create dedicated Claude rules file"
-    );
-    let content = std::fs::read_to_string(&rules_path).expect("rules readable");
-    assert!(
-        content.contains("lean-ctx-rules-"),
-        "rules must contain marker"
+        skill_path.exists(),
+        "must install the on-demand lean-ctx skill (detail docs live there)"
     );
 }
 

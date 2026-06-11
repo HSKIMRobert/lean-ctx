@@ -230,6 +230,15 @@ pub fn entropy_compress(content: &str) -> EntropyResult {
     entropy_compress_with_thresholds(content, BPE_ENTROPY_THRESHOLD, 0.7)
 }
 
+/// Entropy compression with the opportunistic semantic redundancy filter
+/// (#544) pinned OFF. The regular path uses the shared embedding engine
+/// whenever it happens to be loaded, so its output depends on runtime state.
+/// Benchmarks and the scorecard (#211) need run-to-run and machine-to-machine
+/// reproducibility, so they must go through this entry point.
+pub fn entropy_compress_deterministic(content: &str) -> EntropyResult {
+    entropy_compress_inner(content, BPE_ENTROPY_THRESHOLD, 0.7, &[], false)
+}
+
 /// Entropy compression with file-type-adaptive thresholds and event emission.
 pub fn entropy_compress_adaptive(content: &str, path: &str) -> EntropyResult {
     let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
@@ -341,6 +350,22 @@ fn entropy_compress_with_task(
     jaccard_threshold: f64,
     task_keywords: &[String],
 ) -> EntropyResult {
+    entropy_compress_inner(
+        content,
+        entropy_threshold,
+        jaccard_threshold,
+        task_keywords,
+        true,
+    )
+}
+
+fn entropy_compress_inner(
+    content: &str,
+    entropy_threshold: f64,
+    jaccard_threshold: f64,
+    task_keywords: &[String],
+    semantic: bool,
+) -> EntropyResult {
     let original_tokens = count_tokens(content);
     let mut lines: Vec<&str> = content.lines().collect();
     let mut techniques = Vec::new();
@@ -352,7 +377,9 @@ fn entropy_compress_with_task(
     // loaded, kept lines that embed near-identically to earlier kept lines
     // are dropped (MMR). Without the engine the closure returns None and the
     // decision path is byte-identical to the Zipf-only filter.
-    let embed = line_embedder(original_count);
+    // `semantic=false` (deterministic contract) requests an embedder above
+    // the size cutoff, which never resolves an engine.
+    let embed = line_embedder(if semantic { original_count } else { usize::MAX });
     let mut scoring_ctx = super::surprise::ScoringCtx::new();
     lines.retain(|line| {
         let trimmed = line.trim();
