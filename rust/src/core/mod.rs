@@ -344,6 +344,7 @@ pub mod hnsw;
 pub mod home;
 pub mod homeostasis;
 
+pub mod agent_registry;
 pub mod compliance;
 pub mod edit_quality;
 pub mod evidence_bundle;

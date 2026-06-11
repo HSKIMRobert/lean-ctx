@@ -34,6 +34,11 @@ pub enum AuditEventType {
     SecurityViolation,
     RoleChanged,
     SecretDetected,
+    // Agent identity lifecycle (GL #433) — additive OCP Part 4 evolution.
+    AgentRegistered,
+    AgentSuspended,
+    AgentResumed,
+    AgentDecommissioned,
 }
 
 pub struct AuditEntryData {

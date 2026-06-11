@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **First-class agent identities** (GL #433, H3 Epic D):
+  `core/agent_registry.rs` + `lean-ctx agent
+  register/list/show/heartbeat/suspend/resume/decommission/offboard-owner/check`.
+  Agents become registered identities with a mandatory human owner
+  (accountability principle), Ed25519 key binding, lifecycle states
+  (decommission is final and audit-closed), best-effort attestation
+  (binary + role-config hash, drift surfaces on heartbeat with exit 3)
+  and SPIFFE-compatible workload ids
+  (`spiffe://<domain>/agent/<role>/<id>`). Owner offboarding suspends all
+  of an owner's active agents in one locked transaction (SCIM hook for
+  ENT-2); every transition writes tamper-evident audit entries via four
+  new additive OCP Part 4 event types. Registry is cross-process safe
+  (advisory file lock). Docs: `docs/enterprise/agent-identity.md` with an
+  honest attestation threat model.
 - **Evidence Bundle v1 + standalone offline verifier** (GL #425, H3
   Epic A): `lean-ctx audit evidence --from --to [--framework]` exports a
   deterministic ZIP (`evidence-bundle-v1` contract) — audit-chain segment,

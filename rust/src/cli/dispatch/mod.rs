@@ -174,6 +174,10 @@ pub fn run() {
                 }
                 return;
             }
+            "agent" => {
+                crate::cli::cmd_agent(&rest);
+                return;
+            }
             "instructions" => {
                 crate::cli::cmd_instructions(&rest);
                 return;

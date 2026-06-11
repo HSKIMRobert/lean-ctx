@@ -25,7 +25,9 @@
           "enum": [
             "tool_call", "tool_denied", "path_jail_violation",
             "budget_exceeded", "cross_project_access", "rate_limited",
-            "security_violation", "role_changed", "secret_detected"
+            "security_violation", "role_changed", "secret_detected",
+            "agent_registered", "agent_suspended", "agent_resumed",
+            "agent_decommissioned"
           ]
         },
         { "pattern": "^x-[a-z][a-z0-9_]*$" }
