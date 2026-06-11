@@ -1024,14 +1024,15 @@ pub(super) fn remove_lean_ctx_from_hooks_json(content: &str) -> HookCleanupResul
         parsed.as_object_mut().map(|o| o.remove("permissions"));
     }
 
-    // Check if any meaningful content remains
+    // Check if any meaningful content remains. `version` / `$schema` are
+    // format boilerplate written by installers (e.g. Copilot hooks.json
+    // `{"hooks": {}, "version": 1}`) — an otherwise-empty file is still
+    // entirely lean-ctx-owned and safe to delete (GL #558).
     let has_remaining = parsed.as_object().is_some_and(|obj| {
-        obj.iter().any(|(key, val)| {
-            if key == "hooks" {
-                val.as_object().is_some_and(|h| !h.is_empty())
-            } else {
-                !val.is_null()
-            }
+        obj.iter().any(|(key, val)| match key.as_str() {
+            "hooks" => val.as_object().is_some_and(|h| !h.is_empty()),
+            "version" | "$schema" => false,
+            _ => !val.is_null(),
         })
     });
 

@@ -32,6 +32,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `docs/enterprise/reading-evidence.md`.
 
 ### Fixed
+- **Uninstall: perfect-clean guarantee** (GL #558, Discord report):
+  `lean-ctx uninstall` now leaves zero artifacts behind. Backup sweep
+  covers installer subdirectories (`hooks/`, `rules/`, `skills/`,
+  `steering/`, VS Code `User/`, `.gemini/antigravity-cli`) and
+  project-local CWD config dirs; lean-ctx-owned script backups and
+  orphaned config backups are removed; `{"hooks": {}, "version": 1}`
+  boilerplate shells are deleted instead of kept; now-empty installer
+  directories are swept as the final filesystem step (non-empty dirs
+  survive untouched); platform data dirs (`~/Library/Application
+  Support/lean-ctx`, `%LOCALAPPDATA%\lean-ctx`, `~/.local/share/lean-ctx`)
+  are removed. Verified end-to-end: 8-agent install + proxy enable →
+  uninstall → 0 lean-ctx references, 0 `.bak` files, 0 leftover dirs.
+- **Claude rules file regression** (GL #555 follow-up, GL #558):
+  `rules_inject` still wrote the always-loaded
+  `~/.claude/rules/lean-ctx.md` on `init --agent claude`, undoing the
+  token-footprint fix. Claude Code no longer gets a rules target — the
+  CLAUDE.md block + on-demand skill carry the guidance.
+- **Setup `.bak` churn** (GL #558): re-running setup/init no longer
+  rewrites identical hook scripts, so no backup files pile up for
+  unchanged content.
 - **Audit chain forked under concurrent processes** (found via GL #425
   E2E): `prev_hash` came from a per-process cache, so two processes
   appending simultaneously both chained onto the same parent (and could

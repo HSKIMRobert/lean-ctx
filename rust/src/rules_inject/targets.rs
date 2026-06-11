@@ -38,13 +38,14 @@ pub(super) fn build_rules_targets(
         ),
     };
 
+    // NOTE: Claude Code intentionally has NO rules target. Claude loads every
+    // rules file without `paths:` frontmatter unconditionally at session start,
+    // which duplicated the CLAUDE.md block in every session (12k+ token memory
+    // footprints, GL #555). Claude guidance lives in the CLAUDE.md block
+    // (hooks/agents/claude.rs) + the on-demand skill; uninstall still removes
+    // legacy ~/.claude/rules/lean-ctx.md files from older installs.
     vec![
         // --- Shared config files (append-only) ---
-        RulesTarget {
-            name: "Claude Code",
-            path: crate::core::editor_registry::claude_rules_dir(home).join("lean-ctx.md"),
-            format: RulesFormat::DedicatedMarkdown,
-        },
         RulesTarget {
             name: "Gemini CLI",
             path: gemini_path,

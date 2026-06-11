@@ -159,6 +159,12 @@ pub fn run(dry_run: bool, keep_config: bool, keep_binary: bool) {
 
     removed_any |= remove_data_dir(&home, dry_run);
 
+    // Last filesystem step: every file-removal pass above has run, so
+    // installer-created directories that are empty now stay empty.
+    if !dry_run {
+        sweep_empty_installer_dirs(&home);
+    }
+
     // Remove the binary itself last: once it's gone we can't re-exec, and on Unix the
     // running process keeps working until exit.
     removed_any |= binary::remove_binaries(&home, dry_run, keep_binary);
@@ -262,7 +268,20 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
 fn remove_data_dir(home: &Path, dry_run: bool) -> bool {
     let mut removed = false;
 
-    let dirs_to_remove = [home.join(".lean-ctx"), home.join(".config/lean-ctx")];
+    let mut dirs_to_remove = vec![home.join(".lean-ctx"), home.join(".config/lean-ctx")];
+
+    // Platform data dirs hold daemon logs + PID files (macOS:
+    // ~/Library/Application Support/lean-ctx, Windows: %LOCALAPPDATA%\lean-ctx,
+    // Linux: ~/.local/share/lean-ctx) — see daemon.rs `data_dir()`.
+    for platform_dir in [dirs::data_local_dir(), dirs::data_dir()]
+        .into_iter()
+        .flatten()
+    {
+        let p = platform_dir.join("lean-ctx");
+        if !dirs_to_remove.contains(&p) {
+            dirs_to_remove.push(p);
+        }
+    }
 
     for data_dir in &dirs_to_remove {
         if !data_dir.exists() {
@@ -327,13 +346,18 @@ fn try_claude_mcp_remove() {
 // .bak cleanup: remove orphaned backup files after successful surgical removal
 // ---------------------------------------------------------------------------
 
-fn cleanup_bak_files(home: &Path) {
-    let dirs_to_scan: Vec<PathBuf> = vec![
+/// Every directory the installer may have written backups or files into:
+/// agent config roots, their well-known subdirectories, and the project-local
+/// config dirs in CWD.
+fn scan_dirs(home: &Path) -> Vec<PathBuf> {
+    let base_dirs: Vec<PathBuf> = vec![
         home.join(".cursor"),
         home.join(".claude"),
         crate::core::editor_registry::claude_state_dir(home),
+        crate::core::editor_registry::zed_config_dir(home),
         home.join(".gemini"),
         home.join(".gemini/antigravity"),
+        home.join(".gemini/antigravity-cli"),
         crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex")),
         home.join(".codeium"),
         home.join(".codeium/windsurf"),
@@ -363,11 +387,50 @@ fn cleanup_bak_files(home: &Path) {
         home.join(".emacs.d"),
         home.join(".copilot"),
         home.join(".github"),
-        home.join(".github/hooks"),
         home.join(".config/mcphub"),
         home.join(".config/sublime-text"),
     ];
 
+    // Installers write into well-known subdirectories (hook scripts, rules
+    // files, steering docs, …). read_dir below is non-recursive, so backups in
+    // those subdirectories were previously missed (GL #558).
+    const KNOWN_SUBDIRS: [&str; 6] = ["hooks", "rules", "skills", "steering", "settings", "User"];
+    let mut dirs_to_scan: Vec<PathBuf> = Vec::with_capacity(base_dirs.len() * 4);
+    for dir in base_dirs {
+        for sub in KNOWN_SUBDIRS {
+            let p = dir.join(sub);
+            if p.is_dir() {
+                dirs_to_scan.push(p);
+            }
+        }
+        dirs_to_scan.push(dir);
+    }
+
+    // Project-local config dirs in CWD get the same backup treatment as HOME:
+    // setup writes (and uninstall removes) rules/hooks there too.
+    if let Ok(cwd) = std::env::current_dir() {
+        for rel in [
+            ".cursor/rules",
+            ".claude",
+            ".claude/rules",
+            ".claude/hooks",
+            ".kiro/steering",
+            ".github",
+            ".github/hooks",
+            ".vscode",
+        ] {
+            let p = cwd.join(rel);
+            if p.is_dir() {
+                dirs_to_scan.push(p);
+            }
+        }
+    }
+
+    dirs_to_scan
+}
+
+fn cleanup_bak_files(home: &Path) {
+    let dirs_to_scan = scan_dirs(home);
     let mut cleaned = 0;
     for dir in &dirs_to_scan {
         if !dir.exists() {
@@ -378,6 +441,17 @@ fn cleanup_bak_files(home: &Path) {
                 let name = entry.file_name();
                 let name_str = name.to_string_lossy();
                 if name_str.ends_with(".lean-ctx.tmp") {
+                    let _ = fs::remove_file(entry.path());
+                    cleaned += 1;
+                    continue;
+                }
+                // Backups of our own hook scripts / rules files
+                // (lean-ctx-rewrite.sh.bak, lean-ctx.mdc.bak, …): the originals
+                // are lean-ctx-owned and already removed at this point, so the
+                // backups are pure leftovers.
+                if name_str.ends_with(".bak")
+                    && (name_str.starts_with("lean-ctx-") || name_str.starts_with("lean-ctx."))
+                {
                     let _ = fs::remove_file(entry.path());
                     cleaned += 1;
                     continue;
@@ -404,16 +478,15 @@ fn cleanup_bak_files(home: &Path) {
                     }
                     continue;
                 }
-                // Plain .bak files next to known config files (created by config_io)
+                // Plain .bak files next to known config files (created by
+                // config_io). Removed whether or not the original still exists:
+                // when uninstall deletes a config file that only contained
+                // lean-ctx content, its backup would otherwise be orphaned.
                 if name_str.ends_with(".bak") && !name_str.contains(".lean-ctx") {
-                    let original_name = name_str.trim_end_matches(".bak");
-                    let original = entry.path().with_file_name(original_name);
-                    if original.exists() {
-                        if let Ok(bak_content) = fs::read_to_string(entry.path()) {
-                            if bak_content.contains("lean-ctx") {
-                                let _ = fs::remove_file(entry.path());
-                                cleaned += 1;
-                            }
+                    if let Ok(bak_content) = fs::read_to_string(entry.path()) {
+                        if bak_content.contains("lean-ctx") {
+                            let _ = fs::remove_file(entry.path());
+                            cleaned += 1;
                         }
                     }
                 }
@@ -453,5 +526,25 @@ fn cleanup_bak_files(home: &Path) {
 
     if cleaned > 0 {
         println!("  ✓ Cleaned up {cleaned} backup file(s)");
+    }
+}
+
+/// Sweep now-empty installer-created directories (hooks/, rules/, skills/,
+/// steering/). `fs::remove_dir` refuses to delete non-empty directories, so
+/// anything still holding user content survives untouched. Runs as the last
+/// filesystem step of `run()` — after every file-removal pass has finished.
+fn sweep_empty_installer_dirs(home: &Path) {
+    let mut swept = 0;
+    for dir in scan_dirs(home) {
+        let is_installer_dir = dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| matches!(n, "hooks" | "rules" | "skills" | "steering"));
+        if is_installer_dir && fs::remove_dir(&dir).is_ok() {
+            swept += 1;
+        }
+    }
+    if swept > 0 {
+        println!("  ✓ Removed {swept} empty installer director(y/ies)");
     }
 }

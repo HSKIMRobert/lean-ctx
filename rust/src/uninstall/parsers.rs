@@ -879,7 +879,10 @@ command = \"other\"
     }
 
     #[test]
-    fn hooks_json_preserves_version_key_when_hooks_cleaned() {
+    fn hooks_json_version_only_boilerplate_is_entirely_lean_ctx() {
+        // `version` / `$schema` are installer boilerplate: once the lean-ctx
+        // hooks are gone, `{"hooks": {}, "version": 1}` carries no user
+        // content and must be deleted instead of left behind (GL #558).
         let input = r#"{
   "version": 1,
   "hooks": {
@@ -891,15 +894,45 @@ command = \"other\"
     ]
   }
 }"#;
+        assert!(
+            matches!(
+                remove_lean_ctx_from_hooks_json(input),
+                HookCleanupResult::EntirelyLeanCtx
+            ),
+            "version-only leftovers should be EntirelyLeanCtx"
+        );
+    }
+
+    #[test]
+    fn hooks_json_version_key_with_user_hooks_is_cleaned_not_deleted() {
+        let input = r#"{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Shell",
+        "command": "lean-ctx hook rewrite"
+      },
+      {
+        "matcher": "Shell",
+        "command": "my-other-tool hook"
+      }
+    ]
+  }
+}"#;
         let result = match remove_lean_ctx_from_hooks_json(input) {
             HookCleanupResult::Cleaned(s) => s,
             other => panic!("expected Cleaned, got {other:?}"),
         };
         assert!(
             result.contains("version"),
-            "version key should be preserved"
+            "version key should be preserved alongside user hooks"
         );
         assert!(!result.contains("lean-ctx"), "lean-ctx should be removed");
+        assert!(
+            result.contains("my-other-tool"),
+            "user hooks should survive"
+        );
     }
 
     #[test]

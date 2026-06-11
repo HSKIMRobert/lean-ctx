@@ -173,12 +173,19 @@ fn write_dedicated_updates_existing() {
 
 #[test]
 fn target_count() {
+    // 24, not 25: Claude Code intentionally has no rules target — its rules
+    // file loaded unconditionally every session and duplicated the CLAUDE.md
+    // block (GL #555/#558). Guidance lives in CLAUDE.md + the on-demand skill.
     let home = std::path::PathBuf::from("/tmp/fake_home");
     let targets = build_rules_targets(&home, crate::core::config::RulesInjection::Shared);
-    assert_eq!(targets.len(), 25);
+    assert_eq!(targets.len(), 24);
+    assert!(
+        !targets.iter().any(|t| t.name == "Claude Code"),
+        "Claude Code must not get a rules target (always-loaded duplicate)"
+    );
     // Dedicated mode swaps paths/formats but never changes the target count.
     let dedicated = build_rules_targets(&home, crate::core::config::RulesInjection::Dedicated);
-    assert_eq!(dedicated.len(), 25);
+    assert_eq!(dedicated.len(), 24);
 }
 
 #[test]

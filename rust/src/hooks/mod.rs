@@ -716,6 +716,11 @@ pub fn install_agent_project_hooks(agent: &str, cwd: &std::path::Path) {
 }
 
 fn write_file(path: &std::path::Path, content: &str) {
+    // Skip identical rewrites: re-running setup/init must not churn mtimes or
+    // leave .bak files behind for content that did not change (GL #558).
+    if std::fs::read_to_string(path).is_ok_and(|existing| existing == content) {
+        return;
+    }
     if let Err(e) = crate::config_io::write_atomic_with_backup(path, content) {
         tracing::error!("Error writing {}: {e}", path.display());
     }
