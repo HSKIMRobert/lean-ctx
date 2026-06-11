@@ -19,6 +19,17 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
     ("finance-eu", include_str!("builtin/finance-eu.toml")),
     ("healthcare", include_str!("builtin/healthcare.toml")),
     ("open-source", include_str!("builtin/open-source.toml")),
+    // Framework template packs (GL #424): enforceable slices of EU AI Act /
+    // ISO 42001 / SOC 2 — the residual gaps live in compliance/mappings/.
+    (
+        "eu-ai-act-deployer",
+        include_str!("builtin/eu-ai-act-deployer.toml"),
+    ),
+    (
+        "iso42001-aligned",
+        include_str!("builtin/iso42001-aligned.toml"),
+    ),
+    ("soc2-context", include_str!("builtin/soc2-context.toml")),
 ];
 
 fn registry() -> &'static Vec<PolicyPack> {

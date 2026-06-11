@@ -45,8 +45,9 @@ pub struct CoverageCheck {
 
 /// Synthetic credential fixtures for CGB-1.1 — one per credential class the
 /// control names. A class counts as covered when any resolved redaction
-/// pattern matches its fixture.
-const CREDENTIAL_FIXTURES: &[(&str, &str)] = &[
+/// pattern matches its fixture. Shared with the framework compliance
+/// reports (GL #424) so CGB and framework claims test identical fixtures.
+pub(crate) const CREDENTIAL_FIXTURES: &[(&str, &str)] = &[
     ("private key block", "-----BEGIN RSA PRIVATE KEY-----"),
     ("cloud access key", "AKIAIOSFODNN7EXAMPLE"),
     (
@@ -61,7 +62,8 @@ const CREDENTIAL_FIXTURES: &[(&str, &str)] = &[
 
 /// Synthetic non-credential sensitivity fixtures for CGB-1.3 (regulated
 /// identifiers). Matching ≥ 1 demonstrates classification beyond secrets.
-const DOMAIN_FIXTURES: &[(&str, &str)] = &[
+/// Shared with the framework compliance reports (GL #424).
+pub(crate) const DOMAIN_FIXTURES: &[(&str, &str)] = &[
     ("IBAN", "DE89 3704 0044 0532 0130 00"),
     ("payment card", "4111 1111 1111 1111"),
     ("US SSN", "SSN: 123-45-6789"),

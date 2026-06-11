@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Framework compliance reports — EU AI Act, ISO 42001, SOC 2**
+  (GL #424, H3 Epic A): machine-readable mapping matrices under
+  `compliance/mappings/*.toml` (framework-edition pinned, semi-annual
+  review cycle, explicit residual gaps) and three new builtin policy packs
+  implementing the enforceable slice of each framework
+  (`eu-ai-act-deployer`, `iso42001-aligned`, `soc2-context`). New
+  `lean-ctx policy coverage --framework <id> [pack]` renders the
+  audit-conversation artifact: every control as
+  ENFORCED (live-verified against the resolved pack) / ENGINE (CI-proven
+  guarantee) / GAP (documented organisational duty) — for the EU AI Act
+  reference setup that is 11 of 14 controls technically enforced. Honesty
+  is mechanized: every `full` claim must name a CI test
+  (`tests/compliance_frameworks.rs` proves enforcement AND that violations
+  are detectable — tampered logs fail verification, weak packs downgrade
+  to NOT-ENFORCED), and a drift test fails the build when claims and tests
+  diverge. Not legal advice; aligned ≠ certified.
+
 ### Fixed
 - **Tool schemas hardened for strict validators** (GL #545): 20 tool
   schemas (incl. `ctx_expand`) declared `type: object` + `properties`

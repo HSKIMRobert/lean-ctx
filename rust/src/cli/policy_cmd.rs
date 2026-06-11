@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::compliance;
 use crate::core::policy::{self, builtin, coverage, PolicyPack, ResolvedPolicy};
 
 /// Project-local pack location, relative to the working directory.
@@ -39,7 +40,11 @@ USAGE:\n\
                                        (default: {PROJECT_PACK_PATH})\n\
   lean-ctx policy coverage [name]      Automated PARTIAL assessment against\n\
                                        the Context Governance Benchmark\n\
-                                       [--benchmark cgb] [--json]\n\n\
+                                       [--benchmark cgb] [--json]\n\
+  lean-ctx policy coverage --framework <eu-ai-act|iso42001|soc2> [pack]\n\
+                                       Framework coverage report: mapping\n\
+                                       matrix + live pack verification\n\
+                                       (defaults to the reference pack)\n\n\
 A pack pins governance expectations — default read mode, allowed/denied\n\
 tools, redaction patterns, audit retention, context budget — in reviewable\n\
 TOML with single inheritance (extends). Start from a built-in:\n\
@@ -236,8 +241,21 @@ fn cmd_coverage(args: &[String]) {
             std::process::exit(2);
         }
     }
+    let framework = args.iter().position(|a| a == "--framework").map(|pos| {
+        match args.get(pos + 1).map(String::as_str) {
+            Some(name) if compliance::get(name).is_some() => name.to_string(),
+            other => {
+                eprintln!(
+                    "policy coverage: unknown framework '{}' (supported: {})",
+                    other.unwrap_or(""),
+                    compliance::names().join(", ")
+                );
+                std::process::exit(2);
+            }
+        }
+    });
     let as_json = args.iter().any(|a| a == "--json");
-    // First positional = pack; skip flags and the --benchmark value.
+    // First positional = pack; skip flags and their values.
     let mut name = None;
     let mut skip_next = false;
     for arg in args {
@@ -245,12 +263,29 @@ fn cmd_coverage(args: &[String]) {
             skip_next = false;
             continue;
         }
-        if arg == "--benchmark" {
+        if arg == "--benchmark" || arg == "--framework" {
             skip_next = true;
         } else if !arg.starts_with("--") {
             name = Some(arg.clone());
             break;
         }
+    }
+
+    // Framework mode: pack optional (defaults to the mapping's reference
+    // pack so the report is the audit-conversation artifact out of the box).
+    if let Some(fw) = framework {
+        let mapping = compliance::get(&fw).expect("validated above");
+        let pack_arg = name.unwrap_or_else(|| mapping.reference_pack.clone());
+        let pack = load_pack_arg(&pack_arg, "policy coverage");
+        let resolved = match policy::resolve(&pack) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("policy coverage: {e}");
+                std::process::exit(1);
+            }
+        };
+        render_framework_report(mapping, &resolved, as_json);
+        return;
     }
 
     let pack_arg = name.unwrap_or_else(|| {
@@ -330,6 +365,66 @@ fn cmd_coverage(args: &[String]) {
 (LeanCTX's own: docs/compliance/cgb-self-assessment.md)."
     );
     if summary.fail > 0 {
+        std::process::exit(1);
+    }
+}
+
+/// `policy coverage --framework <id> [pack]` — the audit-conversation
+/// artifact (GL #424): mapping matrix + live pack verification.
+fn render_framework_report(
+    mapping: &compliance::FrameworkMapping,
+    resolved: &ResolvedPolicy,
+    as_json: bool,
+) {
+    let report = compliance::report(mapping, Some(resolved));
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("serializable")
+        );
+        if report.summary.not_enforced > 0 {
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    println!("{} — coverage report", report.title);
+    println!(
+        "framework pin: {} (pinned {}, semi-annual review)\npack: {}\n",
+        report.version_pin,
+        report.pinned_on,
+        report.pack.as_deref().unwrap_or("-")
+    );
+    for row in &report.rows {
+        let status = match row.status {
+            compliance::RowStatus::Enforced => "ENFORCED    ",
+            compliance::RowStatus::EngineGuarantee => "ENGINE      ",
+            compliance::RowStatus::NotEnforced => "NOT-ENFORCED",
+            compliance::RowStatus::NotVerified => "NOT-VERIFIED",
+            compliance::RowStatus::Gap => "GAP         ",
+        };
+        println!(
+            "  {:<18} {:<14} {}  {}",
+            row.id, row.clause, status, row.detail
+        );
+    }
+    let s = &report.summary;
+    println!(
+        "\n{} of {} controls technically enforced ({} pack-verified, {} engine guarantees) · {} documented gaps{}",
+        s.enforced + s.engine_guarantee,
+        s.controls_total,
+        s.enforced,
+        s.engine_guarantee,
+        s.gaps,
+        if s.not_enforced > 0 {
+            format!(" · {} NOT enforced by this pack", s.not_enforced)
+        } else {
+            String::new()
+        }
+    );
+    println!("\n{}", report.disclaimer);
+    if s.not_enforced > 0 {
         std::process::exit(1);
     }
 }
