@@ -36,6 +36,12 @@ pub(super) fn handle(
             Some(("200 OK", "application/json", json))
         }
         "/api/version" => {
+            // Self-healing freshness (#563): the dashboard used to only read
+            // the 24h cache, so long-running daemons displayed a frozen
+            // "latest" forever (user report showed 3.6.26 while 3.7.5 was
+            // out). Kick the TTL-guarded background refresh on every poll —
+            // non-blocking, opt-out respected.
+            crate::core::version_check::check_background();
             let json = crate::core::version_check::version_info_json();
             Some(("200 OK", "application/json", json))
         }

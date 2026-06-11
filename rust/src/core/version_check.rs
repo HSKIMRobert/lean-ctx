@@ -121,18 +121,21 @@ pub fn get_update_banner() -> Option<String> {
 }
 
 /// Returns version info as JSON for the dashboard /api/version endpoint.
+/// Includes the cache age so the UI can be honest about staleness (#563).
 pub fn version_info_json() -> String {
     let cache = read_cache();
-    let (latest, update_available) = match cache {
+    let (latest, update_available, age_secs) = match cache {
         Some(c) => {
             let newer = is_newer(&c.latest, CURRENT_VERSION);
-            (c.latest, newer)
+            let age = now_secs().saturating_sub(c.checked_at);
+            (c.latest, newer, Some(age))
         }
-        None => (CURRENT_VERSION.to_string(), false),
+        None => (CURRENT_VERSION.to_string(), false, None),
     };
 
+    let age_json = age_secs.map_or("null".to_string(), |a| a.to_string());
     format!(
-        r#"{{"current":"{CURRENT_VERSION}","latest":"{latest}","update_available":{update_available}}}"#
+        r#"{{"current":"{CURRENT_VERSION}","latest":"{latest}","update_available":{update_available},"checked_age_secs":{age_json}}}"#
     )
 }
 
@@ -200,6 +203,7 @@ mod tests {
         assert!(json.contains("current"));
         assert!(json.contains("latest"));
         assert!(json.contains("update_available"));
+        assert!(json.contains("checked_age_secs"));
     }
 
     #[test]
