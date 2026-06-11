@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Business plan — $149/mo flat, self-serve governance** (GL #533,
+  contract `billing-plane-v3`): new tier between Team and Enterprise with
+  50 flat seats, 20 GB hosted index, 10 managed connectors, private
+  registry, **org SSO via OIDC** (new `sso_oidc` entitlement key, additive
+  on every plan) and 365-day audit retention. Self-serve via
+  `lean-ctx cloud upgrade --plan business`; existing subscribers are
+  switched in place (prorated) instead of double-billed. SAML/SCIM
+  (`sso_scim`) stays Enterprise. `billing-plane-v1` remains frozen — v3 is
+  a purely additive catalog delta.
 - **Datadog/Prometheus FinOps export — metrics contract + scrape token**
   (GL #401): `/metrics` now exposes verified ledger savings
   (`lean_ctx_ledger_tokens_saved_total`, `lean_ctx_cost_saved_usd_total`,
