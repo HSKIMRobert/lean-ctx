@@ -25,7 +25,9 @@ pub use enums::{
     RulesScope, TeeMode, TerseAgent,
 };
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
-pub use proxy::{is_local_proxy_url, normalize_url, normalize_url_opt, ProxyConfig, ProxyProvider};
+pub use proxy::{
+    is_local_proxy_url, normalize_url, normalize_url_opt, HistoryMode, ProxyConfig, ProxyProvider,
+};
 pub use shell_activation::ShellActivation;
 
 /// Default BM25 cache cap from config (also used by `bm25_index` heuristics).

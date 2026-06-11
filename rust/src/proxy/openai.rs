@@ -11,8 +11,6 @@ use super::forward;
 use super::tool_kind::{self, should_protect, ToolResultKind};
 use super::ProxyState;
 
-const KEEP_RECENT: usize = 6;
-
 pub async fn handler(
     State(state): State<ProxyState>,
     req: Request<Body>,
@@ -37,8 +35,13 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     if let Some(messages) = doc.get_mut("messages").and_then(|m| m.as_array_mut()) {
         let tool_names = tool_kind::openai_tool_names(messages);
 
-        super::history_prune::prune_history(messages, KEEP_RECENT, &tool_names);
-        modified = true;
+        // OpenAI's automatic prompt caching is prefix-based like Anthropic's,
+        // so history is pruned at the same frozen, cache-aware boundary.
+        let mode = crate::core::config::Config::load()
+            .proxy
+            .resolved_history_mode();
+        let boundary = super::history_prune::prune_boundary(mode, messages.len());
+        modified |= super::history_prune::prune_history(messages, boundary, &tool_names);
 
         for msg in messages.iter_mut() {
             let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");

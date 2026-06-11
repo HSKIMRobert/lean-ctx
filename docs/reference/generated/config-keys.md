@@ -278,6 +278,7 @@ Proxy upstream configuration for API routing
 
 - `anthropic_upstream` (string?, default `null`) — Custom upstream URL for Anthropic API proxy
 - `gemini_upstream` (string?, default `null`) — Custom upstream URL for Gemini API proxy
+- `history_mode` (enum: cache-aware | rolling | off, default `cache-aware` — env `LEAN_CTX_PROXY_HISTORY_MODE`) — History pruning strategy. cache-aware: frozen boundaries that keep provider prompt caches valid (default). rolling: legacy moving window (max raw savings, breaks prompt caching). off: never prune
 - `openai_upstream` (string?, default `null`) — Custom upstream URL for OpenAI API proxy
 
 ## `[search]`

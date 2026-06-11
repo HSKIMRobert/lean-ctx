@@ -32,6 +32,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Custom upstream URL for Gemini API proxy",
         ),
     );
+    proxy.insert(
+        "history_mode".into(),
+        key_enum_with_env(
+            &["cache-aware", "rolling", "off"],
+            "cache-aware",
+            "History pruning strategy. cache-aware: frozen boundaries that keep provider prompt caches valid (default). rolling: legacy moving window (max raw savings, breaks prompt caching). off: never prune",
+            "LEAN_CTX_PROXY_HISTORY_MODE",
+        ),
+    );
     sections.insert(
         "proxy".into(),
         SectionSchema {
