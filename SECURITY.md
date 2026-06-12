@@ -34,7 +34,13 @@ lean-ctx enforces a **project boundary** for filesystem I/O:
   - If a path would escape, the call fails with a clear hint to explicitly allow additional roots.
 - **Explicit allow roots**:
   - Env: `LEAN_CTX_ALLOW_PATH` (or `LCTX_ALLOW_PATH`) — a path list (`:` on Unix, `;` on Windows)
-  - Config: `allow_paths` in `~/.lean-ctx/config.toml`
+  - Config: `allow_paths` in `~/.lean-ctx/config.toml` (whitelist only); `extra_roots` (whitelist + multi-root scanning)
+  - `~`, `$VAR` and `${VAR}` are expanded in these entries (no shell runs for config files)
+- **Disabling the jail** (sandboxed environments where the OS is the boundary):
+  - Config: `path_jail = false` in `~/.lean-ctx/config.toml`
+  - Compile-time: the `no-jail` cargo feature
+  - The legacy `LEAN_CTX_NO_JAIL=1` env var was removed in v3.7.4 and has no effect
+  - Full reference: `docs/reference/appendix-paths-and-config.md` §5; `lean-ctx doctor` reports the effective jail state
 - **Symlink escape protection**: canonicalization ensures that symlinks pointing outside the jail are rejected.
 
 In addition, roles can restrict **unsafe I/O**:
@@ -214,15 +220,25 @@ The `ctx_execute` tool provides **timeout enforcement** and **output capping** b
 
 **Recommendation for regulated environments:** Disable `ctx_execute` via role configuration (`denied: ["ctx_execute"]`) or run lean-ctx in a pre-existing container sandbox.
 
-### Shell Command Validation (REQ-57177)
+### Shell Command Validation (REQ-57177, GH #391)
 
-**Status:** Defense in depth — the agent's permission model remains the primary boundary.
+**Status:** Defense in depth — the agent's permission model remains the primary boundary. **`ctx_shell` is not a sandbox.**
 
-`ctx_shell` and `lean-ctx -c` enforce a deny-by-default executable allowlist (AST-segmented: every segment of a pipeline/compound command must be allowed), block `eval`/`$()`/backticks at command position, and reject pipe-to-bare-interpreter patterns. Enforcement applies to the MCP path, hook-child mode and every non-interactive CLI invocation; an interactive human terminal gets a warning instead (`LEAN_CTX_ALLOWLIST_WARN_ONLY=1` opts out explicitly). Cloud/infra mutation CLIs (terraform, kubectl, aws, …) are excluded from the default allowlist and require per-tool opt-in (`lean-ctx allow <cmd>`).
+`ctx_shell` and `lean-ctx -c` enforce, in both allowlist and blocklist-only mode:
+
+- a deny-by-default executable allowlist when configured (AST-segmented: every segment of a pipeline/compound command must be allowed),
+- `eval`/`exec`/`source` unconditionally blocked; `$()`/backticks blocked at command position,
+- **interpreter inline-code blocking**: `bash -c`, `sh -c`, `python -c`, `node -e`, … are rejected (including via delegation wrappers like `env`, `timeout`, `xargs`) — quoting a payload inside `bash -c '…'` does not bypass the file-write or allowlist checks because the interpreter call itself is refused,
+- file-write detection (`>`, `>>`, `tee`, heredoc-to-file, `dd of=`, `curl -o/-O`, `wget` to file) — writes belong to the editor's native Write/Edit tools where the agent's permission UI governs them,
+- dangerous-flag blocking (`git --upload-pack`, `tar --to-command`, `find -exec`, `awk system()`), inline env hijack blocking (`PATH=`, `LD_PRELOAD=`, `GIT_SSH_COMMAND=`, …), and dangerous env-key filtering on the MCP `env` parameter.
+
+Enforcement applies to the MCP path, hook-child mode and every non-interactive CLI invocation; an interactive human terminal gets a warning instead (`LEAN_CTX_ALLOWLIST_WARN_ONLY=1` opts out explicitly). Cloud/infra mutation CLIs (terraform, kubectl, aws, …) are excluded from the default allowlist and require per-tool opt-in (`lean-ctx allow <cmd>`). `shell_strict_mode = true` upgrades the warn-only heuristics (command substitution in arguments, pipe-to-bare-interpreter) to hard blocks.
+
+**Explicitly out of scope:** commands run with the invoking user's full privileges. Anything the user can do, an allowed command can do — `cp`/`rsync` can copy any file the OS lets the user read, package managers execute arbitrary install scripts, `npm test` runs project code. A blocklist cannot enumerate these; pretending otherwise would be security theater.
 
 **Rationale:** Shell filters can be bypassed by a sufficiently creative attacker, so the agent's permission model (Claude Code allowlists, Cursor approval dialogs) remains the primary boundary — lean-ctx's allowlist is a second, independent layer, not a replacement.
 
-**Mitigation:** Use role-based `denied: ["ctx_shell"]` to disable shell access entirely in sensitive environments.
+**Mitigation for untrusted agents:** Use role-based `denied: ["ctx_shell"]` to disable shell access entirely, enable the deny-by-default allowlist with a minimal command set, and/or run the whole agent stack inside an OS sandbox (container, gVisor/Firecracker, bwrap, seccomp/AppArmor) — that is the correct layer for kernel-grade isolation.
 
 ### PathJail TOCTOU Race (REQ-57178)
 

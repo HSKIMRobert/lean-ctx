@@ -26,8 +26,9 @@ pub fn check_shell_allowlist(command: &str) -> Result<(), String> {
         ));
     }
 
-    check_substitution_in_args(cmd);
-    check_pipe_to_bare_interpreter(cmd);
+    let strict = crate::core::config::Config::load().shell_strict_mode;
+    check_substitution_in_args(cmd, strict)?;
+    check_pipe_to_bare_interpreter(cmd, strict)?;
 
     let allowlist = effective_allowlist();
     if allowlist.is_empty() {
@@ -46,30 +47,37 @@ fn normalize_line_continuations(command: &str) -> String {
         .replace(['\u{2028}', '\u{2029}'], "\n")
 }
 
-/// WARN-FIRST: Log warning (or block if strict) for $(), backticks, <() in arguments.
-fn check_substitution_in_args(command: &str) {
-    let strict = crate::core::config::Config::load().shell_strict_mode;
-    if has_unquoted_substitution_in_args(command) {
+/// $(), backticks, <() in arguments: warn by default, **block** when
+/// `shell_strict_mode = true` (GH #391 — the strict knob previously only
+/// changed the log line and never actually blocked).
+fn check_substitution_in_args(command: &str, strict: bool) -> Result<(), String> {
+    if has_expanding_substitution_in_args(command) {
         if strict {
             tracing::warn!(
                 "[SECURITY] Command substitution in arguments blocked (shell_strict_mode=true): {command}"
             );
-        } else {
-            tracing::warn!(
-                "[SECURITY] Command substitution in arguments detected (warn-only, set shell_strict_mode=true to block): {command}"
-            );
+            return Err(format!(
+                "[BLOCKED — DO NOT RETRY] Command substitution ($(), backticks, <()/>()) in \
+                 arguments is blocked because shell_strict_mode = true. \
+                 This is a permanent security restriction.\n\
+                 Command: {command}"
+            ));
         }
+        tracing::warn!(
+            "[SECURITY] Command substitution in arguments detected (warn-only, set shell_strict_mode=true to block): {command}"
+        );
     }
+    Ok(())
 }
 
-/// Check for $(), backticks, <(, >( outside of command position, outside quotes.
-fn has_unquoted_substitution_in_args(command: &str) -> bool {
+/// Check for $(), backticks, <(, >( in arguments wherever the shell would
+/// expand them — i.e. unquoted OR inside double quotes (single quotes inhibit
+/// expansion). `git commit -m "$(cat f)"` expands; `grep '$(x)' f` does not.
+fn has_expanding_substitution_in_args(command: &str) -> bool {
     let bytes = command.as_bytes();
     let len = bytes.len();
     let mut i = 0;
     let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut past_first_token = false;
     let mut seen_space_after_cmd = false;
 
     while i < len {
@@ -81,23 +89,12 @@ fn has_unquoted_substitution_in_args(command: &str) -> bool {
             i += 1;
             continue;
         }
-        if in_double_quote {
-            if ch == b'"' && (i == 0 || bytes[i - 1] != b'\\') {
-                in_double_quote = false;
-            }
-            i += 1;
-            continue;
-        }
         match ch {
             b'\'' => {
                 in_single_quote = true;
                 i += 1;
             }
-            b'"' => {
-                in_double_quote = true;
-                i += 1;
-            }
-            b' ' | b'\t' if !past_first_token => {
+            b' ' | b'\t' if !seen_space_after_cmd => {
                 seen_space_after_cmd = true;
                 i += 1;
             }
@@ -105,7 +102,6 @@ fn has_unquoted_substitution_in_args(command: &str) -> bool {
                 i += 1;
             }
             _ => {
-                past_first_token = true;
                 if ch == b'$' && i + 1 < len && bytes[i + 1] == b'(' {
                     return true;
                 }
@@ -122,8 +118,9 @@ fn has_unquoted_substitution_in_args(command: &str) -> bool {
     false
 }
 
-/// WARN-FIRST: Log warning for piping into bare interpreter (no script file).
-fn check_pipe_to_bare_interpreter(command: &str) {
+/// Piping into a bare interpreter (no script file): warn by default, **block**
+/// when `shell_strict_mode = true` (GH #391).
+fn check_pipe_to_bare_interpreter(command: &str, strict: bool) -> Result<(), String> {
     let segments = split_on_operators(command);
     let pipe_indices: Vec<usize> = {
         let mut indices = Vec::new();
@@ -175,16 +172,20 @@ fn check_pipe_to_bare_interpreter(command: &str) {
         }
         if is_bare_interpreter_stdin(seg) {
             let base = extract_base_from_segment(seg);
-            let strict = crate::core::config::Config::load().shell_strict_mode;
             if strict {
                 tracing::warn!(
                     "[SECURITY] Pipe to bare interpreter '{base}' blocked (shell_strict_mode=true)"
                 );
-            } else {
-                tracing::warn!("[SECURITY] Pipe to bare interpreter '{base}' detected (warn-only)");
+                return Err(format!(
+                    "[BLOCKED — DO NOT RETRY] Piping into bare interpreter '{base}' is blocked \
+                     because shell_strict_mode = true. Run a script file instead.\n\
+                     Command: {command}"
+                ));
             }
+            tracing::warn!("[SECURITY] Pipe to bare interpreter '{base}' detected (warn-only)");
         }
     }
+    Ok(())
 }
 
 /// For empty allowlists: still enforce UNCONDITIONAL_BLOCKED commands.
@@ -271,9 +272,17 @@ fn quote_aware_token_end(input: &str) -> usize {
 }
 
 /// Like `check_interpreter_abuse` but only checks for eval flags on interpreters.
-/// Skips delegation-command checks (which require an allowlist for membership test).
-/// Used in blocklist-only mode where there is no allowlist.
+/// Skips allowlist-membership tests (no allowlist exists in blocklist-only mode),
+/// but still follows delegation wrappers so `xargs bash -c …` / `timeout 5 sh -c …`
+/// cannot smuggle inline code past the check (GH #391).
 fn check_interpreter_eval_only(segment: &str) -> Result<(), String> {
+    check_interpreter_eval_only_inner(segment, 0)
+}
+
+fn check_interpreter_eval_only_inner(segment: &str, depth: usize) -> Result<(), String> {
+    if depth > 3 {
+        return Ok(());
+    }
     let trimmed = skip_env_assignments(segment.trim());
     let tokens = shell_tokenize(trimmed);
     if tokens.is_empty() {
@@ -284,6 +293,15 @@ fn check_interpreter_eval_only(segment: &str) -> Result<(), String> {
         .next()
         .unwrap_or(&tokens[0])
         .to_string();
+
+    if DELEGATION_COMMANDS.contains(&base.as_str()) {
+        let rest_tokens = delegated_command_tokens(&tokens[1..]);
+        if !rest_tokens.is_empty() {
+            return check_interpreter_eval_only_inner(&rest_tokens.join(" "), depth + 1);
+        }
+        return Ok(());
+    }
+
     if !INTERPRETER_COMMANDS.contains(&base.as_str()) {
         return Ok(());
     }
@@ -335,7 +353,25 @@ const SCRIPT_EXTENSIONS: &[&str] = &[
 ];
 
 /// Commands that delegate to another command (the delegated command must also be allowed).
-const DELEGATION_COMMANDS: &[&str] = &["env", "nice", "timeout", "sudo", "doas"];
+/// `xargs` is here because `… | xargs bash -c '…'` would otherwise smuggle an
+/// interpreter past both the allowlist and the inline-code check (GH #391).
+const DELEGATION_COMMANDS: &[&str] = &["env", "nice", "timeout", "sudo", "doas", "xargs", "nohup"];
+
+/// Skips a delegation command's own flags/operands to find the delegated
+/// command token: leading `-x` flags, `KEY=VALUE` pairs (env), bare numbers
+/// (timeout/nice durations) and `{}` placeholders (xargs -I).
+fn delegated_command_tokens(tokens: &[String]) -> Vec<&str> {
+    tokens
+        .iter()
+        .map(std::string::String::as_str)
+        .skip_while(|t| {
+            t.starts_with('-')
+                || t.contains('=')
+                || *t == "{}"
+                || (!t.is_empty() && t.chars().all(|c| c.is_ascii_digit()))
+        })
+        .collect()
+}
 
 /// Check if a segment uses an interpreter with an eval flag, or a delegation command
 /// whose target is not in the allowlist.
@@ -390,11 +426,7 @@ fn check_interpreter_abuse_inner(
     }
 
     if DELEGATION_COMMANDS.contains(&base.as_str()) {
-        let rest_tokens: Vec<&str> = tokens[1..]
-            .iter()
-            .map(std::string::String::as_str)
-            .skip_while(|t| t.starts_with('-') || t.contains('='))
-            .collect();
+        let rest_tokens = delegated_command_tokens(&tokens[1..]);
         if let Some(&delegated_tok) = rest_tokens.first() {
             let delegated = delegated_tok.rsplit('/').next().unwrap_or(delegated_tok);
             if !delegated.is_empty() && !allowlist.iter().any(|a| a == delegated) {
