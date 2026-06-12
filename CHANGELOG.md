@@ -3,6 +3,29 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.8.3] — 2026-06-12
+
+### Fixed
+- **`ctx_impact` reported C# classes as leaf nodes when consumers had no
+  `using` directive (#398)**: C# resolves types in the same namespace without
+  any import, and DI-style code never `new`s its dependencies — so a class
+  consumed only as a *type* (constructor parameter, field, property, base
+  class, generic argument) produced **zero** graph edges and a false-negative
+  "no files depend on X". The property-graph builder now extracts **type
+  usages** from the AST (fields, parameters, returns, base lists, generics,
+  casts, `typeof`) for C# and Java — the two supported languages with implicit
+  same-namespace/package visibility — and links consumer files to defining
+  files with `type_ref` edges, which `impact_analysis` already traverses.
+  Names defined in more than 3 files are skipped as too generic to attribute.
+- **Same root cause, second symptom**: classes consumed only as a type were
+  flagged by the `dead_code` smell — its SQL already exempted `type_ref`
+  targets, but nothing ever *created* those edges. The builder now also emits
+  symbol-level `type_ref` edges, so DI-consumed classes no longer show up as
+  dead code while genuinely unreferenced ones still do.
+- Both property-graph builder paths (default and minimal) now share one
+  analysis pass and definition index, so the fix applies regardless of build
+  features.
+
 ## [3.8.2] — 2026-06-12
 
 ### Fixed
