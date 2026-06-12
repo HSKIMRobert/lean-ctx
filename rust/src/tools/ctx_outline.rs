@@ -31,7 +31,7 @@ pub fn handle(path: &str, kind_filter: Option<&str>) -> (String, usize) {
 
     let filtered = filter_by_kind(&sigs, kind_filter);
     let crp = CrpMode::effective();
-    let outline: String = filtered
+    let mut outline: String = filtered
         .iter()
         .map(|s| {
             if crp.is_tdd() {
@@ -42,6 +42,13 @@ pub fn handle(path: &str, kind_filter: Option<&str>) -> (String, usize) {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    // Self-describing outputs (GL #580): symbol notation carries its legend.
+    if crp.is_tdd() {
+        let legend = crate::core::signatures::tdd_legend(&filtered);
+        if !legend.is_empty() {
+            outline = format!("{legend}\n{outline}");
+        }
+    }
 
     let sent = count_tokens(&outline);
     let savings = crate::core::protocol::format_savings(full_tokens, sent);

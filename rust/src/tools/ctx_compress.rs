@@ -15,6 +15,11 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
 
     let mut sections = Vec::new();
     sections.push(format!("CTX CHECKPOINT ({file_count} files)"));
+    // Self-describing outputs (GL #580): one legend up front when the
+    // checkpoint renders TDD symbol notation below.
+    if include_signatures && crp_mode.is_tdd() {
+        sections.push("[λ=fn §=class ∂=trait τ=type ε=enum ν=val +=pub ~=async]".to_string());
+    }
     sections.push(String::new());
 
     let mut total_original = 0usize;

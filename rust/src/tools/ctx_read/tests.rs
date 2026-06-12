@@ -375,12 +375,39 @@ fn map_mode_includes_signature_line_ranges() {
         "map output should include API: {result}"
     );
     assert!(
-        result.contains("cl ⊛ Config @L1"),
+        result.contains("struct pub Config @L1"),
         "struct signature should include line suffix: {result}"
     );
     assert!(
-        result.contains("fn ⊛ build() → Config @L3"),
+        result.contains("fn pub build() → Config @L3"),
         "function signature should include line suffix: {result}"
+    );
+}
+
+#[test]
+fn tdd_map_output_carries_symbol_legend() {
+    // GL #580: symbol notation must be self-describing for vanilla agents.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lib.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(
+        &path,
+        "pub struct Config {}\n\npub fn build() -> Config { Config {} }\n",
+    )
+    .unwrap();
+
+    let mut cache = SessionCache::new();
+    let result = handle(&mut cache, &p, "map", CrpMode::Tdd);
+    assert!(
+        result.contains("[λ=fn §=class +=pub]"),
+        "TDD map output must carry the symbol legend: {result}"
+    );
+
+    let mut cache2 = SessionCache::new();
+    let sigs = handle(&mut cache2, &p, "signatures", CrpMode::Tdd);
+    assert!(
+        sigs.contains("[λ=fn §=class +=pub]"),
+        "TDD signatures output must carry the symbol legend: {sigs}"
     );
 }
 

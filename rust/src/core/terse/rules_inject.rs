@@ -27,10 +27,8 @@ pub fn inject(level: &CompressionLevel) -> usize {
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut updated = 0;
 
-    let cursor_paths: Vec<std::path::PathBuf> = vec![
-        home.join(".cursor/rules/lean-ctx.mdc"),
-        cwd.join(".cursorrules"),
-    ];
+    let global_cursor_mdc = home.join(".cursor/rules/lean-ctx.mdc");
+    let cursorrules = cwd.join(".cursorrules");
     let other_paths: Vec<std::path::PathBuf> = vec![
         cwd.join("AGENTS.md"),
         cwd.join(".claude/rules/lean-ctx.md"),
@@ -39,14 +37,30 @@ pub fn inject(level: &CompressionLevel) -> usize {
         home.join(".qoder/rules/lean-ctx.md"),
     ];
 
-    for path in cursor_paths {
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let new_content = upsert_block(&content, &block(&prompt_ascii));
-                if new_content != content {
-                    let _ = std::fs::write(&path, &new_content);
-                    updated += 1;
-                }
+    if global_cursor_mdc.exists() {
+        if let Ok(content) = std::fs::read_to_string(&global_cursor_mdc) {
+            let new_content = upsert_block(&content, &block(&prompt_ascii));
+            if new_content != content {
+                let _ = std::fs::write(&global_cursor_mdc, &new_content);
+                updated += 1;
+            }
+        }
+    }
+
+    // `.cursorrules` is Cursor-only and Cursor also auto-loads the global mdc.
+    // When the mdc carries the block, a second copy here is pure duplication
+    // (#578): remove an existing block instead of refreshing it, and never
+    // append a new one. Without the mdc, `.cursorrules` stays the carrier.
+    if cursorrules.exists() {
+        if let Ok(content) = std::fs::read_to_string(&cursorrules) {
+            let desired = if global_cursor_mdc.exists() {
+                remove_block(&content)
+            } else {
+                upsert_block(&content, &block(&prompt_ascii))
+            };
+            if desired != content {
+                let _ = std::fs::write(&cursorrules, &desired);
+                updated += 1;
             }
         }
     }
@@ -82,5 +96,24 @@ fn upsert_block(content: &str, block: &str) -> String {
         out.push_str(block);
         out.push('\n');
         out
+    }
+}
+
+/// Strips an existing compression block (used when another auto-loaded file
+/// already carries it for the same client, #578).
+fn remove_block(content: &str) -> String {
+    if !content.contains(COMPRESSION_BLOCK_START) {
+        return content.to_string();
+    }
+    let stripped = crate::marked_block::remove_content(
+        content,
+        COMPRESSION_BLOCK_START,
+        COMPRESSION_BLOCK_END,
+    );
+    let trimmed = stripped.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}\n")
     }
 }

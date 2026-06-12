@@ -122,6 +122,16 @@ pub(crate) fn process_mode(
                     .collect();
                 output.push_str(&format!("\n deps {}", imports_str.join(",")));
             }
+            // Self-describing outputs (GL #580): symbol notation always ships
+            // its own one-line legend so vanilla agents can read it.
+            if crp_mode.is_tdd() {
+                let refs: Vec<&signatures::Signature> = sigs.iter().collect();
+                let legend = signatures::tdd_legend(&refs);
+                if !legend.is_empty() {
+                    output.push('\n');
+                    output.push_str(&legend);
+                }
+            }
             for sig in &sigs {
                 output.push('\n');
                 if crp_mode.is_tdd() {
@@ -221,6 +231,13 @@ pub(crate) fn process_mode(
 
             if !key_sigs.is_empty() {
                 output.push_str("\n  API:");
+                // Self-describing outputs (GL #580): legend precedes symbols.
+                if crp_mode.is_tdd() {
+                    let legend = signatures::tdd_legend(&key_sigs);
+                    if !legend.is_empty() {
+                        output.push_str(&format!(" {legend}"));
+                    }
+                }
                 for sig in &key_sigs {
                     output.push_str("\n    ");
                     if crp_mode.is_tdd() {

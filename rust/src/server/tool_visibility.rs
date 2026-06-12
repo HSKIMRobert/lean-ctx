@@ -17,6 +17,46 @@ use crate::core::tool_profiles::ToolProfile;
 /// registered tool through it, even when that tool isn't advertised.
 pub const INVOKER: &str = "ctx_call";
 
+/// Which candidate pool `tools/list` starts from, before per-tool gates run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CandidateSet {
+    /// Full registry (`LEAN_CTX_FULL_TOOLS=1` / `LEAN_CTX_LAZY_TOOLS=0`).
+    Full,
+    /// Consolidated unified surface (`LEAN_CTX_UNIFIED`).
+    Unified,
+    /// The user pinned a profile — it is authoritative and resolves against
+    /// the full registry (#358), so `standard` advertises its complete set.
+    ProfileAuthoritative,
+    /// Lean default: only `CORE_TOOL_NAMES` are advertised; everything else
+    /// stays reachable through [`INVOKER`] (#575).
+    LazyCore,
+}
+
+/// Decides the candidate pool. Single source of truth for the `tools/list`
+/// handler AND offline measurement (`doctor overhead`), so the advertised
+/// surface and the reported overhead can never drift apart.
+#[must_use]
+pub fn candidate_set(full_mode: bool, unified_env: bool, explicit_profile: bool) -> CandidateSet {
+    if full_mode {
+        CandidateSet::Full
+    } else if unified_env {
+        CandidateSet::Unified
+    } else if explicit_profile {
+        CandidateSet::ProfileAuthoritative
+    } else {
+        CandidateSet::LazyCore
+    }
+}
+
+/// Whether the user explicitly pinned a tool profile (config key, custom tool
+/// list, or env var) — the trigger for [`CandidateSet::ProfileAuthoritative`].
+#[must_use]
+pub fn explicit_profile(cfg: &crate::core::config::Config) -> bool {
+    cfg.tool_profile.is_some()
+        || !cfg.tools_enabled.is_empty()
+        || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok()
+}
+
 /// Decides whether a tool name should appear in `tools/list`.
 ///
 /// `role_allows` is supplied by the caller (it depends on the active role, which
@@ -43,6 +83,72 @@ pub fn is_tool_visible(
         return false;
     }
     role_allows
+}
+
+/// Computes the tool set this install advertises to a default client
+/// (no Zed quirk, no role restriction, no workflow gate, static tool list),
+/// including the live description compression. Offline counterpart of the
+/// `tools/list` handler for `doctor overhead` / `ContextOverhead::measure` —
+/// kept next to the pure gates so measurement cannot drift from policy.
+#[must_use]
+pub fn advertised_tool_defs_default() -> Vec<rmcp::model::Tool> {
+    let cfg = crate::core::config::Config::load();
+    let disabled = cfg.disabled_tools_effective();
+    let profile = cfg.tool_profile_effective();
+    let full_mode = crate::tool_defs::is_full_mode();
+    let registry = crate::server::registry::build_registry();
+
+    let candidate = candidate_set(
+        full_mode,
+        std::env::var("LEAN_CTX_UNIFIED").is_ok(),
+        explicit_profile(&cfg),
+    );
+    let pool: Vec<rmcp::model::Tool> = match candidate {
+        CandidateSet::Full | CandidateSet::ProfileAuthoritative => registry.tool_defs(),
+        CandidateSet::Unified => crate::tool_defs::unified_tool_defs(),
+        CandidateSet::LazyCore => {
+            let core = crate::tool_defs::core_tool_names();
+            registry
+                .tool_defs()
+                .into_iter()
+                .filter(|t| core.contains(&t.name.as_ref()))
+                .collect()
+        }
+    };
+
+    let mut tools: Vec<_> = pool
+        .into_iter()
+        .filter(|t| is_tool_visible(t.name.as_ref(), &profile, &disabled, false, true))
+        .collect();
+
+    let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
+    if needs_invoker(full_mode, already, true, &disabled) {
+        if let Some(def) = registry
+            .tool_defs()
+            .into_iter()
+            .find(|t| t.name.as_ref() == INVOKER)
+        {
+            tools.push(def);
+        }
+    }
+
+    let level = crate::core::config::CompressionLevel::effective(&cfg);
+    let mode = crate::core::terse::mcp_compress::DescriptionMode::from_compression_level(&level);
+    if mode == crate::core::terse::mcp_compress::DescriptionMode::Full {
+        return tools;
+    }
+    tools
+        .into_iter()
+        .map(|mut t| {
+            let compressed = crate::core::terse::mcp_compress::compress_description(
+                t.name.as_ref(),
+                t.description.as_deref().unwrap_or(""),
+                mode,
+            );
+            t.description = Some(compressed.into());
+            t
+        })
+        .collect()
 }
 
 /// Whether the lazy per-category gate should filter the advertised tool set.
@@ -182,5 +288,44 @@ mod tests {
             true,
             &["ctx_call".to_string()]
         ));
+    }
+
+    /// #576 schema diet: the lazy-core surface is the default fixed cost every
+    /// session pays — keep it bounded. Per-tool cap keeps any single schema
+    /// from bloating; the total cap keeps the whole advertised surface lean.
+    /// (Raw registry defs, before description compression — worst case.)
+    #[test]
+    fn core_tool_surface_stays_within_budget() {
+        const PER_TOOL_BUDGET: usize = 300;
+        const TOTAL_BUDGET: usize = 2000;
+
+        let _guard = crate::core::data_dir::isolated_data_dir();
+        let core = crate::tool_defs::core_tool_names();
+        let defs: Vec<_> = crate::server::registry::build_registry()
+            .tool_defs()
+            .into_iter()
+            .filter(|t| core.contains(&t.name.as_ref()))
+            .collect();
+        assert_eq!(defs.len(), core.len(), "every core tool must be registered");
+
+        let mut total = 0usize;
+        for t in &defs {
+            let desc = t.description.as_deref().unwrap_or("");
+            let schema = serde_json::to_string(&t.input_schema).unwrap_or_default();
+            let cost = crate::core::tokens::count_tokens(desc)
+                + crate::core::tokens::count_tokens(&schema);
+            eprintln!("{:24} {cost:4} tok", t.name.as_ref());
+            assert!(
+                cost <= PER_TOOL_BUDGET,
+                "{} costs {cost} tok (budget {PER_TOOL_BUDGET}) — trim its description/schema",
+                t.name
+            );
+            total += cost;
+        }
+        eprintln!("CORE TOTAL: {total} tok / {} tools", defs.len());
+        assert!(
+            total <= TOTAL_BUDGET,
+            "core surface costs {total} tok (budget {TOTAL_BUDGET})"
+        );
     }
 }

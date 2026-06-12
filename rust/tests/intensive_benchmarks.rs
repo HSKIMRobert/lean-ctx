@@ -286,7 +286,7 @@ fn bench_lazy_default_vs_full_overhead() {
 
 #[test]
 fn bench_decoder_block_token_count() {
-    let block = instruction_decoder_block();
+    let block = instruction_decoder_block(false);
     let tokens = count_tokens(&block);
 
     eprintln!(

@@ -17,6 +17,10 @@ pub fn cmd_rules(args: &[String]) {
         "lint" => cmd_lint(&ops),
         "status" => cmd_status(&ops),
         "init" => cmd_init(&ops),
+        "dedup" => {
+            let apply = args.iter().any(|a| a == "--apply");
+            std::process::exit(crate::cli::rules_dedup::run(apply));
+        }
         "help" | "--help" | "-h" => print_help(),
         _ => {
             eprintln!("Unknown rules action: {action}");
@@ -142,6 +146,7 @@ fn print_help() {
              lint              Check rules for consistency and completeness\n    \
              status            Show sync status for all targets\n    \
              init              Create .lean-ctx/rules.toml from existing rules\n    \
+             dedup [--apply]   Remove duplicated lean-ctx rules (#578); dry-run by default\n    \
              help              Show this help"
     );
 }

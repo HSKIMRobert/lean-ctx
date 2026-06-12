@@ -35,23 +35,17 @@ impl McpTool for CtxReadTool {
         tool_def(
             "ctx_read",
             "Read a file. Prefer over native Read/cat/head/tail (cached, compressed).\n\
-             Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|density:X|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.",
+             Unchanged re-reads cost ~13 tokens. Auto-selects mode. fresh=true forces a disk re-read.",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute file path to read" },
+                    "path": { "type": "string", "description": "Absolute file path" },
                     "mode": {
                         "type": "string",
-                        "description": "Compression mode (default: auto — resolved per file type/size). Explicit 'full' for guaranteed complete content with header/deps. Use 'raw' for zero-overhead file content (no header, no deps, no footer — ideal for one-shot CLI reads). Use 'map' for context-only files. For line ranges: 'lines:N-M' (e.g. 'lines:400-500'). For target density: 'density:0.4' keeps the highest-entropy lines until ~40% of the original tokens remain (SDE budget, deterministic)."
+                        "description": "auto (default)|full|raw (no header/footer)|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M|density:0.X"
                     },
-                    "start_line": {
-                        "type": "integer",
-                        "description": "Start reading from this line (only used when no explicit mode is set, or with mode=lines). Does NOT override explicit modes like map/signatures."
-                    },
-                    "fresh": {
-                        "type": "boolean",
-                        "description": "Bypass cache and force a full re-read. Use when running as a subagent that may not have the parent's context."
-                    }
+                    "start_line": { "type": "integer", "description": "Read from this line on" },
+                    "fresh": { "type": "boolean", "description": "Bypass cache, force disk re-read" }
                 },
                 "required": ["path"]
             }),

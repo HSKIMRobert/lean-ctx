@@ -15,26 +15,19 @@ impl McpTool for CtxCallTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_call",
-            "Invoke any of the 50+ lean-ctx tools by name. Use for tools not in the core set.\n\
-             CATEGORIES:\n\
-             arch: ctx_architecture, ctx_impact, ctx_callgraph, ctx_refactor, ctx_symbol, ctx_routes, ctx_smells, ctx_index\n\
-             debug: ctx_benchmark, ctx_verify, ctx_analyze, ctx_profile, ctx_proof, ctx_review\n\
+            "Invoke any non-core lean-ctx tool by name.\n\
+             arch: ctx_architecture, ctx_impact, ctx_callgraph, ctx_refactor, ctx_symbol, ctx_routes, ctx_smells\n\
+             debug: ctx_benchmark, ctx_verify, ctx_analyze, ctx_profile, ctx_review\n\
              memory: ctx_semantic_search, ctx_artifacts\n\
-             batch: ctx_fill, ctx_execute, ctx_expand, ctx_pack, ctx_plan, ctx_control, ctx_compile\n\
+             batch: ctx_fill, ctx_execute, ctx_pack, ctx_plan, ctx_compile\n\
              agent: ctx_agent, ctx_share, ctx_task, ctx_handoff, ctx_workflow\n\
-             util: ctx_compress, ctx_cache, ctx_retrieve, ctx_metrics, ctx_radar, ctx_dedup, ctx_cost, ctx_gain, ctx_heatmap, ctx_feedback, ctx_ledger, ctx_preload\n\
-             Example: ctx_call({\"name\":\"ctx_architecture\",\"arguments\":{\"action\":\"overview\"}})",
+             util: ctx_compress, ctx_cache, ctx_metrics, ctx_dedup, ctx_cost, ctx_heatmap, ctx_preload\n\
+             Discover more: name=ctx_discover_tools, arguments={query}.",
             json!({
                 "type": "object",
                 "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Tool name to invoke (e.g. 'ctx_architecture', 'ctx_benchmark')"
-                    },
-                    "arguments": {
-                        "type": "object",
-                        "description": "Arguments object to pass to the invoked tool"
-                    }
+                    "name": { "type": "string", "description": "Tool name" },
+                    "arguments": { "type": "object", "description": "Arguments for the tool" }
                 },
                 "required": ["name"]
             }),

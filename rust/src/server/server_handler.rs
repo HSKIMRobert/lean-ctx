@@ -248,30 +248,34 @@ impl ServerHandler for LeanCtxServer {
             // authoritative and resolves against the full registry, so e.g.
             // `standard` advertises its full balanced set instead of the accidental
             // `core ∩ standard` intersection.
-            let explicit_profile = cfg.tool_profile.is_some()
-                || !cfg.tools_enabled.is_empty()
-                || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok();
+            let explicit_profile = crate::server::tool_visibility::explicit_profile(&cfg);
 
-            let all_tools = if crate::tool_defs::is_full_mode() {
-                if let Some(ref reg) = self.registry {
-                    reg.tool_defs()
-                } else {
-                    crate::tool_defs::granular_tool_defs()
+            use crate::server::tool_visibility::CandidateSet;
+            let candidate = crate::server::tool_visibility::candidate_set(
+                crate::tool_defs::is_full_mode(),
+                std::env::var("LEAN_CTX_UNIFIED").is_ok(),
+                explicit_profile,
+            );
+            let all_tools = match candidate {
+                CandidateSet::Full | CandidateSet::ProfileAuthoritative => {
+                    if let Some(ref reg) = self.registry {
+                        reg.tool_defs()
+                    } else {
+                        crate::tool_defs::granular_tool_defs()
+                    }
                 }
-            } else if std::env::var("LEAN_CTX_UNIFIED").is_ok() {
-                crate::tool_defs::unified_tool_defs()
-            } else if let Some(ref reg) = self.registry {
-                if explicit_profile {
-                    reg.tool_defs()
-                } else {
-                    let core_names = crate::tool_defs::core_tool_names();
-                    reg.tool_defs()
-                        .into_iter()
-                        .filter(|t| core_names.contains(&t.name.as_ref()))
-                        .collect()
+                CandidateSet::Unified => crate::tool_defs::unified_tool_defs(),
+                CandidateSet::LazyCore => {
+                    if let Some(ref reg) = self.registry {
+                        let core_names = crate::tool_defs::core_tool_names();
+                        reg.tool_defs()
+                            .into_iter()
+                            .filter(|t| core_names.contains(&t.name.as_ref()))
+                            .collect()
+                    } else {
+                        crate::tool_defs::lazy_tool_defs()
+                    }
                 }
-            } else {
-                crate::tool_defs::lazy_tool_defs()
             };
             let client = self.client_name.read().await.clone();
             let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");

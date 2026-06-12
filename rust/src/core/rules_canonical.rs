@@ -99,39 +99,35 @@ pub fn tool_mapping_bullets(mode: Mode) -> &'static str {
     }
 }
 
+// Bullets are deliberately minimal (#579): the MANDATORY header carries the
+// imperative once, and the LITM-END preference line repeats it at the end —
+// per-bullet "[NEVER ...]" tails were redundant token weight in every session.
 const MCP_BULLETS: &str = "\
 lean-ctx MCP — MANDATORY tool mapping:\n\
-• Read/cat/head/tail -> ctx_read(path, mode)  [NEVER use native Read]\n\
-• Shell/bash -> ctx_shell(command)  [NEVER use native Shell]\n\
-• Grep/rg -> ctx_search(pattern, path)  [NEVER use native Grep]\n\
+• Read/cat/head/tail -> ctx_read(path, mode)\n\
+• Shell/bash -> ctx_shell(command)\n\
+• Grep/rg -> ctx_search(pattern, path)\n\
 • ls/find -> ctx_tree(path, depth)\n\
-• Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
-• Write, Delete, Glob -> use normally";
+• Edit/Write/Delete/Glob -> native (lean-ctx replaces READ only); if Edit fails, switch to ctx_edit(path, old, new) — never loop";
 
 const HYBRID_BULLETS: &str = "\
 lean-ctx — MANDATORY tool mapping:\n\
-• Read/cat/head/tail -> ctx_read(path, mode)  [NEVER use native Read]\n\
-• Shell commands -> lean-ctx -c \"<cmd>\" (via Shell)  [NEVER use ctx_shell]\n\
-• Grep/rg -> ctx_search(pattern, path)  [NEVER use native Grep]\n\
+• Read/cat/head/tail -> ctx_read(path, mode)\n\
+• Shell commands -> lean-ctx -c \"<cmd>\" (via Shell)  [NEVER ctx_shell]\n\
+• Grep/rg -> ctx_search(pattern, path)\n\
 • ls/find -> lean-ctx ls [path] (via Shell)\n\
-• Edit/StrReplace -> use native (lean-ctx only replaces READ, not WRITE)\n\
-• Write, Delete, Glob -> use normally";
+• Edit/Write/Delete/Glob -> native (lean-ctx replaces READ only); if Edit fails, switch to ctx_edit(path, old, new) — never loop";
 
-pub fn compatibility_block() -> &'static str {
-    "COMPATIBILITY: lean-ctx replaces READ operations only. Edit/Write/StrReplace stay native.\n\
-     FILE EDITING: Native Edit/StrReplace preferred. If Edit fails, use ctx_edit immediately."
-}
-
+/// One line on purpose (#579): every word here rides in EVERY session's MCP
+/// instructions. Mode details live on disk (LEAN-CTX.md) and in tool schemas.
 pub fn ctx_read_modes_block() -> &'static str {
-    "ctx_read modes: full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M. Auto-selects. Cached re-reads can be ~13 tok when unchanged. Fn refs F1,F2.. persist.\n\
-     Cache auto-validates via file mtime. Use fresh=true (or start_line / lines:N-M) to force a disk re-read."
+    "ctx_read modes: auto(default)|full|map|signatures|diff|task|reference|aggressive|entropy|lines:N-M. Re-reads ~13 tok; fresh=true forces disk re-read."
 }
 
+/// One line on purpose (#579) — background automation needs awareness, not a
+/// manual. Long-form documentation lives in LEAN-CTX.md.
 pub fn automation_block() -> &'static str {
-    "Auto: ctx_overview, ctx_preload, ctx_dedup, ctx_compress run behind the scenes. Checkpoint every 15 calls.\n\
-     Multi-agent: ctx_agent(action=handoff|sync). Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).\n\
-     ctx_semantic_search for meaning-based search. ctx_session for memory. ctx_knowledge: remember|recall|timeline|rooms|search|wakeup.\n\
-     ctx_shell raw=true for uncompressed output."
+    "Auto: preload/dedup/compress run in background. ctx_session=memory, ctx_knowledge=facts, ctx_semantic_search=meaning search, ctx_shell raw=true=uncompressed. Details: LEAN-CTX.md"
 }
 
 pub fn cep_block() -> &'static str {
@@ -141,12 +137,10 @@ pub fn cep_block() -> &'static str {
 pub fn litm_end_block(mode: Mode) -> &'static str {
     match mode {
         Mode::Hybrid => {
-            "--- TOOL PREFERENCE (LITM-END) ---\n\
-             ctx_read>Read ctx_search>Grep lean-ctx_-c>Shell lean-ctx_ls>ls | Edit/Write/Glob=native"
+            "TOOL PREFERENCE (END): ctx_read>Read ctx_search>Grep lean-ctx_-c>Shell lean-ctx_ls>ls | Edit/Write/Glob=native"
         }
         Mode::Mcp => {
-            "--- TOOL PREFERENCE (LITM-END) ---\n\
-             ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native"
+            "TOOL PREFERENCE (END): ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_tree>ls | Edit/Write/Glob=native"
         }
     }
 }
@@ -257,12 +251,24 @@ mod tests {
 
     #[test]
     fn shared_sections_not_empty() {
-        assert!(!compatibility_block().is_empty());
         assert!(!ctx_read_modes_block().is_empty());
         assert!(!automation_block().is_empty());
         assert!(!cep_block().is_empty());
         assert!(!litm_end_block(Mode::Mcp).is_empty());
         assert!(!litm_end_block(Mode::Hybrid).is_empty());
         assert!(!unified_tool_mode_block().is_empty());
+    }
+
+    #[test]
+    fn bullets_carry_edit_failure_path() {
+        // The ctx_edit escape hatch is the one non-obvious compatibility rule;
+        // it must survive in the mapping bullets (#579 folded the old
+        // compatibility_block into them).
+        for mode in [Mode::Hybrid, Mode::Mcp] {
+            assert!(
+                tool_mapping_bullets(mode).contains("ctx_edit"),
+                "edit-failure path missing for {mode:?}"
+            );
+        }
     }
 }

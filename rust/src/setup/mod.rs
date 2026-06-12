@@ -1023,7 +1023,11 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         steps.push(hooks_step);
     }
 
-    // Step: Tool profile (set default for new installs)
+    // Step: Tool profile. Deliberately does NOT write a default profile:
+    // writing `tool_profile = "standard"` made every install "explicit", which
+    // disables the lazy-core advertisement (13 tools) and ships the full
+    // profile schema set (~5-15k tokens) to every session (#575). The lean
+    // default needs no config key — all tools stay reachable via ctx_call.
     let mut tool_profile_step = SetupStepReport {
         name: "tool_profile".to_string(),
         ok: true,
@@ -1034,31 +1038,29 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     {
         let cfg = crate::core::config::Config::load();
         if cfg.tool_profile.is_none() && std::env::var("LEAN_CTX_TOOL_PROFILE").is_err() {
-            let default_profile = "standard";
-            match crate::core::tool_profiles::set_profile_in_config(default_profile) {
-                Ok(()) => {
-                    tool_profile_step.items.push(SetupItem {
-                        name: "tool_profile".to_string(),
-                        status: "set".to_string(),
-                        path: None,
-                        note: Some(format!(
-                            "default={default_profile} (22 tools; change with: lean-ctx profile power)"
-                        )),
-                    });
-                }
-                Err(e) => {
-                    tool_profile_step
-                        .warnings
-                        .push(format!("tool_profile: {e}"));
-                }
-            }
+            tool_profile_step.items.push(SetupItem {
+                name: "tool_profile".to_string(),
+                status: "lean default".to_string(),
+                path: None,
+                note: Some(
+                    "13 tools advertised, all reachable via ctx_call \
+                     (pin more with: lean-ctx tools standard|power)"
+                        .to_string(),
+                ),
+            });
         } else {
             let profile = cfg.tool_profile_effective();
+            let overhead_hint = match profile {
+                crate::core::tool_profiles::ToolProfile::Power => {
+                    "; advertises ALL tool schemas — `lean-ctx tools lean` cuts this to 13"
+                }
+                _ => "",
+            };
             tool_profile_step.items.push(SetupItem {
                 name: "tool_profile".to_string(),
                 status: "already".to_string(),
                 path: None,
-                note: Some(format!("profile={}", profile.as_str())),
+                note: Some(format!("profile={}{overhead_hint}", profile.as_str())),
             });
         }
     }

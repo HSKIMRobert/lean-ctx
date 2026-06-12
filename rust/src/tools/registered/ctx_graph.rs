@@ -15,45 +15,24 @@ impl McpTool for CtxGraphTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_graph",
-            "Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), \
-impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls), \
-neighbors (direct in/out edges of a file), path (shortest connection between two files), explain (why a file matters: degree/community/bridge), diff (files changed since a git ref + their blast radius).",
+            "Code graph: dependencies, symbol usages, impact/blast radius, Mermaid diagrams, git-diff impact.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["build", "related", "symbol", "impact", "status", "enrich", "context", "diagram", "neighbors", "path", "explain", "diff"],
-                        "description": "Graph operation"
+                        "description": "build|related|symbol|impact|status|enrich|context|diagram|neighbors|path|explain|diff"
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path (related/impact/neighbors/explain), file::symbol_name (symbol), or the FROM file (path)"
+                        "description": "File path; file::symbol for action=symbol; FROM file for action=path"
                     },
-                    "to": {
-                        "type": "string",
-                        "description": "Target file for action=path (shortest path destination)"
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "Optional traversal depth for action=diagram (default 2) and action=neighbors (default 1)"
-                    },
-                    "kind": {
-                        "type": "string",
-                        "description": "Optional kind for action=diagram: deps|calls"
-                    },
-                    "format": {
-                        "type": "string",
-                        "description": "Output format for neighbors/path/explain/diff: text (default) or json"
-                    },
-                    "since": {
-                        "type": "string",
-                        "description": "Base git ref for action=diff (default HEAD~1), e.g. a commit SHA, tag or HEAD~5"
-                    },
-                    "project_root": {
-                        "type": "string",
-                        "description": "Project root directory (default: .)"
-                    }
+                    "to": { "type": "string", "description": "Target file (action=path)" },
+                    "depth": { "type": "integer", "description": "Traversal depth" },
+                    "kind": { "type": "string", "description": "diagram: deps|calls" },
+                    "format": { "type": "string", "description": "text|json" },
+                    "since": { "type": "string", "description": "Git ref for action=diff (default HEAD~1)" },
+                    "project_root": { "type": "string" }
                 },
                 "required": ["action"]
             }),

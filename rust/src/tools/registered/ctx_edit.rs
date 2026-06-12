@@ -17,15 +17,15 @@ impl McpTool for CtxEditTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_edit",
-            "Edit a file via search-and-replace. Works without native Read/Edit tools. Use this when the IDE's Edit tool requires Read but Read is unavailable.",
+            "Edit a file via search-and-replace. Use when the IDE's Edit tool requires Read but Read is unavailable.",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute file path" },
-                    "old_string": { "type": "string", "description": "Exact text to find and replace (must be unique unless replace_all=true)" },
+                    "old_string": { "type": "string", "description": "Exact text to replace (unique unless replace_all)" },
                     "new_string": { "type": "string", "description": "Replacement text" },
-                    "replace_all": { "type": "boolean", "description": "Replace all occurrences (default: false)", "default": false },
-                    "create": { "type": "boolean", "description": "Create a new file with new_string as content (ignores old_string)", "default": false }
+                    "replace_all": { "type": "boolean", "default": false },
+                    "create": { "type": "boolean", "description": "Create new file from new_string", "default": false }
                 },
                 "required": ["path", "new_string"]
             }),

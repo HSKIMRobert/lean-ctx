@@ -15,20 +15,19 @@ impl McpTool for CtxTreeTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_tree",
-            "List a directory. Prefer over native ls/find (counts, compact tree).\n\
-             Supports multi-root via `paths` array. depth controls recursion (default 3).",
+            "List a directory. Prefer over native ls/find (counts, compact tree).",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Directory path (default: .)" },
+                    "path": { "type": "string", "description": "Directory (default: .)" },
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Multiple directories to list (alternative to path)"
+                        "description": "Multiple roots (alternative to path)"
                     },
-                    "depth": { "type": "integer", "description": "Max depth (default: 3)" },
-                    "show_hidden": { "type": "boolean", "description": "Show hidden files" },
-                    "respect_gitignore": { "type": "boolean", "description": "Filter out .gitignore'd files (default: true). Set false to show all files." }
+                    "depth": { "type": "integer", "description": "Max depth (default 3)" },
+                    "show_hidden": { "type": "boolean" },
+                    "respect_gitignore": { "type": "boolean", "description": "default true" }
                 }
             }),
         )

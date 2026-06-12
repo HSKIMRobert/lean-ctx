@@ -15,26 +15,16 @@ impl McpTool for CtxSessionTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_session",
-            "Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, task, \
-finding, decision, reset, list, cleanup, snapshot, restore, resume, profile (context profiles), \
-role (governance), budget (limits), slo (observability), diff (compare sessions), verify (output verification stats), \
-episodes (episodic memory), procedures (procedural memory).",
+            "Cross-session memory: record task/finding/decision, restore previous session state.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["status", "load", "save", "task", "finding", "decision", "reset", "list", "cleanup", "snapshot", "restore", "resume", "profile", "role", "budget", "slo", "diff", "verify", "episodes", "procedures"],
-                        "description": "Session operation to perform"
+                        "description": "status|load|save|task|finding|decision|reset|list|cleanup|snapshot|restore|resume|profile|role|budget|slo|diff|verify|episodes|procedures"
                     },
-                    "value": {
-                        "type": "string",
-                        "description": "Value for task/finding/decision/profile actions"
-                    },
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID for load action (default: latest)"
-                    }
+                    "value": { "type": "string", "description": "Text for task/finding/decision" },
+                    "session_id": { "type": "string", "description": "For load (default: latest)" }
                 },
                 "required": ["action"]
             }),

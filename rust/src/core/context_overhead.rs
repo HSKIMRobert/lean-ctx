@@ -51,17 +51,13 @@ impl ContextOverhead {
         *CACHE.get_or_init(Self::measure)
     }
 
-    /// Measure the overhead for the currently-configured MCP surface. Reads the
-    /// effective tool profile (minimal vs full) and CRP mode from config, so the
-    /// number reflects what this install actually advertises.
+    /// Measure the overhead for the currently-configured MCP surface. Uses the
+    /// same advertisement policy as the live `tools/list` handler (candidate
+    /// set, profile gates, invoker, description compression), so the number
+    /// reflects what this install actually advertises (#572).
     #[must_use]
     pub fn measure() -> Self {
-        let cfg = crate::core::config::Config::load();
-        let tools = if cfg.minimal_overhead_effective() {
-            crate::tool_defs::lazy_tool_defs()
-        } else {
-            crate::tool_defs::granular_tool_defs()
-        };
+        let tools = crate::server::tool_visibility::advertised_tool_defs_default();
         let tool_count = tools.len();
         let tool_schema_tokens = tools.iter().map(tool_tokens).sum();
 
@@ -82,7 +78,7 @@ impl ContextOverhead {
 
 /// Description + input-schema tokens for one tool definition — exactly the two
 /// fields a client re-sends in every request's tool list.
-fn tool_tokens(t: &rmcp::model::Tool) -> usize {
+pub fn tool_tokens(t: &rmcp::model::Tool) -> usize {
     let desc = t
         .description
         .as_ref()

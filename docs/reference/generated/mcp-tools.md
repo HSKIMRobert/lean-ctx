@@ -44,15 +44,14 @@ Parameters: `action`*, `path`
 
 ## `ctx_call`
 
-Invoke any of the 50+ lean-ctx tools by name. Use for tools not in the core set.
-CATEGORIES:
-arch: ctx_architecture, ctx_impact, ctx_callgraph, ctx_refactor, ctx_symbol, ctx_routes, ctx_smells, ctx_index
-debug: ctx_benchmark, ctx_verify, ctx_analyze, ctx_profile, ctx_proof, ctx_review
+Invoke any non-core lean-ctx tool by name.
+arch: ctx_architecture, ctx_impact, ctx_callgraph, ctx_refactor, ctx_symbol, ctx_routes, ctx_smells
+debug: ctx_benchmark, ctx_verify, ctx_analyze, ctx_profile, ctx_review
 memory: ctx_semantic_search, ctx_artifacts
-batch: ctx_fill, ctx_execute, ctx_expand, ctx_pack, ctx_plan, ctx_control, ctx_compile
+batch: ctx_fill, ctx_execute, ctx_pack, ctx_plan, ctx_compile
 agent: ctx_agent, ctx_share, ctx_task, ctx_handoff, ctx_workflow
-util: ctx_compress, ctx_cache, ctx_retrieve, ctx_metrics, ctx_radar, ctx_dedup, ctx_cost, ctx_gain, ctx_heatmap, ctx_feedback, ctx_ledger, ctx_preload
-Example: ctx_call({"name":"ctx_architecture","arguments":{"action":"overview"}})
+util: ctx_compress, ctx_cache, ctx_metrics, ctx_dedup, ctx_cost, ctx_heatmap, ctx_preload
+Discover more: name=ctx_discover_tools, arguments={query}.
 
 Parameters: `arguments`, `name`*
 
@@ -139,7 +138,7 @@ Parameters: `query`
 
 ## `ctx_edit`
 
-Edit a file via search-and-replace. Works without native Read/Edit tools. Use this when the IDE's Edit tool requires Read but Read is unavailable.
+Edit a file via search-and-replace. Use when the IDE's Edit tool requires Read but Read is unavailable.
 
 Parameters: `create`, `new_string`*, `old_string`, `path`*, `replace_all`
 
@@ -151,7 +150,7 @@ Parameters: `action`, `code`, `intent`, `items`, `language`, `path`, `timeout`
 
 ## `ctx_expand`
 
-Retrieve firewalled/archived tool output (zero-loss). Large outputs are stored out-of-band and replaced inline by a digest+ref; use this to drill into the full content. Actions: retrieve (default), list, search_all.
+Retrieve archived/firewalled tool output (zero-loss). Use the ID from an [Archived:/Firewalled: ...] hint.
 
 Parameters: `action`, `end_line`, `head`, `id`, `json_keys`, `json_path`, `query`, `search`, `session_id`, `start_line`, `tail`
 
@@ -191,7 +190,7 @@ Parameters: `ignore_gitignore`, `max_results`, `path`, `paths`, `pattern`*
 
 ## `ctx_graph`
 
-Unified code graph. Actions: build (index), related (connected files), symbol (def/usages), impact (blast radius), status (stats), enrich (add commits+tests+knowledge), context (task-based query), diagram (Mermaid deps/calls), neighbors (direct in/out edges of a file), path (shortest connection between two files), explain (why a file matters: degree/community/bridge), diff (files changed since a git ref + their blast radius).
+Code graph: dependencies, symbol usages, impact/blast radius, Mermaid diagrams, git-diff impact.
 
 Parameters: `action`*, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
 
@@ -227,7 +226,7 @@ Parameters: `project_root`, `query`*
 
 ## `ctx_knowledge`
 
-Persistent project knowledge across sessions (facts, patterns, history). Supports recall modes, embeddings, feedback, and typed relations.
+Persistent project knowledge across sessions (facts, patterns, gotchas, typed relations).
 
 Parameters: `action`*, `as_of`, `category`, `confidence`, `examples`, `key`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `trigger`, `value`
 
@@ -317,7 +316,7 @@ Parameters: `action`*, `filename`, `format`, `max_evidence`, `max_ledger_files`,
 
 ## `ctx_provider`
 
-External context providers (GitHub, GitLab, Jira, Postgres, custom). action=discover|list: list registered providers. action=status: provider health + cache metrics. action=refresh: invalidate cache + re-fetch (provider= optional). action=configure: show config (resource=paths|template for details). action=query: provider+resource for data access. Legacy GitLab actions still supported.
+External context providers (GitHub, GitLab, Jira, Postgres, MCP, custom REST).
 
 Parameters: `action`*, `iid`, `labels`, `limit`, `mode`, `provider`, `resource`, `state`, `status`
 
@@ -330,7 +329,7 @@ Parameters: `format`
 ## `ctx_read`
 
 Read a file. Prefer over native Read/cat/head/tail (cached, compressed).
-Unchanged re-reads cost ~13 tokens. Auto-selects mode (full|map|signatures|diff|aggressive|entropy|density:X|task|reference|raw|lines:N-M). fresh=true forces a disk re-read.
+Unchanged re-reads cost ~13 tokens. Auto-selects mode. fresh=true forces a disk re-read.
 
 Parameters: `fresh`, `mode`, `path`*, `start_line`
 
@@ -378,8 +377,7 @@ Parameters: `action`*, `agent`
 
 ## `ctx_search`
 
-Search code by regex. Prefer over native Grep/rg/find (compact output).
-Respects .gitignore; supports multi-root via `paths` array. Secret-like files skipped unless role allows.
+Regex code search. Prefer over native Grep/rg/find (compact, .gitignore-aware).
 
 Parameters: `ext`, `ignore_gitignore`, `include`, `max_results`, `path`, `paths`, `pattern`*
 
@@ -391,7 +389,7 @@ Parameters: `action`, `file_path`, `languages`, `line`, `mode`, `path`, `path_gl
 
 ## `ctx_session`
 
-Cross-session memory (CCP). Actions: load (restore ~400 tok), save, status, task, finding, decision, reset, list, cleanup, snapshot, restore, resume, profile (context profiles), role (governance), budget (limits), slo (observability), diff (compare sessions), verify (output verification stats), episodes (episodic memory), procedures (procedural memory).
+Cross-session memory: record task/finding/decision, restore previous session state.
 
 Parameters: `action`*, `session_id`, `value`
 
@@ -404,7 +402,7 @@ Parameters: `action`*, `message`, `paths`, `to_agent`
 ## `ctx_shell`
 
 Run a shell command. Prefer over native Shell/Bash (compressed output).
-95+ output patterns; raw=true skips compression. cwd persists across calls via cd tracking. Output redaction on by default for non-admin roles (admin can disable).
+cwd persists across calls.
 
 Parameters: `command`*, `cwd`, `env`, `raw`
 
@@ -455,7 +453,6 @@ Parameters: `action`, `arguments`, `query`, `tool`
 ## `ctx_tree`
 
 List a directory. Prefer over native ls/find (counts, compact tree).
-Supports multi-root via `paths` array. depth controls recursion (default 3).
 
 Parameters: `depth`, `path`, `paths`, `respect_gitignore`, `show_hidden`
 

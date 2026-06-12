@@ -305,10 +305,14 @@ pub struct InstructionTemplate {
     pub full: &'static str,
 }
 
+/// Exactly the codes `encode_instructions` can emit — the decoder block rides
+/// in every tdd-mode session, so codes that are never emitted (NODOC,
+/// ACTFIRST, NOMOCK) or already explained inline by the CRP suffix (ABBREV,
+/// SYMBOLS) must not be re-defined here (#579).
 const TEMPLATES: &[InstructionTemplate] = &[
     InstructionTemplate {
         code: "ACT1",
-        full: "Act immediately, 1-line result",
+        full: "act now, 1-line result",
     },
     InstructionTemplate {
         code: "BRIEF",
@@ -316,67 +320,44 @@ const TEMPLATES: &[InstructionTemplate] = &[
     },
     InstructionTemplate {
         code: "FULL",
-        full: "Outline+edge cases, then act",
+        full: "outline+edge cases first",
     },
     InstructionTemplate {
         code: "DELTA",
-        full: "Changed lines only",
+        full: "changed lines only",
     },
     InstructionTemplate {
         code: "NOREPEAT",
-        full: "No repeat, use Fn refs",
+        full: "use Fn refs",
     },
     InstructionTemplate {
         code: "STRUCT",
-        full: "+/-/~ notation",
+        full: "+/-/~",
     },
     InstructionTemplate {
         code: "1LINE",
-        full: "1 line per action",
-    },
-    InstructionTemplate {
-        code: "NODOC",
-        full: "No narration comments",
-    },
-    InstructionTemplate {
-        code: "ACTFIRST",
-        full: "Tool calls first, no narration",
+        full: "1 line/action",
     },
     InstructionTemplate {
         code: "QUALITY",
-        full: "Never skip edge cases",
-    },
-    InstructionTemplate {
-        code: "NOMOCK",
-        full: "No mock/placeholder data",
+        full: "keep edge cases",
     },
     InstructionTemplate {
         code: "FREF",
-        full: "Fn refs only, no full paths",
+        full: "Fn refs, no paths",
     },
     InstructionTemplate {
         code: "DIFF",
-        full: "Diff lines only",
-    },
-    InstructionTemplate {
-        code: "ABBREV",
-        full: "fn,cfg,impl,deps,req,res,ctx,err",
-    },
-    InstructionTemplate {
-        code: "SYMBOLS",
-        full: "+=add -=rm ~=mod ->=ret",
+        full: "diff lines only",
     },
 ];
 
 /// Generates the INSTRUCTION CODES block for agent system prompts.
-/// Only emits content when CRP mode is Tdd (otherwise returns empty string
-/// to avoid wasting ~80-100 tokens per MCP instructions payload).
-pub fn instruction_decoder_block() -> String {
-    let mode = crate::core::profiles::active_profile()
-        .compression
-        .crp_mode_effective()
-        .to_string();
-    if mode != "tdd" {
+/// Only emits content when the instructions being built are in Tdd CRP mode
+/// (otherwise returns empty — the codes are only emitted in tdd outputs, so
+/// defining them would waste ~60 tokens per MCP instructions payload, #579).
+pub fn instruction_decoder_block(tdd_active: bool) -> String {
+    if !tdd_active {
         return String::new();
     }
     let pairs: Vec<String> = TEMPLATES
@@ -508,11 +489,40 @@ mod tests {
 
     #[test]
     fn decoder_block_contains_all_codes() {
-        let block = instruction_decoder_block();
+        let block = instruction_decoder_block(true);
         for t in TEMPLATES {
             assert!(
                 block.contains(t.code),
                 "decoder should contain code {}",
+                t.code
+            );
+        }
+    }
+
+    #[test]
+    fn decoder_block_empty_outside_tdd() {
+        assert!(instruction_decoder_block(false).is_empty());
+    }
+
+    #[test]
+    fn decoder_codes_match_what_encode_can_emit() {
+        // Every defined code must appear in at least one encode_instructions
+        // output — dead definitions tax every tdd session (#579).
+        let all_modes: Vec<String> = [
+            "mechanical",
+            "simple",
+            "standard",
+            "complex",
+            "architectural",
+            "unknown",
+        ]
+        .iter()
+        .map(|c| encode_instructions(c))
+        .collect();
+        for t in TEMPLATES {
+            assert!(
+                all_modes.iter().any(|m| m.contains(t.code)),
+                "code {} is defined but never emitted",
                 t.code
             );
         }

@@ -37,8 +37,12 @@ impl Signature {
         }
     }
 
+    /// Plain, self-describing notation (GL #580): real keywords (`class`,
+    /// `trait`, `pub`) instead of abbreviations, so a vanilla agent without
+    /// injected rules reads the output correctly. Keyword tokens cost the
+    /// same as (or less than) the old `cl`/`⊛` forms.
     pub fn to_compact(&self) -> String {
-        let export = if self.is_exported { "⊛ " } else { "" };
+        let export = if self.is_exported { "pub " } else { "" };
         let async_prefix = if self.is_async { "async " } else { "" };
 
         match self.kind {
@@ -54,19 +58,17 @@ impl Signature {
                     self.name, self.params, ret
                 )
             }
-            "class" | "struct" => format!("cl {export}{}", self.name),
-            "interface" | "trait" => format!("if {export}{}", self.name),
-            "type" => format!("ty {export}{}", self.name),
-            "enum" => format!("en {export}{}", self.name),
             "const" | "let" | "var" => {
                 let ty = if self.return_type.is_empty() {
                     String::new()
                 } else {
                     format!(":{}", self.return_type)
                 };
-                format!("val {export}{}{ty}", self.name)
+                format!("{} {export}{}{ty}", self.kind, self.name)
             }
-            _ => format!("{} {}", self.kind, self.name),
+            // `kind` is already the source-language keyword (class, struct,
+            // interface, trait, type, enum) — use it verbatim.
+            _ => format!("{} {export}{}", self.kind, self.name),
         }
     }
 
@@ -125,6 +127,48 @@ impl Signature {
     /// `to_tdd` plus a line-span suffix. Reserved for navigation modes.
     pub fn to_tdd_located(&self) -> String {
         format!("{}{}", self.to_tdd(), self.line_suffix())
+    }
+}
+
+/// One-line legend for TDD symbol notation (GL #580): outputs must be
+/// self-describing for vanilla agents without injected rules. Only the
+/// symbols actually present in `sigs` are explained, keeping the line well
+/// under the 15-token budget for typical files. Empty when nothing applies.
+pub fn tdd_legend<'a>(sigs: &[&'a Signature]) -> String {
+    if sigs.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    let has = |pred: &dyn Fn(&'a Signature) -> bool| sigs.iter().any(|s| pred(s));
+
+    if has(&|s| matches!(s.kind, "fn" | "method")) {
+        parts.push("λ=fn");
+    }
+    if has(&|s| matches!(s.kind, "class" | "struct")) {
+        parts.push("§=class");
+    }
+    if has(&|s| matches!(s.kind, "interface" | "trait")) {
+        parts.push("∂=trait");
+    }
+    if has(&|s| s.kind == "type") {
+        parts.push("τ=type");
+    }
+    if has(&|s| s.kind == "enum") {
+        parts.push("ε=enum");
+    }
+    if has(&|s| matches!(s.kind, "const" | "let" | "var")) {
+        parts.push("ν=val");
+    }
+    if has(&|s| s.is_exported) {
+        parts.push("+=pub");
+    }
+    if has(&|s| s.is_async) {
+        parts.push("~=async");
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("[{}]", parts.join(" "))
     }
 }
 
@@ -652,7 +696,7 @@ mod tests {
         let mut sig = sample_fn();
         sig.start_line = Some(3);
         sig.end_line = Some(9);
-        assert_eq!(sig.to_compact(), "fn ⊛ run(id:usize) → bool");
+        assert_eq!(sig.to_compact(), "fn pub run(id:usize) → bool");
         assert_eq!(sig.to_tdd(), "λ+run(id:n)→b");
     }
 
@@ -660,13 +704,48 @@ mod tests {
     fn located_renderers_append_line_suffix() {
         let mut sig = sample_fn();
         // Unknown span → identical to the base renderer.
-        assert_eq!(sig.to_compact_located(), "fn ⊛ run(id:usize) → bool");
+        assert_eq!(sig.to_compact_located(), "fn pub run(id:usize) → bool");
         assert_eq!(sig.to_tdd_located(), "λ+run(id:n)→b");
 
         sig.start_line = Some(3);
         sig.end_line = Some(5);
-        assert_eq!(sig.to_compact_located(), "fn ⊛ run(id:usize) → bool @L3-5");
+        assert_eq!(
+            sig.to_compact_located(),
+            "fn pub run(id:usize) → bool @L3-5"
+        );
         assert_eq!(sig.to_tdd_located(), "λ+run(id:n)→b @L3-5");
+    }
+
+    #[test]
+    fn plain_notation_is_self_describing() {
+        // GL #580: plain mode must read like source keywords, no decoder ring.
+        let mut sig = sample_fn();
+        sig.kind = "struct";
+        assert_eq!(sig.to_compact(), "struct pub run");
+        sig.kind = "trait";
+        assert_eq!(sig.to_compact(), "trait pub run");
+        sig.kind = "enum";
+        sig.is_exported = false;
+        assert_eq!(sig.to_compact(), "enum run");
+        sig.kind = "const";
+        sig.return_type = "u32".to_string();
+        assert_eq!(sig.to_compact(), "const run:u32");
+    }
+
+    #[test]
+    fn tdd_legend_explains_only_present_symbols() {
+        // GL #580: symbol outputs carry their own minimal legend.
+        let f = sample_fn();
+        let mut s = sample_fn();
+        s.kind = "struct";
+        s.is_exported = false;
+
+        let legend = tdd_legend(&[&f, &s]);
+        assert_eq!(legend, "[λ=fn §=class +=pub]");
+        // Stays comfortably under the 15-token budget for a typical file.
+        assert!(crate::core::tokens::count_tokens(&legend) <= 15, "{legend}");
+
+        assert_eq!(tdd_legend(&[]), "");
     }
 
     #[test]

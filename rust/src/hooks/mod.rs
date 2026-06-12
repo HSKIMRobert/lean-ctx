@@ -552,20 +552,17 @@ Full rules: {PROJECT_LEAN_CTX_MD} (open on demand — do not auto-load).\n\
     }
 }
 
+/// Compact pointer only (#578): Cursor already auto-loads the canonical full
+/// ruleset from `~/.cursor/rules/lean-ctx.mdc`, so a project `.cursorrules`
+/// that repeats it bills the same guidance twice in every session.
 const CURSORRULES_TEMPLATE: &str = "\
-# lean-ctx — Context Engineering Layer
+<!-- lean-ctx -->
+# lean-ctx
 
-CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. This is NOT optional.
-
-| MUST USE | NEVER USE | Why |
-|----------|-----------|-----|
-| `ctx_read(path, mode)` | `Read` / `cat` / `head` / `tail` | Cached, 10 read modes, re-reads ~13 tokens |
-| `ctx_search(pattern, path)` | `Grep` / `rg` | Compact, token-efficient results |
-| `lean-ctx -c \"<cmd>\"` (via Shell) | `ctx_shell` / raw `Shell` | CLI compression, no MCP overhead |
-
-File editing: use native Edit/StrReplace. Write, Delete, Glob → use normally.
-NEVER loop on Edit failures — switch to ctx_edit immediately.
-REMINDER: You MUST use lean-ctx tools. NEVER use native Read, Grep, or Shell directly.
+Prefer lean-ctx MCP tools: ctx_read > Read/cat, ctx_search > Grep/rg, ctx_shell > bash, ctx_tree > ls/find.
+Edit/Write/Glob stay native; ctx_edit only when Edit needs an unavailable Read.
+Full rules: ~/.cursor/rules/lean-ctx.mdc (auto-loaded) — do not duplicate here.
+<!-- /lean-ctx -->
 ";
 
 pub const KIRO_STEERING_TEMPLATE: &str = "\

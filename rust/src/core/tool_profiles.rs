@@ -4,6 +4,14 @@ use std::fmt;
 ///
 /// Three built-in tiers reduce tool-list overwhelm for new users
 /// while letting power users keep everything.
+///
+/// When NO profile is pinned (no config key, no env var), the server
+/// advertises only the lazy core set (~13 tools, `CORE_TOOL_NAMES`) and the
+/// effective profile falls back to `Power` — which acts as a pure call-gate
+/// ("everything reachable via ctx_call"), not as an advertisement list.
+/// Pinning a profile makes the advertised set explicit and authoritative
+/// (#358), which costs schema tokens: `standard` advertises 22 full schemas,
+/// `power` the whole registry (#575).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolProfile {
     Minimal,
@@ -182,6 +190,26 @@ pub fn set_profile_in_config(profile_name: &str) -> Result<(), String> {
 
     let mut doc = crate::config_io::load_toml_document(&config_path);
     doc["tool_profile"] = toml_edit::value(profile_name);
+    crate::config_io::write_toml_document(&config_path, &doc)?;
+    Ok(())
+}
+
+/// Removes the `tool_profile` key from config.toml, restoring the lean
+/// default: only the lazy core set (~13 tools) is advertised in `tools/list`,
+/// while every registered tool stays reachable through `ctx_call`. This is
+/// the recommended low-overhead mode (#575).
+pub fn clear_profile_in_config() -> Result<(), String> {
+    let config_dir = crate::core::data_dir::lean_ctx_data_dir()
+        .map_err(|e| format!("Cannot determine config dir: {e}"))?;
+    let config_path = config_dir.join("config.toml");
+    if !config_path.exists() {
+        return Ok(());
+    }
+
+    let mut doc = crate::config_io::load_toml_document(&config_path);
+    if doc.remove("tool_profile").is_none() {
+        return Ok(());
+    }
     crate::config_io::write_toml_document(&config_path, &doc)?;
     Ok(())
 }
@@ -410,5 +438,35 @@ mod tests {
             profile.is_tool_enabled("ctx_url_read"),
             "ctx_url_read must be in standard (web/research context)"
         );
+    }
+
+    #[test]
+    fn clear_profile_removes_key_and_is_idempotent() {
+        let iso = crate::core::data_dir::isolated_data_dir();
+        set_profile_in_config("power").unwrap();
+        let config_path = iso.path().join("config.toml");
+        assert!(
+            std::fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("tool_profile"),
+            "set_profile_in_config must write the key"
+        );
+
+        clear_profile_in_config().unwrap();
+        assert!(
+            !std::fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("tool_profile"),
+            "clear_profile_in_config must remove the key (lean default, #575)"
+        );
+
+        // Idempotent: clearing again (and on a missing file) must not fail.
+        clear_profile_in_config().unwrap();
+    }
+
+    #[test]
+    fn clear_profile_on_missing_config_is_ok() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_profile_in_config().unwrap();
     }
 }

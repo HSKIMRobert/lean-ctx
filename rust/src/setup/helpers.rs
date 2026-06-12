@@ -119,10 +119,12 @@ pub(crate) fn configure_tool_profile() {
 
     let cfg = crate::core::config::Config::load();
     let current = cfg.tool_profile_effective();
+    let pinned = cfg.tool_profile.is_some() || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok();
 
-    if !matches!(current, crate::core::tool_profiles::ToolProfile::Power)
-        && cfg.tool_profile.is_some()
-    {
+    // An explicitly pinned non-power profile is a deliberate, bounded choice —
+    // don't re-nag. Power (pinned or legacy fallback) re-prompts because it
+    // advertises every tool schema, the single largest fixed cost (#575).
+    if pinned && !matches!(current, crate::core::tool_profiles::ToolProfile::Power) {
         terminal_ui::print_status_ok(&format!(
             "Tool profile: {} ({} tools)",
             current.as_str(),
@@ -137,19 +139,24 @@ pub(crate) fn configure_tool_profile() {
     let rst = "\x1b[0m";
 
     let registry_count = crate::server::registry::tool_count();
+    let lazy_count = crate::tool_defs::core_tool_names().len();
 
-    println!("  {dim}Control how many MCP tools your AI agent sees.{rst}");
-    println!("  {dim}Fewer tools = less context overhead, faster agent responses.{rst}");
+    println!("  {dim}Control how many MCP tool schemas your AI agent sees.{rst}");
+    println!("  {dim}Fewer advertised tools = less context overhead. Every tool stays{rst}");
+    println!("  {dim}callable through ctx_call, even when its schema is not advertised.{rst}");
     println!();
+    println!(
+        "  {cyan}lean{rst}      — {lazy_count} tools  {dim}(lazy core, recommended — lowest token overhead){rst}"
+    );
     println!(
         "  {cyan}minimal{rst}   — 6 tools   {dim}(ctx_read, ctx_shell, shell, ctx_search, ctx_tree, ctx_session){rst}"
     );
     println!("  {cyan}standard{rst}  — 22 tools  {dim}(balanced set for most workflows){rst}");
     println!(
-        "  {cyan}power{rst}     — {registry_count} tools  {dim}(everything, for power users){rst}"
+        "  {cyan}power{rst}     — {registry_count} tools  {dim}(everything advertised, costs the most context){rst}"
     );
     println!();
-    print!("  Tool profile? {bold}[minimal/standard/power]{rst} {dim}(default: standard){rst} ");
+    print!("  Tool profile? {bold}[lean/minimal/standard/power]{rst} {dim}(default: lean){rst} ");
     std::io::stdout().flush().ok();
 
     let mut profile_input = String::new();
@@ -157,12 +164,23 @@ pub(crate) fn configure_tool_profile() {
         let trimmed = profile_input.trim().to_lowercase();
         match trimmed.as_str() {
             "minimal" | "min" => "minimal",
+            "standard" | "std" => "standard",
             "power" | "full" | "all" => "power",
-            _ => "standard",
+            _ => "lean",
         }
     } else {
-        "standard"
+        "lean"
     };
+
+    if profile_name == "lean" {
+        match crate::core::tool_profiles::clear_profile_in_config() {
+            Ok(()) => terminal_ui::print_status_ok(&format!(
+                "Tool profile: lean ({lazy_count} tools advertised, all reachable via ctx_call)"
+            )),
+            Err(e) => terminal_ui::print_status_warn(&format!("Could not save tool profile: {e}")),
+        }
+        return;
+    }
 
     match crate::core::tool_profiles::set_profile_in_config(profile_name) {
         Ok(()) => {

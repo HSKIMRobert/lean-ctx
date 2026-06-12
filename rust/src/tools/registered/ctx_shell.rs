@@ -18,14 +18,14 @@ impl McpTool for CtxShellTool {
         tool_def(
             "ctx_shell",
             "Run a shell command. Prefer over native Shell/Bash (compressed output).\n\
-             95+ output patterns; raw=true skips compression. cwd persists across calls via cd tracking. Output redaction on by default for non-admin roles (admin can disable).",
+             cwd persists across calls.",
             json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "Shell command to execute" },
-                    "raw": { "type": "boolean", "description": "Skip compression, return full uncompressed output. Redaction still applies by default for non-admin roles." },
-                    "cwd": { "type": "string", "description": "Working directory for the command. If omitted, uses last cd target or project root." },
-                    "env": { "type": "object", "description": "Additional environment variables to set for the command. Use to pass agent runtime vars (e.g. CODEX_THREAD_ID).", "additionalProperties": { "type": "string" } }
+                    "command": { "type": "string", "description": "Shell command" },
+                    "raw": { "type": "boolean", "description": "Skip compression" },
+                    "cwd": { "type": "string", "description": "Working directory (default: last cd or project root)" },
+                    "env": { "type": "object", "description": "Extra env vars", "additionalProperties": { "type": "string" } }
                 },
                 "required": ["command"]
             }),

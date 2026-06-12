@@ -7,7 +7,8 @@ pub fn cmd_profile(args: &[String]) {
     match action {
         // Tool profile subcommands
         "tools" => cmd_tool_profile(&args[1..]),
-        "minimal" | "min" | "standard" | "std" | "power" | "full" | "all" => {
+        "minimal" | "min" | "standard" | "std" | "power" | "full" | "all" | "lean" | "lazy"
+        | "reset" => {
             cmd_tool_profile_switch(action);
             println!("  \x1b[2mTip: the canonical command is `lean-ctx tools {action}`.\x1b[0m");
         }
@@ -241,7 +242,8 @@ fn cmd_tool_profile(args: &[String]) {
     match action {
         "list" | "ls" => cmd_tool_profile_list(),
         "show" | "current" => cmd_tool_profile_show(),
-        "minimal" | "min" | "standard" | "std" | "power" | "full" | "all" => {
+        "minimal" | "min" | "standard" | "std" | "power" | "full" | "all" | "lean" | "lazy"
+        | "reset" => {
             cmd_tool_profile_switch(action);
         }
         _ => {
@@ -249,7 +251,7 @@ fn cmd_tool_profile(args: &[String]) {
                 cmd_tool_profile_switch(action);
             } else {
                 eprintln!("Unknown tool profile '{action}'.");
-                eprintln!("Available: minimal, standard, power");
+                eprintln!("Available: lean (default), minimal, standard, power");
                 std::process::exit(1);
             }
         }
@@ -260,6 +262,22 @@ fn cmd_tool_profile_show() {
     let cfg = crate::core::config::Config::load();
     let profile = cfg.tool_profile_effective();
     let registry_count = crate::server::registry::tool_count();
+    let pinned = cfg.tool_profile.is_some()
+        || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok()
+        || !cfg.tools_enabled.is_empty();
+
+    if !pinned {
+        let lazy_count = crate::tool_defs::core_tool_names().len();
+        println!("Tool Profile: lean (default)");
+        println!("  Tools advertised: {lazy_count} (lazy core)");
+        println!("  All {registry_count} registered tools stay callable via ctx_call.");
+        println!("\n  Advertised tools:");
+        for name in crate::tool_defs::core_tool_names() {
+            println!("    {name}");
+        }
+        println!("\n  Switch with: lean-ctx tools <minimal|standard|power>");
+        return;
+    }
 
     let count_str = match &profile {
         ToolProfile::Power => format!("{registry_count}"),
@@ -277,9 +295,6 @@ fn cmd_tool_profile_show() {
     if std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok() {
         println!("  Source:         LEAN_CTX_TOOL_PROFILE env var (overrides config)");
     }
-    if cfg.tool_profile.is_none() && std::env::var("LEAN_CTX_TOOL_PROFILE").is_err() {
-        println!("  Source:         default (backward compatible)");
-    }
 
     if !matches!(profile, ToolProfile::Power) {
         println!("\n  Enabled tools:");
@@ -289,19 +304,31 @@ fn cmd_tool_profile_show() {
         }
     }
 
-    println!("\n  Switch with: lean-ctx tools <minimal|standard|power>");
+    println!("\n  Switch with: lean-ctx tools <lean|minimal|standard|power>");
+    if matches!(profile, ToolProfile::Power) {
+        println!("  Tip: `lean-ctx tools lean` advertises only the lazy core (lowest overhead).");
+    }
 }
 
 fn cmd_tool_profile_list() {
     let cfg = crate::core::config::Config::load();
     let active = cfg.tool_profile_effective();
-    let active_name = active.as_str();
     let registry_count = crate::server::registry::tool_count();
+    let pinned = cfg.tool_profile.is_some()
+        || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok()
+        || !cfg.tools_enabled.is_empty();
+    let active_name = if pinned { active.as_str() } else { "lean" };
+    let lazy_count = crate::tool_defs::core_tool_names().len();
 
     println!("Tool Profiles:\n");
     println!("  {:<12} {:<8} Description", "Name", "Tools");
     println!("  {}", "\u{2500}".repeat(60));
 
+    let lean_marker = if active_name == "lean" { "* " } else { "  " };
+    println!(
+        "{lean_marker}{:<12} {lazy_count:<8} Lazy core advertised, all tools via ctx_call (default)",
+        "lean"
+    );
     for info in tool_profiles::list_profiles() {
         let marker = if info.name == active_name { "* " } else { "  " };
         let count = if info.name == "power" {
@@ -321,9 +348,25 @@ fn cmd_tool_profile_list() {
 }
 
 fn cmd_tool_profile_switch(name: &str) {
+    // "lean" is not a pinned profile — it removes the config key, restoring
+    // the default: lazy core advertised (~13 schemas), everything reachable
+    // through ctx_call (#575).
+    if matches!(name, "lean" | "lazy" | "reset") {
+        if let Err(e) = tool_profiles::clear_profile_in_config() {
+            eprintln!("Error saving profile: {e}");
+            std::process::exit(1);
+        }
+        let lazy_count = crate::tool_defs::core_tool_names().len();
+        println!("Tool profile set to: lean (default)");
+        println!("  Tools advertised: {lazy_count} (lazy core)");
+        println!("  All other tools stay callable via ctx_call.");
+        println!("\n  Restart your AI tool / IDE for changes to take effect.");
+        return;
+    }
+
     let Some(profile) = ToolProfile::parse(name) else {
         eprintln!("Unknown tool profile '{name}'.");
-        eprintln!("Available: minimal, standard, power");
+        eprintln!("Available: lean (default), minimal, standard, power");
         std::process::exit(1);
     };
 
@@ -360,9 +403,10 @@ fn print_profile_help() {
 
 TOOL PROFILES — how many MCP tools your agent sees:
   lean-ctx tools                Show current tool profile
+  lean-ctx tools lean           Lazy core advertised, all via ctx_call (default)
   lean-ctx tools minimal        6 essential tools
-  lean-ctx tools standard       22 balanced tools (default)
-  lean-ctx tools power          All tools
+  lean-ctx tools standard       22 balanced tools
+  lean-ctx tools power          All tools (highest context overhead)
   lean-ctx tools list           List tool profiles with counts
 
 CONTEXT PROFILES — how lean-ctx compresses and reads (this command):

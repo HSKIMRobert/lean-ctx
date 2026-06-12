@@ -28,6 +28,7 @@ mod read_cmd;
 mod repomap_cmd;
 mod roi_cmd;
 pub mod rules_cmd;
+pub mod rules_dedup;
 mod semantic_search_cmd;
 mod session_cmd;
 mod shell_init;

@@ -58,10 +58,14 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         | "ctx_prefetch"
         | "ctx_compress_memory" => ToolCategory::Internal,
 
-        // Core: always visible
+        // Core: always visible. Must cover every CORE_TOOL_NAMES entry —
+        // otherwise the category gate silently drops a lazy-core tool for
+        // list_changed-capable clients (ctx_expand was lost this way, #575).
         "ctx_read" | "ctx_search" | "ctx_shell" | "shell" | "ctx_tree" | "ctx_edit"
         | "ctx_session" | "ctx_checkpoint" | "ctx_knowledge" | "ctx_overview" | "ctx_graph"
-        | "ctx_call" | "ctx_compress" | "ctx_cache" | "ctx_retrieve" => ToolCategory::Core,
+        | "ctx_call" | "ctx_compress" | "ctx_cache" | "ctx_retrieve" | "ctx_expand" => {
+            ToolCategory::Core
+        }
 
         // Merged tools (redirects in registry, treated as Core for backward compat)
         "ctx_multi_read" | "ctx_smart_read" | "ctx_delta" | "ctx_outline" | "ctx_context" => {
@@ -85,8 +89,9 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         "ctx_semantic_search" | "ctx_artifacts" => ToolCategory::Memory,
 
         // Batch: on-demand batch/PR/sandbox tools
-        "ctx_fill" | "ctx_execute" | "ctx_expand" | "ctx_pack" | "ctx_plan" | "ctx_control"
-        | "ctx_compile" => ToolCategory::Metrics,
+        "ctx_fill" | "ctx_execute" | "ctx_pack" | "ctx_plan" | "ctx_control" | "ctx_compile" => {
+            ToolCategory::Metrics
+        }
 
         // Multi-agent: on-demand collaboration
         "ctx_agent" | "ctx_share" | "ctx_task" | "ctx_handoff" | "ctx_workflow" => {
@@ -477,6 +482,22 @@ mod tests {
         assert!(state.is_tool_active("ctx_architecture"));
         assert!(state.is_tool_active("ctx_benchmark"));
         assert!(!state.is_tool_active("ctx_metrics"));
+    }
+
+    #[test]
+    fn lazy_core_tools_survive_default_category_gate() {
+        // Regression for #575: every advertised lazy-core tool must stay
+        // active under the default category gate (Core + Session) when the
+        // client supports list_changed — otherwise Cursor silently loses
+        // tools like ctx_expand from the 13-tool core set.
+        let mut state = DynamicToolState::new();
+        state.set_supports_list_changed(true);
+        for name in crate::tool_defs::core_tool_names() {
+            assert!(
+                state.is_tool_active(name),
+                "{name} is in CORE_TOOL_NAMES but dropped by the default category gate"
+            );
+        }
     }
 
     #[test]

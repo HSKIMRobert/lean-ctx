@@ -6,6 +6,7 @@ mod deprecations;
 mod fix;
 mod integrations;
 mod migrate;
+mod overhead;
 mod workspace_scope;
 
 #[allow(clippy::wildcard_imports)]
@@ -617,6 +618,7 @@ pub fn run_compact() {
 pub fn run_cli(args: &[String]) -> i32 {
     let (sub, rest) = match args.first().map(String::as_str) {
         Some("integrations") => ("integrations", &args[1..]),
+        Some("overhead") => ("overhead", &args[1..]),
         _ => ("", args),
     };
 
@@ -628,10 +630,15 @@ pub fn run_cli(args: &[String]) -> i32 {
     if help {
         println!("Usage:");
         println!("  lean-ctx doctor");
+        println!("  lean-ctx doctor overhead [--json]   Fixed context cost per session");
         println!("  lean-ctx doctor integrations [--json]");
         println!("  lean-ctx doctor --fix [--json]");
         println!("  lean-ctx doctor --migrate-check [--json]");
         return 0;
+    }
+
+    if sub == "overhead" {
+        return overhead::run_overhead(json);
     }
 
     if migrate_check {

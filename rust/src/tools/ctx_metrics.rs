@@ -51,6 +51,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
             cost_without - cost_saved,
             cost_saved
         ));
+        if let Some(line) = cache_adjusted_line(&quote.cost, total_saved, true) {
+            out.push(line);
+        }
     } else {
         out.push("lean-ctx session metrics".to_string());
         out.push("═".repeat(50));
@@ -77,6 +80,9 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         out.push(format!(
             "Cost estimate: ${cost_without:.4} without → ${cost_with:.4} with lean-ctx | ${cost_saved:.4} saved"
         ));
+        if let Some(line) = cache_adjusted_line(&quote.cost, total_saved, false) {
+            out.push(line);
+        }
     }
 
     if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
@@ -381,6 +387,33 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
     }
 
     out.join("\n")
+}
+
+/// Honest cache-adjusted economics (GL #573): with provider prompt caching,
+/// context that *stays* in the prompt is re-billed at the cache-read rate on
+/// every later turn, so tokens lean-ctx removed save the full input price once
+/// and the cache-read price per repeat turn. Both figures come straight from
+/// the pricing table — no invented hit rate. Returns `None` when the model has
+/// no cache-read pricing or nothing was saved.
+fn cache_adjusted_line(
+    cost: &crate::core::gain::model_pricing::ModelCost,
+    total_saved: u64,
+    tdd: bool,
+) -> Option<String> {
+    if total_saved == 0 || cost.cache_read_per_m <= 0.0 || cost.input_per_m <= 0.0 {
+        return None;
+    }
+    let per_repeat_turn = total_saved as f64 / 1_000_000.0 * cost.cache_read_per_m;
+    let pct = cost.cache_read_per_m / cost.input_per_m * 100.0;
+    Some(if tdd {
+        format!(
+            "cache-adj: repeat turns -${per_repeat_turn:.4}/turn (cache-read {pct:.0}% of input)"
+        )
+    } else {
+        format!(
+            "Cache-adjusted: each repeat turn re-bills retained context at cache-read rate ({pct:.0}% of input) — saved tokens avoid ${per_repeat_turn:.4} per repeat turn"
+        )
+    })
 }
 
 struct CepCompliance {
