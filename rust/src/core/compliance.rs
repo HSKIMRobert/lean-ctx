@@ -24,15 +24,15 @@ use super::policy::ResolvedPolicy;
 const MAPPING_SOURCES: &[(&str, &str)] = &[
     (
         "eu-ai-act",
-        include_str!("../../../compliance/mappings/eu-ai-act.toml"),
+        include_str!("../../data/compliance/mappings/eu-ai-act.toml"),
     ),
     (
         "iso42001",
-        include_str!("../../../compliance/mappings/iso42001.toml"),
+        include_str!("../../data/compliance/mappings/iso42001.toml"),
     ),
     (
         "soc2",
-        include_str!("../../../compliance/mappings/soc2.toml"),
+        include_str!("../../data/compliance/mappings/soc2.toml"),
     ),
 ];
 

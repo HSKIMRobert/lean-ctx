@@ -1,6 +1,6 @@
 //! Framework compliance enforcement proofs (GL #424, H3 Epic A — AC 1 + 2).
 //!
-//! Every `coverage = "full"` claim in `compliance/mappings/*.toml` names a
+//! Every `coverage = "full"` claim in `rust/data/compliance/mappings/*.toml` names a
 //! test in this file; `mapping_test_names_exist_in_this_file` fails the
 //! build if a claim points at a test that doesn't exist. Each test proves
 //! BOTH directions where meaningful: the mechanism enforces (reference

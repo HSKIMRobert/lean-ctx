@@ -7,7 +7,7 @@
 
 use super::{Outcome, BOLD, DIM, GREEN, RST, YELLOW};
 
-const REGISTER: &str = include_str!("../../../DEPRECATIONS.toml");
+const REGISTER: &str = include_str!("../../data/DEPRECATIONS.toml");
 
 #[derive(Debug, serde::Deserialize)]
 struct Register {

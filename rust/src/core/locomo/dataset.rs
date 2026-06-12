@@ -95,8 +95,7 @@ pub fn load_suite(path: &Path) -> Result<Vec<LocomoSample>, String> {
 
 /// The committed reference suite (real, verifiable facts; every gold answer is
 /// grounded in a turn and objectively true).
-pub const REFERENCE_SUITE: &str =
-    include_str!("../../../../benchmark/locomo/reference-suite.ndjson");
+pub const REFERENCE_SUITE: &str = include_str!("../../../data/locomo/reference-suite.ndjson");
 
 /// Parse the bundled reference suite. Panics only if the committed fixture is
 /// malformed, which a unit test guards against.

@@ -44,7 +44,7 @@ A versioned contract doc (`docs/contracts/<name>-vN.md`) is an **artifact, not a
 ### Deprecation policy
 
 - A surface (CLI command, MCP tool, HTTP endpoint, config key, contract version) is deprecated **at least 2 minor releases** before removal.
-- Every deprecation is recorded in [`DEPRECATIONS.toml`](DEPRECATIONS.toml) (repo root, compiled into the binary) with `announced_in`, `earliest_removal`, and a `replacement`.
+- Every deprecation is recorded in [`DEPRECATIONS.toml`](rust/data/DEPRECATIONS.toml) (compiled into the binary; lives inside `rust/` so `cargo publish` can package it) with `announced_in`, `earliest_removal`, and a `replacement`.
 - `lean-ctx doctor` warns about every active deprecation shipping in the installed build.
 - Every release that announces or executes a removal lists it in a dedicated **Deprecations** section of the CHANGELOG.
 - `experimental` contracts are exempt — they may change or disappear without notice.

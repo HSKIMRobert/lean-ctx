@@ -20,7 +20,7 @@ const BUILTIN_SOURCES: &[(&str, &str)] = &[
     ("healthcare", include_str!("builtin/healthcare.toml")),
     ("open-source", include_str!("builtin/open-source.toml")),
     // Framework template packs (GL #424): enforceable slices of EU AI Act /
-    // ISO 42001 / SOC 2 — the residual gaps live in compliance/mappings/.
+    // ISO 42001 / SOC 2 — the residual gaps live in data/compliance/mappings/.
     (
         "eu-ai-act-deployer",
         include_str!("builtin/eu-ai-act-deployer.toml"),
