@@ -92,7 +92,7 @@ Tip: open a ticket via the [New Compression Pattern](.github/ISSUE_TEMPLATE/comp
 
 ## Issues
 
-- If your issue was closed but the problem persists, comment `/reopen` on it — as the original author, this reopens the issue automatically (GitHub itself does not let authors reopen maintainer-closed issues)
+- If your issue was closed but the problem persists, comment `/reopen` on it — as the original author, this reopens the issue automatically (GitHub itself does not let authors reopen maintainer-closed issues). The command is matched anywhere in your comment, so "Please `/reopen`" works too; issues closed as *not planned* stay a maintainer call
 - Issues closed as *not planned* are maintainer decisions and are not reopened automatically; a comment is still welcome
 
 ## Pull requests

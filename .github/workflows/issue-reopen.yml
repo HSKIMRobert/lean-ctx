@@ -3,6 +3,11 @@
 # and ends up filing duplicates. This workflow restores that ability: the
 # original author comments `/reopen` and the issue reopens automatically.
 #
+# Matching is deliberately relaxed (`contains`, not `startsWith`): people
+# write "Please /reopen" or bury the command mid-comment (GH #388 feedback).
+# False positives are bounded — only the original author on their own closed
+# issue can trigger it, and the worst case is an issue reopening.
+#
 # Issues closed as "not planned" are excluded on purpose: that close state is
 # a maintainer decision, so the command answers with a hint instead.
 #
@@ -23,7 +28,7 @@ jobs:
       !github.event.issue.pull_request &&
       github.event.issue.state == 'closed' &&
       github.event.comment.user.login == github.event.issue.user.login &&
-      startsWith(github.event.comment.body, '/reopen')
+      contains(github.event.comment.body, '/reopen')
     runs-on: ubuntu-latest
     steps:
       - name: Reopen issue (or explain why not)
