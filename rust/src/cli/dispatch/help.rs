@@ -151,8 +151,8 @@ COMMANDS:
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
     proxy start [--port=4444]      API proxy: compress tool_results before LLM API
     proxy status                   Show proxy statistics
-    daemon start|stop|status       IPC daemon management
-    daemon enable|disable          Auto-start daemon on login (systemd/LaunchAgent)
+    daemon start|stop|restart|status  IPC daemon management
+    daemon enable|disable          Auto-start daemon on login (systemd/LaunchAgent; prints service file)
     cache [list|clear|stats]       Show/manage file read cache
     sessions [list|show|cleanup]   Manage saved CCP session snapshots (alias: session-store)
     benchmark run [path] [--json]  Run real benchmark on project files

@@ -455,6 +455,21 @@ pub(super) fn cmd_watch(rest: &[String]) {
 pub(super) fn cmd_proxy(rest: &[String]) {
     #[cfg(feature = "http-server")]
     {
+        // `--help` anywhere must never execute the verb (GH #393).
+        if wants_help(rest) {
+            println!(
+                "Usage: lean-ctx proxy <start|stop|status|enable|disable|cleanup> [--port=4444]"
+            );
+            println!();
+            println!("Commands:");
+            println!("  start     Run the compression proxy (foreground; --autostart installs a service)");
+            println!("  stop      Stop the proxy on the given port");
+            println!("  status    Show proxy config, process and compression stats");
+            println!("  enable    Enable the proxy: config flag, autostart service, env wiring");
+            println!("  disable   Disable the proxy and restore the original endpoint");
+            println!("  cleanup   Remove stale proxy URLs from AI tool configs");
+            return;
+        }
         let sub = rest.first().map_or("help", std::string::String::as_str);
         match sub {
             "start" => {
@@ -601,7 +616,41 @@ pub(super) fn cmd_proxy(rest: &[String]) {
     }
 }
 
+/// True when the args ask for help anywhere (`--help`/`-h`/`help`).
+/// Subcommand handlers must check this BEFORE executing: `lean-ctx daemon
+/// enable --help` must print help, not install the service (GH #393).
+pub(super) fn wants_help(args: &[String]) -> bool {
+    args.iter()
+        .any(|a| a == "--help" || a == "-h" || a == "help")
+}
+
+fn daemon_help() {
+    println!("Usage: lean-ctx daemon <start|stop|restart|status|enable|disable>");
+    println!();
+    println!("Commands:");
+    println!("  start     Start the daemon in the background");
+    println!("  stop      Stop the running daemon");
+    println!("  restart   Stop the daemon, then start it again");
+    println!("  status    Show daemon status, PID, autostart state and service file");
+    println!("  enable    Install + start the autostart service (systemd user unit / LaunchAgent)");
+    println!("  disable   Stop + remove the autostart service");
+    if let (Some(name), Some(path)) = (
+        crate::daemon_autostart::service_name(),
+        crate::daemon_autostart::service_file_path(),
+    ) {
+        println!();
+        println!("Autostart service:");
+        println!("  Name:         {name}");
+        println!("  Service file: {}", path.display());
+    }
+}
+
 pub(super) fn cmd_daemon(rest: &[String]) {
+    // `--help` anywhere must never execute the verb (GH #393).
+    if wants_help(rest) {
+        daemon_help();
+        return;
+    }
     let sub = rest.first().map_or("status", std::string::String::as_str);
     match sub {
         "enable" => {
@@ -627,38 +676,58 @@ pub(super) fn cmd_daemon(rest: &[String]) {
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
-        "status" => {
-            if crate::daemon::is_daemon_running() {
-                let pid = crate::daemon::read_daemon_pid().unwrap_or(0);
-                println!("lean-ctx daemon:");
-                println!("  Status:    running (PID {pid})");
-                println!(
-                    "  Autostart: {}",
-                    if crate::daemon_autostart::is_installed() {
-                        "enabled"
-                    } else {
-                        "not installed (run: lean-ctx daemon enable)"
-                    }
-                );
+        "restart" => {
+            // Stop both the supervised service and a manually started daemon,
+            // then start through the same channel that was active before.
+            crate::daemon_autostart::stop();
+            if let Err(e) = crate::daemon::stop_daemon() {
+                println!("  (stop: {e})");
+            }
+            if crate::daemon_autostart::is_installed() {
+                crate::daemon_autostart::start();
+                println!("\x1b[32m✓\x1b[0m Daemon restarted via autostart service.");
+            } else if let Err(e) = crate::daemon::start_daemon(&rest[1..]) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
             } else {
-                println!("lean-ctx daemon:");
-                println!("  Status:    not running");
-                println!(
-                    "  Autostart: {}",
-                    if crate::daemon_autostart::is_installed() {
-                        "enabled"
-                    } else {
-                        "not installed"
-                    }
-                );
-                println!();
-                println!("  Start:     lean-ctx daemon start");
-                println!("  Autostart: lean-ctx daemon enable");
+                println!("\x1b[32m✓\x1b[0m Daemon restarted.");
             }
         }
-        _ => {
-            println!("Usage: lean-ctx daemon <start|stop|status|enable|disable>");
+        "status" => {
+            println!("lean-ctx daemon:");
+            if crate::daemon::is_daemon_running() {
+                let pid = crate::daemon::read_daemon_pid().unwrap_or(0);
+                println!("  Status:    running (PID {pid})");
+            } else {
+                println!("  Status:    not running");
+            }
+            let installed = crate::daemon_autostart::is_installed();
+            println!(
+                "  Autostart: {}",
+                if installed {
+                    "enabled"
+                } else {
+                    "not installed (run: lean-ctx daemon enable)"
+                }
+            );
+            if installed {
+                if let (Some(name), Some(path)) = (
+                    crate::daemon_autostart::service_name(),
+                    crate::daemon_autostart::service_file_path(),
+                ) {
+                    println!("  Service:   {name}");
+                    println!("  File:      {}", path.display());
+                }
+            }
+            if !crate::daemon::is_daemon_running() {
+                println!();
+                println!("  Start:     lean-ctx daemon start");
+                if !installed {
+                    println!("  Autostart: lean-ctx daemon enable");
+                }
+            }
         }
+        _ => daemon_help(),
     }
 }
 
@@ -1007,5 +1076,34 @@ pub(super) fn cmd_provider(rest: &[String]) {
             }
         }
         _ => provider_usage(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wants_help;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    // GH #393: `daemon enable --help` executed instead of showing help.
+    // The guard must catch help flags at any position, for any verb.
+    #[test]
+    fn help_flag_detected_after_verb() {
+        assert!(wants_help(&args(&["enable", "--help"])));
+        assert!(wants_help(&args(&["disable", "-h"])));
+        assert!(wants_help(&args(&["restart", "--help"])));
+        assert!(wants_help(&args(&["help"])));
+        assert!(wants_help(&args(&["--help"])));
+    }
+
+    #[test]
+    fn normal_verbs_do_not_trigger_help() {
+        assert!(!wants_help(&args(&["enable"])));
+        assert!(!wants_help(&args(&["status"])));
+        assert!(!wants_help(&args(&[])));
+        // Values that merely contain "help" as a substring must not match.
+        assert!(!wants_help(&args(&["--helper"])));
     }
 }

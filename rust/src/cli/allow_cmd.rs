@@ -10,8 +10,14 @@ use crate::core::config;
 use crate::core::shell_allowlist;
 
 pub fn cmd_allow(args: &[String]) {
+    // `--help` anywhere shows usage instead of treating it as a command to
+    // allow (`lean-ctx allow git --help` must not allowlist "--help", GH #393).
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        print_usage();
+        return;
+    }
     match args.first().map(std::string::String::as_str) {
-        None | Some("--help" | "-h") => print_usage(),
+        None => print_usage(),
         Some("--list" | "list" | "ls") => print_effective(),
         Some("--remove" | "-r" | "remove" | "rm") => remove(&args[1..]),
         _ => add(args),
