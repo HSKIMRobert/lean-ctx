@@ -38,6 +38,77 @@ pub(super) fn shell_allowlist_outcome() -> Outcome {
     }
 }
 
+/// Reports the effective PathJail state (GH #392): which knob (if any)
+/// disabled it, and whether configured `allow_paths`/`extra_roots` entries
+/// actually resolve — the silent failure mode behind "allow_paths has no
+/// effect" reports (unexpanded `$VAR`, typos, paths that don't exist).
+pub(super) fn path_jail_outcome() -> Outcome {
+    if cfg!(feature = "no-jail") {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Path jail{RST}  {YELLOW}disabled at compile time{RST}  {DIM}(built with the no-jail feature){RST}"
+            ),
+        };
+    }
+
+    let cfg = crate::core::config::Config::load();
+    if cfg.path_jail == Some(false) {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Path jail{RST}  {YELLOW}disabled{RST}  {DIM}(path_jail = false in config.toml — all tool paths allowed){RST}"
+            ),
+        };
+    }
+
+    let entries: Vec<&String> = cfg
+        .allow_paths
+        .iter()
+        .chain(cfg.extra_roots.iter())
+        .collect();
+    let mut grants_everything = false;
+    let mut dead: Vec<String> = Vec::new();
+    for raw in &entries {
+        let expanded = crate::core::pathjail::expand_user_path(raw);
+        if expanded == std::path::Path::new("/") {
+            grants_everything = true;
+        }
+        if !expanded.exists() {
+            dead.push((*raw).clone());
+        }
+    }
+
+    if grants_everything {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Path jail{RST}  {YELLOW}active, but allow_paths contains \"/\"{RST}  {DIM}(grants everything — prefer the explicit `path_jail = false`){RST}"
+            ),
+        };
+    }
+    if !dead.is_empty() {
+        return Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}Path jail{RST}  {RED}{} allow_paths entr{} never match{RST}  {DIM}({} — unset $VAR or missing path){RST}",
+                dead.len(),
+                if dead.len() == 1 { "y will" } else { "ies will" },
+                dead.join(", ")
+            ),
+        };
+    }
+    let detail = if entries.is_empty() {
+        "project root only; extend via allow_paths in ~/.lean-ctx/config.toml".to_string()
+    } else {
+        format!("project root + {} configured allow path(s)", entries.len())
+    };
+    Outcome {
+        ok: true,
+        line: format!("{BOLD}Path jail{RST}  {GREEN}active{RST}  {DIM}({detail}){RST}"),
+    }
+}
+
 /// Reports the format-aware passthrough (#342): output already in a compact,
 /// token-oriented format (TOON by default) is preserved verbatim instead of
 /// recompressed, so an agent's proof-of-output-shape survives intact.

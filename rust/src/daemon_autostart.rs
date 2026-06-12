@@ -6,6 +6,41 @@ const PLIST_LABEL: &str = "com.leanctx.daemon";
 #[cfg(target_os = "linux")]
 const SYSTEMD_SERVICE: &str = "lean-ctx-daemon";
 
+/// Platform service unit name (`systemctl --user <name>` / `launchctl print gui/$UID/<name>`).
+/// `None` on platforms without autostart support.
+pub fn service_name() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(PLIST_LABEL)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Some(SYSTEMD_SERVICE)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Path of the autostart service file lean-ctx writes on `daemon enable`
+/// (LaunchAgent plist on macOS, systemd user unit on Linux), regardless of
+/// whether it currently exists. `None` on unsupported platforms.
+pub fn service_file_path() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(launchagent_path())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Some(systemd_path())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
 pub fn install(quiet: bool) {
     let binary = crate::proxy_autostart::find_binary();
     if binary.is_empty() {
@@ -161,6 +196,7 @@ fn install_launchagent(binary: &str, quiet: bool) {
     if !quiet {
         if ok {
             println!("  Installed LaunchAgent: {PLIST_LABEL}");
+            println!("  Service file: {}", plist_path.display());
             println!("  Daemon will start on login and restart if stopped");
         } else {
             println!("  Created plist at {}", plist_path.display());
@@ -181,7 +217,8 @@ fn uninstall_launchagent(quiet: bool) {
     crate::core::launchd::bootout(PLIST_LABEL, &plist_path);
     let _ = std::fs::remove_file(&plist_path);
     if !quiet {
-        println!("  Removed daemon LaunchAgent");
+        println!("  Removed daemon LaunchAgent: {PLIST_LABEL}");
+        println!("  Service file: {}", plist_path.display());
     }
 }
 
@@ -241,6 +278,7 @@ WantedBy=default.target
         Ok(o) if o.status.success() => {
             if !quiet {
                 println!("  Installed systemd user service: {SYSTEMD_SERVICE}");
+                println!("  Service file: {}", service_path.display());
                 println!("  Daemon will start on login and restart if stopped");
             }
         }
@@ -280,6 +318,31 @@ fn whoami() -> String {
         .unwrap_or_else(|_| "$(whoami)".to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    // GH #394: the service file path must be discoverable programmatically so
+    // enable/disable/status/doctor can print it.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn service_file_path_matches_platform_conventions() {
+        let path = super::service_file_path().expect("supported platform");
+        let name = super::service_name().expect("supported platform");
+        let s = path.to_string_lossy();
+        #[cfg(target_os = "macos")]
+        {
+            assert!(s.contains("Library/LaunchAgents"), "got: {s}");
+            assert!(s.ends_with("com.leanctx.daemon.plist"), "got: {s}");
+            assert_eq!(name, "com.leanctx.daemon");
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(s.contains(".config/systemd/user"), "got: {s}");
+            assert!(s.ends_with("lean-ctx-daemon.service"), "got: {s}");
+            assert_eq!(name, "lean-ctx-daemon");
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn uninstall_systemd(quiet: bool) {
     let service_path = systemd_path();
@@ -303,5 +366,6 @@ fn uninstall_systemd(quiet: bool) {
 
     if !quiet {
         println!("  Removed daemon systemd service: {SYSTEMD_SERVICE}");
+        println!("  Service file: {}", service_path.display());
     }
 }
