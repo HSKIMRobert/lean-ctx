@@ -3,6 +3,56 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **`lean-ctx daemon restart`** (GH #394): stops the supervised service and/or a
+  manually started daemon, then starts it again through whichever channel was
+  active before.
+- **Service file paths are printed** on `daemon enable`/`disable`, shown in
+  `daemon status` and `lean-ctx doctor` (GH #394): the exact LaunchAgent plist /
+  systemd user unit path plus the unit name, so `systemctl --user` /
+  `launchctl` targets are obvious without searching.
+- **`lean-ctx doctor` Path-jail check** (GH #392): reports the effective jail
+  state (active / `path_jail = false` / compile-time `no-jail`), flags
+  `allow_paths` entries that can never match (unset `$VAR`, missing directory)
+  and the `allow_paths = ["/"]` pattern.
+- **Consolidated filesystem-boundary reference** (GH #392):
+  `docs/reference/appendix-paths-and-config.md` §5 documents `path_jail` vs
+  `allow_paths` vs `extra_roots`, the `no-jail` cargo feature and the removed
+  `LEAN_CTX_NO_JAIL` env var; SECURITY.md cross-links it.
+
+### Fixed
+- **`daemon enable --help` executed instead of showing help** (GH #393):
+  `--help`/`-h`/`help` anywhere in `lean-ctx daemon …`, `lean-ctx proxy …` or
+  `lean-ctx allow …` now prints usage and never executes the verb (an agent in
+  read-only plan mode installed the systemd service by asking for help).
+- **`allow_paths` / `extra_roots` entries with `~`, `$VAR` or `${VAR}` were
+  matched literally** (GH #392): config files see no shell, so
+  `"$HOME/code"` silently never matched and PathJail kept rejecting paths the
+  user had explicitly allowed. Entries (and the `LEAN_CTX_ALLOW_PATH` /
+  `LEAN_CTX_EXTRA_ROOTS` env lists, which MCP hosts pass shell-less too) are
+  now expanded; unset variables warn and are reported by doctor.
+
+### Security
+- **`ctx_shell` hardening** (GH #391): download-to-file flags are now treated
+  as file writes (`curl -o/-O/--output/--remote-name`, `wget`'s default
+  file-download mode — `wget -qO-`/`--spider` stay allowed, `dd of=` except
+  `/dev/null`); `xargs`/`nohup` join the delegation-aware checks so
+  `… | xargs bash -c '…'` cannot smuggle inline code past the interpreter
+  block in either allowlist or blocklist-only mode; `shell_strict_mode = true`
+  now actually **blocks** command substitution in arguments and
+  pipe-to-bare-interpreter (both previously only logged a warning while
+  claiming to block); substitution detection now also covers double-quoted
+  `"$(…)"` (single quotes still exempt — the shell doesn't expand there).
+  SECURITY.md states the ctx_shell threat model explicitly: defense in depth
+  for agent mistakes, **not** an OS sandbox — kernel-grade isolation belongs
+  to containers/seccomp and the agent's own permission model.
+
+### Changed
+- **`/reopen` matches anywhere in a comment** (GH #388): "Please /reopen"
+  works now; previously the comment had to *start* with the command.
+
 ## [3.8.0] — 2026-06-12
 
 > **The Governance & Proof release.** Agents become accountable identities,
