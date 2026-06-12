@@ -3,7 +3,16 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.8.1] — 2026-06-12
+
+> **The Field-Report Patch.** Five issues straight from users' terminals, fixed
+> the same week v3.8.0 shipped: `daemon enable --help` no longer *installs the
+> service it was asked to explain* (#393), `allow_paths` finally expands `~`
+> and `$VAR` instead of matching them literally (#392), and `ctx_shell` closes
+> the download-to-file, xargs-delegation and "strict mode that only warned"
+> gaps from the #391 security report. Plus: service file paths are printed
+> where you need them with a new `daemon restart` (#394), and `/reopen` works
+> anywhere in a comment (#388).
 
 ### Added
 - **`lean-ctx daemon restart`** (GH #394): stops the supervised service and/or a
