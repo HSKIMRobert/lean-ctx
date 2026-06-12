@@ -71,6 +71,7 @@ pub mod ctx_workflow;
 pub(crate) mod edit_recovery;
 pub(crate) mod knowledge_shared;
 pub mod registered;
+pub(crate) mod walk_guard;
 
 mod server;
 mod server_lifecycle;

@@ -109,6 +109,11 @@ pub fn handle(
     if !root.exists() {
         return SearchOutcome::error(format!("ERROR: {dir} does not exist"));
     }
+    // Broad-root guard (#356 class): with cwd == $HOME a defaulted `path`
+    // would walk the whole home dir and trip macOS TCC privacy prompts.
+    if let Some(err) = crate::tools::walk_guard::deny_unsafe_walk_root(dir) {
+        return SearchOutcome::error(err);
+    }
 
     let mut files: Vec<PathBuf> = Vec::new();
     let mut matches = Vec::new();
@@ -876,6 +881,27 @@ mod tests {
         assert!(
             !out.contains("top.rs"),
             "root file outside src/ must be excluded: {out}"
+        );
+    }
+
+    #[test]
+    fn search_refuses_home_directory_root() {
+        // #356 class: the MCP server often runs with cwd == $HOME; a defaulted
+        // `path` must never walk the whole home dir (macOS TCC prompts).
+        let home = dirs::home_dir().expect("home dir in test env");
+        let out = handle(
+            "needle",
+            home.to_string_lossy().as_ref(),
+            None,
+            10,
+            CrpMode::Off,
+            true,
+            true,
+        )
+        .text;
+        assert!(
+            out.starts_with("ERROR:") && out.contains("refusing to scan"),
+            "home root must be refused: {out}"
         );
     }
 }

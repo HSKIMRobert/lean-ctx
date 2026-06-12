@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.8.3] — 2026-06-12
 
 ### Fixed
+- **macOS privacy prompts ("lean-ctx would like to access …") fired repeatedly
+  while the MCP server was running (#356 follow-up)**: editors spawn the
+  user-level MCP server with `cwd == $HOME`. A `ctx_search`/`ctx_tree`/
+  `ctx_glob` call whose `path` fell back to `"."` then walked the **entire
+  home directory** — every `stat` under `~/Library`, `~/Desktop`, `~/Pictures`
+  trips a TCC prompt (Calendar/Reminders/AddressBook/Photos), and the walk
+  burned 10–20 s per call. The index builders already refused broad roots;
+  the direct walk fallbacks did not. All three walk tools now share that same
+  root policy (new `walk_guard`): relative paths are absolutized against the
+  process cwd first — so `lean-ctx grep`/`ls` inside a real project keep
+  working — and broad or privacy-protected roots (`$HOME`, `/`, `~/Library`,
+  TCC dirs without project markers) return an actionable error telling the
+  agent to pass an explicit project `path` instead of silently scanning.
 - **`ctx_impact` reported C# classes as leaf nodes when consumers had no
   `using` directive (#398)**: C# resolves types in the same namespace without
   any import, and DI-style code never `new`s its dependencies — so a class
