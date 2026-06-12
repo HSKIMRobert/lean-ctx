@@ -39,6 +39,11 @@ jobs:
       # at a fraction of the size.
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
+      # property_compression alone took 8012s serialized on ubuntu (87% of
+      # the job) with proptest's default 256 cases — and pushed Windows past
+      # the 180-min timeout. 64 cases keep the properties exercised on every
+      # push at a quarter of the cost; local runs keep the full default.
+      PROPTEST_CASES: 64
     steps:
       - uses: actions/checkout@v4 # v4
         with:
