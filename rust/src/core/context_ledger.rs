@@ -511,7 +511,12 @@ impl ContextLedger {
         let mut seen = std::collections::HashSet::new();
         self.entries.sort_by_key(|e| std::cmp::Reverse(e.timestamp));
         self.entries.retain(|e| {
-            let key = crate::core::pathutil::normalize_tool_path(&e.path);
+            // Lexical key only: entries were normalized when written, and the
+            // full variant would `realpath` every persisted path — the daemon
+            // runs this at boot (ContextLedger::load → prune) and stat-ing
+            // stored paths under ~/Documents from a launchd process pops the
+            // macOS TCC prompt (#356).
+            let key = crate::core::pathutil::normalize_tool_path_lexical(&e.path);
             seen.insert(key)
         });
 

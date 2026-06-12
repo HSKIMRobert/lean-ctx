@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **macOS still prompted "lean-ctx would like to access files in your Documents
+  folder" on every upgrade (#356, reopened)**: the first fix (3.8.0) removed the
+  *scan-heuristic* probes, but the prompt actually came from the **launchd
+  daemon's boot path** — a process that is its own TCC identity, and whose
+  grant is invalidated by every update (binary swap → new cdhash → re-prompt).
+  Traced empirically with a deny-sandbox + crash-stack bisection; two
+  independent boot-time offenders fixed:
+  1. `serve` booted with cwd `/` and walked **every stored session**, stat-ing
+     each session's `project_root`/`shell_cwd` (project-marker probes +
+     `canonicalize`) — paths that usually live under `~/Documents`. Broad
+     roots ("/", HOME, agent sandboxes) now bail out *before* the scan — they
+     can never own a session (this also stops `shell_cwd.starts_with("/")`
+     from leaking an arbitrary project's session into the daemon default).
+  2. `ContextLedger::load → prune` ran `realpath` over every persisted ledger
+     entry at boot for its dedupe key; the key is now lexical-only.
+  Defense in depth: launchd-owned processes (ppid 1) are detected as
+  *TCC-standalone* and never stat/canonicalize paths under
+  `~/Documents`/`Desktop`/`Downloads` in heuristics (`has_project_marker`,
+  session-root matching, `normalize_tool_path`); editor/CLI children inherit
+  their host's TCC grant and keep full behavior. Verified with a
+  SIGKILL-on-Documents-access sandbox: daemon boot (30 s soak), proxy boot,
+  and the full `lean-ctx update` rewire now run clean against a real data dir
+  with 600+ sessions rooted under `~/Documents`.
+- **Pi: `ctx_grep`/`ctx_find`/`ctx_ls` silently searched the wrong directory
+  (#395)**: `path` was optional and fell back to the extension's cwd, so an
+  agent working elsewhere got results from the wrong tree and was derailed;
+  the calls also rendered without their arguments. `path` is now **required**
+  (schema + description make the scope explicit), and the three tools reuse
+  Pi's native call renderers so every invocation shows its pattern and
+  directory in the transcript.
 - **OpenCode × ChatGPT-OAuth broke behind the proxy (#366)**: `proxy enable`
   exported `OPENAI_BASE_URL` without the `/v1` suffix the OpenAI SDK convention
   expects (default is `https://api.openai.com/v1`). OpenCode therefore sent

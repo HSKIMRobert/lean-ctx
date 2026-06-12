@@ -77,10 +77,12 @@ pub fn strip_verbatim_str(path: &str) -> Option<String> {
     }
 }
 
-/// Normalize paths from any client format to a consistent OS-native form.
-/// Handles MSYS2/Git Bash (`/c/Users/...` -> `C:/Users/...`), mixed separators,
-/// double slashes, and trailing slashes. Uses forward slashes for consistency.
-pub fn normalize_tool_path(path: &str) -> String {
+/// Lexical (string-only) part of [`normalize_tool_path`]: MSYS2 drive prefix,
+/// separators, double slashes, trailing slash. Performs **no** filesystem
+/// access, so it is safe on persisted paths in TCC-standalone processes
+/// (launchd daemon, #356) and as a dedupe key where symlink resolution is
+/// not worth a `realpath` per entry.
+pub fn normalize_tool_path_lexical(path: &str) -> String {
     let mut p = match strip_verbatim_str(path) {
         Some(stripped) => stripped,
         None => path.to_string(),
@@ -108,13 +110,27 @@ pub fn normalize_tool_path(path: &str) -> String {
         p.pop();
     }
 
+    p
+}
+
+/// Normalize paths from any client format to a consistent OS-native form.
+/// Handles MSYS2/Git Bash (`/c/Users/...` -> `C:/Users/...`), mixed separators,
+/// double slashes, and trailing slashes. Uses forward slashes for consistency.
+pub fn normalize_tool_path(path: &str) -> String {
+    let mut p = normalize_tool_path_lexical(path);
+
     // Resolve symlinks for absolute paths to ensure cache key consistency.
     // Skip relative paths (preserve "." / "../" as-is), root-only paths (/ or C:/),
-    // and slow mounts (WSL DrvFS /mnt/) where canonicalize can hang.
+    // slow mounts (WSL DrvFS /mnt/) where canonicalize can hang, and paths a
+    // TCC-standalone process must not stat (launchd daemon + ~/Documents, #356).
     // Uses safe_canonicalize to strip Windows \\?\ prefix.
     let is_absolute = p.starts_with('/') || (p.len() >= 3 && p.as_bytes()[1] == b':');
     let is_root_only = p == "/" || (p.len() <= 3 && p.ends_with('/') && is_absolute);
-    if is_absolute && !is_root_only && !crate::core::io_health::is_slow_mount(&p) {
+    if is_absolute
+        && !is_root_only
+        && !crate::core::io_health::is_slow_mount(&p)
+        && may_probe_path(Path::new(&*p))
+    {
         if let Ok(canonical) = safe_canonicalize(Path::new(&*p)) {
             let canonical_str = canonical.to_string_lossy().replace('\\', "/");
             if !canonical_str.is_empty() {
@@ -163,7 +179,15 @@ pub const PROJECT_MARKERS: &[&str] = &[
 ];
 
 /// Returns `true` if `dir` contains at least one known project marker.
+///
+/// TCC guard (#356): a launchd-owned process (daemon/proxy/auto-updater) must
+/// not stat marker files under `~/Documents` & co. — the probe itself pops the
+/// macOS privacy prompt. For those processes this conservatively reports
+/// "no marker" without touching the filesystem.
 pub fn has_project_marker(dir: &Path) -> bool {
+    if !may_probe_path(dir) {
+        return false;
+    }
     PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
 }
 
@@ -210,6 +234,71 @@ pub fn is_tcc_sensitive_home_dir(dir: &Path) -> bool {
         dir.file_name().and_then(|n| n.to_str()),
         Some("Documents" | "Desktop" | "Downloads")
     )
+}
+
+/// Returns `true` if `path` lies inside (or is) one of the macOS TCC-protected
+/// home folders (`~/Documents`, `~/Desktop`, `~/Downloads`). Pure string/path
+/// comparison — performs **no** filesystem access itself.
+///
+/// Unlike [`is_tcc_sensitive_home_dir`] (which only matches the magic dirs
+/// themselves), this also matches nested paths like `~/Documents/proj/src`,
+/// because *any* `stat` below the magic dir trips the TCC prompt (#356).
+pub fn is_under_tcc_protected_dir(path: &Path) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let Some(home) = dirs::home_dir() else {
+        return false;
+    };
+    ["Documents", "Desktop", "Downloads"]
+        .iter()
+        .any(|magic| path.starts_with(home.join(magic)))
+}
+
+/// Returns `true` when this process is its own TCC identity on macOS — i.e.
+/// it was started (or re-parented) by `launchd` rather than by a
+/// TCC-granted host like a terminal or an editor.
+///
+/// Context (#356): TCC permissions attach to the *responsible process*. The
+/// lean-ctx daemon/proxy LaunchAgents and the scheduled auto-updater run
+/// directly under `launchd` (ppid 1), so any `stat`/`read_dir` they perform
+/// under `~/Documents` pops the privacy prompt **in lean-ctx's own name** —
+/// and because every release replaces the ad-hoc-signed binary (new cdhash),
+/// a previously granted permission is invalidated on each update, re-prompting
+/// forever. Such processes must never probe TCC-protected paths on their own
+/// initiative. Child processes of a terminal or editor (MCP server, CLI)
+/// inherit their host's TCC grant and keep full functionality.
+pub fn process_is_tcc_standalone() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // Deliberately uncached: getppid is a cheap syscall, the env override
+        // must stay testable within one process, and a daemonizing fork could
+        // change the answer after startup.
+        if let Ok(v) = std::env::var("LEAN_CTX_TCC_STANDALONE") {
+            match v.trim() {
+                "1" | "true" => return true,
+                "0" | "false" => return false,
+                _ => {}
+            }
+        }
+        // SAFETY: `getppid` takes no arguments and cannot fail.
+        (unsafe { libc::getppid() }) == 1
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Returns `true` when this process may `stat`/`read_dir`/`canonicalize`
+/// `path` without risking a macOS TCC privacy prompt in lean-ctx's name.
+///
+/// Heuristic call sites (project-marker probes, session/root matching) must
+/// consult this before touching paths from persisted state; security
+/// boundaries (PathJail) are exempt — they only ever canonicalize paths the
+/// client explicitly asked to access, in which case a prompt is legitimate.
+pub fn may_probe_path(path: &Path) -> bool {
+    !(process_is_tcc_standalone() && is_under_tcc_protected_dir(path))
 }
 
 /// Returns `true` if `dir` is a multi-repo workspace parent — i.e. it has at
@@ -296,6 +385,48 @@ mod tests {
         ));
         assert!(!is_tcc_sensitive_home_dir(&home.join("code")));
         assert!(!is_tcc_sensitive_home_dir(&home.join("Projects")));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn under_tcc_protected_dir_matches_nested_paths() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // The magic dirs themselves and anything nested below them (#356).
+        assert!(is_under_tcc_protected_dir(&home.join("Documents")));
+        assert!(is_under_tcc_protected_dir(
+            &home.join("Documents/deep/nested/project")
+        ));
+        assert!(is_under_tcc_protected_dir(&home.join("Desktop/scratch")));
+        assert!(is_under_tcc_protected_dir(&home.join("Downloads/x.zip")));
+        // Home itself, siblings, and non-home paths are fine.
+        assert!(!is_under_tcc_protected_dir(&home));
+        assert!(!is_under_tcc_protected_dir(&home.join("code/project")));
+        assert!(!is_under_tcc_protected_dir(Path::new("/tmp/Documents")));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[serial_test::serial]
+    fn tcc_standalone_blocks_probes_under_protected_dirs() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        let doc_proj = home.join("Documents/some-project");
+
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        assert!(process_is_tcc_standalone());
+        assert!(!may_probe_path(&doc_proj));
+        // Non-protected paths stay probeable even for standalone processes.
+        assert!(may_probe_path(Path::new("/tmp/some-project")));
+        // has_project_marker must refuse without touching the filesystem.
+        assert!(!has_project_marker(&doc_proj));
+
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
+        assert!(!process_is_tcc_standalone());
+        assert!(may_probe_path(&doc_proj));
+        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 
     #[test]

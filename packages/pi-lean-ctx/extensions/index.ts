@@ -6,6 +6,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   createBashToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
   createReadToolDefinition,
   DEFAULT_MAX_LINES,
   getLanguageFromPath,
@@ -65,20 +68,24 @@ const readSchema = Type.Object({
   mode: Type.Optional(readModeSchema),
 });
 
+// `path` is REQUIRED on ls/find/grep (#395): with an optional path these tools
+// silently fell back to the extension's cwd — an agent working in a different
+// directory got results from the wrong tree and was derailed. Forcing the
+// parameter makes the scope an explicit, visible part of every call.
 const lsSchema = Type.Object({
-  path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
+  path: Type.String({ description: "Directory to list. Pass the directory you are working in — there is no cwd fallback." }),
   limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
 });
 
 const findSchema = Type.Object({
   pattern: Type.String({ description: "Glob pattern to match files" }),
-  path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
+  path: Type.String({ description: "Directory to search in. Pass the directory you are working in — there is no cwd fallback." }),
   limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
 });
 
 const grepSchema = Type.Object({
   pattern: Type.String({ description: "Search pattern (regex or literal string)" }),
-  path: Type.Optional(Type.String({ description: "Directory or file to search (default: current directory)" })),
+  path: Type.String({ description: "Directory or file to search. Pass the directory you are working in — there is no cwd fallback." }),
   glob: Type.Optional(Type.String({ description: "Filter files by glob pattern, e.g. '*.ts'" })),
   ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search (default: false)" })),
   literal: Type.Optional(Type.Boolean({ description: "Treat pattern as literal string (default: false)" })),
@@ -611,15 +618,28 @@ export default async function (pi: ExtensionAPI) {
     },
   });
 
+  // Native tool definitions are reused purely for their renderCall: Pi then
+  // shows the invocation with its arguments ("grep /pattern/ in dir") instead
+  // of a bare tool name, making the searched directory visible at a glance
+  // (#395). The args shapes are supersets of the native ones.
+  const nativeLsTool = createLsToolDefinition(process.cwd());
+  const nativeFindTool = createFindToolDefinition(process.cwd());
+  const nativeGrepTool = createGrepToolDefinition(process.cwd());
+
   // ── ctx_ls (replaces ls) ──────────────────────────────────────────────
   registerTool({
     name: "ctx_ls",
     label: "ctx_ls",
-    description: "List a directory. Prefer over native ls (compact, summarized). Use limit to reduce output size.",
+    description: "List a directory. Prefer over native ls (compact, summarized). `path` is required — pass the directory you are working in. Use limit to reduce output size.",
     promptSnippet: "List directory contents",
     parameters: lsSchema,
+    renderCall(args, theme, context) {
+      return nativeLsTool.renderCall
+        ? nativeLsTool.renderCall(args, theme, context)
+        : (context.lastComponent ?? new Text("", 0, 0));
+    },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const requestedPath = normalizePathArg(params.path || ".");
+      const requestedPath = normalizePathArg(params.path);
       const absolutePath = resolve(ctx.cwd, requestedPath);
       const output = await execLeanCtx(pi, ["ls", absolutePath]);
       const decorated = withFooter(output, { limit: params.limit, always: true });
@@ -634,11 +654,16 @@ export default async function (pi: ExtensionAPI) {
   registerTool({
     name: "ctx_find",
     label: "ctx_find",
-    description: "Find files by glob. Prefer over native find/fd (gitignore-aware). Use limit to reduce output size.",
+    description: "Find files by glob. Prefer over native find/fd (gitignore-aware). `path` is required — pass the directory you are working in. Use limit to reduce output size.",
     promptSnippet: "Find files by glob pattern",
     parameters: findSchema,
+    renderCall(args, theme, context) {
+      return nativeFindTool.renderCall
+        ? nativeFindTool.renderCall(args, theme, context)
+        : (context.lastComponent ?? new Text("", 0, 0));
+    },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const requestedPath = normalizePathArg(params.path || ".");
+      const requestedPath = normalizePathArg(params.path);
       const absolutePath = resolve(ctx.cwd, requestedPath);
       const output = await execLeanCtx(pi, ["find", params.pattern, absolutePath]);
       const decorated = withFooter(output, { limit: params.limit, always: true });
@@ -653,11 +678,16 @@ export default async function (pi: ExtensionAPI) {
   registerTool({
     name: "ctx_grep",
     label: "ctx_grep",
-    description: "Search code. Prefer over native Grep/ripgrep (compact, ranked). Use limit to cap matches, context for surrounding lines.",
+    description: "Search code. Prefer over native Grep/ripgrep (compact, ranked). `path` is required — pass the directory you are working in. Use limit to cap matches, context for surrounding lines.",
     promptSnippet: "Search file contents for patterns",
     parameters: grepSchema,
+    renderCall(args, theme, context) {
+      return nativeGrepTool.renderCall
+        ? nativeGrepTool.renderCall(args, theme, context)
+        : (context.lastComponent ?? new Text("", 0, 0));
+    },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const requestedPath = normalizePathArg(params.path || ".");
+      const requestedPath = normalizePathArg(params.path);
       const absolutePath = resolve(ctx.cwd, requestedPath);
       const searchArgs = ["rg", "--line-number", "--color=never"];
       if (params.ignoreCase) searchArgs.push("-i");

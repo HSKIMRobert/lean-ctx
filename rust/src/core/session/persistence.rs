@@ -116,6 +116,16 @@ impl SessionState {
 
     /// Loads the most recent session matching a specific project root.
     pub fn load_latest_for_project_root(project_root: &str) -> Option<Self> {
+        // Broad roots ("/", HOME, agent sandboxes) never own a session. Bail out
+        // BEFORE scanning: the daemon boots with cwd "/" and previously walked
+        // every stored session here, stat-ing each session's project_root /
+        // shell_cwd. For roots under ~/Documents that probe popped the macOS
+        // TCC prompt in lean-ctx's name on every launchd (re)start (#356) —
+        // and `shell_cwd.starts_with("/")` could even leak an arbitrary
+        // project's session into the broad-root context.
+        if crate::core::pathutil::is_broad_or_unsafe_root(std::path::Path::new(project_root)) {
+            return None;
+        }
         let dir = sessions_dir()?;
         let target_root =
             crate::core::pathutil::safe_canonicalize_or_self(std::path::Path::new(project_root));

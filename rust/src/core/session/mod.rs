@@ -18,6 +18,42 @@ mod tests {
     use super::types::*;
 
     #[test]
+    fn load_latest_for_broad_root_returns_none_without_scanning() {
+        // The daemon boots with cwd "/" and the dispatcher passes that as the
+        // project root. Broad roots must bail out before walking the session
+        // store — stat-ing persisted roots under ~/Documents from the launchd
+        // daemon pops the macOS TCC prompt (#356).
+        assert!(SessionState::load_latest_for_project_root("/").is_none());
+        if let Some(home) = dirs::home_dir() {
+            let home = home.to_string_lossy().to_string();
+            assert!(SessionState::load_latest_for_project_root(&home).is_none());
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[serial_test::serial]
+    fn normalize_session_skips_marker_probe_for_real_roots() {
+        // A session whose project_root is a plausible real project must not be
+        // marker-probed at load time when the process is TCC-standalone: the
+        // probe itself would trip the privacy prompt (#356). The repair
+        // heuristic only ever fires for agent/temp roots.
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        let mut session = SessionState::new();
+        let docs_root = dirs::home_dir()
+            .unwrap_or_default()
+            .join("Documents/some-project")
+            .to_string_lossy()
+            .to_string();
+        session.project_root = Some(docs_root.clone());
+        session.shell_cwd = Some(docs_root.clone());
+        let normalized = super::heuristics::normalize_loaded_session(session);
+        // Root is not an agent/temp dir → kept as-is, no probe needed.
+        assert_eq!(normalized.project_root.as_deref(), Some(docs_root.as_str()));
+        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+    }
+
+    #[test]
     fn extract_cd_absolute_path() {
         let result = extract_cd_target("cd /usr/local/bin", "/home/user");
         assert_eq!(result, Some("/usr/local/bin".to_string()));
