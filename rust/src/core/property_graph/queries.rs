@@ -101,6 +101,10 @@ pub(super) fn impact_analysis(
     file_path: &str,
     max_depth: usize,
 ) -> anyhow::Result<ImpactResult> {
+    // Graph node keys use canonical `/` separators (see the builder walk);
+    // accept native Windows input too.
+    let file_path = file_path.replace('\\', "/");
+    let file_path = file_path.as_str();
     let reverse_graph = build_weighted_reverse_graph(conn)?;
     const PROPAGATION_THRESHOLD: f64 = 0.1;
 
@@ -151,6 +155,11 @@ pub(super) fn dependency_chain(
     from: &str,
     to: &str,
 ) -> anyhow::Result<Option<DependencyChain>> {
+    // Same canonicalization as `impact_analysis`.
+    let from = from.replace('\\', "/");
+    let to = to.replace('\\', "/");
+    let from = from.as_str();
+    let to = to.as_str();
     let forward_graph = build_forward_graph(conn)?;
 
     let mut visited: HashSet<String> = HashSet::new();

@@ -22,6 +22,13 @@ const INSTRUCTION_CAP_TOKENS: usize = 800;
 const STATIC_INSTRUCTION_BUDGET_TOKENS: usize = 400;
 #[cfg(test)]
 const STATIC_INSTRUCTION_BUDGET_TDD_TOKENS: usize = 500;
+/// Windows additionally carries the one-line `SHELL:` hint (POSIX vs
+/// PowerShell disambiguation, see `build_shell_hint`) inside the skeleton.
+/// Budgeted explicitly so the cap stays honest on every platform.
+#[cfg(all(test, windows))]
+const STATIC_INSTRUCTION_SHELL_HINT_TOKENS: usize = 25;
+#[cfg(all(test, not(windows)))]
+const STATIC_INSTRUCTION_SHELL_HINT_TOKENS: usize = 0;
 
 pub fn build_instructions(crp_mode: CrpMode) -> String {
     build_instructions_with_client(crp_mode, "")
@@ -606,13 +613,12 @@ fn build_shell_hint() -> String {
     if !cfg!(windows) {
         return String::new();
     }
+    // Keep this hint terse: it rides inside the static skeleton, which is
+    // budget-capped (#579) — the cap applies on Windows too.
     let name = crate::shell::shell_name();
     let is_posix = matches!(name.as_str(), "bash" | "sh" | "zsh" | "fish");
     if is_posix {
-        format!(
-            "\nSHELL: {name} (POSIX). Use POSIX commands (cat, head, grep, find, ls). \
-             Do NOT use PowerShell cmdlets (Get-Content, Select-Object, Get-ChildItem).\n"
-        )
+        format!("\nSHELL: {name} (POSIX) — POSIX commands only, no PowerShell cmdlets.\n")
     } else if name.contains("powershell") || name.contains("pwsh") {
         format!("\nSHELL: {name}. Use PowerShell cmdlets.\n")
     } else {
@@ -673,6 +679,19 @@ mod tests {
         assert!(count_tokens(&out) <= INSTRUCTION_CAP_TOKENS);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn shell_hint_stays_within_its_budget() {
+        // The skeleton budget grants the Windows shell hint exactly
+        // STATIC_INSTRUCTION_SHELL_HINT_TOKENS — keep the hint inside it.
+        let hint = build_shell_hint();
+        let tokens = count_tokens(&hint);
+        assert!(
+            tokens <= STATIC_INSTRUCTION_SHELL_HINT_TOKENS,
+            "shell hint = {tokens} tok, budget {STATIC_INSTRUCTION_SHELL_HINT_TOKENS}: {hint}"
+        );
+    }
+
     #[test]
     fn static_skeleton_stays_within_budget() {
         // #579: the static instruction skeleton (no session/knowledge blocks)
@@ -681,11 +700,12 @@ mod tests {
         // Isolated data dir = default config, like a fresh install (the dev
         // machine's compression_level/profile must not leak into the budget).
         let _iso = crate::core::data_dir::isolated_data_dir();
-        for (mode, budget) in [
+        for (mode, base_budget) in [
             (CrpMode::Off, STATIC_INSTRUCTION_BUDGET_TOKENS),
             (CrpMode::Compact, STATIC_INSTRUCTION_BUDGET_TOKENS),
             (CrpMode::Tdd, STATIC_INSTRUCTION_BUDGET_TDD_TOKENS),
         ] {
+            let budget = base_budget + STATIC_INSTRUCTION_SHELL_HINT_TOKENS;
             let out = build_instructions_for_test(mode);
             let tokens = count_tokens(&out);
             assert!(

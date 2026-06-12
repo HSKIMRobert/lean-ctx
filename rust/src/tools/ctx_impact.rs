@@ -448,11 +448,14 @@ fn walk_supported_sources(root_path: &Path) -> (Vec<String>, Vec<(String, String
             continue;
         }
 
+        // Canonical `/` separators: graph node keys must be platform-stable
+        // so queries like `impact_analysis("Models/Engine.cs")` match the
+        // same node on Windows (output determinism, #498).
         let rel_path = path
             .strip_prefix(root_path)
             .unwrap_or(path)
             .to_string_lossy()
-            .to_string();
+            .replace('\\', "/");
 
         file_paths.push(rel_path.clone());
 
