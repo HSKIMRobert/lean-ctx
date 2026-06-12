@@ -105,10 +105,24 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
     // Always enable auth (even on loopback) to prevent cross-origin reads of /api/*
     // from a malicious website (CORS is not a reliable boundary for localhost services).
     let (t, token_from_env) = resolve_dashboard_token();
-    save_token(&t);
     let token = Some(Arc::new(t));
 
+    // Bind BEFORE persisting the token: two racing `lean-ctx dashboard` starts
+    // both used to write their fresh token, the bind loser exited — leaving a
+    // token on disk that the surviving server never accepted. Every later
+    // "already running" browser open (and any tool reading dashboard.token)
+    // then got 401s. Binding first makes the loser exit without touching the
+    // file, so dashboard.token always belongs to the live listener.
+    let listener = match TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Failed to bind to {addr}: {e}");
+            std::process::exit(1);
+        }
+    };
+
     if let Some(t) = token.as_ref() {
+        save_token(t);
         let masked = if t.len() > 12 {
             format!(
                 "{}…{}",
@@ -134,14 +148,6 @@ pub async fn start(port: Option<u16>, host: Option<String>, base_path: Option<St
             );
         }
     }
-
-    let listener = match TcpListener::bind(&addr).await {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("Failed to bind to {addr}: {e}");
-            std::process::exit(1);
-        }
-    };
 
     let stats_path = crate::core::data_dir::lean_ctx_data_dir().map_or_else(
         |_| "~/.lean-ctx/stats.json".to_string(),

@@ -83,7 +83,29 @@ fn get_routes(path: &str, query_str: &str) -> Option<(&'static str, &'static str
             Some(("200 OK", "application/json", json))
         }
         "/api/session" => {
-            let mut session = crate::core::session::SessionState::load_latest().unwrap_or_default();
+            // The status bar promises "the task your most recent agent session
+            // is working on". `load_latest()` matches sessions against THIS
+            // process's cwd — but the dashboard usually runs from HOME (a
+            // broad root that rightly matches nothing), so it permanently
+            // showed "No session" while agents were active. Fall back to the
+            // most recently updated session rooted in a real project
+            // (skipping broad/unsafe roots like HOME or test-sandbox temp dirs).
+            let mut session = crate::core::session::SessionState::load_latest()
+                .or_else(|| {
+                    crate::core::session::SessionState::list_sessions()
+                        .iter()
+                        .find_map(|summary| {
+                            let sess = crate::core::session::SessionState::load_by_id(&summary.id)?;
+                            let root = sess.project_root.as_deref()?;
+                            if crate::core::pathutil::is_broad_or_unsafe_root(std::path::Path::new(
+                                root,
+                            )) {
+                                return None;
+                            }
+                            Some(sess)
+                        })
+                })
+                .unwrap_or_default();
             let global = crate::core::stats::load();
             let g_cmds = global.total_commands;
             let g_input = global.total_input_tokens;

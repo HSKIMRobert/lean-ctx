@@ -463,12 +463,25 @@ class CockpitLive extends HTMLElement {
     var events = results[0];
     var stats = results[1];
 
-    var newEvents = Array.isArray(events) ? events : [];
+    // A failed /api/events poll (daemon restart, expired token, timeout) must
+    // not masquerade as "No events recorded yet": keep the last known feed and
+    // surface the error instead.
+    var prevFeedError = this._feedError || null;
+    var newEvents;
+    if (Array.isArray(events)) {
+      newEvents = events;
+      this._feedError = null;
+    } else {
+      newEvents = this._data ? this._data.events : [];
+      this._feedError = events && events.__error ? String(events.__error) : 'fetch failed';
+    }
 
     var changed = forceRender || !this._data
+      || this._feedError !== prevFeedError
       || newEvents.length !== this._data.events.length
-      || (newEvents[0] && this._data.events[0]
-          && newEvents[0].id !== this._data.events[0].id);
+      || (newEvents.length && this._data.events.length
+          && newEvents[newEvents.length - 1].id
+             !== this._data.events[this._data.events.length - 1].id);
 
     this._data = {
       events: newEvents,
@@ -668,6 +681,22 @@ class CockpitLive extends HTMLElement {
     var filter = this._filter;
     var filterCat = FILTER_CATEGORIES[filter] || null;
 
+    var errorBanner = '';
+    if (this._feedError) {
+      errorBanner =
+        '<div class="card" style="margin-bottom:10px;border-left:2px solid var(--red)">' +
+        '<p class="hs" style="margin:0;color:var(--red)">Live feed unreachable: ' +
+        esc(this._feedError) +
+        '</p>' +
+        '<p class="hs" style="margin:4px 0 0;font-size:11px">' +
+        (events.length
+          ? 'Showing the last known events. '
+          : '') +
+        'If the dashboard was restarted, reopen it via <code>lean-ctx dashboard</code> ' +
+        'so this tab picks up the new auth token.</p>' +
+        '</div>';
+    }
+
     var sorted = events.slice().sort(function (a, b) {
       var ta = String(a.timestamp || '');
       var tb = String(b.timestamp || '');
@@ -686,14 +715,20 @@ class CockpitLive extends HTMLElement {
 
     if (count === 0) {
       return (
+        errorBanner +
         '<div class="card" style="margin-bottom:14px">' +
         '<h3>Event Feed' + tip('event_feed') + '</h3>' +
-        '<p class="hs">No events recorded yet. Events appear as lean-ctx intercepts tool calls.</p>' +
+        '<p class="hs">' +
+        (this._feedError
+          ? 'Events unavailable — the feed endpoint could not be reached.'
+          : 'No events recorded yet. Events appear as lean-ctx intercepts tool calls.') +
+        '</p>' +
         '</div>'
       );
     }
 
     return (
+      errorBanner +
       '<div style="margin-bottom:14px">' +
       '<h3 style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
       'Event Feed <span class="badge">' + esc(String(count)) + '</span></h3>' +

@@ -3,6 +3,29 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Dashboard token race**: `lean-ctx dashboard` persisted its fresh auth token
+  *before* binding the port. Two racing starts both wrote `dashboard.token`;
+  the bind loser exited, leaving a token on disk the surviving server never
+  accepted — every "already running" browser open then hit silent 401s. The
+  token is now saved only after a successful bind.
+- **Live Activity feed masked errors as "No events recorded yet"**: a failed
+  `/api/events` poll (daemon restart, expired token, timeout) was rendered as
+  an empty feed. The dashboard now keeps the last known events and shows the
+  actual error with a recovery hint instead.
+- **Status bar showed "No session" while agents were active**: `/api/session`
+  matched sessions against the dashboard process's own cwd (usually HOME — a
+  broad root that rightly matches nothing). It now falls back to the most
+  recently updated session rooted in a real project.
+
+### Performance
+- **`/api/events` no longer re-parses the event log on every poll**: the
+  file-backed event load is cached on (path, mtime, length) — the 3-second
+  dashboard poll now costs a `stat()` instead of reading and parsing up to
+  10k JSONL lines.
+
 ## [3.8.1] — 2026-06-12
 
 > **The Field-Report Patch.** Five issues straight from users' terminals, fixed

@@ -235,20 +235,51 @@ pub fn latest_events(n: usize) -> Vec<LeanCtxEvent> {
     bus().latest_events(n)
 }
 
+#[derive(Default)]
+struct FileEventCache {
+    path: Option<std::path::PathBuf>,
+    mtime: Option<std::time::SystemTime>,
+    len: u64,
+    events: Vec<LeanCtxEvent>,
+}
+
+/// File-backed event load with a process-local cache keyed on (path, mtime, len).
+/// The dashboard polls this every 3 s; without the cache each poll re-read
+/// and re-parsed the entire JSONL (up to 10k lines) even when nothing changed.
 pub fn load_events_from_file(n: usize) -> Vec<LeanCtxEvent> {
+    static CACHE: OnceLock<Mutex<FileEventCache>> = OnceLock::new();
     let Some(path) = jsonl_path() else {
         return Vec::new();
     };
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return Vec::new();
+    let (mtime, len) = match std::fs::metadata(&path) {
+        Ok(m) => (m.modified().ok(), m.len()),
+        Err(_) => return Vec::new(),
     };
-    let all: Vec<LeanCtxEvent> = content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    let start = all.len().saturating_sub(n);
-    all[start..].to_vec()
+
+    let cache = CACHE.get_or_init(|| Mutex::new(FileEventCache::default()));
+    let mut guard = match cache.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let fresh =
+        guard.path.as_deref() == Some(path.as_path()) && guard.mtime == mtime && guard.len == len;
+    if !fresh {
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        guard.events = content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        guard.path = Some(path);
+        guard.mtime = mtime;
+        guard.len = len;
+    }
+
+    let start = guard.events.len().saturating_sub(n);
+    guard.events[start..].to_vec()
 }
 
 pub fn emit_tool_call(
@@ -394,5 +425,45 @@ mod tests {
         let after = events_since(id1);
         assert!(after.iter().any(|e| e.id == id2));
         assert!(after.iter().all(|e| e.id > id1));
+    }
+
+    /// The (path, mtime, len) cache must never serve stale events: appending a
+    /// line changes the file length, which has nanosecond-independent
+    /// granularity (unlike mtime), so new events show up on the next poll.
+    #[test]
+    fn load_events_from_file_sees_appended_events() {
+        let path = jsonl_path().expect("test sandbox data dir");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create data dir");
+        }
+
+        let line_a = r#"{"id":900001,"timestamp":"2026-06-12T08:00:00.000","kind":{"type":"CacheHit","path":"cached_a.rs","saved_tokens":42}}"#;
+        std::fs::write(&path, format!("{line_a}\n")).expect("write events.jsonl");
+
+        let first = load_events_from_file(50);
+        assert!(
+            first.iter().any(|e| e.id == 900_001),
+            "initial load should parse the seeded event"
+        );
+
+        // Second call with unchanged file exercises the cached branch.
+        let cached = load_events_from_file(50);
+        assert_eq!(cached.len(), first.len());
+
+        let line_b = r#"{"id":900002,"timestamp":"2026-06-12T08:00:01.000","kind":{"type":"CacheHit","path":"cached_b.rs","saved_tokens":7}}"#;
+        {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .expect("append events.jsonl");
+            writeln!(f, "{line_b}").expect("append line");
+        }
+
+        let second = load_events_from_file(50);
+        assert!(
+            second.iter().any(|e| e.id == 900_002),
+            "append must invalidate the cache and surface the new event"
+        );
     }
 }
