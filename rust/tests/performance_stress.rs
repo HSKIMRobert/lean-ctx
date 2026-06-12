@@ -1,6 +1,9 @@
 //! Performance stress tests — verifies that critical paths meet latency bounds.
 //!
-//! These tests use wall-clock timing and should pass even on CI with 2x safety margin.
+//! These are complexity-regression guards, not benchmarks: limits sit ~5-10x
+//! above typical wall-clock so hosted-runner CPU contention (observed 2x+
+//! slowdowns on otherwise green runs) never flakes the gate, while a real
+//! algorithmic regression still lands far above the bound.
 
 use std::time::Instant;
 
@@ -139,8 +142,8 @@ mod homeostasis_stress {
         let elapsed = start.elapsed();
 
         assert!(
-            elapsed.as_micros() < 5000,
-            "1000 homeostasis evaluations took {}µs — must be <5000µs",
+            elapsed.as_micros() < 50_000,
+            "1000 homeostasis evaluations took {}µs — must be <50000µs",
             elapsed.as_micros()
         );
     }
@@ -213,7 +216,11 @@ mod hebbian_stress {
         let elapsed = start.elapsed();
 
         assert_eq!(evictions.len(), 100);
-        let limit_us = if cfg!(windows) { 50_000 } else { 20_000 };
+        // Regression guard, not a benchmark: the operation is µs-scale, so a
+        // real complexity regression lands far above 100ms. Tighter limits
+        // (20ms) flaked on hosted runners — observed 41ms on an otherwise
+        // green run purely from CPU contention.
+        let limit_us = if cfg!(windows) { 200_000 } else { 100_000 };
         assert!(
             elapsed.as_micros() < limit_us,
             "Evicting 100 from 1000 entries took {}µs — must be <{limit_us}µs",
@@ -245,8 +252,8 @@ mod predictive_coding_stress {
         let elapsed = start.elapsed();
 
         assert!(
-            elapsed.as_millis() < 50,
-            "Delta computation for 2000-line file took {}ms — must be <50ms",
+            elapsed.as_millis() < 250,
+            "Delta computation for 2000-line file took {}ms — must be <250ms",
             elapsed.as_millis()
         );
 
@@ -268,8 +275,8 @@ mod predictive_coding_stress {
         let elapsed = start.elapsed();
 
         assert!(
-            elapsed.as_millis() < 50,
-            "Delta of identical 5000-line file took {}ms — must be <50ms",
+            elapsed.as_millis() < 250,
+            "Delta of identical 5000-line file took {}ms — must be <250ms",
             elapsed.as_millis()
         );
         assert!(delta.added_lines.is_empty());
