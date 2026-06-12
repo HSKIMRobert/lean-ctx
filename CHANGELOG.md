@@ -3,7 +3,46 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.8.3] — 2026-06-12
+## [3.8.3] — 2026-06-13
+
+### Added
+- **`lean-ctx doctor overhead` (#572)**: per-client fixed-cost report — how many
+  tokens your editor pays *every session* for tool schemas, instructions and
+  rules files, with duplicate detection across CLAUDE.md/.cursorrules/AGENTS.md.
+- **`lean-ctx rules dedup [--apply]` (#578)**: finds and removes lean-ctx-owned
+  duplicate rule files and stale marked blocks across editors. The
+  `.cursorrules` template is now a pointer to the canonical rules, and the
+  compression block is no longer double-injected for Cursor.
+
+### Changed
+- **Token-efficiency epic, phase 1 (#571)** — fixed per-session overhead cut
+  from ~13.7K to ~6.0K tokens on a typical setup:
+  - **Lean default tool surface (#575)**: setup no longer pins a
+    `tool_profile`; the default surface is 13 lazy-core tools instead of 61.
+    `lean-ctx tools lean`/`reset` manage it explicitly.
+  - **Schema diet (#576)**: core tool descriptions and schemas trimmed
+    3031→1935 tokens (−36%); large action enums folded into pipe-delimited
+    descriptions; a budget regression test keeps it from creeping back.
+  - **Instructions cap (#579)**: the static instruction skeleton stays ≤400
+    tokens (Off/Compact CRP) / ≤500 (TDD); the decoder block is mode-aware and
+    canonical rule blocks were condensed.
+  - **Honest metrics (#573)**: dashboard, footer and ledger report observed
+    tokens only — the modeled 2.5× grep baseline moves to the *estimated*
+    series; `ctx_cost` splits cached vs uncached input at cache-read pricing;
+    the benchmark measures the real CCP resume payload.
+  - **Self-describing outputs (#580)**: plain notation uses real language
+    keywords (`struct`/`trait`/`pub`), and TDD symbol outputs carry a minimal
+    inline legend (≤15 tokens) so agents never guess the notation.
+- **Codex hook: native rewrite instead of block-and-retry (#399, community
+  contribution)**: on Codex ≥ 0.20 the `PreToolUse` hook now returns
+  `updatedInput` to rewrite shell commands through lean-ctx in place — no more
+  deny + model-retry round-trip per command.
+
+### Security
+- Bumped the postgres crate family past three fresh RUSTSEC advisories
+  (unbounded SCRAM iteration DoS, `hstore`/`DataRow` decode panics) — found by
+  `cargo-deny` the moment they were published; lean-ctx never exposed the
+  vulnerable paths to untrusted servers (#399).
 
 ### Fixed
 - **`lean-ctx overview` flooded the terminal with thousands of `node_modules`
