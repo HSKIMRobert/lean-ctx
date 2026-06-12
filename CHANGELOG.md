@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.8.0] — 2026-06-11
+## [3.8.0] — 2026-06-12
 
 > **The Governance & Proof release.** Agents become accountable identities,
 > context gets enforceable policy, and savings become auditable evidence:
