@@ -608,8 +608,9 @@ fn source_content_changed_since_index(index: &ProjectIndex, root_abs: &str) -> b
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(20))
-        .filter_entry(crate::core::cloud_files::keep_entry)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
     const MAX_VISIT: usize = 50_000;
     const MAX_CONFIRM_READS: usize = 4_000;
@@ -733,8 +734,9 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(20))
-        .filter_entry(crate::core::cloud_files::keep_entry)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
 
     let cfg = crate::core::config::Config::load();

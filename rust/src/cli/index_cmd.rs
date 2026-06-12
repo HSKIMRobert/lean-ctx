@@ -147,6 +147,8 @@ fn snapshot_code_files(project_root: &Path) -> HashMap<String, FileState> {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
 
     let mut out: HashMap<String, FileState> = HashMap::new();

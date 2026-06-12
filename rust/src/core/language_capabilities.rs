@@ -371,7 +371,9 @@ pub fn scan_unsupported_source_languages(root: &str, max_entries: usize) -> Vec<
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(20))
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
     for entry in walker.flatten().take(max_entries) {
         if !entry.file_type().is_some_and(|ft| ft.is_file()) {

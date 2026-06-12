@@ -429,6 +429,8 @@ fn walk_supported_sources(root_path: &Path) -> (Vec<String>, Vec<(String, String
     let walker = ignore::WalkBuilder::new(root_path)
         .hidden(true)
         .git_ignore(true)
+        .require_git(false)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
 
     let mut file_paths: Vec<String> = Vec::new();

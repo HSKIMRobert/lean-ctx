@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.8.3] — 2026-06-12
 
 ### Fixed
+- **`lean-ctx overview` flooded the terminal with thousands of `node_modules`
+  entries on projects without a top-level `.git` (#400)**: the `ignore` crate
+  only applies `.gitignore` files *inside* git repositories — in a monorepo
+  whose subprojects carry their own `.gitignore` but whose root is not a git
+  repo, every scanner walked `node_modules` wholesale (74k+ files in the
+  report). Two-part fix, applied to **all 15 directory walkers** (graph/BM25/
+  trigram index builders, `ctx_impact`, `ctx_search`/`ctx_tree`/`ctx_glob`,
+  CLI scans): a shared `walk_filter` now prunes unambiguous vendor dirs
+  (`node_modules`, `__pycache__`, `bower_components`, virtualenvs with a
+  `pyvenv.cfg`) regardless of git state, and `require_git(false)` makes
+  `.gitignore` files effective without a `.git` directory. Explicit roots
+  stay reachable (`ctx_tree node_modules/react` works), and
+  `respect_gitignore=false` remains the escape hatch for searching inside
+  vendor dirs.
 - **macOS privacy prompts ("lean-ctx would like to access …") fired repeatedly
   while the MCP server was running (#356 follow-up)**: editors spawn the
   user-level MCP server with `cwd == $HOME`. A `ctx_search`/`ctx_tree`/

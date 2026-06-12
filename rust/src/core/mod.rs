@@ -439,6 +439,7 @@ pub mod update_scheduler;
 pub mod updater;
 pub mod version_check;
 pub mod visualizer;
+pub mod walk_filter;
 /// WASM extension runtime (`wasm-abi-v1`): sandboxed, language-independent
 /// compressors and providers. Feature-gated behind `wasm`.
 #[cfg(feature = "wasm")]

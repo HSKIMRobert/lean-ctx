@@ -68,14 +68,23 @@ fn generate_compact_tree(
     }
     let mut entries: Vec<Entry> = Vec::new();
 
+    // Vendor dirs (node_modules, …) follow the gitignore toggle: explicitly
+    // disabling gitignore is the escape hatch to look inside them (#400).
     let walker = WalkBuilder::new(root)
         .hidden(!show_hidden)
         .git_ignore(respect_gitignore)
         .git_global(respect_gitignore)
         .git_exclude(respect_gitignore)
+        .require_git(false)
         .max_depth(Some(max_depth))
         .sort_by_file_name(std::cmp::Ord::cmp)
-        .filter_entry(crate::core::cloud_files::keep_entry)
+        .filter_entry(move |e| {
+            if respect_gitignore {
+                crate::core::walk_filter::keep_entry(e)
+            } else {
+                crate::core::cloud_files::keep_entry(e)
+            }
+        })
         .build();
 
     for entry in walker.filter_map(std::result::Result::ok) {
@@ -217,5 +226,30 @@ mod tests {
             "home root must be refused: {output}"
         );
         assert_eq!(tokens, 0);
+    }
+
+    #[test]
+    fn tree_hides_node_modules_by_default_even_without_git() {
+        // #400: vendor dirs are pruned by default; respect_gitignore=false is
+        // the explicit escape hatch to look inside them.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("node_modules/react")).expect("mkdir");
+        std::fs::write(tmp.path().join("node_modules/react/index.js"), "x").expect("write");
+        std::fs::create_dir_all(tmp.path().join("src")).expect("mkdir");
+        std::fs::write(tmp.path().join("src/app.js"), "y").expect("write");
+        let root = tmp.path().to_string_lossy().to_string();
+
+        let (default_out, _) = handle(&root, 4, false, true);
+        assert!(default_out.contains("src"), "src visible: {default_out}");
+        assert!(
+            !default_out.contains("node_modules"),
+            "node_modules must be hidden by default: {default_out}"
+        );
+
+        let (opt_out, _) = handle(&root, 4, false, false);
+        assert!(
+            opt_out.contains("node_modules"),
+            "respect_gitignore=false must reveal vendor dirs: {opt_out}"
+        );
     }
 }

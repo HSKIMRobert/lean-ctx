@@ -156,7 +156,9 @@ fn walk(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(MAX_WALK_DEPTH))
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build()
         .filter_map(Result::ok)
 }

@@ -134,6 +134,8 @@ fn gather_text_files(root: &Path) -> Vec<(String, String)> {
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
+        .require_git(false)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|t| t.is_file()) {

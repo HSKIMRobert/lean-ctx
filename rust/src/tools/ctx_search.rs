@@ -143,13 +143,22 @@ pub fn handle(
     };
 
     if !used_index {
+        // Vendor dirs (node_modules, …) follow the gitignore toggle: explicitly
+        // disabling gitignore is the escape hatch to look inside them (#400).
         let walker = WalkBuilder::new(root)
             .hidden(true)
             .max_depth(Some(MAX_WALK_DEPTH))
             .git_ignore(respect_gitignore)
             .git_global(respect_gitignore)
             .git_exclude(respect_gitignore)
-            .filter_entry(crate::core::cloud_files::keep_entry)
+            .require_git(false)
+            .filter_entry(move |e| {
+                if respect_gitignore {
+                    crate::core::walk_filter::keep_entry(e)
+                } else {
+                    crate::core::cloud_files::keep_entry(e)
+                }
+            })
             .build();
 
         for entry in walker.filter_map(std::result::Result::ok) {

@@ -892,8 +892,9 @@ fn list_code_files(root: &Path) -> Vec<String> {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(20))
-        .filter_entry(crate::core::cloud_files::keep_entry)
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build();
 
     let cfg = crate::core::config::Config::load();

@@ -693,6 +693,70 @@ fn tscn_scene_indexed_with_script_edges() {
 }
 
 #[test]
+fn scan_skips_node_modules_without_git_dir() {
+    // #400: a monorepo without a top-level `.git` used to index node_modules
+    // wholesale, because the ignore crate only applies `.gitignore` files
+    // inside git repositories. The vendor-dir walk filter must skip them
+    // regardless of git state.
+    let _env = crate::core::data_dir::test_env_lock();
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+
+    std::fs::create_dir_all(root.join("api/node_modules/lodash")).unwrap();
+    std::fs::create_dir_all(root.join("api/src")).unwrap();
+    std::fs::write(root.join("api/package.json"), "{\"name\":\"api\"}").unwrap();
+    std::fs::write(
+        root.join("api/node_modules/lodash/index.js"),
+        "module.exports = 1;",
+    )
+    .unwrap();
+    std::fs::write(root.join("api/src/server.js"), "const x = 1;").unwrap();
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let idx = scan(&root_s);
+
+    assert!(
+        idx.files.keys().any(|p| p.contains("server.js")),
+        "real source must be indexed; files: {:?}",
+        idx.files.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !idx.files.keys().any(|p| p.contains("node_modules")),
+        "node_modules must never be indexed; files: {:?}",
+        idx.files.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn scan_respects_gitignore_without_git_dir() {
+    // #400 second half: `require_git(false)` makes `.gitignore` files
+    // effective even when no `.git` directory exists.
+    let _env = crate::core::data_dir::test_env_lock();
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("generated")).unwrap();
+    std::fs::write(root.join(".gitignore"), "generated/\n").unwrap();
+    std::fs::write(root.join("src/app.js"), "const y = 2;").unwrap();
+    std::fs::write(root.join("generated/bundle.js"), "var b = 3;").unwrap();
+
+    let root_s = normalize_project_root(&root.to_string_lossy());
+    let idx = scan(&root_s);
+
+    assert!(
+        idx.files.keys().any(|p| p.contains("app.js")),
+        "real source must be indexed; files: {:?}",
+        idx.files.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !idx.files.keys().any(|p| p.contains("bundle.js")),
+        "gitignored dir must be skipped without .git; files: {:?}",
+        idx.files.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn safe_scan_root_rejects_broad_dir_without_repos() {
     let tmp = tempdir().unwrap();
     let broad = tmp.path().join("broad");

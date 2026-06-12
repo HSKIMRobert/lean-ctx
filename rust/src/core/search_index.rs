@@ -170,7 +170,8 @@ impl SearchIndex {
             .git_ignore(respect_gitignore)
             .git_global(respect_gitignore)
             .git_exclude(respect_gitignore)
-            .filter_entry(crate::core::cloud_files::keep_entry)
+            .require_git(false)
+            .filter_entry(crate::core::walk_filter::keep_entry)
             .build();
 
         let mut files: Vec<PathBuf> = Vec::new();

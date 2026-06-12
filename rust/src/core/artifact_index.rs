@@ -256,6 +256,8 @@ fn list_artifact_files(project_root: &Path) -> (Vec<String>, Vec<String>) {
                 .git_ignore(true)
                 .git_global(true)
                 .git_exclude(true)
+                .require_git(false)
+                .filter_entry(crate::core::walk_filter::keep_entry)
                 .build();
             for entry in walker.flatten() {
                 let path = entry.path();

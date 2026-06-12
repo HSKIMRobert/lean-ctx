@@ -44,6 +44,8 @@ fn auto_detect_large_project() -> bool {
             .hidden(true)
             .max_depth(Some(6))
             .git_ignore(true)
+            .require_git(false)
+            .filter_entry(crate::core::walk_filter::keep_entry)
             .build()
             .filter_map(std::result::Result::ok)
             .filter(|e| {

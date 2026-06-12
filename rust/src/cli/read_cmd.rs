@@ -359,7 +359,9 @@ pub fn cmd_find(args: &[String]) {
         .git_ignore(true)
         .git_global(true)
         .git_exclude(true)
+        .require_git(false)
         .max_depth(Some(10))
+        .filter_entry(crate::core::walk_filter::keep_entry)
         .build()
         .flatten()
     {
