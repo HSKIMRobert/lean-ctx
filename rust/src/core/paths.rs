@@ -10,7 +10,7 @@
 //!
 //! ## Backward compatibility (single-dir mode)
 //!
-//! Existing installs MUST NOT split silently. [`single_dir_override`] returns
+//! Existing installs MUST NOT split silently. `single_dir_override` returns
 //! `Some(dir)` when `LEAN_CTX_DATA_DIR` is set or a legacy/mixed install with
 //! data exists; in that case every category resolves to that one directory —
 //! byte-for-byte today's behavior. The real per-category split only applies to

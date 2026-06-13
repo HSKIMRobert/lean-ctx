@@ -51,7 +51,7 @@ const READ_FAMILY: &[&str] = &[
 /// promises complete, edit-against-able content — and, as defense in depth, for
 /// any call whose `mode` is itself a verbatim mode (`full`, `raw`, `lines:N-M`).
 /// The mode arm protects a *future* read tool or caller by construction, even
-/// before it is added to [`READ_FAMILY`]. Shared by the MCP post-processor
+/// before it is added to `READ_FAMILY`. Shared by the MCP post-processor
 /// (`skip_terse`) and the CLI `read` command so both paths stay byte-exact.
 #[must_use]
 pub fn is_verbatim_read(name: &str, mode: Option<&str>) -> bool {
