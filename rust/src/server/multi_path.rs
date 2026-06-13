@@ -209,14 +209,31 @@ mod tests {
     }
 
     // #401: an explicit `paths` array where nothing resolves must error too.
+    //
+    // Uses *real* directories so the PathJail decision is deterministic across
+    // platforms. Canonicalizing non-existent paths is OS-dependent — the first
+    // version of this test fed bogus absolute paths against a non-existent root
+    // and passed on macOS while letting them through on Linux CI.
     #[test]
     fn explicit_unresolvable_paths_array_errors() {
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("project");
+        let outside = base.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let mut ctx = test_ctx();
+        ctx.project_root = root.to_string_lossy().into_owned();
+
         let mut args = Map::new();
-        args.insert("paths".to_string(), json!(["/outside/a", "/outside/b"]));
-        let ctx = test_ctx(); // resolve_path_sync rejects both (escape /test/project)
-        let err = resolve_tool_paths(&args, &ctx).expect_err("all paths out of jail → error");
+        args.insert(
+            "paths".to_string(),
+            json!([outside.to_string_lossy().into_owned()]),
+        );
+        let err = resolve_tool_paths(&args, &ctx)
+            .expect_err("a path outside the project root must be an error");
         assert!(
-            err.contains("none of the requested paths") && err.contains("/outside/a"),
+            err.contains("none of the requested paths"),
             "error must report the unresolved paths: {err}"
         );
     }
