@@ -359,6 +359,7 @@ pub mod ingestion;
 pub mod instruction_compiler;
 pub mod integrity;
 pub mod intent_engine;
+pub(crate) mod intent_lang;
 pub mod intent_protocol;
 pub mod intent_router;
 pub mod io_boundary;
