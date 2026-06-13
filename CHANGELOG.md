@@ -3,7 +3,18 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.8.3] — 2026-06-13
+## [3.8.4] — 2026-06-13
+
+### Fixed
+- **`ctx_tree`/`ctx_search`/`ctx_glob` ignored an out-of-scope `path` and
+  scanned the whole project instead (#401)**: when an explicit `path` (or
+  `paths`) argument pointed outside the project root — or was otherwise
+  unresolvable — the dispatcher's PathJail rejection was swallowed and the tools
+  silently fell back to the project root, returning the entire repository tree
+  for an unrelated path. The resolution error is now surfaced
+  (`ERROR: path escapes project root: … (root: …)`) instead of a misleading
+  full-tree result. Non-existent paths *inside* the project keep their clear
+  "does not exist" message.
 
 ### Added
 - **`lean-ctx doctor overhead` (#572)**: per-client fixed-cost report — how many
