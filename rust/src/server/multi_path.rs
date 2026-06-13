@@ -129,6 +129,7 @@ mod tests {
     fn test_ctx() -> ToolContext {
         ToolContext {
             project_root: "/test/project".to_string(),
+            extra_roots: Vec::new(),
             minimal: false,
             resolved_paths: std::collections::HashMap::new(),
             crp_mode: crate::tools::CrpMode::Off,
@@ -210,26 +211,25 @@ mod tests {
 
     // #401: an explicit `paths` array where nothing resolves must error too.
     //
-    // The candidate is an absolute path that cannot exist; its only existing
-    // ancestor is the filesystem root `/`, which is never inside the project
-    // root or any allow-listed directory. PathJail therefore rejects it
-    // deterministically on every platform and regardless of allow-list env
-    // state another test may have left behind. (Sibling temp dirs flake here:
-    // under `--test-threads=1` a prior test can allow-list the temp directory
-    // via `LEAN_CTX_*` env vars, so the out-of-jail sibling is accepted.)
-    //
-    // Gated on a live jail: `--all-features` (used by CI) enables `no-jail`,
-    // which compiles PathJail out so every path resolves — there is no
-    // out-of-scope path to reject. The same gate guards the PathJail unit
-    // tests in `core::pathjail`.
-    #[cfg(not(feature = "no-jail"))]
+    // Uses *real* directories so the PathJail decision is deterministic across
+    // platforms. Canonicalizing non-existent paths is OS-dependent — the first
+    // version of this test fed bogus absolute paths against a non-existent root
+    // and passed on macOS while letting them through on Linux CI.
     #[test]
     fn explicit_unresolvable_paths_array_errors() {
-        let ctx = test_ctx();
+        let base = tempfile::tempdir().unwrap();
+        let root = base.path().join("project");
+        let outside = base.path().join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+
+        let mut ctx = test_ctx();
+        ctx.project_root = root.to_string_lossy().into_owned();
+
         let mut args = Map::new();
         args.insert(
             "paths".to_string(),
-            json!(["/lean-ctx-nonexistent-path/never/here"]),
+            json!([outside.to_string_lossy().into_owned()]),
         );
         let err = resolve_tool_paths(&args, &ctx)
             .expect_err("a path outside the project root must be an error");
