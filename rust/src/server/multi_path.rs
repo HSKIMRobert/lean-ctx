@@ -215,6 +215,11 @@ mod tests {
     // platforms. Canonicalizing non-existent paths is OS-dependent — the first
     // version of this test fed bogus absolute paths against a non-existent root
     // and passed on macOS while letting them through on Linux CI.
+    //
+    // Asserts a jail-enforcement invariant, so it only holds when the jail is
+    // compiled in. Under `--features no-jail` (pulled in by `--all-features`) the
+    // jail is intentionally disabled and out-of-root paths resolve, so skip it.
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn explicit_unresolvable_paths_array_errors() {
         let base = tempfile::tempdir().unwrap();
