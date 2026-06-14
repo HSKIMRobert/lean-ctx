@@ -371,10 +371,11 @@ pub fn run_setup() {
     };
 
     if contribute {
-        let config_dir = crate::core::data_dir::lean_ctx_data_dir()
-            .unwrap_or_else(|_| home.join(".config/lean-ctx"));
-        let _ = std::fs::create_dir_all(&config_dir);
-        let config_path = config_dir.join("config.toml");
+        let config_path = crate::core::config::Config::path()
+            .unwrap_or_else(|| home.join(".config/lean-ctx").join("config.toml"));
+        if let Some(dir) = config_path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let mut config_content = std::fs::read_to_string(&config_path).unwrap_or_default();
         if !config_content.contains("[cloud]") {
             if !config_content.is_empty() && !config_content.ends_with('\n') {
@@ -457,9 +458,8 @@ pub fn run_setup() {
             } else {
                 let root_path = std::path::Path::new(root_trimmed);
                 if root_path.exists() && root_path.is_dir() {
-                    let config_path = crate::core::data_dir::lean_ctx_data_dir()
-                        .unwrap_or_else(|_| home.join(".config/lean-ctx"))
-                        .join("config.toml");
+                    let config_path = crate::core::config::Config::path()
+                        .unwrap_or_else(|| home.join(".config/lean-ctx").join("config.toml"));
                     let mut content = std::fs::read_to_string(&config_path).unwrap_or_default();
                     if content.contains("project_root") {
                         if let Ok(re) = regex::Regex::new(r#"(?m)^project_root\s*=\s*"[^"]*""#) {
