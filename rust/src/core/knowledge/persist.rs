@@ -130,8 +130,8 @@ impl ProjectKnowledge {
         f()
     }
 
-    /// Runs a read-modify-write cycle under [`with_project_lock`](Self::with_project_lock),
-    /// then saves atomically. The knowledge is (re)loaded *inside* the lock so
+    /// Runs a read-modify-write cycle under `with_project_lock`, then saves
+    /// atomically. The knowledge is (re)loaded *inside* the lock so
     /// the closure always operates on the latest on-disk state; this is what
     /// prevents lost updates when several `remember` calls run in parallel —
     /// whether as threads in one process (parallel MCP calls) or as separate
