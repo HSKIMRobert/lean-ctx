@@ -452,6 +452,7 @@ pub mod workspace_config;
 pub mod wrapped;
 pub mod wrapped_share;
 pub mod wrapped_svg;
+pub mod xdg_migrate;
 
 // ---------------------------------------------------------------------------
 // Feature-gated modules
