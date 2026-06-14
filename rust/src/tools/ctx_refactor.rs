@@ -2177,6 +2177,10 @@ mod tests {
         assert_eq!(super::usage_range_text(root, &u).unwrap(), "foo");
     }
 
+    // Jail rejection only happens when the jail is compiled in. `--all-features`
+    // pulls in `no-jail` (jail disabled), so skip there like the move/resolve jail
+    // assertions below.
+    #[cfg(not(feature = "no-jail"))]
     #[test]
     fn usage_range_text_rejects_jail_escape() {
         let dir = tempfile::tempdir().unwrap();

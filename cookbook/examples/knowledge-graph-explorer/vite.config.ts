@@ -7,6 +7,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // esbuild >=0.28 errors when down-transpiling destructuring for the legacy
+    // default target (es2020 + browser overrides) in some bundled deps (mermaid).
+    // A modern target skips that lowering entirely; demo app only targets evergreen.
+    build: {
+      target: "es2022",
+    },
     server: {
       port: 5173,
       strictPort: true,
