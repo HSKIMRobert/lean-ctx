@@ -522,7 +522,7 @@ pub(super) fn docker_env_outcomes() -> Vec<Outcome> {
     if !crate::shell::is_container() {
         return vec![];
     }
-    let env_sh = crate::core::data_dir::lean_ctx_data_dir().map_or_else(
+    let env_sh = crate::core::paths::config_dir().map_or_else(
         |_| "/root/.lean-ctx/env.sh".to_string(),
         |d| d.join("env.sh").to_string_lossy().to_string(),
     );

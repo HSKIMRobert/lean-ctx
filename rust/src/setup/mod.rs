@@ -737,7 +737,10 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
                 shell_step.items.push(SetupItem {
                     name: "env_sh".to_string(),
                     status: "created".to_string(),
-                    path: Some("~/.lean-ctx/env.sh".to_string()),
+                    path: Some(crate::core::paths::config_dir().map_or_else(
+                        |_| "~/.config/lean-ctx/env.sh".to_string(),
+                        |d| d.join("env.sh").to_string_lossy().to_string(),
+                    )),
                     note: Some("Docker/CI helper (BASH_ENV / CLAUDE_ENV_FILE)".to_string()),
                 });
             } else {

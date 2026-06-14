@@ -3,6 +3,32 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- **XDG Base Directory compliance (#408)** — lean-ctx now separates its files
+  into the standard XDG categories so the config dir can be mounted **read-only**:
+  - **Config** (`config.toml`, shell hooks, `env.sh`) → `$XDG_CONFIG_HOME/lean-ctx`.
+  - **Data** (sessions, vectors, graphs, knowledge, archives, memory, `stats.json`)
+    → `$XDG_DATA_HOME/lean-ctx` — the fresh-install default flipped here from the
+    old config dir.
+  - **State** (events, journals, logs, ledgers, `agent_runtime_env.json`) →
+    `$XDG_STATE_HOME/lean-ctx`.
+  - **Cache** (semantic cache, models, learned patterns) →
+    `$XDG_CACHE_HOME/lean-ctx`.
+
+  Existing legacy (`~/.lean-ctx`) and mixed (`$XDG_CONFIG_HOME/lean-ctx`) installs
+  keep working unchanged in single-dir mode; an explicit `LEAN_CTX_DATA_DIR` still
+  forces one directory and is never auto-split.
+
+### Added
+- **`lean-ctx doctor --fix` splits a legacy/mixed install into the XDG dirs
+  (#408)**: moves data/state/cache out of the config dir on demand. The migration
+  is all-or-nothing, idempotent/resumable (existing files are never clobbered) and
+  crash-safe (atomic `rename` with a copy+remove fallback across filesystems).
+  Read-only `lean-ctx doctor` reports a pending split. New per-category overrides
+  `LEAN_CTX_CONFIG_DIR`, `LEAN_CTX_STATE_DIR`, `LEAN_CTX_CACHE_DIR`.
+
 ## [3.8.4] — 2026-06-13
 
 ### Fixed

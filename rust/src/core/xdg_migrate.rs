@@ -432,4 +432,116 @@ mod tests {
         sorted.sort();
         assert_eq!(names, sorted);
     }
+
+    /// Saves a set of env vars and restores them on drop (panic-safe) so an
+    /// env-driven test can never leak `HOME`/`XDG_*` into other tests.
+    struct EnvVars(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+    impl EnvVars {
+        fn apply(pairs: &[(&'static str, Option<&Path>)]) -> Self {
+            let saved = pairs
+                .iter()
+                .map(|(k, _)| (*k, std::env::var_os(k)))
+                .collect();
+            for (k, v) in pairs {
+                match v {
+                    Some(p) => std::env::set_var(k, p),
+                    None => std::env::remove_var(k),
+                }
+            }
+            EnvVars(saved)
+        }
+    }
+
+    impl Drop for EnvVars {
+        fn drop(&mut self) {
+            for (k, v) in &self.0 {
+                match v {
+                    Some(val) => std::env::set_var(k, val),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+
+    // End-to-end through the real env-detection + split-target wiring (the unit
+    // tests above drive `migrate_from` with explicit dirs). Proves a mixed
+    // `$XDG_CONFIG_HOME/lean-ctx` install splits into the four XDG homes and that
+    // a second run is a no-op once the data markers are gone.
+    #[cfg(unix)]
+    #[test]
+    fn migrate_end_to_end_splits_mixed_xdg_config_install() {
+        let _g = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let home = root.join("home");
+        let xc = root.join("xc");
+        let xd = root.join("xd");
+        let xs = root.join("xs");
+        let xk = root.join("xk");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let _env = EnvVars::apply(&[
+            ("HOME", Some(home.as_path())),
+            ("XDG_CONFIG_HOME", Some(xc.as_path())),
+            ("XDG_DATA_HOME", Some(xd.as_path())),
+            ("XDG_STATE_HOME", Some(xs.as_path())),
+            ("XDG_CACHE_HOME", Some(xk.as_path())),
+            ("LEAN_CTX_DATA_DIR", None),
+            ("LEAN_CTX_CONFIG_DIR", None),
+            ("LEAN_CTX_STATE_DIR", None),
+            ("LEAN_CTX_CACHE_DIR", None),
+        ]);
+
+        // Mixed install: config + every category mixed under $XDG_CONFIG_HOME.
+        let mixed = xc.join("lean-ctx");
+        touch(&mixed, "config.toml");
+        touch(&mixed, "events.jsonl");
+        touch(&mixed, "anomaly_detector.json");
+        touch(&mixed, "stats.json");
+        touch(&mixed.join("sessions"), "s.json");
+
+        let report = migrate().expect("mixed install must migrate");
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+
+        assert!(mixed.join("config.toml").exists(), "config stays in place");
+        assert!(
+            xs.join("lean-ctx/events.jsonl").exists(),
+            "state → XDG_STATE"
+        );
+        assert!(
+            xk.join("lean-ctx/anomaly_detector.json").exists(),
+            "cache → XDG_CACHE"
+        );
+        assert!(xd.join("lean-ctx/stats.json").exists(), "data → XDG_DATA");
+        assert!(
+            xd.join("lean-ctx/sessions/s.json").exists(),
+            "data subdir → XDG_DATA"
+        );
+        assert!(
+            !mixed.join("events.jsonl").exists(),
+            "moved source file removed"
+        );
+
+        assert!(migrate().is_none(), "second run is a no-op (idempotent)");
+    }
+
+    // An explicit `LEAN_CTX_DATA_DIR` is a deliberate single-dir choice and must
+    // never be auto-split, even when the dir clearly mixes categories.
+    #[cfg(unix)]
+    #[test]
+    fn migrate_respects_explicit_data_dir_override() {
+        let _g = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let single = tmp.path().join("single");
+        touch(&single, "stats.json");
+        touch(&single, "events.jsonl");
+
+        let _env = EnvVars::apply(&[("LEAN_CTX_DATA_DIR", Some(single.as_path()))]);
+        assert!(
+            migrate().is_none(),
+            "explicit LEAN_CTX_DATA_DIR must not be split"
+        );
+        assert!(single.join("events.jsonl").exists(), "nothing moved");
+    }
 }
