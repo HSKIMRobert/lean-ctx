@@ -996,6 +996,17 @@ mod setup_config_tests {
     }
 
     #[test]
+    fn should_update_mcp_reflects_flag() {
+        // #281: the predicate that gates MCP registration in setup/onboard/init
+        // must mirror the config flag exactly, so a locked-down environment can
+        // disable MCP while still getting hooks/rules/skills.
+        let mut s = SetupConfig::default();
+        assert!(s.should_update_mcp());
+        s.auto_update_mcp = false;
+        assert!(!s.should_update_mcp());
+    }
+
+    #[test]
     fn roundtrip_serialize_deserialize() {
         let original = Config {
             setup: SetupConfig {

@@ -1006,9 +1006,15 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         }
         let mode = recommend_hook_mode(&target.agent_key);
         crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
-        let mcp_note = match configure_agent_mcp(&target.agent_key) {
-            Ok(()) => "; MCP config updated".to_string(),
-            Err(e) => format!("; MCP config skipped: {e}"),
+        // #281: honor `[setup] auto_update_mcp = false` — register MCP only when
+        // enabled; hooks above always install.
+        let mcp_note = if setup_cfg.should_update_mcp() {
+            match configure_agent_mcp(&target.agent_key) {
+                Ok(()) => "; MCP config updated".to_string(),
+                Err(e) => format!("; MCP config skipped: {e}"),
+            }
+        } else {
+            "; MCP registration skipped (auto_update_mcp=false)".to_string()
         };
         hooks_step.items.push(SetupItem {
             name: format!("{} hooks", target.name),
