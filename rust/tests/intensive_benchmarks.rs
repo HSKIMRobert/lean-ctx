@@ -1526,6 +1526,10 @@ fn generate_git_log_stat(n: usize) -> String {
 
 #[test]
 fn bench_minimal_overhead_suppresses_all_meta_strings() {
+    // LEAN_CTX_MINIMAL is process-global; serialize against the other instruction
+    // benchmarks (cf. bench_lazy_default_vs_full_overhead) so a parallel test can't
+    // clear it between set_var and build_instructions_for_test.
+    let _lock = lean_ctx::core::data_dir::test_env_lock();
     std::env::set_var("LEAN_CTX_MINIMAL", "1");
 
     let instructions = lean_ctx::server::build_instructions_for_test(CrpMode::Tdd);
@@ -1769,6 +1773,8 @@ fn bench_session_save_semantics() {
 
 #[test]
 fn bench_full_per_call_overhead_budget() {
+    // Serialize the LEAN_CTX_MINIMAL toggle below against sibling env-mutating tests.
+    let _lock = lean_ctx::core::data_dir::test_env_lock();
     let lazy_tools = lean_ctx::tool_defs::lazy_tool_defs();
     let full_tools = lean_ctx::tool_defs::granular_tool_defs();
 

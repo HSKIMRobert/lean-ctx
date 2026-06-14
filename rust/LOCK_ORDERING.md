@@ -32,7 +32,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L19 | `CACHE` (graph) | `core/graph_cache.rs:31` | `OnceLock<Mutex<HashMap<String, Entry>>>` | Property graph query result cache |
 | L20 | `RECENT` | `core/auto_findings.rs:15` | `Mutex<Vec<RecentEntry>>` | Recent auto-finding entries |
 | L21 | `LOCK` (home) | `core/home.rs:79` | `Mutex<()>` | Serialize home directory creation |
-| L22 | `CLIENTS` | `lsp/router.rs:11` | `LazyLock<Mutex<HashMap<String, LspClient>>>` | LSP client connection registry |
+| L22 | `BACKENDS` | `lsp/router.rs:14` | `LazyLock<Mutex<HashMap<String, Box<dyn LspBackend>>>>` | Per-language code-intelligence backend registry (rust-analyzer / JetBrains); replaces the former `CLIENTS` map. Held across `Config::load` (L4) — see §3 |
 | L23 | `BUDGETS` | `core/agent_budget.rs:6` | `Mutex<Option<HashMap<String, AgentBudget>>>` | Per-agent token budget tracking |
 | L24 | `SHELL_ENV_LOCK` | `shell_hook.rs:928` | `Mutex<()>` | Serialize env-var access in shell hook |
 | L25 | `TRACKER` | `core/search_delta.rs:49` | `Mutex<Option<SearchDeltaTracker>>` | Tracks search result changes between calls |
@@ -155,6 +155,15 @@ thread::spawn {
 }
 ```
 
+### Backend Registry (L22) → Config (L4)
+
+`router::with_backend` locks **L22 (`BACKENDS`)** and, on a cache miss, calls
+`select_backend → Config::load`, which briefly acquires **L4 (`Config::CACHE`)**. This is
+the one sanctioned nested static pair: **L22 (outer) → L4 (inner)**. It is deadlock-free
+because `Config::CACHE` is a self-contained cache lock — always released inside
+`Config::load` and **never** held while acquiring `BACKENDS`, so no cycle exists.
+Rule: never acquire L4 and then L22.
+
 ### Worker Thread Tuning
 
 The Tokio runtime worker thread count defaults to `available_parallelism().clamp(1, 4)`.
@@ -164,8 +173,9 @@ is always `worker_threads * 4`, clamped to `[8, 32]`.
 
 ### Independent Static Locks (L3–L51)
 
-All other static locks (L3–L51) are **independent singletons** — they protect isolated subsystem
-state and are never nested inside each other. Each should be acquired in isolation:
+All other static locks (L3–L51) — **except the L22 → L4 pair documented above** — are
+**independent singletons**: they protect isolated subsystem state and are never nested inside
+each other. Each should be acquired in isolation:
 
 - **Do not hold two static locks at the same time.** If a future change requires locking two
   subsystems, add the ordering rule here first.
