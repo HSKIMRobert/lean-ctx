@@ -163,6 +163,40 @@ pub fn runtime_dir() -> Result<PathBuf, String> {
     state_dir()
 }
 
+/// Raw per-category target dir for the four XDG categories, **bypassing**
+/// single-dir back-compat and the test sandbox. Honors an explicit
+/// `LEAN_CTX_<CAT>_DIR` override, otherwise `<XDG base>/lean-ctx`.
+///
+/// `category_dir`/[`data_dir`] deliberately collapse onto one directory for a
+/// legacy/mixed install; the `doctor --fix` migration (GH #408) needs to know
+/// where each category SHOULD live *after* a split, which is what this returns.
+fn raw_category_dir(cat_env: &str, xdg_env: &str, home_fallback: &str) -> Result<PathBuf, String> {
+    if let Some(p) = env_path(cat_env) {
+        return Ok(p);
+    }
+    Ok(xdg_base(xdg_env, home_fallback)?.join("lean-ctx"))
+}
+
+/// Split target for the config category (`$XDG_CONFIG_HOME/lean-ctx`).
+pub(crate) fn config_split_target() -> Result<PathBuf, String> {
+    raw_category_dir("LEAN_CTX_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+}
+
+/// Split target for the data category (`$XDG_DATA_HOME/lean-ctx`).
+pub(crate) fn data_split_target() -> Result<PathBuf, String> {
+    raw_category_dir("LEAN_CTX_DATA_DIR", "XDG_DATA_HOME", ".local/share")
+}
+
+/// Split target for the state category (`$XDG_STATE_HOME/lean-ctx`).
+pub(crate) fn state_split_target() -> Result<PathBuf, String> {
+    raw_category_dir("LEAN_CTX_STATE_DIR", "XDG_STATE_HOME", ".local/state")
+}
+
+/// Split target for the cache category (`$XDG_CACHE_HOME/lean-ctx`).
+pub(crate) fn cache_split_target() -> Result<PathBuf, String> {
+    raw_category_dir("LEAN_CTX_CACHE_DIR", "XDG_CACHE_HOME", ".cache")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
