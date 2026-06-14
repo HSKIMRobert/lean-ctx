@@ -1,4 +1,4 @@
-.PHONY: setup-hooks install dev test help
+.PHONY: setup-hooks install dev test preflight preflight-fast help
 
 # ── Setup ─────────────────────────────────────────────────
 
@@ -20,6 +20,16 @@ dev: ## Quick debug build + copy to ~/.local/bin
 
 test: ## Run all Rust tests + clippy
 	cd rust && cargo test && cargo clippy
+
+# ── CI-parity gate ───────────────────────────────────────
+# Mirrors .github/workflows/ci.yml so green-here => green-in-CI for the
+# deterministic jobs (fmt/clippy/doc/gen_docs/cross-platform compile).
+
+preflight: ## Full local CI-parity gate (fmt, clippy, doc, gen_docs, win-check, lib tests)
+	scripts/preflight.sh full
+
+preflight-fast: ## Static CI-parity gate (no full test run) — what pre-push runs
+	scripts/preflight.sh fast
 
 # ── Help ──────────────────────────────────────────────────
 
