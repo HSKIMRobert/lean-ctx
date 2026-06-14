@@ -10,7 +10,7 @@
 //! ## Why it must be all-or-nothing
 //!
 //! Resolution collapses onto the single dir only while that dir still
-//! `has_data_files` ([`crate::core::paths::single_dir_override`]). Moving only
+//! `has_data_files` (see `crate::core::paths::single_dir_override`). Moving only
 //! *some* categories out would leave data markers behind, so every resolver
 //! would keep pointing at the source and the just-moved state/cache files would
 //! be orphaned. We therefore move **all** classifiable entries in one pass; the
@@ -435,8 +435,14 @@ mod tests {
 
     /// Saves a set of env vars and restores them on drop (panic-safe) so an
     /// env-driven test can never leak `HOME`/`XDG_*` into other tests.
+    ///
+    /// Only the `#[cfg(unix)]` end-to-end tests below construct this, so the
+    /// helper is unix-gated too — otherwise it is dead code on Windows where
+    /// `-D warnings` would fail the build.
+    #[cfg(unix)]
     struct EnvVars(Vec<(&'static str, Option<std::ffi::OsString>)>);
 
+    #[cfg(unix)]
     impl EnvVars {
         fn apply(pairs: &[(&'static str, Option<&Path>)]) -> Self {
             let saved = pairs
@@ -453,6 +459,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     impl Drop for EnvVars {
         fn drop(&mut self) {
             for (k, v) in &self.0 {
