@@ -581,15 +581,22 @@ fn handle_remove(project_root: &str, category: Option<&str>, key: Option<&str>) 
 
     #[cfg(feature = "embeddings")]
     {
-        if let Some(mut idx) =
-            crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(&knowledge.project_hash)
-        {
-            idx.remove(cat, k);
-            crate::core::knowledge_embedding::compact_against_knowledge(
-                &mut idx, &knowledge, &policy,
-            );
-            let _ = idx.save();
-        }
+        // Serialize the embedding side-car under the same per-project lock as
+        // the fact removal and compact against fresh on-disk knowledge, so a
+        // concurrent `remember` cannot clobber it (issue #412).
+        ProjectKnowledge::with_project_lock(project_root, || {
+            if let Some(mut idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+                &knowledge.project_hash,
+            ) {
+                idx.remove(cat, k);
+                let fresh = ProjectKnowledge::load(project_root);
+                let kref = fresh.as_ref().unwrap_or(&knowledge);
+                crate::core::knowledge_embedding::compact_against_knowledge(
+                    &mut idx, kref, &policy,
+                );
+                let _ = idx.save();
+            }
+        });
     }
     #[cfg(not(feature = "embeddings"))]
     let _ = &knowledge;
