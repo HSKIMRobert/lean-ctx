@@ -70,17 +70,17 @@ qdrant = ["embeddings"]
 team-server = ["http-server"]
 secure-update = []
 cloud-server = [
-  "http-server",
-  "dep:deadpool-postgres",
-  "dep:tokio-postgres",
-  "dep:lettre",
-  "dep:jsonwebtoken",
-  "dep:base64",
-  "dep:uuid",
-  "dep:hex",
-  "dep:rand",
-  "dep:argon2",
-  "dep:resvg",
+    "http-server",
+    "dep:deadpool-postgres",
+    "dep:tokio-postgres",
+    "dep:lettre",
+    "dep:jsonwebtoken",
+    "dep:base64",
+    "dep:uuid",
+    "dep:hex",
+    "dep:rand",
+    "dep:argon2",
+    "dep:resvg",
 ]
 tree-sitter = [
   "dep:tree-sitter",
