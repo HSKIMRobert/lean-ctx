@@ -8,13 +8,9 @@ lean-ctx optimizes LLM context by compressing file reads, shell output, and sear
 - **Shell commands** → `lean-ctx -c "…"` via CLI (preferred) or `ctx_shell` via MCP (both work)
 - **File editing** → native Edit/StrReplace (lean-ctx only handles READ operations)
 
-## MCP tools (use for reads)
-
-| Tool | Purpose |
-|------|---------|
-| `ctx_read(path, mode)` | Cached, compressed file reads (10 modes) |
-| `ctx_search(pattern, path)` | Token-efficient code search |
-| `ctx_shell(command)` | Compressed shell output (alternative to CLI) |
+The canonical tool-mapping table is auto-injected per session via
+`~/.cursor/rules/lean-ctx.mdc` (see the `<!-- lean-ctx -->` block below) — it is
+deliberately not duplicated here.
 
 ## CLI commands (optimized shell, lower overhead)
 
