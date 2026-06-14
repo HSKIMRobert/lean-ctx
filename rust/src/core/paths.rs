@@ -16,14 +16,14 @@
 //! byte-for-byte today's behavior. The real per-category split only applies to
 //! fresh installs (and, later, on-demand via `lean-ctx doctor --fix`).
 //!
-//! ## Why `data_dir()` still points at the legacy base
+//! ## `data_dir()` and the fresh-install flip
 //!
-//! [`data_dir`] intentionally delegates to [`lean_ctx_data_dir`], which keeps
-//! the legacy base (`$XDG_CONFIG_HOME/lean-ctx` for fresh installs). All ~130
-//! current call-sites — including `config.toml`, sessions and stats — route
-//! through it, so flipping its fresh default to `$XDG_DATA_HOME` now would
-//! scatter config into the data dir. That flip happens in the data call-site
-//! migration (GL #603), together with moving `config.toml` to [`config_dir`].
+//! [`data_dir`] delegates to [`lean_ctx_data_dir`]. Config (`config.toml` +
+//! hooks) and the runtime STATE/CACHE files were migrated onto [`config_dir`],
+//! [`state_dir`] and [`cache_dir`] (GL #603/#604) so that, since GL #606, the
+//! data resolver defaults fresh installs to `$XDG_DATA_HOME/lean-ctx` without
+//! scattering config or state into the data dir. Legacy and pre-split mixed
+//! installs keep resolving every category to their existing single directory.
 //!
 //! Determinism (#498): every resolver is a pure function of environment + HOME;
 //! no timestamps, counters or randomness.
@@ -131,8 +131,10 @@ pub fn config_dir() -> Result<PathBuf, String> {
 
 /// Data directory — sessions, vectors, graphs, knowledge, archives, memory.
 ///
-/// Delegates to [`lean_ctx_data_dir`] (legacy base) in this phase; see the
-/// module docs for why the `$XDG_DATA_HOME` flip is deferred to GL #603.
+/// Delegates to [`lean_ctx_data_dir`], which since GL #606 defaults fresh
+/// installs to `$XDG_DATA_HOME/lean-ctx`. Legacy `~/.lean-ctx` and pre-split
+/// mixed `$XDG_CONFIG_HOME/lean-ctx` installs (and an explicit
+/// `LEAN_CTX_DATA_DIR`) continue to resolve in place for backward compatibility.
 pub fn data_dir() -> Result<PathBuf, String> {
     lean_ctx_data_dir()
 }
@@ -202,9 +204,25 @@ mod tests {
         let xdg = tempfile::tempdir().unwrap();
         let mixed = xdg.path().join("lean-ctx");
         std::fs::create_dir_all(&mixed).unwrap();
-        std::fs::write(mixed.join("config.toml"), "").unwrap();
+        // A real data marker (stats.json) — NOT config.toml, which post-split
+        // lives alone in the config dir and must not trigger single-dir mode.
+        std::fs::write(mixed.join("stats.json"), "{}").unwrap();
 
         assert_eq!(single_dir_override_fs(home.path(), xdg.path()), Some(mixed));
+    }
+
+    #[test]
+    fn single_dir_fs_ignores_config_only_dir() {
+        // GH #408: a clean post-split config dir (only config.toml + hooks) must
+        // NOT collapse the four-dir layout.
+        let home = tempfile::tempdir().unwrap();
+        let xdg = tempfile::tempdir().unwrap();
+        let mixed = xdg.path().join("lean-ctx");
+        std::fs::create_dir_all(&mixed).unwrap();
+        std::fs::write(mixed.join("config.toml"), "").unwrap();
+        std::fs::write(mixed.join("shell-hook.zsh"), "").unwrap();
+
+        assert_eq!(single_dir_override_fs(home.path(), xdg.path()), None);
     }
 
     #[test]
