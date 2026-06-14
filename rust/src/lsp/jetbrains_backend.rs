@@ -1059,11 +1059,20 @@ mod tests {
         std::env::set_var("LEAN_CTX_DATA_DIR", &tmp);
         let pf_path = crate::lsp::port_discovery::port_file_path(&root).unwrap();
         let pid = std::process::id();
+        // Serialize via serde so the path is JSON-escaped. On Windows `root`
+        // contains backslashes (C:\...\Temp\...), which are invalid raw JSON string
+        // escapes — hand-built JSON would fail to parse and read_port_file would
+        // return None, making is_stale wrongly report "stale".
         std::fs::write(
             &pf_path,
-            format!(
-                r#"{{"port":4567,"token":"tok","pid":{pid},"project_root":"{root}","ide_version":"x"}}"#
-            ),
+            serde_json::json!({
+                "port": 4567,
+                "token": "tok",
+                "pid": pid,
+                "project_root": root,
+                "ide_version": "x",
+            })
+            .to_string(),
         )
         .unwrap();
         let backend = JetBrainsHttpBackend::new(4567, "tok".to_string(), root.clone(), pid);
