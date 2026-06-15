@@ -44,6 +44,12 @@ pub(super) fn build_rules_targets(
     // footprints, GL #555). Claude guidance lives in the CLAUDE.md block
     // (hooks/agents/claude.rs) + the on-demand skill; uninstall still removes
     // legacy ~/.claude/rules/lean-ctx.md files from older installs.
+    //
+    // CodeBuddy follows the exact same pattern as Claude Code: NO rules target.
+    // CodeBuddy installs (and auto-loads) the CODEBUDDY.md block every session,
+    // so a separate ~/.codebuddy/rules/lean-ctx.md would duplicate it (GL #555/#558).
+    // Guidance lives in the CODEBUDDY.md block + the on-demand skill; uninstall
+    // still removes legacy ~/.codebuddy/rules/lean-ctx.md files from older installs.
     vec![
         // --- Shared config files (append-only) ---
         RulesTarget {
