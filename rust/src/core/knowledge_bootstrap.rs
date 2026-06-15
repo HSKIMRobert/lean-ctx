@@ -115,6 +115,13 @@ fn detect_build_markers(project_root: &str) -> Vec<&'static str> {
     let root = Path::new(project_root);
     let mut out: Vec<&'static str> = Vec::new();
 
+    // macOS TCC (#356): a launchd-standalone process must not stat or read_dir
+    // under ~/Documents/Desktop/Downloads. Skip detection (no markers) without
+    // touching the filesystem; editor/CLI-attached runs detect normally.
+    if !crate::core::pathutil::may_probe_path(root) {
+        return out;
+    }
+
     if root.join(".git").exists() {
         out.push("git");
     }

@@ -858,39 +858,47 @@ impl Config {
         {
             let root_path = std::path::Path::new(&root);
             let cwd_is_under_root = cwd.as_ref().is_some_and(|c| c.starts_with(root_path));
-            let has_marker = root_path.join(".git").exists()
-                || root_path.join("Cargo.toml").exists()
-                || root_path.join("package.json").exists()
-                || root_path.join("go.mod").exists()
-                || root_path.join("pyproject.toml").exists()
-                || root_path.join(".lean-ctx.toml").exists();
+            // Route the marker probe through the TCC-guarded helper and never
+            // adopt a ~/Documents project root from a launchd-standalone process
+            // (#356): doing so would later stat its `.lean-ctx.toml`/markers and
+            // pop the macOS privacy prompt in lean-ctx's own name.
+            let has_marker = crate::core::pathutil::has_project_marker(root_path);
 
-            if cwd_is_under_root || has_marker {
+            if (cwd_is_under_root || has_marker) && crate::core::pathutil::may_probe_path(root_path)
+            {
                 return Some(root);
             }
         }
 
         if let Some(ref cwd) = cwd {
-            let git_root = std::process::Command::new("git")
-                .args(["rev-parse", "--show-toplevel"])
-                .current_dir(cwd)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .output()
-                .ok()
-                .and_then(|o| {
-                    if o.status.success() {
-                        String::from_utf8(o.stdout)
-                            .ok()
-                            .map(|s| s.trim().to_string())
-                    } else {
-                        None
-                    }
-                });
+            // A launchd-standalone process must not shell out to `git` (which
+            // stats the working tree) or adopt cwd as the project root when cwd
+            // is under a TCC-protected dir (#356).
+            let may_probe_cwd = crate::core::pathutil::may_probe_path(cwd);
+            let git_root = if may_probe_cwd {
+                std::process::Command::new("git")
+                    .args(["rev-parse", "--show-toplevel"])
+                    .current_dir(cwd)
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::null())
+                    .output()
+                    .ok()
+                    .and_then(|o| {
+                        if o.status.success() {
+                            String::from_utf8(o.stdout)
+                                .ok()
+                                .map(|s| s.trim().to_string())
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
+            };
             if let Some(root) = git_root {
                 return Some(root);
             }
-            if !crate::core::pathutil::is_broad_or_unsafe_root(cwd) {
+            if may_probe_cwd && !crate::core::pathutil::is_broad_or_unsafe_root(cwd) {
                 return Some(cwd.to_string_lossy().to_string());
             }
         }
@@ -918,8 +926,13 @@ impl Config {
 
         // Read raw content up front so the cache key is a content hash.
         let global_content = std::fs::read_to_string(&path).ok();
+        // TCC (#356): never read a project-local `.lean-ctx.toml` under
+        // ~/Documents from a launchd-standalone process — the read pops the
+        // macOS privacy prompt. `find_project_root` already avoids returning
+        // such roots; this also guards the explicit `LEAN_CTX_PROJECT_ROOT` path.
         let local_content = local_path
             .as_ref()
+            .filter(|p| crate::core::pathutil::may_probe_path(p.as_path()))
             .and_then(|p| std::fs::read_to_string(p).ok());
 
         let global_hash = global_content.as_deref().map(crate::core::hasher::hash_str);

@@ -3,6 +3,43 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.8.7] — 2026-06-15
+
+### Fixed
+- **macOS TCC "Documents" prompt — definitive structural fix (#356)** — the
+  privacy prompt asking to access your *Documents* folder, which kept returning
+  after every `lean-ctx update` despite earlier patches (v3.8.0, v3.8.2), is now
+  fixed at the root. The TCC guard (`may_probe_path`) was *opt-in per call site*,
+  so every new or forgotten heuristic filesystem probe re-introduced the prompt
+  (whack-a-mole). The model is inverted to a **choke-point / opt-out** design:
+  - `safe_canonicalize` — the sink that ~8 heuristic call sites funnel through —
+    returns the path lexically (no `stat`/`realpath`) when the process is
+    launchd-standalone and the path is under `~/Documents`, `~/Desktop` or
+    `~/Downloads`. Security canonicalization (PathJail) calls
+    `std::fs::canonicalize` directly and is intentionally untouched.
+  - every duplicated project-marker probe (`config`, `graph_index`, `setup`,
+    `dashboard`, `knowledge_bootstrap`, `graph_provider`) now routes through the
+    single guarded `pathutil::has_project_marker`, with one marker set.
+  - `is_safe_scan_root` refuses launchd-standalone scans under the protected dirs
+    before any marker probe or `read_dir`; `has_multi_repo_children` now also
+    refuses *nested* protected paths (e.g. `~/Documents/proj`), not just the bare
+    magic dirs. The project-local `.lean-ctx.toml` read and the `git rev-parse` /
+    cwd-fallback in project-root detection are guarded too.
+
+  Why it kept coming back: `lean-ctx update` run from a terminal makes the daemon
+  inherit the terminal's TCC grant, masking the bug; end users run the daemon and
+  proxy as LaunchAgents (ppid 1, *standalone*), where the unguarded probes hit
+  `~/Documents` and prompt — and every update changes the binary's code signature,
+  invalidating any prior grant. A new macOS `sandbox-exec` regression test
+  (`rust/tests/tcc_sandbox.sh`) boots the daemon as a standalone process under a
+  profile that SIGKILLs on any `~/Documents` access, reproducing the real
+  end-user condition that terminal testing hid, alongside standalone unit tests
+  in `pathutil` / `graph_index` / `session`.
+
+  Note: installing the update that *contains* this fix may show the prompt one
+  last time (the old, still-running binary's signature changes as it is
+  replaced); after that it stays quiet.
+
 ## [3.8.6] — 2026-06-15
 
 ### Added

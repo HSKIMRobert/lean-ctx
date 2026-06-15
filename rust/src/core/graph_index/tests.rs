@@ -480,6 +480,29 @@ fn safe_scan_root_rejects_cloud_sync_roots() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
+#[serial_test::serial]
+fn safe_scan_root_refused_for_standalone_under_documents() {
+    // #356: a launchd-standalone process (daemon/proxy, ppid 1) must refuse to
+    // scan *any* path under ~/Documents — including a real nested project —
+    // before normalize/marker-probe/read_dir touches the filesystem. Editor- and
+    // CLI-attached processes (covered by the other tests) keep indexing them.
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let doc_proj = home.join("Documents/some-project");
+    let doc_proj_str = doc_proj.to_string_lossy().to_string();
+
+    std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+    assert!(
+        !is_safe_scan_root(&doc_proj_str),
+        "standalone process must refuse ~/Documents scan roots"
+    );
+    assert!(!is_safe_scan_root_public(&doc_proj_str));
+    std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+}
+
+#[test]
 fn safe_scan_root_accepts_multi_repo_parent() {
     let tmp = tempdir().unwrap();
     let parent = tmp.path().join("code");

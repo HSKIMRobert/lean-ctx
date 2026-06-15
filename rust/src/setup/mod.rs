@@ -479,10 +479,7 @@ pub fn run_setup() {
                     }
                     let _ = crate::config_io::write_atomic_with_backup(&config_path, &content);
                     terminal_ui::print_status_ok(&format!("Project root set: {root_trimmed}"));
-                    if root_path.join(".git").exists()
-                        || root_path.join("Cargo.toml").exists()
-                        || root_path.join("package.json").exists()
-                    {
+                    if crate::core::pathutil::has_project_marker(root_path) {
                         spawn_index_build_background(root_path);
                         terminal_ui::print_status_ok("Graph build started (background)");
                     }
@@ -494,12 +491,9 @@ pub fn run_setup() {
             }
         }
     } else {
-        let is_project = cwd.as_ref().is_some_and(|d| {
-            d.join(".git").exists()
-                || d.join("Cargo.toml").exists()
-                || d.join("package.json").exists()
-                || d.join("go.mod").exists()
-        });
+        let is_project = cwd
+            .as_ref()
+            .is_some_and(|d| crate::core::pathutil::has_project_marker(d));
         if is_project {
             println!("  \x1b[2mBuilding code graph for graph-aware reads, impact analysis,\x1b[0m");
             println!("  \x1b[2mand smart search fusion in the background...\x1b[0m");
@@ -1184,13 +1178,11 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         }
     }
 
-    // Auto-build property graph if inside any recognized project
+    // Auto-build property graph if inside any recognized project. The marker
+    // probe is TCC-guarded (#356): a launchd-standalone setup run never stats
+    // markers under ~/Documents.
     if let Ok(cwd) = std::env::current_dir() {
-        let is_project = cwd.join(".git").exists()
-            || cwd.join("Cargo.toml").exists()
-            || cwd.join("package.json").exists()
-            || cwd.join("go.mod").exists();
-        if is_project {
+        if crate::core::pathutil::has_project_marker(&cwd) {
             spawn_index_build_background(&cwd);
         }
     }

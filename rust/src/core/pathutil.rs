@@ -6,6 +6,20 @@ use std::path::{Path, PathBuf};
 ///
 /// On non-Windows platforms this is equivalent to `std::fs::canonicalize`.
 pub fn safe_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    // TCC choke-point (#356): a launchd-standalone process (daemon/proxy/auto-
+    // updater, ppid 1) must never realpath a path under ~/Documents, ~/Desktop
+    // or ~/Downloads — the `stat` trips the macOS privacy prompt in lean-ctx's
+    // own name, and every release re-invalidates the grant (new cdhash), so it
+    // re-prompts forever. Heuristic call sites (project-root detection, session
+    // matching, path normalization, scan-root checks) all funnel through here,
+    // so guarding the sink protects them centrally instead of one opt-in check
+    // per call site. Return the path unchanged (lexical) rather than touching
+    // the filesystem. Security boundaries (PathJail) call `std::fs::canonicalize`
+    // directly and are intentionally unaffected — they only resolve paths the
+    // client explicitly asked to access, where a prompt is legitimate.
+    if !may_probe_path(path) {
+        return Ok(path.to_path_buf());
+    }
     let canon = std::fs::canonicalize(path)?;
     Ok(strip_verbatim(canon))
 }
@@ -327,7 +341,10 @@ pub fn may_probe_path(path: &Path) -> bool {
 pub fn has_multi_repo_children(dir: &Path) -> bool {
     // Never enumerate the home dir or macOS TCC-protected dirs: read_dir there
     // pops a macOS privacy prompt (#356) and they are never workspace parents.
-    if is_tcc_sensitive_home_dir(dir) {
+    // `is_tcc_sensitive_home_dir` only matches the magic dirs themselves;
+    // `!may_probe_path` additionally refuses *nested* paths like
+    // `~/Documents/proj` when this process is launchd-standalone.
+    if is_tcc_sensitive_home_dir(dir) || !may_probe_path(dir) {
         return false;
     }
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -447,6 +464,41 @@ mod tests {
         std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
         assert!(!process_is_tcc_standalone());
         assert!(may_probe_path(&doc_proj));
+        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[serial_test::serial]
+    fn tcc_standalone_skips_canonicalize_under_protected_dirs() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // A path that does NOT exist under ~/Documents. With the TCC choke-point
+        // guard active, `safe_canonicalize` returns Ok(input) *without* calling
+        // `std::fs::canonicalize` (which would Err on a missing path) — proving
+        // the filesystem is never touched (#356). This is the structural fix:
+        // every heuristic canonicalize funnels through here.
+        let missing = home.join("Documents/lean-ctx-tcc-test-does-not-exist-xyzzy");
+
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        let guarded = safe_canonicalize(&missing);
+        assert!(
+            guarded.is_ok(),
+            "standalone safe_canonicalize must short-circuit (no stat) under ~/Documents"
+        );
+        assert_eq!(guarded.unwrap(), missing);
+        assert_eq!(safe_canonicalize_or_self(&missing), missing);
+
+        // Outside the protected dirs the guard never engages, even when standalone.
+        let tmp_missing = Path::new("/tmp/lean-ctx-tcc-test-does-not-exist-xyzzy");
+        assert!(safe_canonicalize(tmp_missing).is_err());
+
+        // Without standalone the guard is inactive: a missing ~/Documents path
+        // Errs from the real `std::fs::canonicalize` as before.
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
+        assert!(safe_canonicalize(&missing).is_err());
+
         std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 

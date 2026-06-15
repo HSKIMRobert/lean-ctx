@@ -133,6 +133,12 @@ pub fn detect_project_root_for_dashboard() -> String {
 
 fn is_real_project(path: &str) -> bool {
     let p = Path::new(path);
+    // macOS TCC (#356): a launchd-standalone process must not stat under
+    // ~/Documents/Desktop/Downloads — `is_dir`/marker probes would pop the
+    // privacy prompt. Report "not a project" without touching the filesystem.
+    if !crate::core::pathutil::may_probe_path(p) {
+        return false;
+    }
     if !p.is_dir() {
         return false;
     }

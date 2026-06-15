@@ -381,12 +381,10 @@ fn trigger_lazy_graph_build(project_root: &str) {
         return;
     }
     let root = Path::new(project_root);
-    let is_project = root.is_dir()
-        && (root.join(".git").exists()
-            || root.join("Cargo.toml").exists()
-            || root.join("package.json").exists()
-            || root.join("go.mod").exists()
-            || crate::core::pathutil::has_multi_repo_children(root));
+    // Both probes are TCC-guarded (#356): a non-existent/non-dir path has no
+    // markers, and a launchd-standalone process never stats under ~/Documents.
+    let is_project = crate::core::pathutil::has_project_marker(root)
+        || crate::core::pathutil::has_multi_repo_children(root);
     if !is_project {
         return;
     }

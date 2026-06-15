@@ -27,17 +27,13 @@ fn is_filesystem_root(path: &str) -> bool {
     p.parent().is_none() || (cfg!(windows) && p.parent() == Some(Path::new("")))
 }
 
-/// Project markers that mark a directory as a legitimate project root.
-const PROJECT_MARKERS: &[&str] = &[
-    ".git",
-    "Cargo.toml",
-    "package.json",
-    "go.mod",
-    "pyproject.toml",
-];
-
+/// Returns `true` if `dir` contains a known project marker.
+///
+/// Delegates to the single TCC-guarded probe in `pathutil` (#356) so a
+/// launchd-standalone process never stats marker files under ~/Documents, and
+/// the marker set stays defined in exactly one place (`pathutil::PROJECT_MARKERS`).
 fn dir_has_project_marker(dir: &Path) -> bool {
-    PROJECT_MARKERS.iter().any(|m| dir.join(m).exists())
+    crate::core::pathutil::has_project_marker(dir)
 }
 
 /// True if `p` or any ancestor strictly *below* `stop` contains a project
@@ -63,6 +59,14 @@ fn has_marker_in_ancestry(p: &Path, stop: &Path) -> bool {
 fn is_safe_scan_root(path: &str) -> bool {
     let normalized = normalize_project_root(path);
     let p = Path::new(&normalized);
+
+    // macOS TCC (#356): a launchd-standalone process must never stat or
+    // enumerate under ~/Documents/Desktop/Downloads. Refuse such roots before
+    // any marker probe / read_dir runs. Editor- and CLI-attached processes
+    // inherit a TCC grant and keep indexing those projects normally.
+    if !crate::core::pathutil::may_probe_path(p) {
+        return false;
+    }
 
     if normalized == "/" || normalized == "\\" || is_filesystem_root(&normalized) {
         tracing::warn!("[graph_index: refusing to scan filesystem root]");
