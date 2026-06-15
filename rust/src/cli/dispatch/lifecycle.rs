@@ -171,6 +171,16 @@ pub(super) fn cmd_dev_install() {
     }
     eprintln!("  ✓ Binary installed.");
 
+    // #356: a fresh ad-hoc cdhash voids the macOS TCC grant on every build.
+    // Point users at the one-time fix so the Documents prompt stops returning.
+    #[cfg(target_os = "macos")]
+    if !crate::core::codesign::is_ready() {
+        eprintln!(
+            "  ⚠ macOS: run `lean-ctx codesign-setup` once to stop the recurring\n    \
+             \"lean-ctx wants to access your Documents\" prompt after updates (#356)."
+        );
+    }
+
     // Kill binary drift: repoint any stale Homebrew shim at the fresh binary (#559).
     reconcile_binary_drift(&install_path);
 
@@ -202,6 +212,56 @@ pub(super) fn cmd_dev_install() {
     }
 }
 
+/// One-time setup of the persistent macOS code-signing identity (#356).
+///
+/// Stops the "lean-ctx wants to access your Documents folder" prompt from
+/// returning after every update: ad-hoc signatures change the binary's cdhash
+/// each build, voiding the TCC grant; a stable identity keeps it.
+#[cfg(target_os = "macos")]
+pub(super) fn cmd_codesign_setup() {
+    use crate::core::codesign::{setup_identity, sign_binary, SetupOutcome};
+
+    eprintln!("Setting up a stable code-signing identity for lean-ctx (#356)…");
+    eprintln!(
+        "  This stops the recurring macOS \"access to your Documents folder\" prompt.\n  \
+         macOS will ask ONCE to authorize the trust setting — confirm with Touch ID\n  \
+         or your login password.\n"
+    );
+
+    match setup_identity() {
+        Ok(SetupOutcome::AlreadyReady) => {
+            eprintln!("  ✓ Identity already set up and trusted. Nothing to do.");
+        }
+        Ok(SetupOutcome::Created) => {
+            eprintln!("  ✓ Signing identity created and trusted.");
+            // Re-sign the installed binary now so this grant applies immediately.
+            if let Ok(exe) = std::env::current_exe() {
+                if sign_binary(&exe) == crate::core::codesign::SignKind::Stable {
+                    eprintln!("  ✓ Re-signed {} with the stable identity.", exe.display());
+                }
+            }
+            eprintln!(
+                "\n  Done. `dev-install` and self-updates now reuse this identity.\n  \
+                 Click \"Allow\" on the next Documents prompt — it won't come back."
+            );
+        }
+        Err(e) => {
+            eprintln!("  ✗ Setup failed: {e}");
+            eprintln!(
+                "  The binary still works (ad-hoc signed); the prompt may recur until\n  \
+                 setup succeeds. Re-run `lean-ctx codesign-setup` to retry."
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Non-macOS stub: the persistent identity only matters for macOS TCC.
+#[cfg(not(target_os = "macos"))]
+pub(super) fn cmd_codesign_setup() {
+    eprintln!("codesign-setup is only needed on macOS.");
+}
+
 /// Atomically install `src` to `dst`, staging through a temp file in the same
 /// directory so readers never observe a half-written binary.
 ///
@@ -210,7 +270,8 @@ pub(super) fn cmd_dev_install() {
 /// at the path with a new inode. Overwriting a running Mach-O in place (e.g.
 /// plain `cp`) instead triggers an `ETXTBSY`/SIGKILL crash-loop — the root cause
 /// of the "everything hangs after a binary update" reboots. The new binary is
-/// re-codesigned ad-hoc so Gatekeeper accepts it.
+/// re-codesigned (persistent identity when set up, else ad-hoc) so Gatekeeper
+/// accepts it and the macOS TCC grant survives the update (#356).
 fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
     let staged = dst.with_extension("new");
     let _ = std::fs::remove_file(&staged);
@@ -231,11 +292,11 @@ fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result
         return Err(format!("atomic rename failed: {e}"));
     }
 
+    // #356: prefer the persistent identity (stable cdhash anchor → TCC grant
+    // survives updates); ad-hoc fallback keeps the binary launchable regardless.
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("codesign")
-            .args(["--force", "-s", "-", &dst.display().to_string()])
-            .output();
+        let _ = crate::core::codesign::sign_binary(dst);
     }
 
     Ok(())

@@ -202,6 +202,7 @@ COMMANDS:
     stop                           Stop ALL lean-ctx processes (daemon, proxy, orphans)
     restart                        Restart daemon (applies config.toml changes)
     dev-install                    Build release + atomic install + restart (for development)
+    codesign-setup                 macOS: one-time stable signing identity (stops repeating TCC prompt, #356)
     gotchas [list|clear|export|stats] Bug Memory: view/manage auto-detected error patterns
     buddy [show|stats|ascii|json]  Token Guardian: your data-driven coding companion
     doctor integrations [--json]   Integration health checks (Cursor/Claude Code/CodeBuddy)

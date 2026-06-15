@@ -548,6 +548,10 @@ pub fn run() {
                 cmd_dev_install();
                 return;
             }
+            "codesign-setup" => {
+                cmd_codesign_setup();
+                return;
+            }
             "doctor" => {
                 let code = doctor::run_cli(&rest);
                 if code != 0 {

@@ -6,6 +6,8 @@ pub mod attention_context;
 pub mod auto_capture;
 pub mod auto_findings;
 pub mod codebook;
+#[cfg(target_os = "macos")]
+pub mod codesign;
 pub mod compression_safety;
 pub mod compressor;
 pub mod datadog_push;

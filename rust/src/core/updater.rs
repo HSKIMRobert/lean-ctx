@@ -670,11 +670,11 @@ fn replace_binary(
             format!("Cannot replace binary (permission denied?): {e}")
         })?;
 
+        // #356: re-sign with the persistent identity when available so the
+        // macOS TCC grant survives the update; ad-hoc fallback keeps it runnable.
         #[cfg(target_os = "macos")]
         {
-            let _ = std::process::Command::new("codesign")
-                .args(["--force", "-s", "-", &current_exe.display().to_string()])
-                .output();
+            let _ = crate::core::codesign::sign_binary(current_exe);
         }
 
         Ok(())

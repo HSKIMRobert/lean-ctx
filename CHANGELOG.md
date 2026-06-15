@@ -25,6 +25,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   in the UI so a toggle never silently no-ops.
 
 ### Fixed
+- **macOS: the "lean-ctx wants to access your Documents folder" prompt no longer
+  returns after every update (#356)** — lean-ctx binaries are *ad-hoc* signed, so
+  their cdhash changes on every build. macOS TCC anchors an ad-hoc binary's
+  privacy grant to that cdhash, so each update looked like a brand-new program and
+  re-popped the prompt — clicking "Allow" only lasted until the next build. New
+  `lean-ctx codesign-setup` (macOS) creates a dedicated keychain with a persistent
+  self-signed code-signing identity and trusts it once (a single Touch ID / login
+  password confirmation). `dev-install` and the self-updater now sign every build
+  with that identity, giving TCC a stable Designated Requirement
+  (`identifier "com.leanctx.cli" and certificate leaf = H"…"`) instead of a
+  per-build cdhash. Result: a single "Allow" survives all future updates. Falls
+  back to ad-hoc signing when the identity isn't set up, so the binary always runs.
 - **`doctor --fix` now fully empties `~/.lean-ctx` instead of leaving items behind
   (#429)** — the XDG split migration skipped any entry whose destination already
   existed and *left the source in place*. On Windows (and after any partial
