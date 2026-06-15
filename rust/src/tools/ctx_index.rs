@@ -24,6 +24,10 @@ pub fn handle(action: &str, project_root: &Path) -> String {
             crate::core::index_orchestrator::ensure_all_background(
                 project_root.to_string_lossy().as_ref(),
             );
+            // #420: a forced rebuild must drop the in-process call-graph cache so
+            // ctx_impact/graph reads re-derive from the fresh on-disk index
+            // instead of the pre-rebuild snapshot (the CLI path does the same).
+            crate::core::graph_cache::invalidate(Some(project_root.to_string_lossy().as_ref()));
             "started".to_string()
         }
         _ => "Unknown action. Use: status, build, build-full".to_string(),
