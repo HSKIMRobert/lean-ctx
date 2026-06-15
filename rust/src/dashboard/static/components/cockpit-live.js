@@ -62,6 +62,24 @@ var FILTER_CATEGORIES = {
   cache: 'cache',
 };
 
+// Per-call cost sorting (#426): surface which calls are expensive vs cheap.
+// "recent" keeps the chronological feed; the others rank by a numeric metric
+// read straight off the raw event kind, so the feed doubles as a cost ledger.
+var SORT_MODES = [
+  { key: 'recent', label: 'Recent' },
+  { key: 'saved', label: 'Top saved' },
+  { key: 'original', label: 'Largest' },
+  { key: 'duration', label: 'Slowest' },
+];
+
+function eventSortValue(ev, key) {
+  var k = ev.kind || {};
+  if (key === 'saved') return Number(k.tokens_saved || k.saved_tokens || 0);
+  if (key === 'original') return Number(k.tokens_original || 0);
+  if (key === 'duration') return Number(k.duration_ms || 0);
+  return 0;
+}
+
 function classifyTool(name) {
   if (!name) return 'other';
   var n = String(name).toLowerCase();
@@ -362,6 +380,7 @@ class CockpitLive extends HTMLElement {
   constructor() {
     super();
     this._filter = 'all';
+    this._sort = 'recent';
     this._onRefresh = this._onRefresh.bind(this);
     this._data = null;
     this._error = null;
@@ -673,7 +692,22 @@ class CockpitLive extends HTMLElement {
         '</button>';
     }
 
-    return '<div class="filter-row" id="ckl-filters">' + btns + '</div>';
+    var opts = '';
+    for (var j = 0; j < SORT_MODES.length; j++) {
+      var sm = SORT_MODES[j];
+      opts +=
+        '<option value="' + esc(sm.key) + '"' +
+        (this._sort === sm.key ? ' selected' : '') + '>' +
+        esc(sm.label) + '</option>';
+    }
+    var sortControl =
+      '<label class="ckl-sort" style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">' +
+      'Sort' +
+      '<select id="ckl-sort" style="background:var(--surface-2);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:3px 6px;font-size:11px;font-family:inherit">' +
+      opts +
+      '</select></label>';
+
+    return '<div class="filter-row" id="ckl-filters" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' + btns + sortControl + '</div>';
   }
 
   _renderEventFeed(F, esc, ff) {
@@ -697,10 +731,13 @@ class CockpitLive extends HTMLElement {
         '</div>';
     }
 
+    var sortKey = this._sort || 'recent';
     var sorted = events.slice().sort(function (a, b) {
-      var ta = String(a.timestamp || '');
-      var tb = String(b.timestamp || '');
-      return tb.localeCompare(ta);
+      if (sortKey !== 'recent') {
+        var dv = eventSortValue(b, sortKey) - eventSortValue(a, sortKey);
+        if (dv !== 0) return dv;
+      }
+      return String(b.timestamp || '').localeCompare(String(a.timestamp || ''));
     });
 
     var rendered = '';
@@ -733,7 +770,7 @@ class CockpitLive extends HTMLElement {
       '<h3 style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.18em;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">' +
       'Event Feed <span class="badge">' + esc(String(count)) + '</span></h3>' +
       '<p class="hs" style="margin:-4px 0 10px;font-size:11px;opacity:.7">' +
-      'Chronological log of all daemon activity. For file-level compression analysis, use Compression Lab.</p>' +
+      'Per-call activity — sort by Top saved / Largest / Slowest to find the most expensive calls. For file-level compression analysis, use Compression Lab.</p>' +
       '<div id="ckl-event-list" style="display:flex;flex-direction:column;gap:6px">' +
       rendered +
       '</div></div>'
@@ -897,6 +934,15 @@ class CockpitLive extends HTMLElement {
         self._bindInteractions();
       });
     });
+
+    var sortSel = this.querySelector('#ckl-sort');
+    if (sortSel) {
+      sortSel.addEventListener('change', function () {
+        self._sort = sortSel.value || 'recent';
+        self.render();
+        self._bindInteractions();
+      });
+    }
 
     var helpIcons = this.querySelectorAll('[data-event-help]');
     helpIcons.forEach(function (icon) {
