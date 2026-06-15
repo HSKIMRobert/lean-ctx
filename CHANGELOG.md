@@ -77,6 +77,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   now covers the additive one-shot CLI path, which also routes through the
   unified auto-mode resolver. Re-reads are unaffected (the cache keys on path and
   re-derives the file ref).
+- **A knowledge store could grow to 2× its fact cap on import (#417)** —
+  `remember()` hard-caps a project's facts at `max_facts`, but the bulk
+  `import_facts()` path still used the old `max_facts * 2` guard, so a
+  merge/import could inflate a store to twice its budget before any eviction
+  fired (observed live as a `doctor` capacity `CRIT`, e.g. facts 232/200). The
+  import path now runs the memory lifecycle as soon as it exceeds `max_facts`,
+  draining the excess by importance (archived, not lost). The eviction invariant
+  now holds on every write path (`remember`, `import`, persist-merge).
 
 ## [3.8.5] — 2026-06-14
 

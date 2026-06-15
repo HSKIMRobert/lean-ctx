@@ -194,7 +194,12 @@ impl ProjectKnowledge {
 
         if added > 0 || replaced > 0 {
             self.updated_at = Utc::now();
-            if self.facts.len() > policy.knowledge.max_facts.saturating_mul(2) {
+            // Mirror remember()'s hard cap: a bulk import must settle the store at
+            // <= max_facts, not 2x. run_lifecycle archives the excess by importance
+            // (nothing is lost). The previous `* 2` guard diverged from the
+            // remember() path and let an import inflate a store to twice the cap —
+            // observed live as a doctor CRIT (facts 232/200).
+            if self.facts.len() > policy.knowledge.max_facts {
                 let _ = self.run_memory_lifecycle(policy);
             }
         }

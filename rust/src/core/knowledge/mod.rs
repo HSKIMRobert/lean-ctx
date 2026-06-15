@@ -73,6 +73,47 @@ mod tests {
     }
 
     #[test]
+    fn import_facts_evict_down_to_cap_not_double() {
+        // Regression: import_facts() must settle the store at <= max_facts, just
+        // like remember(). The import path previously only ran the lifecycle above
+        // 2 * max_facts, so a bulk import could inflate a store to twice its
+        // budget (observed live as doctor CRIT facts 232/200) while remember()
+        // already capped at max_facts.
+        let mut policy = default_policy();
+        policy.knowledge.max_facts = 5;
+
+        // Produce a batch larger than 2x the cap via a generously-capped source.
+        let mut source_policy = default_policy();
+        source_policy.knowledge.max_facts = 1000;
+        let mut source = ProjectKnowledge::new("/tmp/test-import-source");
+        for i in 0..40 {
+            source.remember(
+                "finding",
+                &format!("key-{i}"),
+                &format!("value number {i}"),
+                "s1",
+                0.7,
+                &source_policy,
+            );
+        }
+        let incoming = source.facts.clone();
+        assert!(
+            incoming.len() > policy.knowledge.max_facts * 2,
+            "test needs a batch larger than 2x cap to exercise the old guard, got {}",
+            incoming.len()
+        );
+
+        let mut k = ProjectKnowledge::new("/tmp/test-import-target");
+        k.import_facts(incoming, ImportMerge::Append, "s2", &policy);
+        assert!(
+            k.facts.len() <= policy.knowledge.max_facts,
+            "expected <= {} facts after import eviction, got {}",
+            policy.knowledge.max_facts,
+            k.facts.len()
+        );
+    }
+
+    #[test]
     fn upsert_existing_fact() {
         let policy = default_policy();
         let mut k = ProjectKnowledge::new("/tmp/test");
