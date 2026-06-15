@@ -38,8 +38,13 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
         config_type: crate::core::editor_registry::ConfigType::HermesYaml,
     };
 
+    // #281: honor `[setup] auto_update_mcp = false` — skip the Hermes MCP server
+    // entry under lock-down; the rules below still install.
+    let update_mcp = crate::core::config::Config::load()
+        .setup
+        .should_update_mcp();
     match mode {
-        HookMode::Mcp | HookMode::Hybrid => {
+        HookMode::Mcp | HookMode::Hybrid if update_mcp => {
             match crate::core::editor_registry::write_config_with_options(
                 &target,
                 &binary,
@@ -67,6 +72,7 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
                 }
             }
         }
+        _ => {}
     }
 
     let scope = crate::core::config::Config::load().rules_scope_effective();

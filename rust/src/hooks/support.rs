@@ -7,6 +7,20 @@ pub(crate) fn install_named_json_server(
     root_key: &str,
     entry: serde_json::Value,
 ) {
+    // #281: honor `[setup] auto_update_mcp = false`. This is the shared writer
+    // for every JSON-config agent (Aider, Continue, Qwen, Zed, Amazon Q, …), so
+    // gating it here keeps locked-down installs free of MCP server entries while
+    // their hooks/rules still install. The editor-target path is gated at its
+    // call sites; this closes the hooks-layer path missed by the first fix.
+    // The skip stays silent: init/setup/onboard/doctor already print one
+    // per-agent skip line, so re-announcing here would just double the noise.
+    if !crate::core::config::Config::load()
+        .setup
+        .should_update_mcp()
+    {
+        return;
+    }
+
     if let Some(parent) = config_path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

@@ -153,7 +153,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   writes are now serialized under the per-project lock, fixing degraded recall
   when multiple `remember` calls raced.
 - **`auto_update_mcp = false` ignored during setup/onboard/init (#281)** — the
-  setting is now honored across all three paths.
+  first fix gated only the editor-target registration (`configure_agent_mcp`);
+  the hooks-layer MCP writers still wrote server entries unconditionally — the
+  shared JSON-config writer behind Aider/Continue/Qwen/Zed/Amazon Q/Trae/Neovim/…,
+  plus Copilot CLI, Gemini/Antigravity and Hermes. The flag is now honored on
+  every registration path: hooks, rules and skills still install, only the MCP
+  *server* entry is withheld, so a locked-down environment stays MCP-free after
+  `setup`/`onboard`/`init`/`doctor --fix`.
 - **Session `extra_roots` not honored in path resolution (#403)** — extra roots
   are propagated at init and respected by the resolver.
 - **Verbatim reads compressed on the CLI path (#404)** — verbatim reads are now
