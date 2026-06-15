@@ -234,6 +234,12 @@ pub fn run() -> anyhow::Result<()> {
 
     let mut state = AppState::new();
     let mut tail = EventTail::new();
+    // Seed the view with recent history so `watch` isn't a blank screen when
+    // launched while idle — the log is already populated (#560).
+    let backfill = tail.backfill(20);
+    if !backfill.is_empty() {
+        state.ingest(backfill);
+    }
     let tick_rate = Duration::from_millis(200);
     let mut last_tick = Instant::now();
 
