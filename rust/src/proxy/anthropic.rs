@@ -163,6 +163,70 @@ mod tests {
         assert!(!content.contains("lines omitted"));
     }
 
+    fn forge_log_body(tool_name: &str) -> Value {
+        // Generic, highly-repetitive log with no `$ cmd` hint, so routing falls
+        // back to the tool name (exercising the foreign-tool classification)
+        // and the generic compressor (not a command-specific pattern).
+        let mut log = String::new();
+        for i in 0..90 {
+            log.push_str(&format!(
+                "INFO  processing item {i}: ok, latency={i}ms, queue depth normal, retries 0\n"
+            ));
+        }
+        serde_json::json!({
+            "messages": [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "f1", "name": tool_name, "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "f1", "content": log}]}
+            ]
+        })
+    }
+
+    #[test]
+    fn forge_shell_tool_result_compresses() {
+        // A vendor-prefixed foreign shell tool reaches the proxy; its log output
+        // must still be compressed (rtk/ctx_* never see another server's tools).
+        let body = forge_log_body("forge_shell");
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (_out, orig, comp) = compress_request_body(body, bytes.len());
+        assert!(comp < orig, "foreign shell output must be compressed");
+    }
+
+    #[test]
+    fn foreign_read_tool_protects_source() {
+        // `forge_read` is classified FileRead via the segment fallback, so the
+        // source body must reach the model intact (it is what gets edited).
+        let code = (0..60)
+            .map(|i| format!("    let binding_{i} = compute_value_{i}(context, options);"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let body = serde_json::json!({
+            "messages": [
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "r1", "name": "forge_read", "input": {"path": "src/app.rs"}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "r1", "content": code}]}
+            ]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _orig, _comp) = compress_request_body(body, bytes.len());
+        let parsed: Value = serde_json::from_slice(&out).unwrap();
+        let content = parsed["messages"][1]["content"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert!(
+            content.contains("binding_59"),
+            "source body must survive intact"
+        );
+    }
+
+    #[test]
+    fn compress_request_body_is_deterministic() {
+        // #498: the proxy rewrite must be a pure function of the body so the
+        // provider prompt-cache prefix stays byte-identical across turns.
+        let bytes = serde_json::to_vec(&forge_log_body("Bash")).unwrap();
+        let a = compress_request_body(serde_json::from_slice(&bytes).unwrap(), bytes.len()).0;
+        let b = compress_request_body(serde_json::from_slice(&bytes).unwrap(), bytes.len()).0;
+        assert_eq!(a, b, "identical input must yield byte-identical output");
+    }
+
     #[test]
     fn bash_tool_result_still_compresses() {
         let log = {

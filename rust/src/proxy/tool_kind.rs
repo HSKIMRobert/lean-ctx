@@ -101,6 +101,21 @@ pub fn classify_tool_name(name: &str) -> ToolResultKind {
         return ToolResultKind::Shell;
     }
 
+    // Vendor-prefix fallback. Foreign harnesses namespace their tools
+    // (`forge_read`, `pi.shell`, `fs:grep`), which the substring lists above
+    // miss. Matching the name's path-like *segments* as whole words catches
+    // those without the false positives a bare substring would cause
+    // (`thread`, `research`, `already`). FileRead is checked first so a read is
+    // never misclassified as compressible.
+    for seg in n.split(|c: char| !c.is_ascii_alphanumeric()) {
+        match seg {
+            "read" | "view" | "cat" | "open" => return ToolResultKind::FileRead,
+            "grep" | "search" | "find" | "glob" | "ls" | "rg" => return ToolResultKind::Search,
+            "shell" | "bash" | "exec" | "run" | "terminal" | "cmd" => return ToolResultKind::Shell,
+            _ => {}
+        }
+    }
+
     ToolResultKind::Other
 }
 
@@ -306,6 +321,31 @@ mod tests {
     #[test]
     fn unknown_tool_is_other() {
         assert_eq!(classify_tool_name("submit_pr"), ToolResultKind::Other);
+    }
+
+    #[test]
+    fn classifies_vendor_prefixed_foreign_tools() {
+        // Foreign harnesses (forge / pi) namespace their tools; the segment
+        // fallback must still route them so source reads stay protected and
+        // shell/search output stays compressible.
+        assert_eq!(classify_tool_name("forge_read"), ToolResultKind::FileRead);
+        assert_eq!(classify_tool_name("pi.read"), ToolResultKind::FileRead);
+        assert_eq!(classify_tool_name("forge_shell"), ToolResultKind::Shell);
+        assert_eq!(classify_tool_name("forge_exec"), ToolResultKind::Shell);
+        assert_eq!(classify_tool_name("fs:grep"), ToolResultKind::Search);
+    }
+
+    #[test]
+    fn segment_fallback_has_no_substring_false_positives() {
+        // Whole-word segments only: "thread" contains "read", "spread" contains
+        // "read" — neither may be misclassified as a file read.
+        assert_eq!(classify_tool_name("thread_create"), ToolResultKind::Other);
+        assert_eq!(classify_tool_name("spread_values"), ToolResultKind::Other);
+        assert_eq!(
+            classify_tool_name("readme_generator"),
+            ToolResultKind::Other
+        );
+        assert_eq!(classify_tool_name("submit_pull"), ToolResultKind::Other);
     }
 
     #[test]
