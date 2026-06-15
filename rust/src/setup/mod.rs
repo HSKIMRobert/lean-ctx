@@ -346,10 +346,14 @@ pub fn run_setup() {
         let _ = std::fs::create_dir_all(&lean_dir);
         terminal_ui::print_status_new(&format!("Created {}", lean_dir.display()));
     }
-    if let Some(tokens) = crate::core::data_dir::migrate_if_split() {
-        terminal_ui::print_status_new(&format!(
-            "Migrated stats from split data dir ({tokens} tokens recovered)"
-        ));
+    if let Some(report) = crate::core::data_consolidate::consolidate() {
+        if report.files_moved > 0 {
+            terminal_ui::print_status_new(&format!(
+                "Consolidated {} file(s) from a split data dir into {}",
+                report.files_moved,
+                report.canonical.display()
+            ));
+        }
     }
     crate::doctor::run_compact();
 

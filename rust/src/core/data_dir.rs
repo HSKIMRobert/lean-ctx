@@ -113,8 +113,13 @@ pub(crate) fn has_data_files(dir: &std::path::Path) -> bool {
     DATA_MARKERS.iter().any(|f| dir.join(f).exists())
 }
 
-/// Returns all known data directories that contain stats data.
-/// Used for migration and doctor diagnostics.
+/// Returns all known data directories that contain stats data, in resolution
+/// priority order (legacy → mixed config → XDG data). Used by the dual-dir
+/// consolidation ([`crate::core::data_consolidate`]) and doctor diagnostics.
+///
+/// `$XDG_DATA_HOME/lean-ctx` is included (GH #414): after the #408 default flip
+/// a fresh install writes stats there, so a user who *also* has a legacy/mixed
+/// tree has the split that the consolidation must detect and merge.
 pub fn all_data_dirs_with_stats() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(home) = dirs::home_dir() {
@@ -122,49 +127,24 @@ pub fn all_data_dirs_with_stats() -> Vec<PathBuf> {
         if legacy.join("stats.json").exists() {
             dirs.push(legacy);
         }
-        let xdg = std::env::var("XDG_CONFIG_HOME")
+        let xdg_config = std::env::var("XDG_CONFIG_HOME")
             .ok()
             .filter(|s| !s.trim().is_empty())
             .map_or_else(|| home.join(".config"), PathBuf::from)
             .join("lean-ctx");
-        if xdg.join("stats.json").exists() && !dirs.contains(&xdg) {
-            dirs.push(xdg);
+        if xdg_config.join("stats.json").exists() && !dirs.contains(&xdg_config) {
+            dirs.push(xdg_config);
+        }
+        let xdg_data = std::env::var("XDG_DATA_HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+            .map_or_else(|| home.join(".local").join("share"), PathBuf::from)
+            .join("lean-ctx");
+        if xdg_data.join("stats.json").exists() && !dirs.contains(&xdg_data) {
+            dirs.push(xdg_data);
         }
     }
     dirs
-}
-
-/// Detect and repair a data directory split.
-/// Returns the number of tokens migrated, or None if no split detected.
-pub fn migrate_if_split() -> Option<u64> {
-    let dirs = all_data_dirs_with_stats();
-    if dirs.len() < 2 {
-        return None;
-    }
-
-    let primary = lean_ctx_data_dir().ok()?;
-    let secondary = dirs.iter().find(|d| **d != primary)?;
-
-    let sec_content = std::fs::read_to_string(secondary.join("stats.json")).ok()?;
-    let sec_store: serde_json::Value = serde_json::from_str(&sec_content).ok()?;
-    let sec_commands = sec_store["total_commands"].as_u64().unwrap_or(0);
-    if sec_commands == 0 {
-        return None;
-    }
-
-    let primary_path = primary.join("stats.json");
-    if !primary_path.exists() {
-        let _ = std::fs::create_dir_all(&primary);
-        let _ = std::fs::copy(secondary.join("stats.json"), &primary_path);
-        let _ = std::fs::remove_file(secondary.join("stats.json"));
-        let tokens = sec_store["total_input_tokens"]
-            .as_u64()
-            .unwrap_or(0)
-            .saturating_sub(sec_store["total_output_tokens"].as_u64().unwrap_or(0));
-        return Some(tokens);
-    }
-
-    None
 }
 
 #[cfg(unix)]

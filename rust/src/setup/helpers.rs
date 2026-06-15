@@ -238,33 +238,32 @@ pub(crate) fn configure_premium_features(home: &std::path::Path) {
         "off"
     };
 
-    let effective_level = if level != "off" {
+    // Stage the compression change in the config text; the success line is only
+    // emitted after the write below actually persists (#415).
+    let (effective_level, compression_status) = if level != "off" {
         upsert_toml_key(&mut config_content, "compression_level", level);
         remove_toml_key(&mut config_content, "terse_agent");
         remove_toml_key(&mut config_content, "output_density");
-        terminal_ui::print_status_ok(&format!("Compression: {level}"));
-        crate::core::config::CompressionLevel::from_str_label(level)
+        (
+            crate::core::config::CompressionLevel::from_str_label(level),
+            StatusLine::ok(format!("Compression: {level}")),
+        )
     } else if config_content.contains("compression_level") {
         upsert_toml_key(&mut config_content, "compression_level", "off");
-        terminal_ui::print_status_ok("Compression: off");
-        Some(crate::core::config::CompressionLevel::Off)
+        (
+            Some(crate::core::config::CompressionLevel::Off),
+            StatusLine::ok("Compression: off".to_string()),
+        )
     } else {
-        terminal_ui::print_status_skip(
-            "Compression: off (change later with: lean-ctx compression <level>)",
-        );
-        Some(crate::core::config::CompressionLevel::Off)
+        (
+            Some(crate::core::config::CompressionLevel::Off),
+            StatusLine::skip(
+                "Compression: off (change later with: lean-ctx compression <level>)".to_string(),
+            ),
+        )
     };
 
-    if let Some(lvl) = effective_level {
-        let n = crate::core::terse::rules_inject::inject(&lvl);
-        if n > 0 {
-            terminal_ui::print_status_ok(&format!(
-                "Updated {n} rules file(s) with compression prompt"
-            ));
-        }
-    }
-
-    // Tool Result Archive (unchanged)
+    // Tool Result Archive
     println!(
         "\n  {bold}Tool Result Archive{rst} {dim}(zero-loss: large outputs archived, retrievable via ctx_expand){rst}"
     );
@@ -279,15 +278,69 @@ pub(crate) fn configure_premium_features(home: &std::path::Path) {
         true
     };
 
-    if archive_on && !config_content.contains("[archive]") {
+    let archive_status = if archive_on && !config_content.contains("[archive]") {
         if !config_content.is_empty() && !config_content.ends_with('\n') {
             config_content.push('\n');
         }
         config_content.push_str("\n[archive]\nenabled = true\n");
-        terminal_ui::print_status_ok("Tool Result Archive: enabled");
+        Some(StatusLine::ok("Tool Result Archive: enabled".to_string()))
     } else if !archive_on {
-        terminal_ui::print_status_skip("Archive: off (enable later in config.toml)");
-    }
+        Some(StatusLine::skip(
+            "Archive: off (enable later in config.toml)".to_string(),
+        ))
+    } else {
+        None
+    };
 
-    let _ = crate::config_io::write_atomic_with_backup(&config_path, &config_content);
+    // Single atomic write. Only claim success — and only inject the rules prompt —
+    // once the config has genuinely been persisted; a swallowed write error here
+    // is exactly what made setup report settings it never applied (#415).
+    match crate::config_io::write_atomic_with_backup(&config_path, &config_content) {
+        Ok(()) => {
+            compression_status.emit();
+            if let Some(lvl) = effective_level {
+                let n = crate::core::terse::rules_inject::inject(&lvl);
+                if n > 0 {
+                    terminal_ui::print_status_ok(&format!(
+                        "Updated {n} rules file(s) with compression prompt"
+                    ));
+                }
+            }
+            if let Some(status) = archive_status {
+                status.emit();
+            }
+        }
+        Err(e) => {
+            terminal_ui::print_status_warn(&format!(
+                "Could not save settings to {}: {e}",
+                config_path.display()
+            ));
+            terminal_ui::print_status_warn(
+                "Premium features were not applied — re-run `lean-ctx setup` or edit config.toml manually",
+            );
+        }
+    }
+}
+
+/// A setup status line whose emission is deferred until the underlying config
+/// write succeeds, so the wizard never reports a setting it failed to persist.
+struct StatusLine {
+    skip: bool,
+    msg: String,
+}
+
+impl StatusLine {
+    fn ok(msg: String) -> Self {
+        Self { skip: false, msg }
+    }
+    fn skip(msg: String) -> Self {
+        Self { skip: true, msg }
+    }
+    fn emit(&self) {
+        if self.skip {
+            crate::terminal_ui::print_status_skip(&self.msg);
+        } else {
+            crate::terminal_ui::print_status_ok(&self.msg);
+        }
+    }
 }

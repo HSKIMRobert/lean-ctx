@@ -306,6 +306,45 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
     });
     steps.push(startup_step);
 
+    // Merge a split data layout (stats.json in two trees) into the canonical
+    // dir *before* the XDG split, so `doctor --fix` actually resolves the "data
+    // dir split" check instead of only ever splitting a single dir (GH #414).
+    let mut consolidate_step = SetupStepReport {
+        name: "data_dir_consolidate".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    match crate::core::data_consolidate::consolidate() {
+        Some(report) => {
+            consolidate_step.items.push(SetupItem {
+                name: "merge".to_string(),
+                status: format!("merged {}", report.files_moved),
+                path: Some(report.canonical.to_string_lossy().to_string()),
+                note: Some(format!(
+                    "consolidated {} split dir(s) into the canonical data dir ({} moved, {} superseded)",
+                    report.merged_from.len(),
+                    report.files_moved,
+                    report.files_superseded
+                )),
+            });
+            if !report.errors.is_empty() {
+                consolidate_step.ok = false;
+                consolidate_step.errors.extend(report.errors.clone());
+            }
+        }
+        None => {
+            consolidate_step.items.push(SetupItem {
+                name: "merge".to_string(),
+                status: "clean".to_string(),
+                path: None,
+                note: Some("no split data dirs to consolidate".to_string()),
+            });
+        }
+    }
+    steps.push(consolidate_step);
+
     // Split a legacy/mixed single-dir install into the typed XDG dirs (GH #408).
     let mut xdg_step = SetupStepReport {
         name: "xdg_layout".to_string(),

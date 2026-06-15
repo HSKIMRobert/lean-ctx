@@ -629,32 +629,42 @@ pub(super) fn proxy_health_outcome() -> Outcome {
 
     match cfg.proxy_enabled {
         Some(true) => {
-            let installed = crate::proxy_autostart::is_installed();
             let reachable = {
                 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
                 let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
                 TcpStream::connect_timeout(&addr, crate::proxy_setup::proxy_timeout()).is_ok()
             };
+            // Autostart has no backend on Windows/other platforms, so a missing
+            // autostart must never be a hard failure there (#416).
+            let supported = crate::proxy_autostart::is_supported();
 
-            if installed && reachable {
-                // Verify auth works: probe /health (no auth needed) to confirm HTTP layer
-                let auth_ok = proxy_auth_probe(port);
-                if auth_ok {
+            if reachable {
+                // Up now — verify the HTTP/auth layer regardless of autostart state.
+                if !proxy_auth_probe(port) {
+                    return Outcome {
+                        ok: false,
+                        line: format!(
+                            "{BOLD}Proxy{RST}  {YELLOW}running on port {port} but auth probe failed{RST}  {YELLOW}fix: lean-ctx proxy restart{RST}"
+                        ),
+                    };
+                }
+                if supported && !crate::proxy_autostart::is_installed() {
+                    // Running, but it won't survive a reboot without autostart.
+                    Outcome {
+                        ok: true,
+                        line: format!(
+                            "{BOLD}Proxy{RST}  {GREEN}running on port {port}{RST}  {YELLOW}autostart not installed — persist: lean-ctx proxy enable{RST}"
+                        ),
+                    }
+                } else {
                     Outcome {
                         ok: true,
                         line: format!(
                             "{BOLD}Proxy{RST}  {GREEN}enabled, running on port {port}{RST}"
                         ),
                     }
-                } else {
-                    Outcome {
-                        ok: false,
-                        line: format!(
-                            "{BOLD}Proxy{RST}  {YELLOW}running on port {port} but auth probe failed{RST}  {YELLOW}fix: lean-ctx proxy restart{RST}"
-                        ),
-                    }
                 }
-            } else if installed && !reachable {
+            } else if supported {
                 Outcome {
                     ok: false,
                     line: format!(
@@ -662,10 +672,12 @@ pub(super) fn proxy_health_outcome() -> Outcome {
                     ),
                 }
             } else {
+                // Windows/other: no autostart backend, so a stopped proxy is a
+                // setup note (start it manually), not a doctor failure (#416).
                 Outcome {
-                    ok: false,
+                    ok: true,
                     line: format!(
-                        "{BOLD}Proxy{RST}  {RED}enabled but autostart not installed{RST}  {YELLOW}fix: lean-ctx proxy enable{RST}"
+                        "{BOLD}Proxy{RST}  {YELLOW}enabled but not running{RST}  {DIM}autostart unavailable on this platform — start: lean-ctx proxy start{RST}"
                     ),
                 }
             }

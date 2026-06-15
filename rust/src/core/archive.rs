@@ -71,7 +71,17 @@ fn max_age_hours() -> u64 {
             return n;
         }
     }
-    super::config::Config::load().archive.max_age_hours
+    super::config::Config::load().archive_max_age_hours_effective()
+}
+
+/// Effective on-disk byte budget for archived `.txt`/`.meta.json` content,
+/// derived from `[archive] max_disk_mb` (or the simplified global `max_disk_mb`)
+/// so it matches what `doctor` reports. `0` disables the size cap; the TTL still
+/// applies. This is what bounds the archive store on disk (#417).
+fn max_disk_bytes() -> u64 {
+    super::config::Config::load()
+        .archive_max_disk_mb_effective()
+        .saturating_mul(1024 * 1024)
 }
 
 pub fn should_archive(content: &str) -> bool {
@@ -338,14 +348,43 @@ pub fn list_entries(session_id: Option<&str>) -> Vec<ArchiveEntry> {
     entries
 }
 
+/// Remove only the on-disk content + metadata files for an archive id, leaving
+/// the FTS index untouched. Used by the FTS cap-enforcer so the `.txt`/`.meta.json`
+/// blobs of rows it evicts can't outlive their index entry as orphans (#417).
+pub fn remove_files(id: &str) {
+    let _ = std::fs::remove_file(content_path(id));
+    let _ = std::fs::remove_file(meta_path(id));
+}
+
+/// Prune archived entries that exceed the age TTL (`max_age_hours`) or that push
+/// the on-disk store past its size budget (`max_disk_mb`). The content file,
+/// metadata, and FTS index are removed together so the two stores stay in sync.
+/// Returns the number of entries removed.
+///
+/// Wired into MCP-start + periodic maintenance ([`super::storage_maintenance`])
+/// and `lean-ctx cache prune`; without an enforcer the archive grew unbounded on
+/// disk and starved the host of RAM via the page cache (#417).
 pub fn cleanup() -> u32 {
-    let max_hours = max_age_hours();
-    let cutoff = Utc::now() - chrono::Duration::hours(max_hours as i64);
+    let cutoff = Utc::now() - chrono::Duration::hours(max_age_hours() as i64);
+    cleanup_with(cutoff, max_disk_bytes())
+}
+
+/// Core of [`cleanup`], parameterized for testing: drop entries older than
+/// `cutoff`, then evict the oldest survivors until the total on-disk footprint is
+/// at or below `budget_bytes` (`0` = no size cap).
+fn cleanup_with(cutoff: DateTime<Utc>, budget_bytes: u64) -> u32 {
     let base = archive_base_dir();
     if !base.exists() {
         return 0;
     }
-    let mut removed = 0u32;
+
+    struct Scanned {
+        id: String,
+        created_at: DateTime<Utc>,
+        bytes: u64,
+    }
+
+    let mut entries: Vec<Scanned> = Vec::new();
     if let Ok(dirs) = std::fs::read_dir(&base) {
         for dir_entry in dirs.flatten() {
             if !dir_entry.path().is_dir() {
@@ -357,20 +396,41 @@ pub fn cleanup() -> u32 {
                     if path.extension().and_then(|e| e.to_str()) != Some("json") {
                         continue;
                     }
-                    if let Ok(data) = std::fs::read_to_string(&path) {
-                        if let Ok(entry) = serde_json::from_str::<ArchiveEntry>(&data) {
-                            if entry.created_at < cutoff {
-                                let c = content_path(&entry.id);
-                                let _ = std::fs::remove_file(&c);
-                                let _ = std::fs::remove_file(&path);
-                                super::archive_fts::remove_entry(&entry.id);
-                                removed += 1;
-                            }
-                        }
-                    }
+                    let Ok(data) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    let Ok(entry) = serde_json::from_str::<ArchiveEntry>(&data) else {
+                        continue;
+                    };
+                    let content_bytes =
+                        std::fs::metadata(content_path(&entry.id)).map_or(0, |m| m.len());
+                    let meta_bytes = file.metadata().map_or(0, |m| m.len());
+                    entries.push(Scanned {
+                        id: entry.id,
+                        created_at: entry.created_at,
+                        bytes: content_bytes + meta_bytes,
+                    });
                 }
             }
         }
+    }
+
+    // Oldest first: TTL victims drop first, then the oldest survivors are evicted
+    // until the store is back under budget. Sorted order lets us stop early.
+    entries.sort_by_key(|e| e.created_at);
+    let mut live_bytes: u64 = entries.iter().map(|e| e.bytes).sum();
+
+    let mut removed = 0u32;
+    for e in &entries {
+        let expired = e.created_at < cutoff;
+        let over_budget = budget_bytes > 0 && live_bytes > budget_bytes;
+        if !expired && !over_budget {
+            break;
+        }
+        remove_files(&e.id);
+        super::archive_fts::remove_entry(&e.id);
+        live_bytes = live_bytes.saturating_sub(e.bytes);
+        removed += 1;
     }
     removed
 }
@@ -422,5 +482,62 @@ mod tests {
         assert!(hint.contains("1200 tok"));
         assert!(hint.contains("ctx_expand"));
         assert!(hint.contains("abc123"));
+    }
+
+    fn write_test_entry(id: &str, created_at: DateTime<Utc>, content_bytes: usize) {
+        std::fs::create_dir_all(entry_dir(id)).unwrap();
+        std::fs::write(content_path(id), "x".repeat(content_bytes)).unwrap();
+        let entry = ArchiveEntry {
+            id: id.to_string(),
+            tool: "ctx_shell".to_string(),
+            command: "test".to_string(),
+            size_chars: content_bytes,
+            size_tokens: content_bytes / 4,
+            created_at,
+            session_id: None,
+        };
+        std::fs::write(meta_path(id), serde_json::to_string(&entry).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_expired_keeps_fresh() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+
+        let now = Utc::now();
+        write_test_entry("aa_old", now - chrono::Duration::hours(100), 100);
+        write_test_entry("bb_new", now - chrono::Duration::hours(1), 100);
+
+        // Cutoff = 48h ago; budget effectively unlimited so only the TTL applies.
+        let removed = cleanup_with(now - chrono::Duration::hours(48), u64::MAX);
+        assert_eq!(removed, 1);
+        assert!(!content_path("aa_old").exists());
+        assert!(!meta_path("aa_old").exists());
+        assert!(content_path("bb_new").exists());
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn cleanup_enforces_disk_budget_oldest_first() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+
+        let now = Utc::now();
+        write_test_entry("c1_oldest", now - chrono::Duration::minutes(30), 10_000);
+        write_test_entry("c2_middle", now - chrono::Duration::minutes(20), 10_000);
+        write_test_entry("c3_newest", now - chrono::Duration::minutes(10), 10_000);
+
+        // Nothing expired (cutoff far in the past). Budget 25 KB holds the two
+        // newest (~20 KB content + meta); the single oldest entry is evicted.
+        let removed = cleanup_with(now - chrono::Duration::days(365), 25_000);
+        assert_eq!(removed, 1, "only the oldest over-budget entry is evicted");
+        assert!(!content_path("c1_oldest").exists());
+        assert!(content_path("c2_middle").exists());
+        assert!(content_path("c3_newest").exists());
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

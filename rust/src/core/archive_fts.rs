@@ -171,6 +171,9 @@ fn enforce_cap_locked(conn: &Connection) {
                 params![id],
             );
             let _ = conn.execute("DELETE FROM archive_fts WHERE archive_id = ?1", params![id]);
+            // Drop the backing `.txt`/`.meta.json` too — deleting only the DB row
+            // would orphan the (much larger) content file on disk (#417).
+            super::archive::remove_files(id);
         }
         let _ = conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;");
         if db_size_bytes() <= cap {

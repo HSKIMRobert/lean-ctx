@@ -656,14 +656,25 @@ pub fn cmd_cache(args: &[String]) {
         Some("prune") => {
             let bm25 = prune_bm25_caches();
             let graph = prune_graph_caches();
-            let removed = bm25.removed + graph.removed;
-            let freed = bm25.bytes_freed + graph.bytes_freed;
+            // Enforce the archive TTL + on-disk size budget alongside the index
+            // caches so a manual prune reclaims the (often largest) store too (#417).
+            let archive_before = crate::core::archive::disk_usage_bytes()
+                + crate::core::archive_fts::db_size_bytes();
+            let archive_removed = crate::core::archive::cleanup();
+            let _ = crate::core::archive_fts::enforce_cap();
+            let archive_after = crate::core::archive::disk_usage_bytes()
+                + crate::core::archive_fts::db_size_bytes();
+            let archive_freed = archive_before.saturating_sub(archive_after);
+
+            let removed = bm25.removed + graph.removed + archive_removed;
+            let freed = bm25.bytes_freed + graph.bytes_freed + archive_freed;
             println!(
-                "Pruned {} entries, freed {:.1} MB (BM25: {}, graphs: {})",
+                "Pruned {} entries, freed {:.1} MB (BM25: {}, graphs: {}, archive: {})",
                 removed,
                 freed as f64 / 1_048_576.0,
                 bm25.removed,
                 graph.removed,
+                archive_removed,
             );
         }
         _ => {

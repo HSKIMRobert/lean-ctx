@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub struct MaintenanceResult {
     pub quarantined_removed: u32,
     pub bytes_freed: u64,
+    pub archive_entries_pruned: u32,
     pub archive_db_bytes_after: u64,
 }
 
@@ -58,16 +59,22 @@ fn prune_quarantined_bm25() -> (u32, u64) {
 /// the archive FTS size cap. Safe to call from the MCP daemon.
 pub fn run_quiet() -> MaintenanceResult {
     let (quarantined_removed, bytes_freed) = prune_quarantined_bm25();
+    // Enforce the archive TTL + on-disk size budget (prunes `.txt`/`.meta.json`
+    // + FTS rows together), then backstop the DB cap. Without this the archive
+    // grew unbounded on disk and exhausted host RAM via the page cache (#417).
+    let archive_entries_pruned = crate::core::archive::cleanup();
     let archive_db_bytes_after = crate::core::archive_fts::enforce_cap();
-    if quarantined_removed > 0 {
+    if quarantined_removed > 0 || archive_entries_pruned > 0 {
         tracing::info!(
-            "storage maintenance: pruned {quarantined_removed} quarantined BM25 index file(s), \
-             freed {bytes_freed} bytes; archive DB now {archive_db_bytes_after} bytes"
+            "storage maintenance: pruned {quarantined_removed} quarantined BM25 index file(s) \
+             (freed {bytes_freed} bytes) + {archive_entries_pruned} archive entry/entries; \
+             archive DB now {archive_db_bytes_after} bytes"
         );
     }
     MaintenanceResult {
         quarantined_removed,
         bytes_freed,
+        archive_entries_pruned,
         archive_db_bytes_after,
     }
 }

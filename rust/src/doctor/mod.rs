@@ -159,7 +159,7 @@ pub fn run() {
         print_check(&Outcome {
             ok: false,
             line: format!(
-                "{BOLD}data dir split{RST}  {RED}stats.json found in {count} locations{RST}: {dirs_str}  {DIM}(run: lean-ctx setup to auto-merge){RST}",
+                "{BOLD}data dir split{RST}  {RED}stats.json found in {count} locations{RST}: {dirs_str}  {DIM}(run: lean-ctx doctor --fix to merge){RST}",
                 count = split_dirs.len(),
             ),
         });
@@ -586,14 +586,24 @@ pub fn run() {
     };
     println!("  {shadow_line}");
 
-    // Tool-schema footprint (informational, not scored). The active profile now
-    // authoritatively determines the advertised set, so its description reflects
-    // exactly what the MCP client sees (plus the always-on ctx_call gateway).
-    let tool_profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
-    println!(
-        "  {BOLD}Tool profile{RST}  {WHITE}{tool_profile}{RST}  {DIM}{} + ctx_call gateway{RST}",
-        tool_profile.description()
-    );
+    // Tool-schema footprint (informational, not scored). With no profile pinned
+    // the server runs in lean mode — only the lazy core is advertised and every
+    // tool stays reachable via ctx_call — so report that, not the internal
+    // `power` call-gate fallback that `from_config` returns for an empty config
+    // (otherwise `doctor` claimed "power" right after the wizard chose lean, #415).
+    let tool_profile_line = if crate::server::tool_visibility::explicit_profile(&cfg) {
+        let profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
+        format!(
+            "{BOLD}Tool profile{RST}  {WHITE}{profile}{RST}  {DIM}{} + ctx_call gateway{RST}",
+            profile.description()
+        )
+    } else {
+        let lazy_count = crate::tool_defs::core_tool_names().len();
+        format!(
+            "{BOLD}Tool profile{RST}  {WHITE}lean (default){RST}  {DIM}{lazy_count} lazy-core tools advertised + ctx_call gateway{RST}"
+        )
+    };
+    println!("  {tool_profile_line}");
 
     // Session cache health (#361): answer "is the cache actually engaging?"
     // without external instrumentation. CEP sessions + the cross-call hit ratio

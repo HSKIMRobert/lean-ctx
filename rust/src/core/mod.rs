@@ -317,6 +317,7 @@ pub mod consolidation;
 pub mod consolidation_engine;
 pub mod contextops;
 pub mod crash_log;
+pub mod data_consolidate;
 pub mod data_dir;
 pub mod diagnostics_store;
 pub mod editor_signal;

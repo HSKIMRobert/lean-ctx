@@ -3,6 +3,39 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.8.6] — 2026-06-15
+
+### Fixed
+- **`[archive]` could exhaust host RAM and force a reboot (#417)** — archived
+  tool outputs (`.txt` + `.meta.json` + SQLite FTS) were written on every large
+  call, but the configured `max_disk_mb` / `max_age_hours` limits were never
+  enforced: `archive::cleanup()` had no production caller and the FTS cap deleted
+  only DB rows, orphaning the (much larger) `.txt` blobs. The store therefore
+  grew unbounded on disk and starved the host of RAM via the page cache.
+  `cleanup()` now enforces both the age TTL and the on-disk size budget, prunes
+  the content files and FTS index together (no more orphans), runs at MCP start
+  and periodically off the hot path, and `lean-ctx cache prune` reclaims the
+  archive too.
+- **`doctor` reported the proxy as broken on Windows (#416)** — proxy autostart
+  has no backend on Windows, so `doctor` treated its absence as a hard failure
+  (a permanent 27/28). The proxy check is now platform-aware: a reachable proxy
+  is green, an unreachable proxy on a platform without autostart is a warning
+  (run `lean-ctx proxy start`), and "running but autostart not installed" is a
+  warning rather than a failure on macOS/Linux.
+- **`setup` reported compression settings it never saved (#415)** — the wizard
+  printed "✓ Compression: …" before writing and swallowed the write error, so a
+  failed save still looked successful. Success (and the rules-prompt injection)
+  is now reported only after the config is actually persisted. `doctor` also
+  displayed "power" for an unpinned install; it now correctly reports
+  "lean (default)".
+- **A data dir split across two trees could not be merged (#414)** — when both a
+  legacy (`~/.lean-ctx`) and an XDG tree held a `stats.json`, the old migration
+  bailed and `doctor` pointed at `lean-ctx setup` instead of `doctor --fix`.
+  `doctor --fix` now consolidates every non-canonical data tree into the
+  canonical one (newer file wins, never clobbering a newer copy) before the XDG
+  split, the hint points to the right command, and `$XDG_DATA_HOME/lean-ctx` is
+  included in split detection.
+
 ## [3.8.5] — 2026-06-14
 
 ### Added
