@@ -35,6 +35,7 @@ const COCKPIT_COMPONENT_ROI_JS: &str = include_str!("static/components/cockpit-r
 const COCKPIT_COMPONENT_AREA_TABS_JS: &str = include_str!("static/components/cockpit-area-tabs.js");
 const COCKPIT_COMPONENT_PROTECTION_JS: &str =
     include_str!("static/components/cockpit-protection.js");
+const COCKPIT_COMPONENT_SETTINGS_JS: &str = include_str!("static/components/cockpit-settings.js");
 
 // Vendored third-party libraries — embedded so the dashboard works fully offline
 // (no external CDN). Served as text via the standard route pipeline.

@@ -20,6 +20,7 @@ const COCKPIT_AREAS = [
       { tab: 'contents', view: 'context', label: 'Contents' },
       { tab: 'live', view: 'live', label: 'Live Activity' },
       { tab: 'lab', view: 'compression', label: 'Compression Lab' },
+      { tab: 'settings', view: 'settings', label: 'Settings' },
     ],
   },
   {
@@ -104,6 +105,7 @@ const KNOWN_ROUTES = [
   'callgraph',
   'architecture',
   'explorer',
+  'settings',
 ];
 
 const ROUTE_LABELS = {
@@ -127,6 +129,7 @@ const ROUTE_LABELS = {
   explorer: 'Explorer',
   health: 'Guards',
   protection: 'Risk & Policies',
+  settings: 'Settings',
 };
 
 // One-line, plain-language explanation shown as a hint banner under the top bar.
@@ -151,6 +154,7 @@ const ROUTE_DESCRIPTIONS = {
   explorer: 'Browse files and symbols as a tree.',
   health: 'Reliability, verification, anomalies and gotcha guards.',
   protection: 'Context risk warnings and the OWASP agentic-risk coverage map.',
+  settings: 'Flip compression, tool profile, structure-first and terse from the UI.',
 };
 
 /** @type {Record<string, () => void | Promise<void>>} */
@@ -366,6 +370,7 @@ function initRouter() {
     explorer: 'explorerView',
     health: 'healthView',
     protection: 'protectionView',
+    settings: 'settingsView',
   };
   for (var viewId in viewElementMap) {
     if (Object.prototype.hasOwnProperty.call(viewElementMap, viewId)) {

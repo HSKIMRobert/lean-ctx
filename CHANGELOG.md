@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [3.8.7] — 2026-06-15
 
+### Added
+- **Dashboard: sort the live call feed by per-call cost (#426)** — the Live
+  Activity feed already showed per-call detail (tool, file/query, tokens in →
+  out, tokens saved, read mode); it now has a **Sort** selector — Recent / Top
+  saved / Largest / Slowest — so you can rank tool calls by cost and instantly
+  see which reads/searches/shell calls were expensive vs cheap. Read-only,
+  reuses the existing `/api/events` journal data; no new routes.
+- **Dashboard: Quick Settings — flip core switches from the UI (#427)** — a new
+  **Settings** tab (Context area) flips the four high-impact, mid-session
+  switches without dropping to the terminal: compression level
+  (off/lite/standard/max), tool profile (minimal/standard/power/lean),
+  `structure_first` (on/off) and terse agent (off/lite/full/ultra). Writes go
+  through a new `/api/settings` endpoint that inherits the dashboard's
+  Bearer-token auth and CSRF-`Origin` check, validates every value against the
+  config schema **and** a fixed four-key allow-list (no arbitrary config keys
+  are writable), and persists to `config.toml` exactly like the matching CLI
+  commands. Settings pinned by a `LEAN_CTX_*` environment variable are flagged
+  in the UI so a toggle never silently no-ops.
+
 ### Fixed
 - **macOS TCC "Documents" prompt — definitive structural fix (#356)** — the
   privacy prompt asking to access your *Documents* folder, which kept returning

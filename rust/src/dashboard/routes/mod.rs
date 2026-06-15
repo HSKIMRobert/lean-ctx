@@ -9,6 +9,7 @@ mod learning;
 mod memory;
 mod risk;
 mod roi;
+mod settings;
 mod signals;
 mod stats;
 mod system;
@@ -38,6 +39,7 @@ fn match_component_path(path: &str) -> Option<String> {
         "/static/components/cockpit-roi.js" => super::COCKPIT_COMPONENT_ROI_JS,
         "/static/components/cockpit-area-tabs.js" => super::COCKPIT_COMPONENT_AREA_TABS_JS,
         "/static/components/cockpit-protection.js" => super::COCKPIT_COMPONENT_PROTECTION_JS,
+        "/static/components/cockpit-settings.js" => super::COCKPIT_COMPONENT_SETTINGS_JS,
         _ => return None,
     };
     Some(content.to_string())
@@ -156,6 +158,7 @@ pub fn route_response(
         .or_else(|| graph::handle(path, query_str, method, body))
         .or_else(|| agents::handle(path, query_str, method, body))
         .or_else(|| tools::handle(path, query_str, method, body))
+        .or_else(|| settings::handle(path, query_str, method, body))
         .or_else(|| system::handle(path, query_str, method, body))
         .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
 }
