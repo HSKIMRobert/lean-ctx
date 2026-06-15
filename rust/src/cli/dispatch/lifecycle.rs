@@ -275,7 +275,9 @@ pub(super) fn resolve_install_path() -> std::path::PathBuf {
 
 /// Returns true if a symlink target points into a Homebrew Cellar / linuxbrew
 /// store — i.e. a `brew`-managed shim that can go stale and shadow the
-/// dev-installed binary on PATH (#559).
+/// dev-installed binary on PATH (#559). Unix-only: Homebrew shims do not exist
+/// on Windows, where `reconcile_binary_drift` is a no-op.
+#[cfg(unix)]
 fn is_homebrew_cellar_link(target: &std::path::Path) -> bool {
     let s = target.to_string_lossy();
     s.contains("/Cellar/") || s.contains("/linuxbrew/")
@@ -388,7 +390,7 @@ pub(super) fn spawn_proxy_if_needed() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::is_homebrew_cellar_link;
     use std::path::Path;
