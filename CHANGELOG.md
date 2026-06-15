@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [3.8.6] — 2026-06-15
 
+### Added
+- **CodeBuddy AI platform support (#423)** — CodeBuddy joins Claude Code / Codex
+  as a first-class agent: detection, `init` / `setup` / `uninstall`, MCP wiring
+  at `~/.codebuddy/mcp.json`, dedicated rules injection, and the same path-jail
+  protection as `.claude` / `.codex` (`~/.codebuddy` in `IDE_CONFIG_DIRS`, the
+  broad-root guard, and the home/agent-dir checks). Thanks @studyzy.
+- **Structure-first cold reads (`structure_first`, #361)** — an opt-in bias (off
+  by default; env `LEAN_CTX_STRUCTURE_FIRST`) for `auto` to prefer `map` on a
+  cold read of a medium-sized source file. It is the one read saving that
+  survives a phase-isolated harness (no warm-session re-read to amortise a full
+  read) and is capability-safe: the active-diagnostic / edit-fail / small-file
+  guards still force `full`.
+- **`gain` now reports net-of-injection bill impact (#361)** — `lean-ctx gain`
+  (and `gain --json`) surface the observed proxy turns, the total injected
+  overhead (per-turn tax × turns) and `net_tokens_saved` (which can go negative
+  and says so), so the meter reconciles to the provider bill instead of a
+  tool-local ratio. The proxy persists its request count to make this honest.
+- **Faithful benchmark arm config (#361)** — `bench/agent-task/r2/` ships a
+  zero-injection, capability-safe lean-ctx arm (`rules_injection=off`, minimal
+  tool profile, `structure_first`, proxy on with cache-aware pruning) plus the pi
+  extension config and proxy env wiring, so an independent benchmark runs
+  lean-ctx "installed = running as designed".
+
+### Changed
+- **Suspect files are never compressed away on a fix task (#361)** — when the
+  task text explicitly names a file (e.g. "fix the sort in versioncmp.c"), `auto`
+  now forces `full` for that file ahead of any compression-favouring intent, so
+  the agent always gets the body it needs to localise and edit the defect.
+- **The proxy protects build/test fidelity and foreign tools (#361)** — a
+  generic/foreign shell `tool_result` that looks like a build failure or test run
+  is preserved verbatim at the wire (compiler errors, panics and test summaries
+  kept intact), and vendor-prefixed tools (`forge_read`, `pi.shell`, …) are now
+  classified by name segment so a foreign source read is protected and a foreign
+  shell log is compressed. Request-body compression is deterministic, keeping the
+  provider prompt-cache prefix byte-stable.
+- **The pi extension can route shell through `ctx_shell` (#361)** — a new
+  `routeShell` opt-in (env `LEAN_CTX_PI_ROUTE_SHELL`, implied by `replace` mode)
+  suppresses the native `bash` builtin so build/test/log output is compressed and
+  metered (lossless for signal), while the read/list/search builtins stay
+  available alongside `ctx_*`.
+
 ### Fixed
 - **`[archive]` could exhaust host RAM and force a reboot (#417)** — archived
   tool outputs (`.txt` + `.meta.json` + SQLite FTS) were written on every large
@@ -102,6 +143,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   store with an empty (legacy/global) root or a still-existing root is never
   touched, and only the explicit prune commands delete (never the background
   lifecycle), so a temporarily-unmounted drive can't trigger data loss.
+- **`auto_update_mcp = false` was ignored by the hooks-layer MCP writers (#281)**
+  — the hooks integration still registered and rewrote MCP server entries even
+  when `auto_update_mcp` was disabled, contradicting the setting's contract. The
+  hooks-layer writers now honour the flag on every path, so a user who opts out
+  of automatic MCP registration is respected (the proxy/daemon paths already
+  did).
 
 ## [3.8.5] — 2026-06-14
 
