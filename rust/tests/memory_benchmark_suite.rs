@@ -49,6 +49,27 @@ async fn call_tool_json(
     v
 }
 
+/// Poll `cond` up to ~10s. The memory stores are persisted on a background
+/// thread (the consolidation pipeline), so asserting immediately after a tool
+/// call returns raced the writer and made this test flaky under full-suite load
+/// (#215). Polling keeps the assertion strict (it still fails if the artifact
+/// never lands) while tolerating scheduling latency.
+async fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
+    for _ in 0..200 {
+        if cond() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    cond()
+}
+
+/// True once `dir` exists and contains at least one entry. Tolerates the dir not
+/// existing yet (the background writer may not have created it).
+fn dir_has_entry(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut it| it.next().is_some())
+}
+
 #[allow(clippy::await_holding_lock)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn memory_benchmark_suite_persists_core_artifacts() {
@@ -156,7 +177,8 @@ async fn memory_benchmark_suite_persists_core_artifacts() {
     )
     .await;
 
-    // 4) Assert artifacts exist on disk.
+    // 4) Assert artifacts exist on disk. Persistence runs on a background thread,
+    //    so poll with a bounded timeout rather than asserting immediately (#215).
     let knowledge = lean_ctx::core::knowledge::ProjectKnowledge::load_or_create(&root_str);
     let knowledge_dir = data_dir
         .path()
@@ -164,38 +186,37 @@ async fn memory_benchmark_suite_persists_core_artifacts() {
         .join(&knowledge.project_hash);
 
     assert!(
-        knowledge_dir.join("knowledge.json").exists(),
+        wait_until(|| knowledge_dir.join("knowledge.json").exists()).await,
         "expected knowledge.json to exist"
     );
     assert!(
-        knowledge_dir.join("relations.json").exists(),
+        wait_until(|| knowledge_dir.join("relations.json").exists()).await,
         "expected relations.json to exist (relate said: {relate_resp})"
     );
 
-    let graph =
+    let edge_present = wait_until(|| {
         lean_ctx::core::knowledge_relations::KnowledgeRelationGraph::load(&knowledge.project_hash)
-            .expect("load relations graph");
-    assert!(
-        graph.edges.iter().any(|e| {
-            e.from.category == "arch"
-                && e.from.key == "db"
-                && e.to.category == "arch"
-                && e.to.key == "cache"
-        }),
-        "expected at least one relation edge"
-    );
+            .is_some_and(|graph| {
+                graph.edges.iter().any(|e| {
+                    e.from.category == "arch"
+                        && e.from.key == "db"
+                        && e.to.category == "arch"
+                        && e.to.key == "cache"
+                })
+            })
+    })
+    .await;
+    assert!(edge_present, "expected at least one relation edge");
 
     let episodes_dir = data_dir.path().join("memory").join("episodes");
-    let mut entries = std::fs::read_dir(&episodes_dir).expect("episodes dir exists");
     assert!(
-        entries.next().is_some(),
+        wait_until(|| dir_has_entry(&episodes_dir)).await,
         "expected at least one episodic store file"
     );
 
     let procs_dir = data_dir.path().join("memory").join("procedures");
-    let mut entries = std::fs::read_dir(&procs_dir).expect("procedures dir exists");
     assert!(
-        entries.next().is_some(),
+        wait_until(|| dir_has_entry(&procs_dir)).await,
         "expected at least one procedural store file"
     );
 
