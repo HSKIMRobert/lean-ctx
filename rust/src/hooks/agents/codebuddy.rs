@@ -171,8 +171,7 @@ fn remove_block(content: &str, start: &str, end: &str) -> String {
 /// The CODEBUDDY.md block is self-contained and detail docs live in the on-demand
 /// skill; only files carrying our rules marker are touched.
 fn remove_codebuddy_rules_file(home: &std::path::Path) {
-    let rules_path =
-        crate::core::editor_registry::codebuddy_rules_dir(home).join("lean-ctx.md");
+    let rules_path = crate::core::editor_registry::codebuddy_rules_dir(home).join("lean-ctx.md");
     let Ok(existing) = std::fs::read_to_string(&rules_path) else {
         return;
     };
@@ -382,7 +381,8 @@ pub(crate) fn install_codebuddy_hook_config(home: &std::path::Path) {
     let redirect_cmd = format!("{binary} hook redirect");
     let observe_cmd = format!("{binary} hook observe");
 
-    let settings_path = crate::core::editor_registry::codebuddy_state_dir(home).join("settings.json");
+    let settings_path =
+        crate::core::editor_registry::codebuddy_state_dir(home).join("settings.json");
     let settings_content = if settings_path.exists() {
         std::fs::read_to_string(&settings_path).unwrap_or_default()
     } else {

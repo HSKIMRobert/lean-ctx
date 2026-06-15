@@ -41,7 +41,9 @@ pub fn run(args: &[String]) {
         "claude-md" => export_claude_md(&high_confidence, &project_root),
         "codebuddy-md" => export_codebuddy_md(&high_confidence, &project_root),
         _ => {
-            eprintln!("Unknown format: {format}. Supported: mdc, agents-md, claude-md, codebuddy-md");
+            eprintln!(
+                "Unknown format: {format}. Supported: mdc, agents-md, claude-md, codebuddy-md"
+            );
             std::process::exit(1);
         }
     }

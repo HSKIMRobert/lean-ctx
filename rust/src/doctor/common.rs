@@ -574,8 +574,7 @@ pub(super) fn codebuddy_instructions_state(
         };
     }
 
-    let codebuddy_md =
-        crate::core::editor_registry::codebuddy_state_dir(home).join("CODEBUDDY.md");
+    let codebuddy_md = crate::core::editor_registry::codebuddy_state_dir(home).join("CODEBUDDY.md");
     let has_block = std::fs::read_to_string(&codebuddy_md)
         .is_ok_and(|c| c.contains(crate::hooks::agents::CODEBUDDY_MD_BLOCK_START));
     if has_block {

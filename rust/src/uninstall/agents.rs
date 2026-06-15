@@ -596,7 +596,10 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
             "CodeBuddy",
             crate::core::editor_registry::codebuddy_state_dir(home).join("CODEBUDDY.md"),
         ),
-        ("CodeBuddy (legacy home)", home.join(".codebuddy/CODEBUDDY.md")),
+        (
+            "CodeBuddy (legacy home)",
+            home.join(".codebuddy/CODEBUDDY.md"),
+        ),
         ("Gemini CLI", home.join(".gemini/GEMINI.md")),
         (
             "Codex CLI",

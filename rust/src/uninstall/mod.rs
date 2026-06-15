@@ -247,7 +247,10 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
 
     // If CODEBUDDY_CONFIG_DIR differs from ~/.codebuddy, also clean default path
     let default_codebuddy_skill = home.join(".codebuddy/skills/lean-ctx");
-    if !skill_dirs.iter().any(|(_, p)| *p == default_codebuddy_skill) {
+    if !skill_dirs
+        .iter()
+        .any(|(_, p)| *p == default_codebuddy_skill)
+    {
         skill_dirs.push(("CodeBuddy (default)", default_codebuddy_skill));
     }
 

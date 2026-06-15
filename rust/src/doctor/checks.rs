@@ -583,7 +583,10 @@ pub(super) fn skill_files_outcome() -> Outcome {
 
     let candidates = [
         ("Claude Code", home.join(".claude/skills/lean-ctx/SKILL.md")),
-        ("CodeBuddy", home.join(".codebuddy/skills/lean-ctx/SKILL.md")),
+        (
+            "CodeBuddy",
+            home.join(".codebuddy/skills/lean-ctx/SKILL.md"),
+        ),
         ("Cursor", home.join(".cursor/skills/lean-ctx/SKILL.md")),
         (
             "Codex CLI",
@@ -937,10 +940,9 @@ pub(super) fn claude_truncation_outcome() -> Option<Outcome> {
 
 pub(super) fn codebuddy_truncation_outcome() -> Option<Outcome> {
     let home = dirs::home_dir()?;
-    let codebuddy_detected =
-        crate::core::editor_registry::codebuddy_mcp_json_path(&home).exists()
-            || crate::core::editor_registry::codebuddy_state_dir(&home).exists()
-            || codebuddy_binary_exists();
+    let codebuddy_detected = crate::core::editor_registry::codebuddy_mcp_json_path(&home).exists()
+        || crate::core::editor_registry::codebuddy_state_dir(&home).exists()
+        || codebuddy_binary_exists();
 
     if !codebuddy_detected {
         return None;

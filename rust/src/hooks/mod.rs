@@ -88,10 +88,9 @@ pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
 use agents::{
     install_amp_hook, install_antigravity_cli_hook, install_antigravity_hook,
     install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
-    install_claude_project_hooks, install_cline_rules,
-    install_codebuddy_hook_config, install_codebuddy_hook_scripts,
-    install_codebuddy_hook_with_mode, install_codebuddy_project_hooks,
-    install_codex_hook, install_copilot_hook,
+    install_claude_project_hooks, install_cline_rules, install_codebuddy_hook_config,
+    install_codebuddy_hook_scripts, install_codebuddy_hook_with_mode,
+    install_codebuddy_project_hooks, install_codex_hook, install_copilot_hook,
     install_crush_hook_with_mode, install_cursor_hook_config, install_cursor_hook_scripts,
     install_cursor_hook_with_mode, install_gemini_hook, install_gemini_hook_config,
     install_gemini_hook_scripts, install_hermes_hook_with_mode, install_jetbrains_hook,

@@ -24,16 +24,16 @@ pub(crate) use antigravity::{
 };
 pub(super) use antigravity::{install_antigravity_cli_hook, install_antigravity_hook};
 pub(crate) use claude::CLAUDE_MD_BLOCK_START;
-pub(crate) use codebuddy::CODEBUDDY_MD_BLOCK_START;
 pub(super) use claude::{
     install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
     install_claude_project_hooks,
 };
+pub(super) use cline::install_cline_rules;
+pub(crate) use codebuddy::CODEBUDDY_MD_BLOCK_START;
 pub(super) use codebuddy::{
     install_codebuddy_hook_config, install_codebuddy_hook_scripts,
     install_codebuddy_hook_with_mode, install_codebuddy_project_hooks,
 };
-pub(super) use cline::install_cline_rules;
 pub use codex::install_codex_hook;
 pub(super) use copilot::install_copilot_hook;
 pub(super) use crush::install_crush_hook_with_mode;

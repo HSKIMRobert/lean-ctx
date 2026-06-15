@@ -383,7 +383,10 @@ pub fn detect_claude_path() -> PathBuf {
 
 pub fn detect_codebuddy_path() -> PathBuf {
     let which_cmd = if cfg!(windows) { "where" } else { "which" };
-    if let Ok(output) = std::process::Command::new(which_cmd).arg("codebuddy").output() {
+    if let Ok(output) = std::process::Command::new(which_cmd)
+        .arg("codebuddy")
+        .output()
+    {
         if output.status.success() {
             return PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
         }

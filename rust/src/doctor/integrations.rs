@@ -1,7 +1,10 @@
 use chrono::Utc;
 use serde::Serialize;
 
-use super::{claude_binary_exists, codebuddy_binary_exists, resolve_lean_ctx_binary, BOLD, DIM, GREEN, RST, WHITE, YELLOW};
+use super::{
+    claude_binary_exists, codebuddy_binary_exists, resolve_lean_ctx_binary, BOLD, DIM, GREEN, RST,
+    WHITE, YELLOW,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct IntegrationsOptions {
