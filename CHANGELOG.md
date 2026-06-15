@@ -23,6 +23,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   are writable), and persists to `config.toml` exactly like the matching CLI
   commands. Settings pinned by a `LEAN_CTX_*` environment variable are flagged
   in the UI so a toggle never silently no-ops.
+- **Dashboard: `--open=browser|none|vscode` reveal control (#424)** — `lean-ctx
+  dashboard` always launched the system browser, which is jarring inside an
+  editor or behind a reverse proxy. A new `--open=<mode>` flag (or `--no-open`),
+  resolved as `--open` > `LEAN_CTX_DASHBOARD_OPEN` > the browser default, picks
+  the reveal behaviour: `browser` (launch the system browser, unchanged default),
+  `none` (start silently and just print the URL) or `vscode` (suppress the
+  external browser and print the VS Code Simple Browser steps). Flag parsing is
+  case-insensitive and falls back to `browser` on an unknown value.
 
 ### Fixed
 - **macOS: the "lean-ctx wants to access your Documents folder" prompt no longer
@@ -81,6 +89,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Note: installing the update that *contains* this fix may show the prompt one
   last time (the old, still-running binary's signature changes as it is
   replaced); after that it stays quiet.
+- **`auto_update_mcp = false` now suppresses MCP writes on every registration
+  path (#281)** — earlier fixes only gated the shared JSON-config writer and
+  `configure_agent_mcp`; the per-agent hook writers (Claude, JetBrains, OpenClaw,
+  Crush, OpenCode) and the editor-registry registration in interactive setup,
+  non-interactive setup and `doctor --fix` still wrote MCP server entries
+  unconditionally. The check is now centralized in `hooks::should_register_mcp()`
+  and applied on every path: hooks, rules and skills still install, only the MCP
+  server entry is withheld. A subprocess regression test guards it.
+- **`ctx_read` map/signatures no longer serve pre-rebuild output after
+  `ctx_index build-full` (#420)** — the CLI `build-full` path cleared the daemon
+  read cache, but the MCP tool runs in the process that owns the `SessionCache`,
+  so a forced rebuild left `ctx_read map`/`signatures` returning stale output.
+  The MCP tool now invalidates the in-process graph cache and clears the
+  `SessionCache` in-process, matching the CLI guarantee.
+- **Dashboard auto-refreshes the active view on data change and tab focus
+  (#425)** — the 10s poll only refreshed the status bar and flagged the manual
+  refresh button; the main panels listen to `lctx:refresh`, which only the manual
+  button dispatched, so stats/metrics stayed static until a reload. The poll now
+  dispatches `lctx:refresh` on a content-hash change while the tab is visible
+  (panels reload in place, preserving UI state), and a `visibilitychange` handler
+  catches up immediately when the tab regains focus.
+- **`lean-ctx watch` backfills recent events on start (#560)** — `watch` set the
+  tail offset to EOF on startup, so an idle launch showed a blank screen even
+  when `events.jsonl` was already populated. It now seeds the view with the last
+  20 events (bounded, O(n) memory) and advances the offset to EOF, so the live
+  poll stream continues without re-emitting them.
+- **Homebrew installs no longer run a stale shadowed binary (#559)** — a
+  brew-managed shim (`/opt/homebrew/bin/lean-ctx` → `../Cellar/lean-ctx/<old>`)
+  could shadow the freshly built `~/.local/bin/lean-ctx` on `PATH`, so the daemon
+  and CLI ran different builds (md5 drift). After installing, lean-ctx repoints
+  any Cellar/linuxbrew shim at the just-installed binary and warns about any other
+  `PATH` entry that still resolves before it. (The drift helper is correctly
+  gated to unix so the Windows cross-compile stays warning-clean.)
+- **JetBrains plugin ships under a discoverable release-asset name (#418)** —
+  `buildPlugin` emitted `lean-ctx-<version>.zip`, indistinguishable from a source
+  archive in the GitHub Release asset list, so the plugin looked "missing" even
+  though it was attached. The artifact is renamed to
+  `lean-ctx-jetbrains-plugin-<version>.zip` before upload, and the release job
+  now fails loudly if `buildPlugin` produced no zip.
 
 ### Security
 - **PathJail keeps resolving symlinks under TCC-protected dirs (#356 follow-up)**
