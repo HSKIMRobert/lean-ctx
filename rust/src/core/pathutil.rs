@@ -14,12 +14,20 @@ pub fn safe_canonicalize(path: &Path) -> std::io::Result<PathBuf> {
     // matching, path normalization, scan-root checks) all funnel through here,
     // so guarding the sink protects them centrally instead of one opt-in check
     // per call site. Return the path unchanged (lexical) rather than touching
-    // the filesystem. Security boundaries (PathJail) call `std::fs::canonicalize`
-    // directly and are intentionally unaffected — they only resolve paths the
-    // client explicitly asked to access, where a prompt is legitimate.
+    // the filesystem. Security boundaries (PathJail) deliberately bypass this
+    // guard via `canonicalize_secure` — they only resolve paths the client
+    // explicitly asked to access, where a prompt is legitimate, and must keep
+    // resolving symlinks to detect jail escapes.
     if !may_probe_path(path) {
         return Ok(path.to_path_buf());
     }
+    canonicalize_raw(path)
+}
+
+/// Raw realpath + Windows-verbatim strip, with **no** TCC guard. Internal sink
+/// shared by [`safe_canonicalize`] (which gates it behind `may_probe_path`) and
+/// [`canonicalize_secure`] (which never gates it).
+fn canonicalize_raw(path: &Path) -> std::io::Result<PathBuf> {
     let canon = std::fs::canonicalize(path)?;
     Ok(strip_verbatim(canon))
 }
@@ -29,16 +37,51 @@ pub fn safe_canonicalize_or_self(path: &Path) -> PathBuf {
     safe_canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// SECURITY canonicalize: always resolves symlinks, even under ~/Documents in a
+/// launchd-standalone process. PathJail relies on this to detect symlink jail
+/// escapes (#356 must never weaken the security boundary). A standalone process
+/// only reaches here for a path the client *explicitly* asked to access, where a
+/// one-time TCC prompt is legitimate — unlike the self-initiated heuristic
+/// probes that [`safe_canonicalize`] suppresses.
+pub fn canonicalize_secure(path: &Path) -> std::io::Result<PathBuf> {
+    canonicalize_raw(path)
+}
+
+/// Like `canonicalize_secure` but returns the original path on failure.
+pub fn canonicalize_secure_or_self(path: &Path) -> PathBuf {
+    canonicalize_secure(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// Canonicalize with a timeout guard. Protects against hangs on WSL2 DrvFS,
 /// Windows reparse points, NFS, FUSE, sshfs, and other slow filesystems.
 /// Falls back to the original path if canonicalize doesn't complete within the timeout.
 /// Self-healing: after a timeout, subsequent calls to slow mounts skip the thread entirely.
+///
+/// Heuristic variant — honours the #356 TCC guard (see [`safe_canonicalize`]).
 pub fn safe_canonicalize_bounded(path: &Path, timeout_ms: u64) -> PathBuf {
+    canonicalize_bounded_with(path, timeout_ms, safe_canonicalize_or_self)
+}
+
+/// SECURITY variant of [`safe_canonicalize_bounded`] — bypasses the #356 TCC
+/// guard so PathJail keeps resolving symlinks to detect jail escapes. See
+/// [`canonicalize_secure`] for why a prompt here (explicit request) is legitimate.
+pub fn canonicalize_secure_bounded(path: &Path, timeout_ms: u64) -> PathBuf {
+    canonicalize_bounded_with(path, timeout_ms, canonicalize_secure_or_self)
+}
+
+/// Shared timeout machinery for the bounded canonicalizers. `resolve` selects
+/// the guarded (`safe_canonicalize_or_self`) or security (`canonicalize_secure_or_self`)
+/// sink so both variants get identical slow-mount/self-healing behaviour.
+fn canonicalize_bounded_with(
+    path: &Path,
+    timeout_ms: u64,
+    resolve: fn(&Path) -> PathBuf,
+) -> PathBuf {
     use super::io_health;
 
     let path_str = path.to_string_lossy();
     if io_health::is_slow_mount(&path_str) && io_health::recent_freeze_count() > 0 {
-        return safe_canonicalize_or_self(path);
+        return resolve(path);
     }
 
     let effective_timeout =
@@ -49,8 +92,7 @@ pub fn safe_canonicalize_bounded(path: &Path, timeout_ms: u64) -> PathBuf {
     let _ = std::thread::Builder::new()
         .name("canonicalize-bounded".into())
         .spawn(move || {
-            let result = safe_canonicalize(&path_owned).unwrap_or(path_owned);
-            let _ = tx.send(result);
+            let _ = tx.send(resolve(&path_owned));
         });
     if let Ok(canonical) = rx.recv_timeout(effective_timeout) {
         canonical
@@ -499,6 +541,35 @@ mod tests {
         std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
         assert!(safe_canonicalize(&missing).is_err());
 
+        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[serial_test::serial]
+    fn canonicalize_secure_bypasses_tcc_guard_for_pathjail() {
+        // SECURITY counterpart to the test above (#356): PathJail must keep
+        // resolving symlinks even when standalone under ~/Documents, so the jail
+        // can detect escapes. `canonicalize_secure` therefore must NOT honour the
+        // guard — it always touches the filesystem. We prove that by feeding a
+        // missing ~/Documents path while standalone: the guarded path returns
+        // Ok(lexical) (no stat), while the secure path Errs (it did stat).
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        let missing = home.join("Documents/lean-ctx-secure-canon-does-not-exist-xyzzy");
+
+        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        // Guarded sink short-circuits (no fs access).
+        assert_eq!(safe_canonicalize(&missing).unwrap(), missing);
+        // Security sink ignores the guard and actually stats -> Err on a missing
+        // path. If this ever returns Ok(lexical), the jail's symlink-escape
+        // detection has silently regressed under ~/Documents.
+        assert!(
+            canonicalize_secure(&missing).is_err(),
+            "canonicalize_secure must bypass the TCC guard and touch the filesystem"
+        );
+        assert_eq!(canonicalize_secure_or_self(&missing), missing);
         std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 

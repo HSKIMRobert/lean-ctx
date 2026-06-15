@@ -67,8 +67,13 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     let mut out = Vec::new();
     let cfg = crate::core::config::Config::load();
 
+    // The allow-list defines the jail boundary, so it must be canonicalized the
+    // same (security, symlink-resolving) way as the candidate it is compared
+    // against — otherwise a guarded (lexical) root vs a resolved candidate would
+    // break `is_under_prefix`. These entries are data_dir / IDE-config dirs /
+    // user-configured paths, virtually never under ~/Documents.
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
-        out.push(canonicalize_or_self(&data_dir));
+        out.push(canonicalize_secure(&data_dir));
     }
 
     if let Some(home) = dirs::home_dir() {
@@ -78,10 +83,10 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     }
 
     for p in &cfg.allow_paths {
-        out.push(canonicalize_or_self(&expand_user_path(p)));
+        out.push(canonicalize_secure(&expand_user_path(p)));
     }
     for p in &cfg.extra_roots {
-        out.push(canonicalize_or_self(&expand_user_path(p)));
+        out.push(canonicalize_secure(&expand_user_path(p)));
     }
 
     // Env entries are expanded too: MCP host configs pass env blocks verbatim
@@ -91,18 +96,14 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
         .unwrap_or_default();
     if !v.trim().is_empty() {
         for p in std::env::split_paths(&v) {
-            out.push(canonicalize_or_self(&expand_user_path(
-                &p.to_string_lossy(),
-            )));
+            out.push(canonicalize_secure(&expand_user_path(&p.to_string_lossy())));
         }
     }
 
     let extra = std::env::var("LEAN_CTX_EXTRA_ROOTS").unwrap_or_default();
     if !extra.trim().is_empty() {
         for p in std::env::split_paths(&extra) {
-            out.push(canonicalize_or_self(&expand_user_path(
-                &p.to_string_lossy(),
-            )));
+            out.push(canonicalize_secure(&expand_user_path(&p.to_string_lossy())));
         }
     }
 
@@ -122,7 +123,7 @@ fn home_allow_dirs(home: &Path, ide_dirs_allowed: bool) -> Vec<PathBuf> {
         }
         let p = home.join(dir);
         if p.exists() {
-            out.push(canonicalize_or_self(&p));
+            out.push(canonicalize_secure(&p));
         }
     }
     out
@@ -132,8 +133,19 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
     path.starts_with(prefix)
 }
 
+/// Heuristic canonicalize — honours the #356 TCC guard. Used by the
+/// jail-disabled bypass and by external callers (session/startup/server roots)
+/// that must not pop a privacy prompt on their own initiative.
 pub fn canonicalize_or_self(path: &Path) -> PathBuf {
     super::pathutil::safe_canonicalize_bounded(path, 2000)
+}
+
+/// SECURITY canonicalize for the jail boundary itself (roots + candidate +
+/// escape re-check). Deliberately bypasses the #356 TCC guard: the jail must
+/// keep resolving symlinks to detect escapes, and it only ever runs on a path
+/// the client explicitly asked to access, where a one-time prompt is legitimate.
+fn canonicalize_secure(path: &Path) -> PathBuf {
+    super::pathutil::canonicalize_secure_bounded(path, 2000)
 }
 
 fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi::OsString>)> {
@@ -141,7 +153,7 @@ fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi:
     let mut remainder: Vec<std::ffi::OsString> = Vec::new();
     loop {
         if cur.exists() {
-            return Some((canonicalize_or_self(&cur), remainder));
+            return Some((canonicalize_secure(&cur), remainder));
         }
         let name = cur.file_name()?.to_os_string();
         remainder.push(name);
@@ -186,7 +198,7 @@ pub fn jail_path_with_roots(
             return Ok(canonicalize_or_self(candidate));
         }
 
-        let root = canonicalize_or_self(jail_root);
+        let root = canonicalize_secure(jail_root);
 
         // Resolve relative candidates against the (absolute) jail root — never the process
         // CWD. The daemon's CWD is not the project, so CWD-relative resolution made
@@ -206,7 +218,7 @@ pub fn jail_path_with_roots(
             extra_roots
                 .iter()
                 .filter(|r| !r.is_empty())
-                .map(|r| canonicalize_or_self(Path::new(r))),
+                .map(|r| canonicalize_secure(Path::new(r))),
         );
 
         let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
@@ -250,7 +262,7 @@ pub fn jail_path_with_roots(
         // Re-validate after reconstruction: if the final path exists, canonicalize
         // and re-check to close TOCTOU window (symlink created between check and use).
         if out.exists() {
-            let final_canon = canonicalize_or_self(&out);
+            let final_canon = canonicalize_secure(&out);
             let final_ok = is_under_prefix(&final_canon, &root)
                 || allow.iter().any(|p| is_under_prefix(&final_canon, p));
             #[cfg(windows)]

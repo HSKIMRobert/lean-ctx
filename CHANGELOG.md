@@ -15,8 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - `safe_canonicalize` — the sink that ~8 heuristic call sites funnel through —
     returns the path lexically (no `stat`/`realpath`) when the process is
     launchd-standalone and the path is under `~/Documents`, `~/Desktop` or
-    `~/Downloads`. Security canonicalization (PathJail) calls
-    `std::fs::canonicalize` directly and is intentionally untouched.
+    `~/Downloads`.
   - every duplicated project-marker probe (`config`, `graph_index`, `setup`,
     `dashboard`, `knowledge_bootstrap`, `graph_provider`) now routes through the
     single guarded `pathutil::has_project_marker`, with one marker set.
@@ -39,6 +38,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Note: installing the update that *contains* this fix may show the prompt one
   last time (the old, still-running binary's signature changes as it is
   replaced); after that it stays quiet.
+
+### Security
+- **PathJail keeps resolving symlinks under TCC-protected dirs (#356 follow-up)**
+  — the #356 choke-point accidentally routed PathJail's canonicalization through
+  the same TCC guard (`canonicalize_or_self` → `safe_canonicalize_bounded` →
+  `safe_canonicalize`), so a launchd-standalone daemon validating a path under
+  `~/Documents` got a *lexical* (unresolved) path and could miss a symlink jail
+  escape. Security canonicalization is now split from heuristic canonicalization:
+  PathJail (jail root, candidate ancestor, extra-roots, TOCTOU re-check, and the
+  allow-list) uses a new unguarded `pathutil::canonicalize_secure[_bounded]` that
+  always resolves symlinks; only self-initiated heuristic probes keep the guard.
+  The jail only ever runs on a path the client explicitly asked for, so a
+  one-time prompt there is legitimate, while #356's self-initiated boot prompts
+  stay suppressed (verified by the `sandbox-exec` boot test plus a new
+  `canonicalize_secure_bypasses_tcc_guard_for_pathjail` unit test).
 
 ## [3.8.6] — 2026-06-15
 
