@@ -357,6 +357,7 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
         Some(report) => {
             let moved = report.moved.len();
             let skipped = report.skipped.len();
+            let conflicts = report.conflicts.len();
             xdg_step.items.push(SetupItem {
                 name: "split".to_string(),
                 status: if moved > 0 {
@@ -366,7 +367,9 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
                 },
                 path: Some(report.source.to_string_lossy().to_string()),
                 note: Some(format!(
-                    "split single-dir install into XDG config/data/state/cache ({moved} moved, {skipped} already present)"
+                    "split single-dir install into XDG config/data/state/cache \
+                     ({moved} moved/merged, {skipped} duplicate(s) dropped, \
+                     {conflicts} kept as *.legacy)"
                 )),
             });
             if !report.errors.is_empty() {

@@ -21,8 +21,14 @@
 //!
 //! - Per-entry `rename` with a cross-filesystem copy+remove fallback; the source
 //!   is only removed after a successful copy, so an aborted run never loses data.
-//! - A destination that already exists is **skipped** (never clobbered), which
-//!   makes re-running after a partial failure safe.
+//! - A destination that already exists is **reconciled, never clobbered** (#429):
+//!   colliding directories are merged child-by-child, a source file byte-identical
+//!   to the destination is dropped as a duplicate, and a genuinely different
+//!   source is moved aside next to the destination under a `*.legacy` name. This
+//!   is what lets the legacy dir fully empty out — the earlier "skip and leave
+//!   the source in place" behaviour meant any pre-existing target (a parallel
+//!   data dir, a half-finished earlier run) left items behind forever, so the
+//!   `doctor` warning never cleared no matter how often `--fix` ran.
 //! - An explicit `LEAN_CTX_DATA_DIR` is treated as a deliberate single-dir
 //!   choice and is **never** auto-split.
 //! - Runtime files (`daemon.pid`, sockets, lock files) are left in place; they
@@ -151,10 +157,15 @@ struct PlannedMove {
 pub struct MigrationReport {
     /// The single directory that was split.
     pub source: PathBuf,
-    /// `(entry, category)` for every entry successfully relocated.
+    /// `(entry, category)` for every entry successfully relocated (moved or
+    /// merged into an existing destination directory).
     pub moved: Vec<(String, &'static str)>,
-    /// Entries skipped because the destination already existed.
+    /// Entries dropped because the destination already held a byte-identical
+    /// copy — nothing new was written; the duplicate source was removed.
     pub skipped: Vec<String>,
+    /// Entries whose destination held *different* data: the source was preserved
+    /// next to the destination under a `*.legacy` name rather than lost (#429).
+    pub conflicts: Vec<String>,
     /// Per-entry move failures (`entry: error`).
     pub errors: Vec<String>,
 }
@@ -165,13 +176,17 @@ impl MigrationReport {
             source: source.to_path_buf(),
             moved: Vec::new(),
             skipped: Vec::new(),
+            conflicts: Vec::new(),
             errors: Vec::new(),
         }
     }
 
     /// Whether the run produced any observable effect worth reporting.
     fn is_empty(&self) -> bool {
-        self.moved.is_empty() && self.skipped.is_empty() && self.errors.is_empty()
+        self.moved.is_empty()
+            && self.skipped.is_empty()
+            && self.conflicts.is_empty()
+            && self.errors.is_empty()
     }
 }
 
@@ -238,26 +253,109 @@ fn move_entry(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// How an entry whose destination already existed was reconciled (#429).
+enum Reconciled {
+    /// Source directory merged into the existing destination directory.
+    Merged,
+    /// Source was a byte-identical duplicate and was dropped.
+    Deduped,
+    /// Destination held different data; source preserved next to it as `*.legacy`.
+    Conflict,
+}
+
 /// Execute the split of `src` into `targets`. Pure with respect to its inputs
 /// (no environment access) so it can be tested hermetically.
 fn migrate_from(src: &Path, targets: &Targets) -> MigrationReport {
     let mut report = MigrationReport::new(src);
     for mv in entries_to_move(src, targets) {
-        if mv.dest.exists() {
-            report.skipped.push(mv.name);
-            continue;
-        }
         if let Err(e) = std::fs::create_dir_all(&mv.dest_dir) {
             report.errors.push(format!("{}: {e}", mv.name));
             continue;
         }
         crate::core::data_dir::ensure_dir_permissions(&mv.dest_dir);
+
+        if mv.dest.exists() {
+            match reconcile_existing(&mv.from, &mv.dest) {
+                Ok(Reconciled::Merged) => report.moved.push((mv.name, mv.category)),
+                Ok(Reconciled::Deduped) => report.skipped.push(mv.name),
+                Ok(Reconciled::Conflict) => report.conflicts.push(mv.name),
+                Err(e) => report.errors.push(format!("{}: {e}", mv.name)),
+            }
+            continue;
+        }
+
         match move_entry(&mv.from, &mv.dest) {
             Ok(()) => report.moved.push((mv.name, mv.category)),
             Err(e) => report.errors.push(format!("{}: {e}", mv.name)),
         }
     }
     report
+}
+
+/// Reconcile a source entry whose destination already exists, without ever
+/// overwriting the destination or leaving the source behind (#429): merge
+/// directories child-by-child, drop byte-identical duplicate files, and preserve
+/// a genuinely different source next to the destination under a `*.legacy` name.
+fn reconcile_existing(from: &Path, dest: &Path) -> std::io::Result<Reconciled> {
+    if from.is_dir() && dest.is_dir() {
+        merge_dir(from, dest)?;
+        return Ok(Reconciled::Merged);
+    }
+    if from.is_file() && dest.is_file() && files_identical(from, dest)? {
+        std::fs::remove_file(from)?;
+        return Ok(Reconciled::Deduped);
+    }
+    // Genuine conflict (differing files, or a file-vs-dir type clash): keep the
+    // destination as the winner and move the source aside, so the legacy dir
+    // can still empty out. Data is preserved, just renamed.
+    let backup = backup_path(dest);
+    move_entry(from, &backup)?;
+    Ok(Reconciled::Conflict)
+}
+
+/// Recursively merge `from`'s children into the existing directory `dest`,
+/// reconciling each per-child collision, then remove `from` once it is empty.
+fn merge_dir(from: &Path, dest: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let child_dest = dest.join(entry.file_name());
+        if child_dest.exists() {
+            reconcile_existing(&entry.path(), &child_dest)?;
+        } else {
+            move_entry(&entry.path(), &child_dest)?;
+        }
+    }
+    // Succeeds only when every child was relocated; a leftover keeps the dir so
+    // nothing is ever silently dropped.
+    let _ = std::fs::remove_dir(from);
+    Ok(())
+}
+
+/// Byte-compare two files, cheaply short-circuiting on differing length.
+fn files_identical(a: &Path, b: &Path) -> std::io::Result<bool> {
+    let (ma, mb) = (std::fs::metadata(a)?, std::fs::metadata(b)?);
+    if ma.len() != mb.len() {
+        return Ok(false);
+    }
+    Ok(std::fs::read(a)? == std::fs::read(b)?)
+}
+
+/// First free `<dest>.legacy`, `<dest>.legacy-2`, … sibling path, so a conflicting
+/// source lives right next to the winner — clearly marked, never lost.
+fn backup_path(dest: &Path) -> PathBuf {
+    let base = dest.as_os_str().to_os_string();
+    let make = |suffix: &str| {
+        let mut s = base.clone();
+        s.push(suffix);
+        PathBuf::from(s)
+    };
+    let mut candidate = make(".legacy");
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = make(&format!(".legacy-{n}"));
+        n += 1;
+    }
+    candidate
 }
 
 /// Returns the single-dir source plus the resolved split targets, or `None`
@@ -392,26 +490,97 @@ mod tests {
     }
 
     #[test]
-    fn second_run_is_noop_and_existing_dest_is_skipped() {
+    fn identical_dest_is_deduped_and_source_cleared() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         let src = root.join("legacy");
         let t = targets_in(root);
 
-        touch(&src, "events.jsonl");
-        let first = migrate_from(&src, &t);
-        assert_eq!(first.moved.len(), 1);
+        // Destination already holds a byte-identical copy.
+        touch(&src, "events.jsonl"); // content "x"
+        std::fs::create_dir_all(&t.state).unwrap();
+        std::fs::write(t.state.join("events.jsonl"), b"x").unwrap();
 
-        // Re-create the source entry to prove an existing dest is never clobbered.
-        touch(&src, "events.jsonl");
-        std::fs::write(t.state.join("events.jsonl"), b"keep").unwrap();
-        let second = migrate_from(&src, &t);
-        assert!(second.moved.is_empty());
-        assert_eq!(second.skipped, vec!["events.jsonl".to_string()]);
+        let report = migrate_from(&src, &t);
+        assert!(report.errors.is_empty());
+        assert!(report.moved.is_empty());
+        assert_eq!(report.skipped, vec!["events.jsonl".to_string()]);
+        assert!(report.conflicts.is_empty());
+        // Duplicate source dropped; destination untouched.
+        assert!(
+            !src.join("events.jsonl").exists(),
+            "duplicate source dropped"
+        );
+        assert_eq!(
+            std::fs::read_to_string(t.state.join("events.jsonl")).unwrap(),
+            "x"
+        );
+        // Legacy dir is now empty → a re-scan plans nothing (warning clears).
+        assert!(entries_to_move(&src, &t).is_empty());
+    }
+
+    #[test]
+    fn conflicting_dest_backs_up_source_and_clears_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = root.join("legacy");
+        let t = targets_in(root);
+
+        touch(&src, "events.jsonl"); // content "x"
+        std::fs::create_dir_all(&t.state).unwrap();
+        std::fs::write(t.state.join("events.jsonl"), b"keep").unwrap(); // differs
+
+        let report = migrate_from(&src, &t);
+        assert!(report.errors.is_empty());
+        assert_eq!(report.conflicts, vec!["events.jsonl".to_string()]);
+        // Winner preserved, source moved aside as *.legacy, legacy dir emptied.
         assert_eq!(
             std::fs::read_to_string(t.state.join("events.jsonl")).unwrap(),
             "keep",
             "existing destination must not be overwritten"
+        );
+        assert_eq!(
+            std::fs::read_to_string(t.state.join("events.jsonl.legacy")).unwrap(),
+            "x",
+            "different source preserved next to the winner"
+        );
+        assert!(!src.join("events.jsonl").exists());
+        assert!(
+            entries_to_move(&src, &t).is_empty(),
+            "warning clears once the source is reconciled"
+        );
+    }
+
+    /// #429: a destination directory that already holds *some* content (a parallel
+    /// data dir, a half-finished earlier run) must be merged, not skipped —
+    /// otherwise the legacy entries linger and `doctor` warns forever no matter
+    /// how often `--fix` runs. After the merge the legacy source is fully empty.
+    #[test]
+    fn dir_collision_merges_and_empties_legacy_429() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let src = root.join("legacy");
+        let t = targets_in(root);
+
+        // Source sessions/ has a new file and a duplicate; dest sessions/ exists
+        // already with its own file plus the same duplicate.
+        touch(&src.join("sessions"), "old.json"); // only in source
+        std::fs::write(src.join("sessions").join("dup.json"), b"same").unwrap();
+        touch(&t.data.join("sessions"), "existing.json"); // only in dest
+        std::fs::write(t.data.join("sessions").join("dup.json"), b"same").unwrap();
+
+        let report = migrate_from(&src, &t);
+        assert!(report.errors.is_empty(), "errors: {:?}", report.errors);
+
+        // Merged: destination keeps its own entry and gains the source-only one.
+        assert!(t.data.join("sessions/existing.json").exists());
+        assert!(t.data.join("sessions/old.json").exists());
+        assert!(t.data.join("sessions/dup.json").exists());
+        // Source dir fully removed → legacy no longer triggers single-dir mode.
+        assert!(!src.join("sessions").exists(), "merged source dir removed");
+        assert!(
+            entries_to_move(&src, &t).is_empty(),
+            "#429: nothing left to migrate after a merge"
         );
     }
 

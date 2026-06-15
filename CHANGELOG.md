@@ -25,6 +25,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   in the UI so a toggle never silently no-ops.
 
 ### Fixed
+- **`doctor --fix` now fully empties `~/.lean-ctx` instead of leaving items behind
+  (#429)** — the XDG split migration skipped any entry whose destination already
+  existed and *left the source in place*. On Windows (and after any partial
+  earlier run or a parallel data dir) the targets routinely pre-existed, so ~30
+  legacy items lingered and `doctor` warned about the single-dir install forever,
+  no matter how often you ran `--fix`. Collisions are now **reconciled instead of
+  skipped**: directories are merged child-by-child, a source file byte-identical
+  to the destination is dropped as a duplicate, and a genuinely different source
+  is moved aside next to the winner under a `*.legacy` name. The destination is
+  never overwritten and nothing is lost, so the legacy directory empties out and
+  the warning clears. `doctor --fix` now reports `N moved/merged, N duplicate(s)
+  dropped, N kept as *.legacy`.
 - **macOS TCC "Documents" prompt — definitive structural fix (#356)** — the
   privacy prompt asking to access your *Documents* folder, which kept returning
   after every `lean-ctx update` despite earlier patches (v3.8.0, v3.8.2), is now
