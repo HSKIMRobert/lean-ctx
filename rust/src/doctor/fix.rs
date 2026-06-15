@@ -385,6 +385,39 @@ pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
     }
     steps.push(xdg_step);
 
+    // Prune knowledge stores whose project_root was deleted (removed git
+    // worktrees, thrown-away projects). They can never be written again, so
+    // their per-store eviction cap can never self-heal — pure accumulated bloat
+    // (GH #615). Only the explicit --fix path deletes; the background lifecycle
+    // never does, since a missing root can also be a temporarily-unmounted drive.
+    let mut orphan_step = SetupStepReport {
+        name: "orphaned_knowledge".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    let prune = crate::core::knowledge::maintenance::prune_orphaned_stores();
+    orphan_step.items.push(SetupItem {
+        name: "prune".to_string(),
+        status: if prune.removed > 0 {
+            format!("removed {}", prune.removed)
+        } else {
+            "clean".to_string()
+        },
+        path: None,
+        note: Some(if prune.removed > 0 {
+            format!(
+                "pruned {} knowledge store(s) for deleted projects ({} reclaimed)",
+                prune.removed,
+                super::common::human_bytes(prune.reclaimed_bytes)
+            )
+        } else {
+            "no knowledge stores for deleted projects".to_string()
+        }),
+    });
+    steps.push(orphan_step);
+
     let mut verify_step = SetupStepReport {
         name: "verify".to_string(),
         ok: true,

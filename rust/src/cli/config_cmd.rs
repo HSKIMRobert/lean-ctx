@@ -666,15 +666,22 @@ pub fn cmd_cache(args: &[String]) {
                 + crate::core::archive_fts::db_size_bytes();
             let archive_freed = archive_before.saturating_sub(archive_after);
 
-            let removed = bm25.removed + graph.removed + archive_removed;
-            let freed = bm25.bytes_freed + graph.bytes_freed + archive_freed;
+            // Reclaim knowledge stores whose project_root was deleted (removed
+            // worktrees, thrown-away projects): they can never be written again,
+            // so their per-store eviction cap can never self-heal — pure bloat (#615).
+            let orphans = crate::core::knowledge::maintenance::prune_orphaned_stores();
+
+            let removed = bm25.removed + graph.removed + archive_removed + orphans.removed as u32;
+            let freed =
+                bm25.bytes_freed + graph.bytes_freed + archive_freed + orphans.reclaimed_bytes;
             println!(
-                "Pruned {} entries, freed {:.1} MB (BM25: {}, graphs: {}, archive: {})",
+                "Pruned {} entries, freed {:.1} MB (BM25: {}, graphs: {}, archive: {}, orphaned stores: {})",
                 removed,
                 freed as f64 / 1_048_576.0,
                 bm25.removed,
                 graph.removed,
                 archive_removed,
+                orphans.removed,
             );
         }
         _ => {
@@ -692,7 +699,7 @@ pub fn cmd_cache(args: &[String]) {
             println!("  cache reset       Reset all cache (or --project for current project only)");
             println!("  cache invalidate  Remove specific file from cache");
             println!(
-                "  cache prune       Remove oversized, quarantined, and orphaned indexes (BM25 + graphs)"
+                "  cache prune       Reclaim BM25 + graph indexes, archive, and orphaned knowledge stores"
             );
         }
     }

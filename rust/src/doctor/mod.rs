@@ -511,6 +511,13 @@ pub fn run() {
         print_check(cw);
     }
 
+    // 19b) Orphaned knowledge stores (deleted projects — reclaimable bloat, #615)
+    let orphan_outcome = orphaned_knowledge_outcome();
+    if orphan_outcome.ok {
+        passed += 1;
+    }
+    print_check(&orphan_outcome);
+
     // 20) Proxy health
     let proxy_health = proxy_health_outcome();
     if proxy_health.ok {
@@ -557,6 +564,7 @@ pub fn run() {
     effective_total += 1; // compact_format_passthrough (#342)
     effective_total += 1; // permission_inheritance
     effective_total += 1; // deprecations (#394)
+    effective_total += 1; // orphaned_knowledge (#615)
     effective_total += cap_warnings.len() as u32;
     effective_total += docker_outcomes.len() as u32;
     if pi.is_some() {

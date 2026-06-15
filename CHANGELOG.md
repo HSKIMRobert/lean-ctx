@@ -85,6 +85,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   import path now runs the memory lifecycle as soon as it exceeds `max_facts`,
   draining the excess by importance (archived, not lost). The eviction invariant
   now holds on every write path (`remember`, `import`, persist-merge).
+- **Knowledge stores for deleted projects accumulated forever (#615)** — a store
+  at `knowledge/<hash>/` is keyed to a `project_root`; when that root is deleted
+  (a removed git worktree, a thrown-away project) the store can never be written
+  again, so its eviction cap can never self-heal and it lingers as pure disk
+  bloat (one such store surfaced live as a permanent `doctor` capacity `CRIT`).
+  `lean-ctx doctor` now reports orphaned stores and the reclaimable size,
+  `lean-ctx cache prune` reclaims them (alongside BM25/graph/archive), and
+  `doctor --fix` prunes them as part of a repair. Detection is conservative — a
+  store with an empty (legacy/global) root or a still-existing root is never
+  touched, and only the explicit prune commands delete (never the background
+  lifecycle), so a temporarily-unmounted drive can't trigger data loss.
 
 ## [3.8.5] — 2026-06-14
 

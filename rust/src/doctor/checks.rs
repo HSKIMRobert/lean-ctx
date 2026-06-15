@@ -1307,6 +1307,29 @@ pub(super) fn ram_guardian_outcome() -> Outcome {
     }
 }
 
+/// Reports knowledge stores whose `project_root` was deleted (removed git
+/// worktrees, thrown-away projects). Such a store can never be written again, so
+/// its eviction cap can never self-heal — it is pure accumulated bloat. This is
+/// informational (never a hard failure); `lean-ctx doctor --fix` reclaims it (#615).
+pub(super) fn orphaned_knowledge_outcome() -> Outcome {
+    let orphans = crate::core::knowledge::maintenance::find_orphaned_stores();
+    if orphans.is_empty() {
+        return Outcome {
+            ok: true,
+            line: format!("{BOLD}Knowledge stores{RST}  {GREEN}no orphaned stores{RST}"),
+        };
+    }
+    let bytes: u64 = orphans.iter().map(|o| o.size_bytes).sum();
+    Outcome {
+        ok: true,
+        line: format!(
+            "{BOLD}Knowledge stores{RST}  {YELLOW}{} orphaned ({} reclaimable){RST}  {DIM}(deleted projects — reclaim: lean-ctx cache prune){RST}",
+            orphans.len(),
+            human_bytes(bytes)
+        ),
+    }
+}
+
 pub(super) fn capacity_warnings() -> Vec<Outcome> {
     let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() else {
         return vec![];

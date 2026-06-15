@@ -3,6 +3,7 @@ mod core;
 mod fact;
 mod format;
 mod import_export;
+pub mod maintenance;
 mod persist;
 mod query;
 mod ranking;
