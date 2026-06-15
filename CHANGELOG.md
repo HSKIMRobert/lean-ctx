@@ -63,6 +63,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   lean core set, so it never appeared in the default ("lean") gate. It is now a
   Core tool and part of the advertised core surface; the setup/doctor tool counts
   are derived dynamically instead of a hard-coded "13".
+- **A cold read could cost more tokens than the raw file (#361)** — an
+  independent benchmark measured `ctx_read` auto-mode payloads up to +21.6%
+  larger than the source on a small codebase: on a tiny file the one-line
+  framing header (file ref + deps/exports summary) is net overhead that only
+  amortises across re-reads, and the CLI one-shot path used a divergent resolver
+  that lacked the small-file guard. `ctx_read` now enforces a hard anti-inflation
+  invariant — a read **never** returns more tokens than the raw file. When
+  framing would exceed the bare content (auto-resolved or `full` reads) the file
+  is shipped verbatim, so a read is break-even at worst and a win whenever a
+  compressed mode or cached re-read applies; an explicitly requested view
+  (`map`/`signatures`/`lines:`) is always honoured untouched. The same guarantee
+  now covers the additive one-shot CLI path, which also routes through the
+  unified auto-mode resolver. Re-reads are unaffected (the cache keys on path and
+  re-derives the file ref).
 
 ## [3.8.5] — 2026-06-14
 

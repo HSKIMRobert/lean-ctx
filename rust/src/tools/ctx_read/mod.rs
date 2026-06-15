@@ -565,6 +565,14 @@ fn handle_with_options_inner(
                 let cache_key = compressed_cache_key(&resolved_mode, crp_mode, task);
                 cache.set_compressed(path, &cache_key, out.clone());
             }
+            // Only guard auto-resolved reads; an explicit mode is a deliberate
+            // view we must return verbatim (#361).
+            let out = if mode == "auto" {
+                let framed_tokens = count_tokens(&out);
+                cap_to_raw(out, framed_tokens, &content, original_tokens)
+            } else {
+                out
+            };
             let out = crate::core::redaction::redact_text_if_enabled(&out);
             let sent = count_tokens(&out);
             return ReadOutput {
@@ -624,6 +632,13 @@ fn handle_with_options_inner(
         if let Some(hint) = similar_hint {
             output.push_str(&format!("\n{hint}"));
         }
+        let framed_tokens = count_tokens(&output);
+        let output = cap_to_raw(
+            output,
+            framed_tokens,
+            &content,
+            store_result.original_tokens,
+        );
         let output = crate::core::redaction::redact_text_if_enabled(&output);
         let sent = count_tokens(&output);
         return ReadOutput {
@@ -660,6 +675,20 @@ fn handle_with_options_inner(
         let cache_key = compressed_cache_key(&resolved_mode, crp_mode, task);
         cache.set_compressed(path, &cache_key, output.clone());
     }
+    // Anti-inflation only kicks in when *we* picked the mode (auto). An explicit
+    // map/signatures/lines request is a deliberate view — honour it verbatim,
+    // even on a tiny file where it happens not to save (#361).
+    let output = if mode == "auto" {
+        let framed_tokens = count_tokens(&output);
+        cap_to_raw(
+            output,
+            framed_tokens,
+            &content,
+            store_result.original_tokens,
+        )
+    } else {
+        output
+    };
     let output = crate::core::redaction::redact_text_if_enabled(&output);
     let final_tokens = count_tokens(&output);
     ReadOutput {
@@ -689,6 +718,33 @@ pub fn is_instruction_file(path: &str) -> bool {
         || lower.contains("/.cursor/rules/")
         || lower.contains("/.claude/rules/")
         || lower.contains("/agents.md")
+}
+
+/// #361 anti-inflation invariant: a `ctx_read` must never cost more tokens than
+/// reading the raw file would. Framing (file-ref header, deps/exports summary,
+/// savings footer, navigation hints) only earns its keep on large files and
+/// repeated reads — on a cold read of a small file it is pure overhead, the
+/// exact inflation an independent benchmark measured (#361). When the framed
+/// payload exceeds the bare content we ship the content verbatim, so a read is
+/// break-even at worst and a win whenever a compressed mode or a cached re-read
+/// applies. Re-reads are unaffected: the cache keys on path and re-derives the
+/// file ref, so dropping the cold header here costs nothing on the next read.
+///
+/// `framed_tokens` and `raw_tokens` are both measured pre-redaction (redaction
+/// is roughly token-neutral and applied to whichever string wins), so the
+/// comparison is apples-to-apples with `original_tokens`. Empty files
+/// (`raw_tokens == 0`) keep their framing so the reader still gets a signal.
+fn cap_to_raw(
+    framed: String,
+    framed_tokens: usize,
+    raw_content: &str,
+    raw_tokens: usize,
+) -> String {
+    if raw_tokens > 0 && framed_tokens > raw_tokens {
+        raw_content.to_string()
+    } else {
+        framed
+    }
 }
 
 /// Delegates to the unified `auto_mode_resolver::resolve()`.

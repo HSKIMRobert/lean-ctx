@@ -24,6 +24,20 @@ use crate::core::tokens::count_tokens;
 
 use super::common::print_savings;
 
+/// #361 anti-inflation guarantee for the additive one-shot CLI path (the pi
+/// default an independent benchmark measured). Mirrors the MCP `cap_to_raw`
+/// invariant: a read must never cost more tokens than the raw file, so when the
+/// framing (`short [NL]` header, deps/API summary, savings footer) would push
+/// the payload past the bare content we ship the content verbatim. Empty files
+/// keep their framing so the reader still gets a signal.
+fn cap_cli_to_raw(framed: String, raw_content: &str, raw_tokens: usize) -> String {
+    if raw_tokens > 0 && count_tokens(&framed) > raw_tokens {
+        raw_content.to_string()
+    } else {
+        framed
+    }
+}
+
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
         eprintln!(
@@ -48,6 +62,9 @@ pub fn cmd_read(args: &[String]) {
         .and_then(|i| args.get(i + 1))
         .map_or("auto", std::string::String::as_str);
     let force_fresh = args.iter().any(|a| a == "--fresh" || a == "--no-cache");
+    // Whether *we* choose the mode (auto): only then do we cap framing to raw.
+    // An explicit mode is a deliberate view we return verbatim (#361).
+    let requested_auto = mode == "auto";
 
     let short = protocol::shorten_path(path);
 
@@ -111,10 +128,12 @@ pub fn cmd_read(args: &[String]) {
             }
             CacheResult::Miss { content } => {
                 let line_count = content.lines().count();
-                println!("{short} [{line_count}L]");
-                println!("{content}");
-                let tok = count_tokens(&content);
-                super::common::cli_track_read(path, "full", tok, tok);
+                let raw_tokens = count_tokens(&content);
+                let framed = format!("{short} [{line_count}L]\n{content}");
+                let output = cap_cli_to_raw(framed, &content, raw_tokens);
+                println!("{output}");
+                let sent = count_tokens(&output);
+                super::common::cli_track_read(path, "full", raw_tokens, sent);
                 return;
             }
         }
@@ -136,15 +155,20 @@ pub fn cmd_read(args: &[String]) {
     let original_tokens = count_tokens(&content);
 
     let mode = if mode == "auto" {
-        if crate::tools::ctx_read::is_instruction_file(path) {
-            "full".to_string()
-        } else {
-            let sig = crate::core::mode_predictor::FileSignature::from_path(path, original_tokens);
-            let predictor = crate::core::mode_predictor::ModePredictor::new();
-            predictor
-                .predict_best_mode(&sig)
-                .unwrap_or_else(|| "full".to_string())
-        }
+        // Unified resolver — the single source of truth shared with the MCP
+        // path. The old CLI-local predictor lacked the small-file / config /
+        // instruction guards, so auto could pick a compressing mode that
+        // inflated a tiny file. Routing through `resolve` fixes that at the
+        // source (#361).
+        crate::core::auto_mode_resolver::resolve(
+            &crate::core::auto_mode_resolver::AutoModeContext {
+                path,
+                token_count: original_tokens,
+                task: None,
+                cache: None,
+            },
+        )
+        .mode
     } else if mode != "full" && crate::tools::ctx_read::is_instruction_file(path) {
         "full".to_string()
     } else {
@@ -195,8 +219,11 @@ pub fn cmd_read(args: &[String]) {
             };
 
             let sent = count_tokens(&output_buf);
-            let savings = protocol::append_savings(&output_buf, original_tokens, sent);
-            output_buf = savings;
+            output_buf = protocol::append_savings(&output_buf, original_tokens, sent);
+            if requested_auto {
+                output_buf = cap_cli_to_raw(output_buf, &content, original_tokens);
+            }
+            let sent = count_tokens(&output_buf);
             println!("{output_buf}");
             super::common::cli_track_read(path, "map", original_tokens, sent);
         }
@@ -205,6 +232,9 @@ pub fn cmd_read(args: &[String]) {
             let mut output_buf = format!("{short} [{line_count}L]");
             for sig in &sigs {
                 output_buf.push_str(&format!("\n{}", sig.to_compact_located()));
+            }
+            if requested_auto {
+                output_buf = cap_cli_to_raw(output_buf, &content, original_tokens);
             }
             println!("{output_buf}");
             let sent = count_tokens(&output_buf);
@@ -250,6 +280,9 @@ pub fn cmd_read(args: &[String]) {
                     }
                 }
             }
+            // Full/verbatim reads never beat raw via framing — if terse didn't
+            // compress below the bare file, ship the file itself (#361).
+            let output = cap_cli_to_raw(output, &content, original_tokens);
             println!("{output}");
             let sent = count_tokens(&output);
             super::common::cli_track_read(path, "full", original_tokens, sent);
