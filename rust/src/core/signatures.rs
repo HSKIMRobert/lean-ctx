@@ -22,6 +22,26 @@ pub struct Signature {
     pub end_line: Option<usize>,
 }
 
+/// Exports not already named by `key_sigs`. Map-mode renderers list the API
+/// with full signatures + line ranges; repeating those same names in an
+/// `exports:` line is pure redundancy. Callers surface only the exports the API
+/// does not already cover (e.g. re-exports or const/type aliases that aren't
+/// captured as signatures), keeping map lossless while dropping duplicates
+/// (#361). Shared by the MCP, CLI, and benchmark map renderers.
+#[must_use]
+pub fn exports_not_in_signatures<'a>(
+    exports: &'a [String],
+    key_sigs: &[&Signature],
+) -> Vec<&'a str> {
+    let api_names: std::collections::HashSet<&str> =
+        key_sigs.iter().map(|s| s.name.as_str()).collect();
+    exports
+        .iter()
+        .map(String::as_str)
+        .filter(|e| !api_names.contains(e))
+        .collect()
+}
+
 impl Signature {
     pub fn no_span() -> Self {
         Self {

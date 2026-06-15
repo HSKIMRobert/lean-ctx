@@ -219,15 +219,18 @@ pub(crate) fn process_mode(
                 output.push_str(&dep_info.imports.join(", "));
             }
 
-            if !dep_info.exports.is_empty() {
-                output.push_str("\n  exports: ");
-                output.push_str(&dep_info.exports.join(", "));
-            }
-
             let key_sigs: Vec<&signatures::Signature> = sigs
                 .iter()
                 .filter(|s| s.is_exported || s.indent == 0)
                 .collect();
+
+            // Drop exports the API section already lists with full signatures
+            // (pure redundant tokens in map mode, #361).
+            let extra_exports = signatures::exports_not_in_signatures(&dep_info.exports, &key_sigs);
+            if !extra_exports.is_empty() {
+                output.push_str("\n  exports: ");
+                output.push_str(&extra_exports.join(", "));
+            }
 
             if !key_sigs.is_empty() {
                 output.push_str("\n  API:");

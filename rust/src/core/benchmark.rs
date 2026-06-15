@@ -227,15 +227,18 @@ fn measure_mode(content: &str, ext: &str, mode: &str, raw_tokens: usize) -> Mode
             if !dep_info.imports.is_empty() {
                 parts.push(format!("deps: {}", dep_info.imports.join(", ")));
             }
-            if !dep_info.exports.is_empty() {
-                parts.push(format!("exports: {}", dep_info.exports.join(", ")));
-            }
-            let key_sigs: Vec<String> = sigs
+            let key_refs: Vec<&signatures::Signature> = sigs
                 .iter()
                 .filter(|s| s.is_exported || s.indent == 0)
-                .map(super::signatures::Signature::to_compact)
                 .collect();
-            if !key_sigs.is_empty() {
+            // Drop exports the API already lists so the benchmark measures the
+            // same deduped map the renderers emit (mirrors ctx_read map, #361).
+            let extra_exports = signatures::exports_not_in_signatures(&dep_info.exports, &key_refs);
+            if !extra_exports.is_empty() {
+                parts.push(format!("exports: {}", extra_exports.join(", ")));
+            }
+            if !key_refs.is_empty() {
+                let key_sigs: Vec<String> = key_refs.iter().map(|s| s.to_compact()).collect();
                 parts.push(key_sigs.join("\n"));
             }
             parts.join("\n")

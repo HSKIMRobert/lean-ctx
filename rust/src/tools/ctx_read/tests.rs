@@ -385,6 +385,35 @@ fn map_mode_includes_signature_line_ranges() {
 }
 
 #[test]
+fn map_mode_omits_exports_already_in_api() {
+    // #361 follow-up: the `exports:` line duplicated symbols the API section
+    // already lists with full signatures + line ranges. Map must not repeat
+    // exports that the API already covers (pure redundant tokens).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lib.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(
+        &path,
+        "pub struct Config {}\n\npub fn build() -> Config { Config {} }\n",
+    )
+    .unwrap();
+
+    let mut cache = SessionCache::new();
+    let result = handle(&mut cache, &p, "map", CrpMode::Off);
+
+    // Both exported symbols stay discoverable via the API section …
+    assert!(
+        result.contains("struct pub Config") && result.contains("fn pub build"),
+        "API section must still list exported symbols: {result}"
+    );
+    // … and the redundant `exports:` line is gone (both are in the API).
+    assert!(
+        !result.contains("exports:"),
+        "map must not repeat exports already shown in API: {result}"
+    );
+}
+
+#[test]
 fn tdd_map_output_carries_symbol_legend() {
     // GL #580: symbol notation must be self-describing for vanilla agents.
     let dir = tempfile::tempdir().unwrap();

@@ -200,13 +200,18 @@ pub fn cmd_read(args: &[String]) {
                 if !dep_info.imports.is_empty() {
                     buf.push_str(&format!("\n  deps: {}", dep_info.imports.join(", ")));
                 }
-                if !dep_info.exports.is_empty() {
-                    buf.push_str(&format!("\n  exports: {}", dep_info.exports.join(", ")));
-                }
-                let key_sigs: Vec<_> = sigs
+                let key_sigs: Vec<&signatures::Signature> = sigs
                     .iter()
                     .filter(|s| s.is_exported || s.indent == 0)
                     .collect();
+                // Drop exports the API section already lists (same symbol in a
+                // fuller form) so map drops the duplicate names — mirrors the
+                // MCP map renderer in ctx_read::render (#361).
+                let extra_exports =
+                    signatures::exports_not_in_signatures(&dep_info.exports, &key_sigs);
+                if !extra_exports.is_empty() {
+                    buf.push_str(&format!("\n  exports: {}", extra_exports.join(", ")));
+                }
                 if !key_sigs.is_empty() {
                     buf.push_str("\n  API:");
                     for sig in &key_sigs {

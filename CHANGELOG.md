@@ -76,7 +76,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (`map`/`signatures`/`lines:`) is always honoured untouched. The same guarantee
   now covers the additive one-shot CLI path, which also routes through the
   unified auto-mode resolver. Re-reads are unaffected (the cache keys on path and
-  re-derives the file ref).
+  re-derives the file ref). Follow-up: `map` mode no longer repeats exports the
+  `API:` section already lists with full signatures — the same symbols were
+  emitted twice (once as a bare `exports:` line, once in `API:`). A shared
+  `exports_not_in_signatures` helper now drives the MCP, CLI **and** benchmark map
+  renderers, so every export is shown exactly once (re-exports/const aliases the
+  API can't capture still surface) and the scorecard measures the deduped output
+  agents actually receive.
 - **A knowledge store could grow to 2× its fact cap on import (#417)** —
   `remember()` hard-caps a project's facts at `max_facts`, but the bulk
   `import_facts()` path still used the old `max_facts * 2` guard, so a
