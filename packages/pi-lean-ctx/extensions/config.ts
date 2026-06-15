@@ -16,6 +16,15 @@ export interface PiLeanCtxFileConfig {
   /** Tool exposure: "additive" (Pi builtins + ctx_*) or "replace" (ctx_* only). */
   mode?: string;
   /**
+   * Suppress only the native `bash` builtin (keep the other Pi builtins) so all
+   * shell runs through `ctx_shell`. In `additive` mode both `bash` and
+   * `ctx_shell` are active and agents tend to pick the uncompressed native
+   * `bash` (the R1 finding: 102 bash / 0 ctx_shell), so build/test output never
+   * gets compressed or metered. Default `false`; `replace` mode already implies
+   * it. Equivalent to `LEAN_CTX_PI_ROUTE_SHELL=1`.
+   */
+  routeShell?: boolean;
+  /**
    * Start the embedded MCP bridge (the persistent session cache). Default
    * `true`; set `false` (or `LEAN_CTX_PI_ENABLE_MCP=0`) to force the one-shot
    * CLI path, which cannot cache across calls.
@@ -53,6 +62,8 @@ export type PiMode = "additive" | "replace";
 /** Fully resolved configuration after merging file, env vars and defaults. */
 export interface ResolvedPiConfig {
   mode: PiMode;
+  /** Force shell through `ctx_shell` by suppressing the native `bash` builtin. */
+  routeShell: boolean;
   enableMcp: boolean;
   /** Binary path from the file; `LEAN_CTX_BIN` still takes precedence at use time. */
   binaryOverride?: string;
@@ -105,6 +116,20 @@ function readFileConfig(path: string): { cfg: PiLeanCtxFileConfig; loaded: boole
 function resolveMode(fileMode: string | undefined): PiMode {
   const raw = (process.env.LEAN_CTX_PI_MODE ?? fileMode ?? "additive").toLowerCase();
   return raw === "replace" ? "replace" : "additive";
+}
+
+/**
+ * Whether the native `bash` builtin should be suppressed so shell runs through
+ * `ctx_shell`. `replace` mode already hides every builtin, so it implies this;
+ * otherwise the env var wins over the file flag, defaulting off (non-regressive
+ * — `additive` users keep native `bash` unless they opt in).
+ */
+export function resolveRouteShell(mode: PiMode, fileRouteShell: unknown): boolean {
+  if (mode === "replace") return true;
+  if (process.env.LEAN_CTX_PI_ROUTE_SHELL !== undefined) {
+    return envFlag("LEAN_CTX_PI_ROUTE_SHELL");
+  }
+  return fileRouteShell === true;
 }
 
 /** Split a comma/whitespace-separated tool list into trimmed, non-empty names. */
@@ -174,8 +199,11 @@ export function loadPiConfig(): ResolvedPiConfig {
   const binaryOverride =
     typeof cfg.binary === "string" && cfg.binary.length > 0 ? cfg.binary : undefined;
 
+  const mode = resolveMode(cfg.mode);
+
   return {
-    mode: resolveMode(cfg.mode),
+    mode,
+    routeShell: resolveRouteShell(mode, cfg.routeShell),
     enableMcp,
     binaryOverride,
     forwardedEnv,

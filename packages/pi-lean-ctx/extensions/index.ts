@@ -333,12 +333,25 @@ export default async function (pi: ExtensionAPI) {
   process.env.LEAN_CTX_COMPRESS = "1";
   process.env.LEAN_CTX_SAVINGS_FOOTER ??= "always";
 
-  // Defer setActiveTools to session_start — runtime actions aren't available during extension load
-  // In "replace" mode, disable Pi builtins and only expose ctx_* tools.
-  // In "additive" mode (default), keep Pi builtins alongside ctx_* tools.
-  if (PI_MODE === "replace") {
+  // Defer setActiveTools to session_start — runtime actions aren't available
+  // during extension load. Which Pi builtins to suppress:
+  //   - "replace" mode → all five (read/bash/ls/find/grep): expose only ctx_*.
+  //   - "additive" + routeShell → just `bash`: route shell through ctx_shell so
+  //     build/test output is compressed and metered, while the read/list/search
+  //     builtins stay available next to ctx_*. Without this, an agent offered
+  //     both `bash` and `ctx_shell` picks the uncompressed native `bash` (the R1
+  //     finding: 102 bash / 0 ctx_shell), so the heaviest addressable surface in
+  //     a fix task — make/reproducer/test logs — never reaches the compressor.
+  //   - "additive" without routeShell → suppress nothing (keep Pi builtins).
+  const suppressedBuiltins = PI_MODE === "replace"
+    ? DISABLED_BUILTIN_TOOLS
+    : PI_CONFIG.routeShell
+      ? new Set(["bash"])
+      : new Set<string>();
+
+  if (suppressedBuiltins.size > 0) {
     pi.on("session_start", () => {
-      const activeTools = pi.getActiveTools().filter((name) => !DISABLED_BUILTIN_TOOLS.has(name));
+      const activeTools = pi.getActiveTools().filter((name) => !suppressedBuiltins.has(name));
       pi.setActiveTools(activeTools);
     });
   }
