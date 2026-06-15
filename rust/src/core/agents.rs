@@ -973,4 +973,74 @@ mod tests {
     fn truncate_short_utf8_unchanged() {
         assert_eq!(truncate("短い", 20), "短い");
     }
+
+    fn test_entry(agent_id: &str, project_root: &str, pid: u32) -> AgentEntry {
+        let now = Utc::now();
+        AgentEntry {
+            agent_id: agent_id.to_string(),
+            agent_type: "cursor".to_string(),
+            role: Some("dev".to_string()),
+            project_root: project_root.to_string(),
+            started_at: now,
+            last_active: now,
+            pid,
+            status: AgentStatus::Active,
+            status_message: None,
+        }
+    }
+
+    /// #419: the wake-up briefing scopes agents to the current project via
+    /// `list_active(Some(root))`. Peers working on *other* projects must never
+    /// leak into the briefing.
+    #[test]
+    fn list_active_scopes_to_project_root() {
+        let mut reg = AgentRegistry::new();
+        reg.agents
+            .push(test_entry("a-1", "/proj/a", std::process::id()));
+        reg.agents
+            .push(test_entry("b-1", "/proj/b", std::process::id()));
+
+        let active_a = reg.list_active(Some("/proj/a"));
+        assert_eq!(active_a.len(), 1);
+        assert_eq!(active_a[0].agent_id, "a-1");
+
+        // Unscoped still sees both.
+        assert_eq!(reg.list_active(None).len(), 2);
+    }
+
+    /// #419: a crashed/exited MCP process leaves an `Active` entry behind.
+    /// `cleanup_stale` must flip it to `Finished` (regardless of age) so
+    /// `list_active` no longer surfaces it as a live peer — the ghost the
+    /// briefing used to show.
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_stale_prunes_dead_pid_from_active_list() {
+        // Reap a child so its PID is guaranteed dead at assertion time.
+        let reaped = {
+            let mut child = std::process::Command::new("true")
+                .spawn()
+                .expect("spawn true");
+            let pid = child.id();
+            child.wait().expect("reap true");
+            pid
+        };
+
+        let mut reg = AgentRegistry::new();
+        reg.agents.push(test_entry("ghost", "/proj/a", reaped));
+        reg.agents
+            .push(test_entry("live", "/proj/a", std::process::id()));
+
+        reg.cleanup_stale(24);
+
+        let ids: Vec<&str> = reg
+            .list_active(Some("/proj/a"))
+            .iter()
+            .map(|a| a.agent_id.as_str())
+            .collect();
+        assert!(ids.contains(&"live"), "live same-project agent must remain");
+        assert!(
+            !ids.contains(&"ghost"),
+            "dead-pid agent must be pruned from the active list (#419)"
+        );
+    }
 }

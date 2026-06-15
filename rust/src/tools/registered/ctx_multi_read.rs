@@ -267,4 +267,42 @@ mod tests {
             );
         }
     }
+
+    /// #421: `ctx_multi_read` used to force `auto`→`full`, so omitting `mode`
+    /// over-expanded every file regardless of the active profile. With no `mode`
+    /// arg the handler must fall back to the profile's effective read mode
+    /// (`auto` by default) and pass it through to `ctx_read` — never silently
+    /// rewrite it to `full`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn omitting_mode_uses_profile_default_not_forced_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("lib.rs");
+        std::fs::write(&p, "fn a() {}\nfn b() {}\n").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        let cache: Arc<RwLock<SessionCache>> = Arc::new(RwLock::new(SessionCache::new()));
+        let session = {
+            let mut s = SessionState::new();
+            s.project_root = Some(root.clone());
+            Arc::new(RwLock::new(s))
+        };
+        let ctx = ctx_with(cache, session, &root);
+        let args = json!({ "paths": [p.to_string_lossy()] })
+            .as_object()
+            .unwrap()
+            .clone();
+
+        let out = tokio::task::block_in_place(|| CtxMultiReadTool.handle(&args, &ctx))
+            .expect("ctx_multi_read returned an error");
+
+        let expected = crate::core::profiles::active_profile()
+            .read
+            .default_mode_effective()
+            .to_string();
+        assert_eq!(
+            out.mode,
+            Some(expected),
+            "omitting mode must use the profile default, not a forced override (#421)"
+        );
+    }
 }
