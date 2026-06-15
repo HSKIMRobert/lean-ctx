@@ -166,6 +166,14 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return resolved("full", "active_diagnostic");
     }
 
+    // Suspect file (#361 capability): the task explicitly names this file
+    // (e.g. "fix the version sort in versioncmp.c"), so the agent is about to
+    // inspect it for the defect. Keep the full body it needs to localize and
+    // edit, ahead of any task-type intent default that might compress it.
+    if task_names_file(ctx.task, ctx.path) {
+        return resolved("full", "task_suspect_file");
+    }
+
     if let Some(mode) = intent_recommended_mode(ctx.task) {
         return resolved(&mode, "intent");
     }
@@ -226,8 +234,20 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return resolved(&predicted, "predictor");
     }
 
-    let heuristic = heuristic_mode(ext, ctx.token_count);
-    resolved(&heuristic, "heuristic")
+    // Cold-read fallback. Every read that reaches here missed the session cache
+    // (a warm hit returns `full`/`diff` above), so on a phase-isolated harness
+    // there is no warm re-read to amortize a `full` cold read. `structure_first`
+    // lets such a host opt into a lower `map` floor for medium code files; all
+    // capability guards (diagnostic / edit-fail / bounce / intent) already ran
+    // above, and the anti-inflation guarantee keeps `map` break-even at worst.
+    let structure_first = crate::core::config::Config::load().structure_first_effective();
+    let heuristic = heuristic_mode(ext, ctx.token_count, structure_first);
+    let source = if structure_first && heuristic == "map" && ctx.token_count <= 6000 {
+        "structure_first"
+    } else {
+        "heuristic"
+    };
+    resolved(&heuristic, source)
 }
 
 /// Unified pressure downgrade table.
@@ -251,6 +271,27 @@ pub fn pressure_downgrade(requested_mode: &str, action: &PressureAction) -> Opti
         },
         PressureAction::NoAction => None,
     }
+}
+
+/// True when the task text explicitly names this file (basename match). A real
+/// filename mention ("versioncmp.c") is a strong suspect signal for a bug-fix;
+/// requiring an extension-bearing, non-trivial basename keeps it precise — the
+/// bare stem in "improve the parser" must not match `parser.rs`. A rare false
+/// positive only costs a little compression on a file the user literally named,
+/// so the failure mode is capability-safe.
+fn task_names_file(task: Option<&str>, path: &str) -> bool {
+    let Some(task) = task else {
+        return false;
+    };
+    let basename = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if basename.len() < 4 || !basename.contains('.') {
+        return false;
+    }
+    task.to_ascii_lowercase()
+        .contains(&basename.to_ascii_lowercase())
 }
 
 fn intent_recommended_mode(task: Option<&str>) -> Option<String> {
@@ -292,7 +333,7 @@ fn bandit_explore(file_path: &str, token_count: usize) -> Option<String> {
     }
 }
 
-fn heuristic_mode(ext: &str, token_count: usize) -> String {
+fn heuristic_mode(ext: &str, token_count: usize, structure_first: bool) -> String {
     if token_count > 8000 {
         if is_code(ext) {
             return "map".to_string();
@@ -304,6 +345,15 @@ fn heuristic_mode(ext: &str, token_count: usize) -> String {
     // needs. Keeping `full` here trades a few hundred tokens per call for
     // fewer round-trips — the right call per the total-task-token principle.
     if token_count > 6000 && is_code(ext) {
+        return "map".to_string();
+    }
+    // Structure-first cold-read floor (#361): on a phase-isolated harness a cold
+    // `full` read never amortizes, so medium code files default to `map`
+    // (deps + exports + key signatures) — cheaper and a better localization
+    // surface. `map` keeps far more than `signatures` (no empty bodies), so the
+    // follow-up-read risk that justifies the 6000 floor above is much lower; the
+    // 500-token floor stays above the trivial files where `full` is already best.
+    if structure_first && token_count > 500 && is_code(ext) {
         return "map".to_string();
     }
     "full".to_string()
@@ -523,5 +573,143 @@ mod tests {
         let result = resolve(&ctx);
         assert_eq!(result.mode, "map");
         assert_eq!(result.source, "intent");
+    }
+
+    #[test]
+    fn task_names_file_matches_explicit_filename() {
+        assert!(task_names_file(
+            Some("fix the version sort in versioncmp.c"),
+            "src/versioncmp.c"
+        ));
+        assert!(task_names_file(
+            Some("why does graph.ts loop?"),
+            "web/src/graph.ts"
+        ));
+    }
+
+    #[test]
+    fn task_names_file_ignores_bare_stems_and_trivia() {
+        // A bare stem mention must not match the file.
+        assert!(!task_names_file(
+            Some("improve the parser"),
+            "src/parser.rs"
+        ));
+        assert!(!task_names_file(None, "src/parser.rs"));
+        // Trivial / extension-less basenames are excluded.
+        assert!(!task_names_file(Some("touch a.c"), "a.c"));
+        assert!(!task_names_file(Some("look at Makefile"), "Makefile"));
+    }
+
+    #[test]
+    fn task_suspect_file_overrides_intent() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-amr-suspect-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        // An explore-style task that would otherwise map (cf.
+        // intent_explore_returns_map) — but it names the file, so the suspect
+        // guard keeps the full body for localization.
+        let ctx = AutoModeContext {
+            path: "large.rs",
+            token_count: 5000,
+            task: Some("how does large.rs build the cache?"),
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(result.mode, "full");
+        assert_eq!(result.source, "task_suspect_file");
+
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn heuristic_full_for_medium_code_by_default() {
+        // Default (structure_first off): medium code stays full so the agent
+        // gets the body in one round-trip on a warm, re-readable session.
+        assert_eq!(heuristic_mode("rs", 1500, false), "full");
+        assert_eq!(heuristic_mode("ts", 1000, false), "full");
+    }
+
+    #[test]
+    fn heuristic_structure_first_maps_medium_code() {
+        // Structure-first: medium code becomes `map` on a cold read.
+        assert_eq!(heuristic_mode("rs", 1500, true), "map");
+        assert_eq!(heuristic_mode("c", 800, true), "map");
+    }
+
+    #[test]
+    fn heuristic_structure_first_keeps_tiny_and_prose_full() {
+        // Below the 500-token floor `full` is already best.
+        assert_eq!(heuristic_mode("rs", 400, true), "full");
+        // Non-code (prose / data) is never structure-first mapped.
+        assert_eq!(heuristic_mode("md", 4000, true), "full");
+        assert_eq!(heuristic_mode("txt", 1000, true), "full");
+    }
+
+    #[test]
+    fn heuristic_large_code_maps_regardless() {
+        assert_eq!(heuristic_mode("rs", 9000, false), "map");
+        assert_eq!(heuristic_mode("rs", 9000, true), "map");
+    }
+
+    /// Bug-fix read pattern: while localizing a planted defect the agent reads
+    /// many medium source files cold. With structure_first the resolver returns
+    /// `map` (cheap, localization-friendly) instead of an un-amortized `full`,
+    /// while every capability guard still takes precedence because it runs
+    /// before this fallback (here: the small-file guard keeps a tiny file full).
+    #[test]
+    fn structure_first_resolve_bugfix_cold_read() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-amr-sf-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        std::env::set_var("LEAN_CTX_STRUCTURE_FIRST", "1");
+
+        let suspect = AutoModeContext {
+            path: "src/versioncmp.c",
+            token_count: 1500,
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&suspect);
+        assert_eq!(result.mode, "map");
+        assert_eq!(result.source, "structure_first");
+
+        let tiny = AutoModeContext {
+            path: "src/util.c",
+            token_count: 120,
+            task: None,
+            cache: None,
+        };
+        assert_eq!(resolve(&tiny).mode, "full");
+
+        std::env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn structure_first_off_keeps_medium_code_full() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-amr-sfoff-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        std::env::set_var("LEAN_CTX_STRUCTURE_FIRST", "0");
+
+        let ctx = AutoModeContext {
+            path: "src/versioncmp.c",
+            token_count: 1500,
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(result.mode, "full");
+        assert_eq!(result.source, "heuristic");
+
+        std::env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

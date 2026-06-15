@@ -212,6 +212,14 @@ pub struct Config {
     /// needs the real package and symbol names. Enable for max exploration savings.
     #[serde(default)]
     pub symbol_map_auto: bool,
+    /// Opt-in: bias `auto` toward structure-first reads (`map`) for medium code
+    /// files on a cold read. Off by default — interactive sessions keep the
+    /// conservative `full` floor that avoids a follow-up body read. Enable for
+    /// phase-isolated harnesses (no warm-session cache payback), where a cold
+    /// `full` read is pure overhead and structure-first reads aid localization.
+    /// Override via the LEAN_CTX_STRUCTURE_FIRST env var.
+    #[serde(default)]
+    pub structure_first: bool,
     /// Team server URL for opt-in savings roll-up.
     /// Set via `lean-ctx config set team_url https://...` or `[team] url` in config.toml.
     /// Override via LEAN_CTX_TEAM_URL env var.
@@ -458,6 +466,7 @@ impl Default for Config {
             content_defined_chunking: false,
             minimal_overhead: true,
             symbol_map_auto: false,
+            structure_first: false,
             team_url: None,
             team_token: None,
             team_auto_push: false,
@@ -600,6 +609,21 @@ impl Config {
     /// Returns `true` if minimal overhead is enabled via env var or config.
     pub fn minimal_overhead_effective(&self) -> bool {
         std::env::var("LEAN_CTX_MINIMAL").is_ok() || self.minimal_overhead
+    }
+
+    /// Returns `true` if structure-first auto reads are enabled.
+    ///
+    /// The `LEAN_CTX_STRUCTURE_FIRST` env var wins over the config field, and
+    /// accepts the usual truthy/falsy spellings so a harness can flip it per run
+    /// (`LEAN_CTX_STRUCTURE_FIRST=0` forces it off even if config enables it).
+    pub fn structure_first_effective(&self) -> bool {
+        match std::env::var("LEAN_CTX_STRUCTURE_FIRST") {
+            Ok(raw) => matches!(
+                raw.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.structure_first,
+        }
     }
 
     /// Returns `true` if minimal overhead should be enabled for this MCP client.

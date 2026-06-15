@@ -247,6 +247,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "structure_first".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(false),
+            "Opt-in: bias `auto` toward structure-first reads (map) for medium code files on a cold read. Off by default — for phase-isolated harnesses with no warm-session cache payback. Override via LEAN_CTX_STRUCTURE_FIRST",
+            "LEAN_CTX_STRUCTURE_FIRST",
+        ),
+    );
+    root.insert(
         "journal_enabled".into(),
         key(
             "bool",
