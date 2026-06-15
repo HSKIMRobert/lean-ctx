@@ -389,29 +389,33 @@ mod tests {
     #[test]
     fn daily_trend_groups_by_utc_day_and_averages() {
         let now = now_unix();
+        // Anchor both "today" samples to the start of the current UTC day. A naive
+        // `now` / `now - 60` pair straddles midnight when the suite runs within 60s
+        // of a UTC day rollover, yielding a spurious third day (flaky in CI).
+        let day = now - (now % 86_400);
         let stats = EchoStats {
             reports: vec![
-                // Two reports today: avg of 0.2 and 0.6 = 0.4.
+                // Two samples on the same UTC day (today): avg of 0.2 and 0.6 = 0.4.
                 EchoReport {
                     echo_ratio: 0.2,
-                    recorded_unix: now,
+                    recorded_unix: day + 100,
                     ..Default::default()
                 },
                 EchoReport {
                     echo_ratio: 0.6,
-                    recorded_unix: now.saturating_sub(60),
+                    recorded_unix: day + 200,
                     ..Default::default()
                 },
-                // One report two days ago.
+                // One sample two UTC days ago.
                 EchoReport {
                     echo_ratio: 1.0,
-                    recorded_unix: now.saturating_sub(2 * 86_400),
+                    recorded_unix: day - 2 * 86_400 + 100,
                     ..Default::default()
                 },
-                // Outside the window — must be excluded.
+                // Outside the 14-day window — must be excluded.
                 EchoReport {
                     echo_ratio: 1.0,
-                    recorded_unix: now.saturating_sub(30 * 86_400),
+                    recorded_unix: day - 30 * 86_400,
                     ..Default::default()
                 },
             ],
