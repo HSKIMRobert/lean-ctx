@@ -17,40 +17,31 @@ impl McpTool for CtxSemanticSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_semantic_search",
-            "Semantic code search (BM25 + embeddings/hybrid + reranking). action=reindex|find_related.",
+            "Concept/semantic code search (hybrid BM25+embeddings). Use when keyword ctx_search misses intent.",
             json!({
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Natural language or symbol search query" },
-                    "path": { "type": "string", "description": "Project root to search (default: .)" },
-                    "top_k": { "type": "integer", "description": "Number of results (default: 10)" },
+                    "query": { "type": "string", "description": "Natural-language or symbol query" },
+                    "path": { "type": "string", "description": "Project root (default: .)" },
+                    "top_k": { "type": "integer", "description": "Result count (default 10)" },
                     "action": {
                         "type": "string",
                         "enum": ["search", "reindex", "find_related"],
-                        "description": "search (default), reindex to rebuild, find_related for chunk-based similarity"
+                        "description": "search (default)|reindex|find_related"
                     },
                     "mode": {
                         "type": "string",
                         "enum": ["bm25", "dense", "hybrid"],
-                        "description": "Search mode (default: hybrid)"
+                        "description": "bm25|dense|hybrid (default hybrid)"
                     },
-                    "file_path": {
-                        "type": "string",
-                        "description": "For find_related: source file path (relative to project root)"
-                    },
-                    "line": {
-                        "type": "integer",
-                        "description": "For find_related: line number in the source file"
-                    },
+                    "file_path": { "type": "string", "description": "find_related: source file (rel)" },
+                    "line": { "type": "integer", "description": "find_related: line number" },
                     "languages": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Optional: restrict to languages/extensions"
+                        "description": "Restrict to languages/exts"
                     },
-                    "path_glob": {
-                        "type": "string",
-                        "description": "Optional: glob over relative file paths"
-                    }
+                    "path_glob": { "type": "string", "description": "Glob over rel paths" }
                 },
                 "required": ["query"]
             }),

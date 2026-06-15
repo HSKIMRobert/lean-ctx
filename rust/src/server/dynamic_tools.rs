@@ -83,10 +83,15 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         // Provider + URL/Git readers + the MCP gateway are Core: gateways to
         // external context (GitHub issues, Jira, Postgres, web pages, YouTube,
         // remote git repos, downstream MCP servers) — always available.
-        "ctx_provider" | "ctx_url_read" | "ctx_git_read" | "ctx_tools" => ToolCategory::Core,
+        // ctx_semantic_search is a first-class retrieval tool (advertised in the
+        // lean core, #422) — keep it Core so the default category gate never hides
+        // it, the very reason agents stopped reaching for it.
+        "ctx_provider" | "ctx_url_read" | "ctx_git_read" | "ctx_tools" | "ctx_semantic_search" => {
+            ToolCategory::Core
+        }
 
-        // Memory: on-demand semantic tools
-        "ctx_semantic_search" | "ctx_artifacts" => ToolCategory::Memory,
+        // Memory: on-demand artifact retrieval
+        "ctx_artifacts" => ToolCategory::Memory,
 
         // Batch: on-demand batch/PR/sandbox tools
         "ctx_fill" | "ctx_execute" | "ctx_pack" | "ctx_plan" | "ctx_control" | "ctx_compile" => {
@@ -323,7 +328,7 @@ mod tests {
         state.set_supports_list_changed(true);
         assert!(state.is_tool_active("ctx_read"));
         assert!(state.is_tool_active("ctx_architecture"));
-        assert!(state.is_tool_active("ctx_semantic_search"));
+        assert!(state.is_tool_active("ctx_artifacts"));
         assert!(!state.is_tool_active("ctx_benchmark"));
         assert!(!state.is_tool_active("ctx_fill"));
     }
@@ -335,7 +340,7 @@ mod tests {
         assert!(state.is_tool_active("ctx_read"));
         assert!(!state.is_tool_active("ctx_architecture"));
         assert!(!state.is_tool_active("ctx_benchmark"));
-        assert!(!state.is_tool_active("ctx_semantic_search"));
+        assert!(!state.is_tool_active("ctx_artifacts"));
     }
 
     // --- from_config: all categories ---
@@ -441,7 +446,7 @@ mod tests {
         let cats = vec!["semantic".to_string()];
         let mut state = DynamicToolState::from_config(&cats);
         state.set_supports_list_changed(true);
-        assert!(state.is_tool_active("ctx_semantic_search"));
+        assert!(state.is_tool_active("ctx_artifacts"));
     }
 
     // --- from_config: subsequent load/unload still works ---
@@ -505,7 +510,8 @@ mod tests {
         assert_eq!(categorize_tool("ctx_read"), ToolCategory::Core);
         assert_eq!(categorize_tool("ctx_graph"), ToolCategory::Core);
         assert_eq!(categorize_tool("ctx_benchmark"), ToolCategory::Debug);
-        assert_eq!(categorize_tool("ctx_semantic_search"), ToolCategory::Memory);
+        assert_eq!(categorize_tool("ctx_semantic_search"), ToolCategory::Core);
+        assert_eq!(categorize_tool("ctx_artifacts"), ToolCategory::Memory);
         assert_eq!(categorize_tool("ctx_metrics"), ToolCategory::Internal);
         assert_eq!(categorize_tool("ctx_workflow"), ToolCategory::Session);
     }

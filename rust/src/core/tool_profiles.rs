@@ -6,7 +6,7 @@ use std::fmt;
 /// while letting power users keep everything.
 ///
 /// When NO profile is pinned (no config key, no env var), the server
-/// advertises only the lazy core set (~13 tools, `CORE_TOOL_NAMES`) and the
+/// advertises only the lazy core set (`CORE_TOOL_NAMES`) and the
 /// effective profile falls back to `Power` — which acts as a pure call-gate
 /// ("everything reachable via ctx_call"), not as an advertisement list.
 /// Pinning a profile makes the advertised set explicit and authoritative
@@ -197,7 +197,7 @@ pub fn set_profile_in_config(profile_name: &str) -> Result<(), String> {
 }
 
 /// Removes the `tool_profile` key from config.toml, restoring the lean
-/// default: only the lazy core set (~13 tools) is advertised in `tools/list`,
+/// default: only the lazy core set is advertised in `tools/list`,
 /// while every registered tool stays reachable through `ctx_call`. This is
 /// the recommended low-overhead mode (#575).
 pub fn clear_profile_in_config() -> Result<(), String> {

@@ -294,10 +294,15 @@ mod tests {
     /// session pays — keep it bounded. Per-tool cap keeps any single schema
     /// from bloating; the total cap keeps the whole advertised surface lean.
     /// (Raw registry defs, before description compression — worst case.)
+    ///
+    /// The total grew with the 14th core tool, `ctx_semantic_search` (#422):
+    /// it joined the lean core so agents discover semantic search by default
+    /// instead of never reaching for it. The per-tool cap (300) still guards
+    /// individual bloat; the total budget is sized to that 14-tool surface.
     #[test]
     fn core_tool_surface_stays_within_budget() {
         const PER_TOOL_BUDGET: usize = 300;
-        const TOTAL_BUDGET: usize = 2000;
+        const TOTAL_BUDGET: usize = 2220;
 
         let _guard = crate::core::data_dir::isolated_data_dir();
         let core = crate::tool_defs::core_tool_names();

@@ -21,7 +21,7 @@ impl McpTool for CtxKnowledgeTool {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "remember|recall|search|pattern|gotcha|feedback|relate|unrelate|relations|relations_diagram|consolidate|status|health|lifecycle_report|remove|export|timeline|rooms|wakeup|policy|embeddings_status|embeddings_reset|embeddings_reindex"
+                        "description": "remember|recall|search|pattern|gotcha|relate|relations|consolidate|status|timeline|rooms|wakeup|remove|export (also: feedback, unrelate, relations_diagram, health, lifecycle_report, policy, embeddings_*)"
                     },
                     "trigger": { "type": "string", "description": "gotcha: what triggers it" },
                     "resolution": { "type": "string", "description": "gotcha: the fix" },
