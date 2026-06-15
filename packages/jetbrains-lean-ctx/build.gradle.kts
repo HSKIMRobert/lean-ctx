@@ -8,8 +8,9 @@ plugins {
     id("org.jetbrains.intellij.platform")
 }
 
-group = "com.leanctx"
-version = "3.8.3"
+// group + version are defined once in gradle.properties (single source of truth).
+// The Release workflow overrides the version from the git tag via `-Pversion=<x.y.z>`
+// so the published plugin always mirrors the lean-ctx release it ships with.
 
 repositories {
     mavenCentral()

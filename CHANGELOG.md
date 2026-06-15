@@ -35,6 +35,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   canonical one (newer file wins, never clobbering a newer copy) before the XDG
   split, the hint points to the right command, and `$XDG_DATA_HOME/lean-ctx` is
   included in split detection.
+- **JetBrains plugin now ships as a downloadable GitHub Release asset (#418)** —
+  the plugin `.zip` is built and attached to every release. It was missing from
+  v3.8.5 because the plugin's `Release Asset` job only ran on `release` events,
+  which a `GITHUB_TOKEN`-created release never triggers. The plugin version is now
+  single-sourced in `gradle.properties` and mirrors the engine release via
+  `-Pversion=<tag>`, so it can no longer drift (it had been stuck at 3.8.3).
 
 ## [3.8.5] — 2026-06-14
 

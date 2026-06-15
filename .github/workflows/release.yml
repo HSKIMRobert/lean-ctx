@@ -223,6 +223,41 @@ jobs:
             lean-ctx-*.zip
             SHA256SUMS
 
+  jetbrains-plugin:
+    # Build the JetBrains/IntelliJ plugin and attach it to the GitHub Release as a
+    # downloadable .zip (#418). The plugin's own workflow only runs on plugin source
+    # changes; the GITHUB_TOKEN-created release here does not trigger other workflows,
+    # so the asset must be produced from inside this release pipeline. `-Pversion`
+    # mirrors the tag so the plugin version never drifts from the engine release.
+    name: Attach JetBrains Plugin
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-rc') }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build plugin distribution
+        working-directory: packages/jetbrains-lean-ctx
+        run: ./gradlew buildPlugin -Pversion="${GITHUB_REF_NAME#v}" --console=plain
+
+      - name: Attach plugin ZIP to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" packages/jetbrains-lean-ctx/build/distributions/*.zip --clobber
+
   publish-crates:
     name: Publish to crates.io
     needs: release

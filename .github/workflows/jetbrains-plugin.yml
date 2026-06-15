@@ -11,9 +11,10 @@ on:
     paths:
       - 'packages/jetbrains-lean-ctx/**'
       - '.github/workflows/jetbrains-plugin.yml'
-  release:
-    types: [ prereleased, released ]
 
+# Release packaging lives in release.yml (the `jetbrains-plugin` job attaches the
+# plugin .zip to each GitHub Release). This workflow is CI-only: validate + build +
+# test on plugin source changes.
 permissions:
   contents: read
 
@@ -104,36 +105,3 @@ jobs:
         with:
           name: jetbrains-tests-result
           path: packages/jetbrains-lean-ctx/build/reports/tests
-
-  # Attaches the built plugin ZIP to the GitHub Release as a downloadable asset.
-  # No JetBrains Marketplace publish — download-only, version mirrors lean-ctx (gradle.properties).
-  release:
-    name: Release Asset
-    needs: [ build, test ]
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - name: Fetch Sources
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: zulu
-          java-version: 21
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Build plugin distribution
-        run: ./gradlew buildPlugin --console=plain
-
-      - name: Upload Release Asset
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${{ github.event.release.tag_name }}" ./build/distributions/*.zip
