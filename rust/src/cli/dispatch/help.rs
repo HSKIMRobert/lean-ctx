@@ -147,7 +147,7 @@ COMMANDS:
     cep                            CEP report (compression metrics, cache, modes, trends)
     verify-cache [path] [--json]   Prove the session cache: re-read collapses to a ~13-token stub
     watch                          Live TUI dashboard (real-time event stream)
-    dashboard [--port=N] [--host=H] [--base-path=/prefix]  Open web dashboard (default: http://localhost:3333)
+    dashboard [--port=N] [--host=H] [--base-path=/prefix] [--open=browser|none|vscode]  Open web dashboard (default: http://localhost:3333)
     serve [--host H] [--port N]    MCP over HTTP (Streamable HTTP, local-first)
     proxy start [--port=4444]      API proxy: compress tool_results before LLM API
     proxy status                   Show proxy statistics

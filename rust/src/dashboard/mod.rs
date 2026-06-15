@@ -68,7 +68,10 @@ pub async fn start(
     host: Option<String>,
     base_path: Option<String>,
     auth_token: Option<String>,
+    open_mode: Option<String>,
 ) {
+    // How to reveal the URL once the server is up: --open= flag > env > browser.
+    let open = resolve_open_mode(open_mode.as_deref());
     let port = port.unwrap_or_else(|| {
         std::env::var("LEAN_CTX_PORT")
             .ok()
@@ -113,9 +116,12 @@ pub async fn start(
         }
         println!("  Tip: use Ctrl+C in the existing terminal to stop it.\n");
         if let Some(t) = load_saved_token() {
-            open_browser(&format!("http://localhost:{port}{base_path}/?token={t}"));
+            open_dashboard_url(
+                &format!("http://localhost:{port}{base_path}/?token={t}"),
+                open,
+            );
         } else {
-            open_browser(&format!("http://localhost:{port}{base_path}/"));
+            open_dashboard_url(&format!("http://localhost:{port}{base_path}/"), open);
         }
         return;
     }
@@ -186,9 +192,12 @@ pub async fn start(
 
     if is_local {
         if let Some(t) = token.as_ref() {
-            open_browser(&format!("http://localhost:{port}{base_path}/?token={t}"));
+            open_dashboard_url(
+                &format!("http://localhost:{port}{base_path}/?token={t}"),
+                open,
+            );
         } else {
-            open_browser(&format!("http://localhost:{port}{base_path}/"));
+            open_dashboard_url(&format!("http://localhost:{port}{base_path}/"), open);
         }
     }
     if crate::shell::is_container() && is_local {
@@ -322,6 +331,47 @@ fn hex_lower(bytes: &[u8]) -> String {
         out.push(HEX[(b & 0x0f) as usize] as char);
     }
     out
+}
+
+/// How `lean-ctx dashboard` reveals the URL after the server is up (#424).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DashboardOpen {
+    /// Launch the system default browser (historical default).
+    Browser,
+    /// Don't auto-launch anything — just print the URL. For users who run the
+    /// dashboard inside an editor / reverse proxy and don't want a new window.
+    None,
+    /// Suppress the external browser and print the steps to open the URL in
+    /// VS Code's built-in browser. VS Code exposes no stable CLI flag to open
+    /// its Simple/Integrated Browser, so we guide rather than fake it.
+    Vscode,
+}
+
+/// Resolve the open mode from (in precedence order) the `--open=` flag, the
+/// `LEAN_CTX_DASHBOARD_OPEN` env var, else the `browser` default.
+fn resolve_open_mode(flag: Option<&str>) -> DashboardOpen {
+    let raw = flag
+        .map(str::to_string)
+        .or_else(|| std::env::var("LEAN_CTX_DASHBOARD_OPEN").ok())
+        .unwrap_or_default();
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "none" | "off" | "false" | "no" => DashboardOpen::None,
+        "vscode" | "code" | "editor" => DashboardOpen::Vscode,
+        _ => DashboardOpen::Browser,
+    }
+}
+
+/// Reveal `url` to the user according to `mode`.
+fn open_dashboard_url(url: &str, mode: DashboardOpen) {
+    match mode {
+        DashboardOpen::Browser => open_browser(url),
+        DashboardOpen::None => {}
+        DashboardOpen::Vscode => {
+            println!(
+                "  \x1b[2mOpen in VS Code: ⇧⌘P → \"Simple Browser: Show\" → paste the URL above\x1b[0m"
+            );
+        }
+    }
 }
 
 fn open_browser(url: &str) {
@@ -734,6 +784,34 @@ mod tests {
     fn check_auth_with_invalid_bearer() {
         let req = "GET /api/stats HTTP/1.1\r\nAuthorization: Bearer wrong_token\r\n\r\n";
         assert!(!check_auth(req, "lctx_abc123"));
+    }
+
+    #[test]
+    fn open_mode_flag_parses_all_variants() {
+        // Explicit flag wins and never consults the environment (#424).
+        assert_eq!(resolve_open_mode(Some("none")), DashboardOpen::None);
+        assert_eq!(resolve_open_mode(Some("off")), DashboardOpen::None);
+        assert_eq!(resolve_open_mode(Some("no")), DashboardOpen::None);
+        assert_eq!(resolve_open_mode(Some("vscode")), DashboardOpen::Vscode);
+        assert_eq!(resolve_open_mode(Some("code")), DashboardOpen::Vscode);
+        assert_eq!(resolve_open_mode(Some("editor")), DashboardOpen::Vscode);
+        assert_eq!(resolve_open_mode(Some("VSCode")), DashboardOpen::Vscode);
+        assert_eq!(resolve_open_mode(Some("browser")), DashboardOpen::Browser);
+        // Unknown values fall back to the historical default rather than erroring.
+        assert_eq!(resolve_open_mode(Some("wat")), DashboardOpen::Browser);
+    }
+
+    #[test]
+    fn open_mode_env_is_used_when_no_flag() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("LEAN_CTX_DASHBOARD_OPEN", "none");
+        assert_eq!(resolve_open_mode(None), DashboardOpen::None);
+        std::env::set_var("LEAN_CTX_DASHBOARD_OPEN", "vscode");
+        assert_eq!(resolve_open_mode(None), DashboardOpen::Vscode);
+        // Flag still overrides the env var.
+        assert_eq!(resolve_open_mode(Some("browser")), DashboardOpen::Browser);
+        std::env::remove_var("LEAN_CTX_DASHBOARD_OPEN");
+        assert_eq!(resolve_open_mode(None), DashboardOpen::Browser);
     }
 
     #[test]

@@ -390,7 +390,16 @@ pub(super) fn cmd_dashboard(rest: &[String]) {
             "  lean-ctx dashboard --auth-token=<token>     Pin the Bearer token (alias --token; overrides LEAN_CTX_HTTP_TOKEN)"
         );
         println!("  lean-ctx dashboard --export        Export HTML report (replaces visualize)");
+        println!(
+            "  lean-ctx dashboard --open=none      Start without launching a browser (also --no-open)"
+        );
+        println!(
+            "  lean-ctx dashboard --open=vscode    Don't launch external browser; print VS Code Simple Browser steps"
+        );
         println!("Environment:");
+        println!(
+            "  LEAN_CTX_DASHBOARD_OPEN=browser|none|vscode  Default reveal mode (overridden by --open=)."
+        );
         println!(
             "  LEAN_CTX_HTTP_TOKEN=<token>   Pin the dashboard Bearer token (stable across restarts — ideal behind a reverse proxy). Overridden by --auth-token. Unset → a random token is generated each start."
         );
@@ -449,8 +458,20 @@ pub(super) fn cmd_dashboard(rest: &[String]) {
                 .or_else(|| p.strip_prefix("--token="))
         })
         .map(String::from);
+    // `--open=<browser|none|vscode>`: how to reveal the URL once the server is
+    // up. `--no-open` is shorthand for `--open=none` (#424). Overrides
+    // LEAN_CTX_DASHBOARD_OPEN.
+    let open_mode = if rest.iter().any(|a| a == "--no-open") {
+        Some("none".to_string())
+    } else {
+        rest.iter()
+            .find_map(|p| p.strip_prefix("--open="))
+            .map(String::from)
+    };
     super::spawn_proxy_if_needed();
-    super::run_async(dashboard::start(port, host, base_path, auth_token));
+    super::run_async(dashboard::start(
+        port, host, base_path, auth_token, open_mode,
+    ));
 }
 
 pub(super) fn cmd_watch(rest: &[String]) {
