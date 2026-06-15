@@ -136,6 +136,29 @@ pub async fn try_daemon_request(method: &str, path: &str, body: &str) -> Option<
     daemon_request(method, path, body).await.ok()
 }
 
+/// Tell a *running* daemon to drop its in-memory read cache (`SessionCache`).
+/// Returns `true` if a daemon was reached. Never auto-starts a daemon — if none
+/// is running there is no cache to flush. Force-rebuild CLI commands call this so
+/// `ctx_read` map/signatures stop serving pre-rebuild output from the daemon's
+/// long-lived cache, which CLI index rebuilds otherwise can't reach (#420).
+pub fn notify_cache_clear() -> bool {
+    if !daemon::is_daemon_running() {
+        return false;
+    }
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        return false;
+    };
+    let body = serde_json::json!({
+        "name": "ctx_cache",
+        "arguments": { "action": "clear" },
+    });
+    rt.block_on(async {
+        try_daemon_request("POST", "/v1/tools/call", &body.to_string())
+            .await
+            .is_some()
+    })
+}
+
 /// Blocking helper for CLI commands: calls a daemon tool if the daemon is running.
 /// Returns `None` if the daemon is not running or the call fails.
 /// Attempts to auto-start the daemon if it's not already running.

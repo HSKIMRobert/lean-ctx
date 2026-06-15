@@ -74,6 +74,15 @@ pub(crate) fn cmd_index(args: &[String]) {
             } else {
                 eprintln!(" done");
             }
+
+            // build-full is an explicit "make everything fresh". Drop the in-process
+            // graph cache and flush the running daemon's read cache too, so ctx_read
+            // map/signatures don't keep serving pre-rebuild output from the daemon's
+            // long-lived SessionCache in another process (#420).
+            crate::core::graph_cache::invalidate(Some(&project_root));
+            if crate::daemon_client::notify_cache_clear() {
+                eprintln!("  Daemon read cache flushed — ctx_read re-derives on next read.");
+            }
         }
         Some("build-graph") => {
             let root_str = project_root.clone();
