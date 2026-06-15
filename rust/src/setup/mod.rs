@@ -151,9 +151,16 @@ pub fn run_setup() {
     terminal_ui::print_step_header(3, 12, "AI Tool Detection");
 
     let targets = crate::core::editor_registry::build_targets(&home);
+    // #281: in MCP-disabled environments (`auto_update_mcp = false`) editors are
+    // still detected and hooks/rules still install, but the MCP server is never
+    // written into their configs.
+    let update_mcp = crate::core::config::Config::load()
+        .setup
+        .should_update_mcp();
     let mut newly_configured: Vec<&str> = Vec::new();
     let mut already_configured: Vec<&str> = Vec::new();
     let mut not_installed: Vec<&str> = Vec::new();
+    let mut mcp_skipped: Vec<&str> = Vec::new();
     let mut errors: Vec<&str> = Vec::new();
 
     for target in &targets {
@@ -161,6 +168,15 @@ pub fn run_setup() {
 
         if !target.detect_path.exists() {
             not_installed.push(target.name);
+            continue;
+        }
+
+        if !update_mcp {
+            terminal_ui::print_status_ok(&format!(
+                "{:<20} \x1b[2mMCP registration skipped (auto_update_mcp=false)\x1b[0m",
+                target.name
+            ));
+            mcp_skipped.push(target.name);
             continue;
         }
 
@@ -199,7 +215,7 @@ pub fn run_setup() {
     }
 
     let total_ok = newly_configured.len() + already_configured.len();
-    if total_ok == 0 && errors.is_empty() {
+    if total_ok == 0 && errors.is_empty() && mcp_skipped.is_empty() {
         terminal_ui::print_status_warn(
             "No AI tools detected. Install one and re-run: lean-ctx setup",
         );
@@ -825,6 +841,11 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     };
 
     let targets = crate::core::editor_registry::build_targets(&home);
+    // #281: honor `auto_update_mcp = false` — editors are still detected and
+    // reported, but the MCP server is never registered in their configs.
+    let update_mcp = crate::core::config::Config::load()
+        .setup
+        .should_update_mcp();
     for target in &targets {
         let short_path = shorten_path(&target.config_path.to_string_lossy(), &home_str);
         if !target.detect_path.exists() {
@@ -842,6 +863,18 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         } else {
             recommend_hook_mode(&target.agent_key)
         };
+
+        if !update_mcp {
+            editor_step.items.push(SetupItem {
+                name: target.name.to_string(),
+                status: "skipped".to_string(),
+                path: Some(short_path),
+                note: Some(format!(
+                    "mode={mode}; MCP registration skipped (auto_update_mcp=false)"
+                )),
+            });
+            continue;
+        }
 
         let res = crate::core::editor_registry::write_config_with_options(
             target,

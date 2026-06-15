@@ -12,7 +12,10 @@ pub(crate) fn install_claude_hook_with_mode(global: bool, mode: HookMode) {
     install_claude_hook_scripts(&home);
     install_claude_hook_config(&home);
 
-    if matches!(mode, HookMode::Hybrid | HookMode::Mcp) {
+    // #281: register the MCP server only when MCP updates are enabled. The hook
+    // scripts/config above and the rules/skill below still install, so an
+    // MCP-disabled setup keeps the CLI integration without an MCP entry.
+    if matches!(mode, HookMode::Hybrid | HookMode::Mcp) && super::super::should_register_mcp() {
         install_claude_mcp_server(&home);
     }
 

@@ -30,7 +30,9 @@ pub(crate) fn install_opencode_hook_with_mode(mode: HookMode) {
 
     if shadow {
         remove_opencode_mcp_config(&config_path, display_path);
-    } else {
+    } else if super::super::should_register_mcp() {
+        // #281: register the lean-ctx MCP server only when MCP updates are
+        // enabled. The shadow plugin and dedicated-rules handling below still run.
         match mode {
             HookMode::Mcp | HookMode::Hybrid => {
                 if config_path.exists() {

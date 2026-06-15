@@ -231,12 +231,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   store with an empty (legacy/global) root or a still-existing root is never
   touched, and only the explicit prune commands delete (never the background
   lifecycle), so a temporarily-unmounted drive can't trigger data loss.
-- **`auto_update_mcp = false` was ignored by the hooks-layer MCP writers (#281)**
-  — the hooks integration still registered and rewrote MCP server entries even
-  when `auto_update_mcp` was disabled, contradicting the setting's contract. The
-  hooks-layer writers now honour the flag on every path, so a user who opts out
-  of automatic MCP registration is respected (the proxy/daemon paths already
-  did).
+- **`auto_update_mcp = false` was still ignored on several MCP registration
+  paths (#281)** — earlier fixes gated the shared JSON-config writer and the
+  editor-target helper (`configure_agent_mcp`), but the per-agent hook writers
+  (Claude, JetBrains, OpenClaw, Crush, OpenCode) and the editor-registry
+  registration in interactive `setup`, non-interactive `setup` and `doctor --fix`
+  still wrote MCP server entries unconditionally. Every registration path now
+  honours the flag: hooks, rules and skills still install, only the MCP *server*
+  entry is withheld, so a locked-down environment stays MCP-free after
+  `setup`/`onboard`/`init`/`doctor --fix`.
 
 ## [3.8.5] — 2026-06-14
 

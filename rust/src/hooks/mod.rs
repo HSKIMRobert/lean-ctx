@@ -633,6 +633,18 @@ The workspace has the `lean-ctx` MCP server installed. You MUST prefer lean-ctx 
 - When running tests or build commands, use `mcp_lean_ctx_ctx_shell` for compressed output
 ";
 
+/// #281: whether the hooks layer may register the lean-ctx MCP server in an
+/// agent's config. Honors `[setup] auto_update_mcp`. Hooks, rules and skills
+/// still install when this is `false` — only the MCP-server writes are gated, so
+/// MCP-disabled environments stay free of MCP entries. Centralised here so every
+/// per-agent writer shares one source of truth (the shared JSON writer in
+/// `support.rs` enforces the same gate for `mcpServers`-style agents).
+pub(crate) fn should_register_mcp() -> bool {
+    crate::core::config::Config::load()
+        .setup
+        .should_update_mcp()
+}
+
 pub fn install_agent_hook(agent: &str, global: bool) {
     install_agent_hook_with_mode(agent, global, HookMode::Mcp);
 }
