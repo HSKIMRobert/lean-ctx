@@ -424,3 +424,14 @@ fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<S
 pub fn compress_if_beneficial_pub(command: &str, output: &str) -> String {
     compress_if_beneficial(command, output)
 }
+
+/// Preserve build/test output verbatim, applying only the safety-line-preserving
+/// head/tail truncation when it is oversized.
+///
+/// The proxy funnel uses this when a foreign shell tool produced unmistakable
+/// build/test output but supplied no recognizable command — the engine's
+/// command-gated verbatim guards cannot fire, yet compiler errors, panics and
+/// test summaries must still reach the model intact for a bug-fix task.
+pub(crate) fn preserve_verbatim_pub(output: &str) -> String {
+    truncate_verbatim(output, count_tokens(output))
+}

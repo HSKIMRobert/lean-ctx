@@ -32,7 +32,61 @@ pub fn compress_tool_result(content: &str, tool_name: Option<&str>) -> String {
     }
 
     let cmd = infer_command(content, tool_name);
+
+    // Proxy fidelity guard. A foreign shell tool gives us at most a generic
+    // command (`"shell"`) or none, so the engine's command-gated build/test
+    // verbatim guards never fire. When the *output* is unmistakably a build or
+    // test run, preserve it verbatim (bounded by safety-line-preserving
+    // truncation) so compiler errors, panics and test summaries reach the model
+    // intact — the exact signal a bug-fix task depends on.
+    let generic_command = cmd.is_empty() || cmd == "shell";
+    if generic_command
+        && (output_looks_like_test_run(content) || output_looks_like_build_failure(content))
+    {
+        return crate::shell::compress::engine::preserve_verbatim_pub(content);
+    }
+
     crate::shell::compress::engine::compress_if_beneficial(&cmd, content)
+}
+
+/// Strong, ecosystem-spanning signals that an output is a *test run* (passing or
+/// failing). Conservative — matches the summary/result lines a bug-fix task must
+/// never lose. Only consulted on the proxy path when the real command is unknown.
+fn output_looks_like_test_run(content: &str) -> bool {
+    const NEEDLES: &[&str] = &[
+        "test result:",            // rust
+        "short test summary info", // pytest
+        " passed in ",             // pytest summary
+        " failed in ",             // pytest summary
+        "=== RUN",                 // go
+        "--- FAIL:",               // go
+        "--- PASS:",               // go
+        "Test Suites:",            // jest
+        " examples, ",             // rspec ("5 examples, 0 failures")
+        "FAILED",                  // generic test failure marker
+    ];
+    NEEDLES.iter().any(|n| content.contains(n))
+}
+
+/// Strong, specific signals of a build / compile / runtime failure across the
+/// major toolchains. Used only on the proxy path for generically-named tools so
+/// the failing diagnostics (paths, lines, messages) survive intact.
+fn output_looks_like_build_failure(content: &str) -> bool {
+    const NEEDLES: &[&str] = &[
+        "error[",                            // rustc (E0277 …)
+        ": error:",                          // gcc / clang "file.c:12:5: error:"
+        "fatal error:",                      // gcc / clang
+        "undefined reference to",            // linker
+        "panicked at",                       // rust runtime
+        "could not compile",                 // cargo
+        "Traceback (most recent call last)", // python
+        "AssertionError",                    // python / junit
+        "make: ***",                         // make
+        "Build FAILED",
+        "BUILD FAILED",
+        "Segmentation fault",
+    ];
+    NEEDLES.iter().any(|n| content.contains(n))
 }
 
 /// True when `content` is a lean-ctx web read: distilled body + citation footer
@@ -192,5 +246,55 @@ mod tests {
     fn shell_log_is_not_treated_as_prose() {
         let log = "$ cargo build\n   Compiling foo v0.1.0\n    Finished dev\n".repeat(20);
         assert!(!looks_like_prose(&log));
+    }
+
+    #[test]
+    fn foreign_shell_build_failure_preserved_verbatim() {
+        // A forge/pi-style shell tool: the name says "shell" and the output has
+        // no `$ cmd` hint, so the engine's command-gated guards cannot fire. The
+        // compiler error must still reach the model intact for a bug-fix task.
+        let mut log = String::from("gcc -O2 -c src/versioncmp.c -o versioncmp.o\n");
+        log.push_str("src/versioncmp.c: In function 'version_cmp':\n");
+        log.push_str(
+            "src/versioncmp.c:142:17: error: invalid operands to binary < (have 'char *' and 'int')\n",
+        );
+        for i in 0..40 {
+            log.push_str(&format!("  note: expansion context line {i}\n"));
+        }
+        log.push_str("make: *** [Makefile:23: versioncmp.o] Error 1\n");
+
+        let out = compress_tool_result(&log, Some("shell"));
+        assert!(
+            out.contains("versioncmp.c:142:17: error:"),
+            "compiler error must survive the proxy"
+        );
+        assert!(
+            out.contains("make: ***"),
+            "make failure summary must survive"
+        );
+    }
+
+    #[test]
+    fn foreign_shell_test_failure_preserved_verbatim() {
+        let mut log = String::from("running 3 tests\n");
+        log.push_str("test version::tests::sorts_numeric ... FAILED\n");
+        for i in 0..40 {
+            log.push_str(&format!("note line {i} with some filler content here\n"));
+        }
+        log.push_str("test result: FAILED. 2 passed; 1 failed; 0 ignored\n");
+
+        let out = compress_tool_result(&log, Some("bash"));
+        assert!(
+            out.contains("test result: FAILED"),
+            "test summary must survive the proxy"
+        );
+        assert!(out.contains("sorts_numeric ... FAILED"));
+    }
+
+    #[test]
+    fn plain_shell_log_not_forced_verbatim() {
+        let log = "Listening on port 8080\nRequest received from 10.0.0.2\n".repeat(20);
+        assert!(!output_looks_like_test_run(&log));
+        assert!(!output_looks_like_build_failure(&log));
     }
 }

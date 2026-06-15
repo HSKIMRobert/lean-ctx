@@ -17,8 +17,11 @@ impl McpTool for CtxShellTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_shell",
-            "Run a shell command. Prefer over native Shell/Bash (compressed output).\n\
-             cwd persists across calls.",
+            "Run a shell command with compressed output. Prefer over native Shell/Bash.\n\
+             Especially for build/test/log commands (cargo, make, npm, pytest, \
+             go test, …), the heaviest output in a session. Compression is \
+             lossless for signal: compiler errors, test results and panics are \
+             kept verbatim. cwd persists across calls.",
             json!({
                 "type": "object",
                 "properties": {
