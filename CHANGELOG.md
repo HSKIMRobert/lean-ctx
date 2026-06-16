@@ -22,7 +22,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `[proxy] allow_insecure_http_upstream = true`; the startup banner and `doctor`
   flag the plaintext hop so it stays a conscious choice. Documented end-to-end in
   `docs/reference/05-advanced.md`, including the `supports_websockets = false`
-  Codex HTTP/SSE setup (a bridge until native WebSocket `/responses` lands).
+  Codex HTTP/SSE setup as an alternative to the native WebSocket transport below.
+- **Native WebSocket `/responses` transport for Codex (#440)** — Codex CLI and the
+  OpenAI SDK default to a persistent WebSocket connection (`ws://…/responses`,
+  one `response.create` event per turn), so the HTTP-only proxy forced clients to
+  set `supports_websockets = false`. The proxy now speaks the Responses WebSocket
+  protocol natively: `GET /responses` (and `/v1/responses`) upgrades to a
+  WebSocket, each `response.create` turn is bridged to the configured HTTP/SSE
+  upstream with lean-ctx's tool-output compression applied, and every upstream
+  SSE event is relayed back verbatim as a WebSocket frame. Method routing keeps
+  `POST` on the HTTP/SSE forwarder, so both transports share one upstream, auth
+  path and compression logic (`proxy::openai_responses_ws`). Codex works as a
+  drop-in now without disabling WebSockets.
 
 ### Changed
 - **OpenCode plugin no longer double-registers the built-in overrides (#441)** —

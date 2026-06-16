@@ -8,6 +8,7 @@ pub mod introspect;
 pub mod metrics;
 pub mod openai;
 pub mod openai_responses;
+pub mod openai_responses_ws;
 pub mod tool_kind;
 
 use std::net::SocketAddr;
@@ -19,7 +20,7 @@ use axum::{
     extract::State,
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
-    routing::{any, get},
+    routing::{any, get, post},
     Router,
 };
 
@@ -150,7 +151,11 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         .route("/v1/messages", any(anthropic::handler))
         .route("/v1/messages/{*rest}", any(anthropic::handler))
         .route("/v1/chat/completions", any(openai::handler))
-        .route("/v1/responses", any(openai_responses::handler))
+        // POST → HTTP/SSE forwarder; GET → Codex/OpenAI WebSocket bridge (#440).
+        .route(
+            "/v1/responses",
+            post(openai_responses::handler).get(openai_responses::ws_handler),
+        )
         .route("/v1/responses/{*rest}", any(openai_responses::handler))
         // Bare provider endpoints (no `/v1` prefix). Clients whose base URL points
         // at the proxy root — notably OpenCode via `@ai-sdk/openai`, whose
@@ -160,7 +165,10 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         .route("/messages", any(anthropic::handler))
         .route("/messages/{*rest}", any(anthropic::handler))
         .route("/chat/completions", any(openai::handler))
-        .route("/responses", any(openai_responses::handler))
+        .route(
+            "/responses",
+            post(openai_responses::handler).get(openai_responses::ws_handler),
+        )
         .route("/responses/{*rest}", any(openai_responses::handler))
         .route("/v1/references/{id}", get(v1_resolve_reference))
         .fallback(fallback_router)
@@ -188,12 +196,11 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         "  OpenAI:    POST /v1/responses → {openai_upstream}  (bare /responses also accepted)"
     );
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
-    // Codex defaults to a WebSocket Responses transport (ws://…/responses), which
-    // the proxy does not serve yet (#440). Point Codex at HTTP/SSE explicitly so
-    // it does not fail over to WS and report reconnect errors.
+    // Codex defaults to a WebSocket Responses transport (ws://…/responses). The
+    // proxy now bridges it to the HTTP/SSE upstream (#440), so Codex works as a
+    // drop-in without a `supports_websockets = false` workaround.
     println!(
-        "  Codex:     HTTP/SSE only — set `supports_websockets = false` on your Codex provider \
-         (ws://…/responses is not served yet, #440)"
+        "  Codex:     WS  ws://{addr}/responses → bridged to {openai_upstream} (HTTP/SSE, #440)"
     );
     if openai_upstream.starts_with("http://") && !is_local_proxy_url(&openai_upstream) {
         println!(

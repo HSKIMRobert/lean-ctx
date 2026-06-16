@@ -164,7 +164,7 @@ tree-sitter-lua = { version = "0.5", optional = true }
 tree-sitter-luau = { version = "1.2", optional = true }
 rten = { version = "0.24", optional = true }
 rten-tensor = { version = "0.24", optional = true }
-axum = { version = "0.8", optional = true }
+axum = { version = "0.8", optional = true, features = ["ws"] }
 tower-http = { version = "0.6", features = ["cors", "auth"], optional = true }
 deadpool-postgres = { version = "0.14", optional = true }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-uuid-1"], optional = true }
