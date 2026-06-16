@@ -157,6 +157,14 @@ fn install_launchagent(binary: &str, port: u16, quiet: bool) {
         .join(".lean-ctx/logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
+    // #356: wrap the launchd invocation in a deny-~/Documents seatbelt sandbox
+    // so the proxy (a TCC-standalone process) can never trip the privacy prompt.
+    let port_arg = format!("--port={port}");
+    let program_args = crate::core::tcc_guard_sandbox::program_args_xml(
+        &crate::core::tcc_guard_sandbox::wrap_launchd_args(binary, &["proxy", "start", &port_arg]),
+        "        ",
+    );
+
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -166,10 +174,7 @@ fn install_launchagent(binary: &str, port: u16, quiet: bool) {
     <string>{PLIST_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{binary}</string>
-        <string>proxy</string>
-        <string>start</string>
-        <string>--port={port}</string>
+{program_args}
     </array>
     <key>RunAtLoad</key>
     <true/>

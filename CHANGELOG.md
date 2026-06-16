@@ -73,6 +73,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   alias for `start_line` and `limit` bounds the window (`lines:N-M`); the aliases
   are advertised in the tool schema and the generated manifest/reference docs,
   with `PI_AGENTS.md` aligned.
+- **macOS "access your Documents" prompt eliminated structurally (#356)** — the
+  daemon, proxy and auto-updater run as LaunchAgents (their own TCC identity,
+  `ppid 1`), so any access they make under `~/Documents`, `~/Desktop` or
+  `~/Downloads` pops the privacy prompt in lean-ctx's name — and because every
+  release re-signs the binary, the grant is voided on each update, re-prompting
+  forever. The earlier opt-out path guards (v3.8.0–v3.8.7) were per-call-site
+  and fragile, and the stable code-signing identity only made *one* "Allow"
+  stick — neither satisfied users who refuse Documents access outright. The
+  three LaunchAgents are now wrapped in `sandbox-exec` with a minimal Seatbelt
+  profile (`allow default`; `deny file-read*/file-write*` under the three
+  protected home dirs — `rust/src/core/tcc_guard_sandbox.rs`), so the kernel
+  refuses any such access silently with `EPERM`: TCC is never consulted and the
+  prompt can no longer appear, with no "Allow" required. Everything else stays
+  permitted, so functionality is intact; the path guards and stable signing
+  remain as defense-in-depth. The profile is smoke-tested before use (no
+  `KeepAlive` crash-loop on a malformed profile), existing installs adopt the
+  wrapper automatically on the next `lean-ctx update`, and a new regression
+  (`rust/tests/tcc_sandbox.sh`) boots the daemon under the production wrapper.
 
 ## [3.8.7] — 2026-06-15
 

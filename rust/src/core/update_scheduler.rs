@@ -118,6 +118,17 @@ fn install_macos_launchagent(
     let stdout_log = log_dir.join("autoupdate-stdout.log");
     let stderr_log = log_dir.join("autoupdate-stderr.log");
 
+    // #356: wrap the launchd invocation in a deny-~/Documents seatbelt sandbox
+    // so the scheduled updater (a TCC-standalone process) can never trip the
+    // privacy prompt.
+    let program_args = crate::core::tcc_guard_sandbox::program_args_xml(
+        &crate::core::tcc_guard_sandbox::wrap_launchd_args(
+            &binary_str,
+            &["update", "--quiet", "--scheduled"],
+        ),
+        "    ",
+    );
+
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -127,10 +138,7 @@ fn install_macos_launchagent(
   <string>{LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{binary_str}</string>
-    <string>update</string>
-    <string>--quiet</string>
-    <string>--scheduled</string>
+{program_args}
   </array>
   <key>StartInterval</key>
   <integer>{interval_secs}</integer>
