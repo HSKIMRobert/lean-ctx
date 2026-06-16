@@ -61,11 +61,17 @@ const readModeSchema = Type.Union([
   Type.Literal("signatures"),
 ], { description: "Override auto-selection: full (complete content), map (deps+API signatures), signatures (AST only)" });
 
+// Kept field-compatible with the canonical MCP `ctx_read` schema (registry in
+// rust/src/tools/registered/ctx_read.rs) so the tool looks identical across
+// harnesses: Codex sees `start_line`/`fresh`, Pi must too (GH #432). `offset` is
+// the historical Pi alias for `start_line`; both are accepted.
 const readSchema = Type.Object({
   path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
-  offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
-  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
   mode: Type.Optional(readModeSchema),
+  start_line: Type.Optional(Type.Number({ description: "1-based line to start reading from (alias: offset)" })),
+  offset: Type.Optional(Type.Number({ description: "Alias for start_line — 1-based line to start reading from" })),
+  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+  fresh: Type.Optional(Type.Boolean({ description: "Force a fresh disk re-read, bypassing the session cache" })),
 });
 
 // `path` is REQUIRED on ls/find/grep (#395): with an optional path these tools
@@ -551,17 +557,22 @@ export default async function (pi: ExtensionAPI) {
       const requestedPath = normalizePathArg(params.path);
       const absolutePath = resolve(ctx.cwd, requestedPath);
 
-      if (params.offset !== undefined || params.limit !== undefined) {
-        const startLine = params.offset ?? 1;
+      // `start_line` is the canonical name; `offset` is the historical Pi alias
+      // (GH #432). `fresh` forces a disk re-read past the session cache.
+      const startOffset = params.offset ?? params.start_line;
+      const forceFresh = params.fresh === true;
+
+      if (startOffset !== undefined || params.limit !== undefined) {
+        const startLine = startOffset ?? 1;
         const endLine = params.limit ? startLine + params.limit - 1 : 999999;
         const mode = `lines:${startLine}-${endLine}`;
         // Route line-range reads through the bridge too, so re-reading the same
         // slice hits the session cache instead of re-spawning a CLI per call (#361).
         if (mcpBridge?.isConnected()) {
           try {
-            const bridged = await mcpBridge.callTool("ctx_read", { path: absolutePath, mode }, signal);
+            const bridged = await mcpBridge.callTool("ctx_read", { path: absolutePath, mode, ...(forceFresh ? { fresh: true } : {}) }, signal);
             const bridgedText = bridged.content.map((block) => block.text).join("");
-            const originalSlice = await readSlice(absolutePath, params.offset, params.limit);
+            const originalSlice = await readSlice(absolutePath, startOffset, params.limit);
             const decorated = withFooter(bridgedText, { originalText: originalSlice.text, always: true, preferEstimate: true, suppressIfNoSaving: true });
             return {
               content: [{ type: "text", text: decorated.text }],
@@ -571,17 +582,17 @@ export default async function (pi: ExtensionAPI) {
             console.error(`[pi-lean-ctx] ctx_read(${mode}) bridge call failed, falling back to CLI: ${err}`);
           }
         }
-        const args = ["read", absolutePath, "-m", mode];
+        const args = ["read", absolutePath, "-m", mode, ...(forceFresh ? ["--fresh"] : [])];
         try {
           const output = await execLeanCtx(pi, args);
-          const originalSlice = await readSlice(absolutePath, params.offset, params.limit);
+          const originalSlice = await readSlice(absolutePath, startOffset, params.limit);
           const decorated = withFooter(output, { originalText: originalSlice.text, always: true, preferEstimate: true, suppressIfNoSaving: true });
           return {
             content: [{ type: "text", text: decorated.text }],
             details: { path: absolutePath, lines: originalSlice.lines, source: "lean-ctx", mode, compression: decorated.stats },
           };
         } catch {
-          const sliced = await readSlice(absolutePath, params.offset, params.limit);
+          const sliced = await readSlice(absolutePath, startOffset, params.limit);
           return {
             content: [{ type: "text", text: sliced.text }],
             details: { path: absolutePath, lines: sliced.lines, source: "local-slice-fallback", truncated: sliced.truncated },
@@ -594,6 +605,7 @@ export default async function (pi: ExtensionAPI) {
       }
 
       const isExplicitFull = params.mode === "full";
+      const wantsFresh = forceFresh || isExplicitFull;
       const mode = params.mode ?? await chooseReadMode(absolutePath);
 
       // When the embedded MCP bridge is connected, route the read through it so
@@ -607,7 +619,7 @@ export default async function (pi: ExtensionAPI) {
         try {
           const bridged = await mcpBridge.callTool(
             "ctx_read",
-            { path: absolutePath, mode, ...(isExplicitFull ? { fresh: true } : {}) },
+            { path: absolutePath, mode, ...(wantsFresh ? { fresh: true } : {}) },
             signal,
           );
           const bridgedText = bridged.content.map((block) => block.text).join("");
@@ -622,7 +634,7 @@ export default async function (pi: ExtensionAPI) {
         }
       }
 
-      const args = ["read", absolutePath, "-m", mode, ...(isExplicitFull ? ["--fresh"] : [])];
+      const args = ["read", absolutePath, "-m", mode, ...(wantsFresh ? ["--fresh"] : [])];
       const output = await execLeanCtx(pi, args);
       const originalText = await readFile(absolutePath, "utf8");
       const decorated = withFooter(output, { originalText, always: true, preferEstimate: true, suppressIfNoSaving: true });

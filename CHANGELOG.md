@@ -85,6 +85,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   are recognized as non-secrets (real keys never contain `<>|()[]{}`), so reading
   TypeScript through `ctx_read` no longer masks `password: undefined`-style
   annotations as API keys.
+- **`ctx_read` exposes the same schema in Pi as in Codex / MCP (#432)** — the Pi
+  adapter hand-wrote a `ctx_read` schema with only `path` / `offset` / `limit` /
+  `mode`, so an agent running in Pi never saw `fresh` or `start_line` even though
+  the canonical MCP schema (and the Pi handler internally) already supported them —
+  making cross-harness instructions like `ctx_read(mode="full", fresh=true)` look
+  invalid in Pi only. The Pi schema now matches the registry: `start_line` (with
+  `offset` kept as a back-compat alias) and `fresh` are exposed and wired through
+  both the MCP-bridge and CLI read paths.
 - **`proxy enable` now also routes Pi / forge through the proxy (#361)** — Pi and
   forge resolve their endpoint from `~/.pi/agent/models.json`
   (`providers.<name>.baseUrl`) + OAuth, not from `ANTHROPIC_BASE_URL` /
