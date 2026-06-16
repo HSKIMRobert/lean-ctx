@@ -116,7 +116,7 @@ fn effective_auth_token(auth_token: Option<String>) -> String {
 }
 
 pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
-    use crate::core::config::{Config, ProxyProvider};
+    use crate::core::config::{is_local_proxy_url, Config, ProxyProvider};
 
     let auth_token = effective_auth_token(auth_token);
 
@@ -184,8 +184,23 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     println!("lean-ctx proxy listening on http://{addr} (token auth enabled)");
     println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
     println!("  OpenAI:    POST /v1/chat/completions → {openai_upstream}");
-    println!("  OpenAI:    POST /v1/responses → {openai_upstream}");
+    println!(
+        "  OpenAI:    POST /v1/responses → {openai_upstream}  (bare /responses also accepted)"
+    );
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
+    // Codex defaults to a WebSocket Responses transport (ws://…/responses), which
+    // the proxy does not serve yet (#440). Point Codex at HTTP/SSE explicitly so
+    // it does not fail over to WS and report reconnect errors.
+    println!(
+        "  Codex:     HTTP/SSE only — set `supports_websockets = false` on your Codex provider \
+         (ws://…/responses is not served yet, #440)"
+    );
+    if openai_upstream.starts_with("http://") && !is_local_proxy_url(&openai_upstream) {
+        println!(
+            "  ⚠ OpenAI upstream is plaintext HTTP to a non-loopback host \
+             (allow_insecure_http_upstream) — use only on a trusted local network"
+        );
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app)

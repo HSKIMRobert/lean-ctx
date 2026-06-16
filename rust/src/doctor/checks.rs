@@ -831,6 +831,7 @@ pub(super) fn proxy_upstream_outcome() -> Outcome {
     ];
 
     let mut custom = Vec::new();
+    let mut plaintext = Vec::new();
     for (label, key, resolved) in &checks {
         if is_local_proxy_url(resolved) {
             return Outcome {
@@ -860,6 +861,13 @@ pub(super) fn proxy_upstream_outcome() -> Outcome {
         );
         if !is_default {
             custom.push(format!("{label}={resolved}"));
+            // Past the loopback guard above, any `http://` is a non-loopback
+            // plaintext upstream that only resolved because the user opted in
+            // (allow_insecure_http_upstream, #440). Valid config, but worth a
+            // standing security reminder.
+            if resolved.starts_with("http://") {
+                plaintext.push(*label);
+            }
         }
     }
 
@@ -869,13 +877,17 @@ pub(super) fn proxy_upstream_outcome() -> Outcome {
             line: format!("{BOLD}Proxy upstream{RST}  {GREEN}provider defaults{RST}"),
         }
     } else {
-        Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Proxy upstream{RST}  {GREEN}custom: {}{RST}",
-                custom.join(", ")
-            ),
+        let mut line = format!(
+            "{BOLD}Proxy upstream{RST}  {GREEN}custom: {}{RST}",
+            custom.join(", ")
+        );
+        if !plaintext.is_empty() {
+            line.push_str(&format!(
+                "  {YELLOW}⚠ plaintext HTTP ({}) — trusted local network only{RST}",
+                plaintext.join(", ")
+            ));
         }
+        Outcome { ok: true, line }
     }
 }
 
