@@ -198,7 +198,7 @@ COMMANDS:
     tee [list|clear|show <file>|last] Manage output tee files (~/.lean-ctx/tee/)
     compression [off|lite|standard|max]  Set compression level (saves 25-65% tokens; alias: terse)
     slow-log [list|clear]          Show/clear slow command log (~/.lean-ctx/slow-commands.log)
-    update [--check]               Self-update lean-ctx binary from GitHub Releases
+    update [<version>] [--check]   Update lean-ctx, or pin a version, from GitHub Releases
     stop                           Stop ALL lean-ctx processes (daemon, proxy, orphans)
     restart                        Restart daemon (applies config.toml changes)
     dev-install                    Build release + atomic install + restart (for development)

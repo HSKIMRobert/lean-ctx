@@ -79,6 +79,26 @@ pub fn run(args: &[String]) {
         }
     }
 
+    // #447: `lean-ctx update <version>` installs a specific tagged release
+    // instead of the latest (e.g. to compare against an older build). Only the
+    // binary is swapped — data, config and logs are left untouched, exactly
+    // like a normal update.
+    let target_version: Option<String> = match parse_target_version(args) {
+        None => None,
+        Some(v) if looks_like_version(v) => Some(v.trim_start_matches('v').to_string()),
+        Some(other) => {
+            eprintln!("  \x1b[31m✗\x1b[0m '{other}' is not a valid version.");
+            eprintln!(
+                "  \x1b[2mUsage: lean-ctx update [<version>]   (e.g. lean-ctx update 3.8.5)\x1b[0m"
+            );
+            eprintln!(
+                "  \x1b[2mAvailable versions: https://github.com/yvgude/lean-ctx/releases\x1b[0m"
+            );
+            std::process::exit(1);
+        }
+    };
+    let pinned = target_version.is_some();
+
     // #335: An automatic run (`--quiet`/`--scheduled`) must obey config.toml.
     // A user who sets `updates.auto_update = false` after a scheduler was
     // installed expects auto-updates to stop. Since editing config doesn't
@@ -114,26 +134,37 @@ pub fn run(args: &[String]) {
         println!("  \x1b[2mChecking github.com/yvgude/lean-ctx …\x1b[0m");
     }
 
-    let release = match fetch_latest_release() {
+    let release = match fetch_release(target_version.as_deref()) {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("Error fetching release info: {e}");
+            if let Some(v) = &target_version {
+                tracing::error!("Could not fetch lean-ctx v{v}: {e}");
+                tracing::error!(
+                    "Check the version exists: https://github.com/yvgude/lean-ctx/releases"
+                );
+            } else {
+                tracing::error!("Error fetching release info: {e}");
+            }
             std::process::exit(1);
         }
     };
 
-    let latest_tag = if let Some(t) = release["tag_name"].as_str() {
+    let target_tag = if let Some(t) = release["tag_name"].as_str() {
         t.trim_start_matches('v').to_string()
     } else {
         tracing::error!("Could not parse release tag from GitHub API.");
         std::process::exit(1);
     };
 
-    if latest_tag == CURRENT_VERSION {
+    if target_tag == CURRENT_VERSION {
         if quiet {
             return;
         }
-        println!("  \x1b[32m✓\x1b[0m Already up to date (v{CURRENT_VERSION}).");
+        if pinned {
+            println!("  \x1b[32m✓\x1b[0m Already on v{CURRENT_VERSION}.");
+        } else {
+            println!("  \x1b[32m✓\x1b[0m Already up to date (v{CURRENT_VERSION}).");
+        }
         println!(
             "  \x1b[2mIf your IDE still uses an older version, restart it to reconnect the MCP server.\x1b[0m"
         );
@@ -155,11 +186,21 @@ pub fn run(args: &[String]) {
     }
 
     if !quiet {
-        println!("  Update available: v{CURRENT_VERSION} → \x1b[1;32mv{latest_tag}\x1b[0m");
+        if pinned {
+            println!(
+                "  Switching: v{CURRENT_VERSION} → \x1b[1;36mv{target_tag}\x1b[0m  \x1b[2m(data & logs preserved)\x1b[0m"
+            );
+        } else {
+            println!("  Update available: v{CURRENT_VERSION} → \x1b[1;32mv{target_tag}\x1b[0m");
+        }
     }
 
     if check_only {
-        println!("Run 'lean-ctx update' to install.");
+        if pinned {
+            println!("Run 'lean-ctx update {target_tag}' to install.");
+        } else {
+            println!("Run 'lean-ctx update' to install.");
+        }
         return;
     }
 
@@ -170,7 +211,7 @@ pub fn run(args: &[String]) {
 
     let Some(download_url) = find_asset_url(&release, &asset_name) else {
         tracing::error!(
-            "No binary found for this platform ({asset_name}). Download manually: https://github.com/yvgude/lean-ctx/releases/latest"
+            "No binary found for this platform ({asset_name}) in v{target_tag}. Download manually: https://github.com/yvgude/lean-ctx/releases"
         );
         std::process::exit(1);
     };
@@ -190,7 +231,7 @@ pub fn run(args: &[String]) {
         } else {
             tracing::error!("Integrity verification failed: {e}");
             tracing::error!(
-                "Refusing to install an unverifiable binary. Re-run with `lean-ctx update --insecure` or download manually: https://github.com/yvgude/lean-ctx/releases/latest"
+                "Refusing to install an unverifiable binary. Re-run with `lean-ctx update --insecure` or download manually: https://github.com/yvgude/lean-ctx/releases"
             );
             std::process::exit(1);
         }
@@ -212,10 +253,14 @@ pub fn run(args: &[String]) {
     }
 
     if quiet {
-        println!("  lean-ctx v{CURRENT_VERSION} → v{latest_tag}");
+        println!("  lean-ctx v{CURRENT_VERSION} → v{target_tag}");
     } else {
         println!();
-        println!("  \x1b[1;32m✓ Updated to lean-ctx v{latest_tag}\x1b[0m");
+        if pinned {
+            println!("  \x1b[1;32m✓ Now running lean-ctx v{target_tag}\x1b[0m");
+        } else {
+            println!("  \x1b[1;32m✓ Updated to lean-ctx v{target_tag}\x1b[0m");
+        }
         println!("  \x1b[2mBinary: {}\x1b[0m", current_exe.display());
     }
 
@@ -587,8 +632,23 @@ fn is_proxy_reachable(port: u16) -> bool {
         .is_ok()
 }
 
-fn fetch_latest_release() -> Result<serde_json::Value, String> {
-    let response = ureq::get(GITHUB_API_RELEASES)
+/// Builds the GitHub Releases API URL: the latest release when `version` is
+/// `None`, or a specific tag (`v{version}`) when pinned (#447). The leading
+/// `v` is normalised so both `3.8.5` and `v3.8.5` resolve to the `v3.8.5` tag.
+fn release_api_url(version: Option<&str>) -> String {
+    match version {
+        None => GITHUB_API_RELEASES.to_string(),
+        Some(v) => {
+            let core = v.trim_start_matches('v');
+            format!("https://api.github.com/repos/yvgude/lean-ctx/releases/tags/v{core}")
+        }
+    }
+}
+
+/// Fetches release metadata from GitHub. `version = None` returns the latest
+/// release; `Some(v)` returns the specific tagged release for version pinning.
+fn fetch_release(version: Option<&str>) -> Result<serde_json::Value, String> {
+    let response = ureq::get(&release_api_url(version))
         .header("User-Agent", &format!("lean-ctx/{CURRENT_VERSION}"))
         .header("Accept", "application/vnd.github.v3+json")
         .call()
@@ -599,6 +659,26 @@ fn fetch_latest_release() -> Result<serde_json::Value, String> {
         .read_to_string()
         .map_err(|e| e.to_string())
         .and_then(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
+}
+
+/// Extracts an explicit version argument from `update` args, if present.
+/// Returns the first positional token (one that is not a `--flag`); the
+/// `--schedule` subcommand is consumed earlier so it never reaches here.
+fn parse_target_version(args: &[String]) -> Option<&str> {
+    args.iter()
+        .map(String::as_str)
+        .find(|a| !a.starts_with('-'))
+}
+
+/// True if `s` looks like a release version (optionally `v`-prefixed, e.g.
+/// `3.8.5` / `v3.8.5` / `3.8.5-rc1`), so typos are rejected before the API call.
+fn looks_like_version(s: &str) -> bool {
+    let core = s.strip_prefix('v').unwrap_or(s);
+    core.contains('.')
+        && core.starts_with(|c: char| c.is_ascii_digit())
+        && core
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c.is_ascii_alphabetic())
 }
 
 fn find_asset_url(release: &serde_json::Value, asset_name: &str) -> Option<String> {
@@ -1070,5 +1150,49 @@ mod tests {
             !script.contains(":retry\ntimeout"),
             "must not be an infinite loop"
         );
+    }
+
+    #[test]
+    fn release_url_latest_when_no_version() {
+        // #447: no pin → the canonical "latest" endpoint.
+        assert_eq!(release_api_url(None), GITHUB_API_RELEASES);
+    }
+
+    #[test]
+    fn release_url_pins_specific_tag() {
+        // #447: a bare version pins the `v`-prefixed tag …
+        assert_eq!(
+            release_api_url(Some("3.8.5")),
+            "https://api.github.com/repos/yvgude/lean-ctx/releases/tags/v3.8.5"
+        );
+        // … and an already-`v`-prefixed version is normalised, not doubled.
+        assert_eq!(
+            release_api_url(Some("v3.8.5")),
+            "https://api.github.com/repos/yvgude/lean-ctx/releases/tags/v3.8.5"
+        );
+    }
+
+    #[test]
+    fn parse_target_version_peels_positional_only() {
+        let flags_only = [String::from("--check"), String::from("--quiet")];
+        assert_eq!(parse_target_version(&flags_only), None);
+
+        let with_version = [String::from("3.8.5"), String::from("--check")];
+        assert_eq!(parse_target_version(&with_version), Some("3.8.5"));
+
+        // Order-independent: the positional is found after leading flags.
+        let flag_then_version = [String::from("--insecure"), String::from("v3.8.5")];
+        assert_eq!(parse_target_version(&flag_then_version), Some("v3.8.5"));
+    }
+
+    #[test]
+    fn looks_like_version_accepts_releases_rejects_typos() {
+        assert!(looks_like_version("3.8.5"));
+        assert!(looks_like_version("v3.8.5"));
+        assert!(looks_like_version("3.8.5-rc1"));
+        // Not versions: flags, words, and bare majors (too ambiguous to pin).
+        assert!(!looks_like_version("--check"));
+        assert!(!looks_like_version("latest"));
+        assert!(!looks_like_version("3"));
     }
 }

@@ -50,7 +50,7 @@ pub fn cmd_cheatsheet() {
   lean-ctx gain --wrapped \x1b[2m# wrapped savings report\x1b[0m
   lean-ctx discover      \x1b[2m# find uncompressed commands\x1b[0m
   lean-ctx doctor        \x1b[2m# diagnose installation\x1b[0m
-  lean-ctx update        \x1b[2m# self-update to latest\x1b[0m
+  lean-ctx update        \x1b[2m# self-update (or 'update 3.8.5' to pin)\x1b[0m
 
 \x1b[2m  Full guide: https://leanctx.com/docs/workflow\x1b[0m"
     );

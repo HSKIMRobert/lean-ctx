@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.8.8] — 2026-06-16
 
 ### Added
+- **`lean-ctx update <version>` pins a specific release (#447)** — `update` now
+  takes an optional version (`lean-ctx update 3.8.5`, `v`-prefix optional) and
+  installs that exact tagged GitHub release instead of the latest, so you can
+  roll back or A/B an older build. It reuses the normal update path —
+  SHA256-verified download, atomic binary swap, `post_update_rewire` — so the
+  same checksum guarantee applies and **no data, config or logs are touched**
+  (only the binary is swapped; downgrades read your existing data as-is).
+  Invalid versions are rejected before any network call; `--check` reports
+  whether the pinned version differs. The auto-update scheduler is unchanged
+  (still tracks latest).
 - **R2 benchmark faithful-arm preflight (#361)** — `bench/agent-task/r2/preflight.mjs`
   proves, before any priced run, that the pi arm routes shell through `ctx_shell`
   (native `bash` suppressed) and actually compresses it — the "green preflight =
