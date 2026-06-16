@@ -62,6 +62,14 @@ var FILTER_CATEGORIES = {
   cache: 'cache',
 };
 
+var FILTER_LABELS = {
+  all: 'All',
+  reads: 'Reads',
+  shell: 'Shell',
+  search: 'Search',
+  cache: 'Cache',
+};
+
 // Per-call cost sorting (#426): surface which calls are expensive vs cheap.
 // "recent" keeps the chronological feed; the others rank by a numeric metric
 // read straight off the raw event kind, so the feed doubles as a cost ledger.
@@ -677,9 +685,7 @@ class CockpitLive extends HTMLElement {
   }
 
   _renderFilterRow(esc) {
-    var self = this;
     var cats = ['all', 'reads', 'shell', 'search', 'cache'];
-    var labels = { all: 'All', reads: 'Reads', shell: 'Shell', search: 'Search', cache: 'Cache' };
 
     var btns = '';
     for (var i = 0; i < cats.length; i++) {
@@ -688,7 +694,7 @@ class CockpitLive extends HTMLElement {
         '<button type="button" class="filter-btn' +
         (this._filter === c ? ' active' : '') +
         '" data-ckl-filter="' + esc(c) + '">' +
-        esc(labels[c]) +
+        esc(FILTER_LABELS[c] || c) +
         '</button>';
     }
 
@@ -751,15 +757,24 @@ class CockpitLive extends HTMLElement {
     }
 
     if (count === 0) {
+      var emptyMsg;
+      if (this._feedError) {
+        emptyMsg = 'Events unavailable — the feed endpoint could not be reached.';
+      } else if (filterCat && events.length > 0) {
+        // Events exist, but the active filter matched none — say so instead of
+        // implying nothing has happened (e.g. the "Cache" filter with no cache hits).
+        emptyMsg =
+          'No ' + (FILTER_LABELS[filter] || filter) + ' events in this view — ' +
+          events.length + ' event' + (events.length === 1 ? '' : 's') +
+          ' captured. Switch to All to see them.';
+      } else {
+        emptyMsg = 'No events recorded yet. Events appear as lean-ctx intercepts tool calls.';
+      }
       return (
         errorBanner +
         '<div class="card" style="margin-bottom:14px">' +
         '<h3>Event Feed' + tip('event_feed') + '</h3>' +
-        '<p class="hs">' +
-        (this._feedError
-          ? 'Events unavailable — the feed endpoint could not be reached.'
-          : 'No events recorded yet. Events appear as lean-ctx intercepts tool calls.') +
-        '</p>' +
+        '<p class="hs">' + esc(emptyMsg) + '</p>' +
         '</div>'
       );
     }
