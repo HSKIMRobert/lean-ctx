@@ -32,6 +32,13 @@ fn is_non_secret_literal(value: &str) -> bool {
     let v = value
         .trim()
         .trim_matches(|c| c == '"' || c == '\'' || c == '`');
+    // Type expressions are never flat secret tokens: real keys/tokens are drawn
+    // from `[A-Za-z0-9+/=_-]`, whereas type annotations carry angle brackets,
+    // unions, arrays or call/object syntax. `password: Promise<string>` and
+    // `apiKey: Record<string, unknown>` must survive ctx_read verbatim (GH #430).
+    if v.contains(['<', '>', '|', '(', ')', '[', ']', '{', '}']) {
+        return true;
+    }
     matches!(
         v.to_ascii_lowercase().as_str(),
         "" | "undefined"
@@ -188,6 +195,23 @@ mod tests {
             "let pwd: number = 1",
         ] {
             assert_eq!(redact_text(s), s, "must not redact non-secret literal: {s}");
+        }
+    }
+
+    /// GH #430: TS type annotations (generics, unions, arrays, function/object
+    /// types) carry angle brackets / brackets that real secret tokens never do,
+    /// so they must survive verbatim even when the key looks sensitive.
+    #[test]
+    fn keeps_type_annotations() {
+        for s in [
+            "password: Promise<string>",
+            "apiKey: Record<string, unknown>",
+            "token: string[]",
+            "secret: () => void",
+            "password: string | undefined",
+            "credential: { value: string }",
+        ] {
+            assert_eq!(redact_text(s), s, "must not redact type annotation: {s}");
         }
     }
 

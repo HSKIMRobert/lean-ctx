@@ -288,72 +288,17 @@ fn write_atomic_bytes_with_permissions(
     Ok(())
 }
 
-macro_rules! static_regex {
-    ($pattern:expr_2021) => {{
-        static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        RE.get_or_init(|| {
-            regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
-        })
-    }};
-}
-
-fn redact_sensitive_diff(input: &str) -> String {
-    let patterns: Vec<(&str, &regex::Regex)> = vec![
-        (
-            "Bearer token",
-            static_regex!(r"(?i)(bearer\s+)[a-zA-Z0-9\-_\.]{8,}"),
-        ),
-        (
-            "Authorization header",
-            static_regex!(r"(?i)(authorization:\s*(?:basic|bearer|token)\s+)[^\s\r\n]+"),
-        ),
-        (
-            "API key param",
-            static_regex!(
-                r#"(?i)((?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|token|password|passwd|pwd|secret)\s*[=:]\s*)[^\s\r\n,;&"']+"#
-            ),
-        ),
-        ("AWS key", static_regex!(r"(AKIA[0-9A-Z]{12,})")),
-        (
-            "Private key block",
-            static_regex!(
-                r"(?s)(-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----).+?(-----END\s+(?:RSA\s+)?PRIVATE\s+KEY-----)"
-            ),
-        ),
-        (
-            "GitHub token",
-            static_regex!(r"(gh[pousr]_)[a-zA-Z0-9]{20,}"),
-        ),
-        (
-            "Generic long secret",
-            static_regex!(
-                r#"(?i)(?:key|token|secret|password|credential|auth)\s*[=:]\s*['"]?([a-zA-Z0-9+/=\-_]{32,})['"]?"#
-            ),
-        ),
-    ];
-
-    let mut out = input.to_string();
-    for (label, re) in &patterns {
-        out = re
-            .replace_all(&out, |caps: &regex::Captures| {
-                if let Some(prefix) = caps.get(1) {
-                    format!("{}[REDACTED:{}]", prefix.as_str(), label)
-                } else {
-                    format!("[REDACTED:{label}]")
-                }
-            })
-            .to_string();
-    }
-    out
-}
-
 fn build_diff_evidence(old: &str, new: &str, label: &str, max_lines: usize) -> String {
     let diff = similar::TextDiff::from_lines(old, new)
         .unified_diff()
         .context_radius(3)
         .header(label, label)
         .to_string();
-    let diff = redact_sensitive_diff(&diff);
+    // Single source of truth for secret masking — `core::redaction` carries the
+    // GH #430 non-secret-literal guard (type annotations, `undefined`, …) and
+    // does not leak the value of generic long secrets like this duplicate once
+    // did. Keeping a second regex set here only invites drift.
+    let diff = crate::core::redaction::redact_text(&diff);
 
     let mut out = String::new();
     for (i, line) in diff.lines().enumerate() {

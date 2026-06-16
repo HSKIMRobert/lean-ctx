@@ -75,6 +75,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   boundary is unchanged.
 
 ### Fixed
+- **Secret redaction stops corrupting type annotations and drops its duplicate rules (#430)** —
+  `ctx_edit` carried a second copy of the redaction regex set that never got the
+  non-secret-literal guard added for #430; worse, its generic-long-secret branch
+  kept the matched value before the `[REDACTED]` tag, so a real key could leak into
+  diff evidence. Diff masking now goes through the single `core::redaction` source
+  of truth. That guard is also widened: right-hand sides that are type expressions —
+  `password: Promise<string>`, `apiKey: Record<string, unknown>`, `token: string[]` —
+  are recognized as non-secrets (real keys never contain `<>|()[]{}`), so reading
+  TypeScript through `ctx_read` no longer masks `password: undefined`-style
+  annotations as API keys.
 - **`proxy enable` now also routes Pi / forge through the proxy (#361)** — Pi and
   forge resolve their endpoint from `~/.pi/agent/models.json`
   (`providers.<name>.baseUrl`) + OAuth, not from `ANTHROPIC_BASE_URL` /
