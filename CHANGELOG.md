@@ -15,6 +15,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (`packages/pi-lean-ctx`), so the routing fix can never silently regress.
 
 ### Fixed
+- **Data dir no longer re-adopts a marker-free `~/.lean-ctx` (#436)** — the data
+  resolver returned the legacy `~/.lean-ctx` whenever that directory merely
+  *existed*, even after `doctor --fix` had moved every data marker to the XDG
+  dirs. Config/state/cache had already flipped to `$XDG_*` in that case, so data
+  silently diverged from its siblings and editor sessions kept writing
+  `active_transcript.json` / `context_radar.jsonl` back into `~/.lean-ctx`. The
+  legacy/mixed decision now lives in a single source of truth
+  (`paths::single_dir_override`): a legacy dir wins only while it still holds data
+  markers, so once split, data flips to `$XDG_DATA_HOME/lean-ctx` like the rest.
+  A cross-category contract test plus a source-level legacy-path firewall
+  (`rust/tests`) lock the invariant in so it can never silently regress.
+- **`doctor --fix` now empties a residual `~/.lean-ctx` (#434)** — after the data
+  moved to XDG, leftover reports (`doctor/`, `setup/`, `status/`) and the empty
+  directory lingered, so the next run re-detected the old location and the fix
+  report itself was written back into the legacy dir. `--fix` now drains any
+  remaining non-runtime entries into the typed XDG dirs and removes the empty
+  directory (`xdg_migrate::reclaim_legacy`), and the report lands in XDG.
+- **`doctor` reports the real `config.toml` location after a split (#435)** — the
+  `config.toml` check and the path-jail hint were hardcoded to `~/.lean-ctx`, so
+  after the XDG split `doctor` pointed users at a stale path. Both now resolve
+  through `Config::path()` / `config_dir()` and show where the file actually lives.
+- **`doctor` score matches the checks it prints (#433)** — `passed`/`total` were
+  two hand-maintained counters that drifted: rendered ✗ checks ("XDG layout",
+  "data dir split") were shown but never counted, so the summary overstated
+  health. Every check now flows through one accumulator that counts exactly what
+  it renders; advisory lines (LSP, providers, MCP bridges) are rendered but
+  explicitly excluded from the score, so display and tally can no longer diverge.
 - **Secret redaction no longer mangles source files read via `ctx_read` (#430)** —
   the key/value secret pattern matched TypeScript type annotations and language
   literals such as `password: undefined`, `secret: string` and `token: null`,

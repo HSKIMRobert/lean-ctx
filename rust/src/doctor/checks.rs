@@ -99,7 +99,9 @@ pub(super) fn path_jail_outcome() -> Outcome {
         };
     }
     let detail = if entries.is_empty() {
-        "project root only; extend via allow_paths in ~/.lean-ctx/config.toml".to_string()
+        let cfg = crate::core::config::Config::path()
+            .map_or_else(|| "config.toml".to_string(), |p| p.display().to_string());
+        format!("project root only; extend via allow_paths in {cfg}")
     } else {
         format!("project root + {} configured allow path(s)", entries.len())
     };
