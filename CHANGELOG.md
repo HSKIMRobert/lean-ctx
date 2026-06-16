@@ -34,6 +34,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `ctx_*` tool is still registered dynamically. Thanks @omar-mohamed-khallaf.
 
 ### Fixed
+- **`config init --full` no longer resets the existing config to defaults (#443)** —
+  the command rebuilt the file from `Config::default()` and saved that over the
+  user's `config.toml`. Because the TOML merge writes every default value, this
+  silently reverted custom settings (proxy port, compression level, provider
+  setup, …) on every `init --full`. The command now loads the existing config and
+  re-serializes *that* (falling back to defaults only when no file exists),
+  preserving user values while still materializing the fully-commented template;
+  an unparseable file aborts with a clear message instead of being overwritten.
 - **Impact graph self-heals after an upgrade so C# same-namespace edges apply (#398)** —
   the v3.8.3 fix added `type_ref` edges for C#/Java types consumed without a
   `using`/import (same-namespace/package visibility), but those edges only exist
