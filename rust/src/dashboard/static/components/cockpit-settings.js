@@ -46,7 +46,7 @@ var SETTINGS_META = {
 
 var OPTION_LABELS = {
   off: 'Off', lite: 'Lite', standard: 'Standard', max: 'Max',
-  minimal: 'Minimal', power: 'Power', lean: 'Lean',
+  minimal: 'Minimal', power: 'Power', lean: 'Lean (default)',
   full: 'Full', ultra: 'Ultra',
   'true': 'On', 'false': 'Off',
 };

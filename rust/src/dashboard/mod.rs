@@ -662,29 +662,47 @@ async fn handle_request(
         }
     }
 
-    let path = path.as_str();
-    let query_str = query_str.as_str();
-    let method = method.as_str();
-
-    let compute = std::panic::catch_unwind(|| {
+    // Route handlers are synchronous and a few (graph/index builds) do seconds
+    // of disk work. Running them inline on an async worker thread lets one slow
+    // endpoint starve the small worker pool, so a trivial GET like
+    // `/api/settings` can wait minutes behind it (#431, Windows few-core). Run
+    // them on the blocking pool instead: the async workers stay free to serve
+    // light endpoints promptly. `spawn_blocking` also captures panics (returns
+    // a `JoinError`), so the previous `catch_unwind` is no longer needed.
+    let route_started = std::time::Instant::now();
+    let route_label = path.clone();
+    let compute = tokio::task::spawn_blocking(move || {
         routes::route_response(
-            path,
-            query_str,
+            &path,
+            &query_str,
             query_token.as_ref(),
             token.as_ref(),
             is_loopback,
-            method,
+            &method,
             &body_str,
         )
-    });
+    })
+    .await;
     let (status, content_type, mut body) = match compute {
         Ok(v) => v,
+        // The blocking task panicked or was cancelled — surface a 500 rather
+        // than dropping the connection.
         Err(_) => (
             "500 Internal Server Error",
             "application/json",
             r#"{"error":"dashboard route panicked"}"#.to_string(),
         ),
     };
+    // Observability: a slow light endpoint is exactly the #431 symptom, so make
+    // any handler that crosses 1s visible in the logs for future diagnosis.
+    let route_elapsed = route_started.elapsed();
+    if route_elapsed >= std::time::Duration::from_secs(1) {
+        tracing::warn!(
+            target: "lean_ctx::dashboard",
+            "slow dashboard route {route_label} took {} ms",
+            route_elapsed.as_millis()
+        );
+    }
 
     // Under a reverse-proxy subpath, rewrite root-absolute asset/API URLs in the
     // served HTML/CSS/JS so the browser requests them under the prefix (#355).

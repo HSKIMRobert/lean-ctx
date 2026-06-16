@@ -91,14 +91,24 @@ impl ToolProfile {
             if let Some(profile) = Self::parse(trimmed) {
                 return profile;
             }
-            tracing::warn!("Unknown LEAN_CTX_TOOL_PROFILE value '{trimmed}', using config");
+            // Same "unpin" sentinel handling as for the config key below (#431).
+            if !trimmed.is_empty() && !is_unpinned_alias(trimmed) {
+                tracing::warn!("Unknown LEAN_CTX_TOOL_PROFILE value '{trimmed}', using config");
+            }
         }
 
         if let Some(ref profile_name) = cfg.tool_profile {
             if let Some(profile) = Self::parse(profile_name) {
                 return profile;
             }
-            tracing::warn!("Unknown tool_profile '{profile_name}' in config, using default");
+            // `lean`/`lazy`/`reset` are the *unpinned* sentinel (lazy core
+            // advertised, everything reachable via ctx_call) — not a pinned
+            // tier. They can legitimately land in config (older versions, the
+            // dashboard's "Lean" button, manual edits), so resolve them
+            // silently to the default instead of warning + falling back (#431).
+            if !is_unpinned_alias(profile_name) {
+                tracing::warn!("Unknown tool_profile '{profile_name}' in config, using default");
+            }
         }
 
         if !cfg.tools_enabled.is_empty() {
@@ -113,6 +123,17 @@ impl fmt::Display for ToolProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+/// `lean`/`lazy`/`reset` are not pinned tiers — they are the *unpin* sentinel
+/// that clears any pin so the default returns (lazy core advertised, everything
+/// callable via `ctx_call`). Centralised so the config loader, the CLI
+/// (`lean-ctx profile lean`) and the dashboard all agree on the same set (#431).
+pub fn is_unpinned_alias(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "lean" | "lazy" | "reset"
+    )
 }
 
 const MINIMAL_TOOLS: &[&str] = &[

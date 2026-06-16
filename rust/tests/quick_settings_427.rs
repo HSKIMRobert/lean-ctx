@@ -65,6 +65,12 @@ fn start_dashboard() -> Dashboard {
         .env("LEAN_CTX_CACHE_DIR", &cache)
         // Never talk to (or start) the developer's daemon.
         .env("LEAN_CTX_HOOK_CHILD", "1")
+        // Settings are env-overridable; strip any host values so the toggles
+        // reflect config alone and the assertions are deterministic.
+        .env_remove("LEAN_CTX_TOOL_PROFILE")
+        .env_remove("LEAN_CTX_COMPRESSION")
+        .env_remove("LEAN_CTX_TERSE_AGENT")
+        .env_remove("LEAN_CTX_STRUCTURE_FIRST")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -238,6 +244,72 @@ fn settings_endpoint_persists_and_enforces_auth() {
     let (status, _body) =
         http(dash.port, "GET", "/api/settings", "wrong-token", None).expect("GET with bad token");
     assert_eq!(status, 401, "a bad Bearer token must be 401");
+}
+
+/// GH #431: selecting "Lean" (unpin) must not snap back to "Power". A fresh
+/// config is unpinned, so the default reads as `lean`; pinning `power` then
+/// `lean` must round-trip to `lean`, not the internally-effective `power`.
+#[test]
+fn tool_profile_lean_does_not_snap_to_power() {
+    let mut dash = start_dashboard();
+    wait_ready(&mut dash);
+
+    // Fresh config is unpinned → the toggle shows "lean", never "power".
+    let (_status, body) =
+        http(dash.port, "GET", "/api/settings", TOKEN, None).expect("GET /api/settings");
+    assert!(
+        body.contains(r#""value":"lean""#),
+        "unpinned default must read as lean; body: {body}"
+    );
+    assert!(
+        !body.contains(r#""value":"power""#),
+        "unpinned default must not read as power; body: {body}"
+    );
+
+    // Pin power and confirm it sticks.
+    let (status, body) = http(
+        dash.port,
+        "POST",
+        "/api/settings",
+        TOKEN,
+        Some(r#"{"key":"tool_profile","value":"power"}"#),
+    )
+    .expect("POST power");
+    assert_eq!(status, 200, "pinning power should succeed; body: {body}");
+    assert!(
+        body.contains(r#""value":"power""#),
+        "power pin must be echoed; body: {body}"
+    );
+
+    // Unpin via "lean" — the regression: this used to echo "power".
+    let (status, body) = http(
+        dash.port,
+        "POST",
+        "/api/settings",
+        TOKEN,
+        Some(r#"{"key":"tool_profile","value":"lean"}"#),
+    )
+    .expect("POST lean");
+    assert_eq!(
+        status, 200,
+        "unpinning via lean should succeed; body: {body}"
+    );
+    assert!(
+        body.contains(r#""value":"lean""#),
+        "lean must round-trip to lean, not power; body: {body}"
+    );
+    assert!(
+        !body.contains(r#""value":"power""#),
+        "lean must not snap back to power; body: {body}"
+    );
+
+    // And it stays lean across a fresh read (no re-pin, no stale WARN).
+    let (_status, body) =
+        http(dash.port, "GET", "/api/settings", TOKEN, None).expect("GET after lean");
+    assert!(
+        body.contains(r#""value":"lean""#),
+        "lean must persist; body: {body}"
+    );
 }
 
 #[test]

@@ -172,7 +172,7 @@ fn settings_payload() -> String {
                 "env_override": env_present("LEAN_CTX_COMPRESSION"),
             },
             "tool_profile": {
-                "value": tool_profile_canon(&cfg.tool_profile_effective()),
+                "value": tool_profile_value(&cfg),
                 "options": TOOL_PROFILE_OPTIONS,
                 "env_override": env_present("LEAN_CTX_TOOL_PROFILE"),
             },
@@ -219,6 +219,32 @@ fn tool_profile_canon(p: &ToolProfile) -> &'static str {
         ToolProfile::Power => "power",
         ToolProfile::Custom(_) => "custom",
     }
+}
+
+/// Canonical value for the dashboard's tool-profile toggle.
+///
+/// The unpinned default and an explicit `power` pin both resolve to
+/// `ToolProfile::Power` internally, so reporting the *effective* profile made
+/// the UI snap "Lean" back to "Power" the instant it was selected (#431). This
+/// mirrors `ToolProfile::from_config`'s precedence but maps the unpinned state
+/// to the `lean` sentinel the UI understands.
+fn tool_profile_value(cfg: &Config) -> &'static str {
+    // An env override wins and is surfaced separately via `env_override`.
+    if env_present("LEAN_CTX_TOOL_PROFILE") {
+        return tool_profile_canon(&cfg.tool_profile_effective());
+    }
+    // A real pin (minimal/standard/power) takes precedence. Unpin aliases
+    // (`lean`/`lazy`/`reset`) and unknown literals fail to parse and fall
+    // through to the same default resolution `from_config` uses.
+    if let Some(name) = cfg.tool_profile.as_deref() {
+        if let Some(profile) = ToolProfile::parse(name) {
+            return tool_profile_canon(&profile);
+        }
+    }
+    if !cfg.tools_enabled.is_empty() {
+        return "custom";
+    }
+    "lean"
 }
 
 #[cfg(test)]
@@ -270,6 +296,48 @@ mod tests {
         );
         assert!(normalize_value(&serde_json::json!(42)).is_none());
         assert!(normalize_value(&serde_json::json!(null)).is_none());
+    }
+
+    /// GH #431: the unpinned default and a real `power` pin both resolve to
+    /// `ToolProfile::Power`, but the UI must tell them apart so selecting "Lean"
+    /// does not snap back to "Power".
+    #[test]
+    fn tool_profile_value_distinguishes_lean_from_power() {
+        // Avoid env interference from the host running the suite.
+        std::env::remove_var("LEAN_CTX_TOOL_PROFILE");
+
+        let unpinned = Config {
+            tool_profile: None,
+            tools_enabled: vec![],
+            ..Default::default()
+        };
+        assert_eq!(tool_profile_value(&unpinned), "lean");
+
+        // A persisted unpin alias self-heals to lean instead of "power".
+        let aliased = Config {
+            tool_profile: Some("lean".into()),
+            ..Default::default()
+        };
+        assert_eq!(tool_profile_value(&aliased), "lean");
+
+        let pinned = Config {
+            tool_profile: Some("power".into()),
+            ..Default::default()
+        };
+        assert_eq!(tool_profile_value(&pinned), "power");
+
+        let minimal = Config {
+            tool_profile: Some("minimal".into()),
+            ..Default::default()
+        };
+        assert_eq!(tool_profile_value(&minimal), "minimal");
+
+        let custom = Config {
+            tool_profile: None,
+            tools_enabled: vec!["ctx_read".into()],
+            ..Default::default()
+        };
+        assert_eq!(tool_profile_value(&custom), "custom");
     }
 
     #[test]

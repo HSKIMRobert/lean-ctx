@@ -314,8 +314,15 @@ fn cmd_tool_profile_list() {
     let cfg = crate::core::config::Config::load();
     let active = cfg.tool_profile_effective();
     let registry_count = crate::server::registry::tool_count();
-    let pinned = cfg.tool_profile.is_some()
-        || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok()
+    // A persisted unpin alias (`tool_profile = "lean"`) or `…=lean` in the env
+    // is NOT a pin — otherwise `show` would report "power" for the default (#431).
+    let pinned = cfg
+        .tool_profile
+        .as_deref()
+        .is_some_and(|p| !tool_profiles::is_unpinned_alias(p))
+        || std::env::var("LEAN_CTX_TOOL_PROFILE")
+            .ok()
+            .is_some_and(|v| !v.trim().is_empty() && !tool_profiles::is_unpinned_alias(v.trim()))
         || !cfg.tools_enabled.is_empty();
     let active_name = if pinned { active.as_str() } else { "lean" };
     let lazy_count = crate::tool_defs::core_tool_names().len();
@@ -351,7 +358,7 @@ fn cmd_tool_profile_switch(name: &str) {
     // "lean" is not a pinned profile — it removes the config key, restoring
     // the default: lazy core advertised (~13 schemas), everything reachable
     // through ctx_call (#575).
-    if matches!(name, "lean" | "lazy" | "reset") {
+    if tool_profiles::is_unpinned_alias(name) {
         if let Err(e) = tool_profiles::clear_profile_in_config() {
             eprintln!("Error saving profile: {e}");
             std::process::exit(1);
