@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.8.8] — 2026-06-16
+## [3.8.8] — 2026-06-17
 
 ### Added
 - **`lean-ctx update <version>` pins a specific release (#447)** — `update` now
@@ -75,6 +75,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   boundary is unchanged.
 
 ### Fixed
+- **`gain` dashboard shows the per-day lean-ctx version again (#307)** — the
+  "richer theme rendering" pass replaced the per-day version column in the
+  RECENT DAYS section with a gradient bar, so `lean-ctx gain` and `gain --deep`
+  silently stopped attributing each day's compression rate to a release
+  (regressing the feature added in v3.7.1). The version is still recorded on
+  every day's stats and the `gain --daily` table still showed it — only the
+  dashboard renderer dropped it. The bar is kept (now padded to a fixed width so
+  the column lines up) and the version is re-appended (`v{x.y.z}`, `—` for
+  pre-tracking days).
 - **Secret redaction stops corrupting type annotations and drops its duplicate rules (#430)** —
   `ctx_edit` carried a second copy of the redaction regex set that never got the
   non-secret-literal guard added for #430; worse, its generic-long-secret branch
