@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveRouteShell } from "../extensions/config.js";
+import {
+  REPLACEABLE_BUILTIN_TOOLS,
+  resolveRouteShell,
+  resolveSuppressedBuiltins,
+} from "../extensions/config.js";
 
 const ENV_KEY = "LEAN_CTX_PI_ROUTE_SHELL";
 
@@ -28,5 +32,39 @@ describe("resolveRouteShell", () => {
     expect(resolveRouteShell("additive", true)).toBe(false);
     process.env[ENV_KEY] = "1";
     expect(resolveRouteShell("additive", false)).toBe(true);
+  });
+});
+
+describe("resolveSuppressedBuiltins", () => {
+  it("replace mode suppresses all five natives (only ctx_* remain)", () => {
+    const suppressed = resolveSuppressedBuiltins("replace", true);
+    expect([...suppressed].sort()).toEqual(["bash", "find", "grep", "ls", "read"]);
+  });
+
+  it("additive + routeShell suppresses only native bash (the R1 102-bash/0-ctx_shell guard)", () => {
+    const suppressed = resolveSuppressedBuiltins("additive", true);
+    expect([...suppressed]).toEqual(["bash"]);
+    // read/ls/find/grep stay available next to their ctx_* counterparts.
+    expect(suppressed.has("read")).toBe(false);
+  });
+
+  it("additive without routeShell suppresses nothing (non-regressive default)", () => {
+    expect(resolveSuppressedBuiltins("additive", false).size).toBe(0);
+  });
+
+  it("any faithful arm (replace or routeShell) removes native bash so shell must route through ctx_shell", () => {
+    expect(resolveSuppressedBuiltins("replace", true).has("bash")).toBe(true);
+    expect(resolveSuppressedBuiltins("additive", true).has("bash")).toBe(true);
+  });
+
+  it("never suppresses a builtin without shipping a ctx_* replacement", () => {
+    const replaceable = new Set<string>(REPLACEABLE_BUILTIN_TOOLS);
+    for (const mode of ["additive", "replace"] as const) {
+      for (const routeShell of [false, true]) {
+        for (const name of resolveSuppressedBuiltins(mode, routeShell)) {
+          expect(replaceable.has(name)).toBe(true);
+        }
+      }
+    }
   });
 });

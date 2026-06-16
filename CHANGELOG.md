@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **R2 benchmark faithful-arm preflight (#361)** — `bench/agent-task/r2/preflight.mjs`
+  proves, before any priced run, that the pi arm routes shell through `ctx_shell`
+  (native `bash` suppressed) and actually compresses it — the "green preflight =
+  running as designed" gate the tokbench reviewer asked for, ruling out R1's
+  `102 native bash / 0 ctx_shell`. The shell-suppression decision is now the
+  single, unit-tested invariant `resolveSuppressedBuiltins`
+  (`packages/pi-lean-ctx`), so the routing fix can never silently regress.
+
 ### Fixed
 - **Secret redaction no longer mangles source files read via `ctx_read` (#430)** —
   the key/value secret pattern matched TypeScript type annotations and language

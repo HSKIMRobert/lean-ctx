@@ -49,7 +49,23 @@ set -a; source bench/agent-task/r2/faithful-arm.env; set +a
 and proxy into the arm's fresh `HOME` and source `faithful-arm.env` before the
 agent launches — the harness's own protocol stays unchanged.
 
-## Verify the arm is actually faithful
+## Verify the arm is actually faithful (preflight)
+
+Run **before any priced run** — a green preflight is the gate devasur asked for:
+it proves shell routes through `ctx_shell` (native `bash` suppressed) and is
+actually compressed, not the R1 `102 native bash / 0 ctx_shell`:
+
+```bash
+node bench/agent-task/r2/preflight.mjs            # resolves the installed pi config
+node bench/agent-task/r2/preflight.mjs --config bench/agent-task/r2/pi-config.json
+```
+
+It checks the binary + version, that the config suppresses native `bash`
+(`mode=replace` / `routeShell` — the unit-tested `resolveSuppressedBuiltins`
+invariant), the embedded bridge, the faithful overhead levers, and measures real
+shell compression. Exit code 1 if any hard gate fails.
+
+Manual spot-checks (what the preflight automates):
 
 ```bash
 lean-ctx config get rules_injection   # -> off
@@ -65,9 +81,11 @@ can send us a PR"). The integration PR to tokbench is exactly this arm:
 
 1. add the lean-ctx arm using `pi-config.json` + `lean-ctx.toml` above,
 2. start `lean-ctx proxy start` for the arm and export `faithful-arm.env`,
-3. ship the pi-extension `routeShell` fix (this repo, `packages/pi-lean-ctx`) so
-   shell output reaches the compressor without the agent having to choose
-   `ctx_shell`.
+3. the pi-extension `routeShell` / `mode=replace` fix already lives in
+   `packages/pi-lean-ctx` (it suppresses native `bash` so shell output reaches
+   the compressor without the agent having to choose `ctx_shell`); ship
+   `preflight.mjs` as the pre-run gate that proves it on the bench (the
+   green-preflight = "running as designed" devasur asked for).
 
 Right-of-reply framing: lean-ctx is the only **code-aware** arm (localizes +
 compresses without hiding the defect), the **broadest reach** via the proxy, and

@@ -132,6 +132,32 @@ export function resolveRouteShell(mode: PiMode, fileRouteShell: unknown): boolea
   return fileRouteShell === true;
 }
 
+/**
+ * The five Pi builtins lean-ctx ships compressed `ctx_*` replacements for.
+ * Suppressing one removes it from the agent's tool set, so the agent must reach
+ * for the metered ctx_* equivalent instead of the uncompressed native.
+ */
+export const REPLACEABLE_BUILTIN_TOOLS = ["read", "bash", "ls", "find", "grep"] as const;
+
+/**
+ * The Pi builtins to suppress for a resolved config. Single source of truth for
+ * the R1 "102 native bash / 0 ctx_shell" fix (#361): whenever the returned set
+ * contains `bash`, the native shell is gone and the agent must route through
+ * `ctx_shell` (compressed + metered).
+ *
+ *   replace             → all five natives suppressed (only ctx_* exposed)
+ *   additive+routeShell → only `bash` suppressed (read/ls/find/grep stay)
+ *   additive            → nothing suppressed (fully non-regressive default)
+ *
+ * Invariant: every suppressed name has a ctx_* replacement (a subset of
+ * REPLACEABLE_BUILTIN_TOOLS), so a builtin is never removed without a substitute.
+ */
+export function resolveSuppressedBuiltins(mode: PiMode, routeShell: boolean): Set<string> {
+  if (mode === "replace") return new Set(REPLACEABLE_BUILTIN_TOOLS);
+  if (routeShell) return new Set(["bash"]);
+  return new Set<string>();
+}
+
 /** Split a comma/whitespace-separated tool list into trimmed, non-empty names. */
 function parseToolList(raw: string | undefined): string[] {
   if (!raw) return [];

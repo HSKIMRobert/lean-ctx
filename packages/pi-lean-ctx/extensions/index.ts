@@ -22,7 +22,7 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { homedir, platform } from "node:os";
 import { McpBridge } from "./mcp-bridge.js";
-import { loadPiConfig } from "./config.js";
+import { loadPiConfig, resolveSuppressedBuiltins } from "./config.js";
 import type { CompressionStats } from "./types.js";
 
 const CODE_EXTENSIONS = new Set([
@@ -44,12 +44,12 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const CODE_FULL_READ_MAX_BYTES = 8 * 1024;
 const CODE_SIGNATURES_MIN_BYTES = 96 * 1024;
 
-// Pi builtins that can be replaced with ctx_ prefixed versions.
-// Settings resolve from (most explicit first): LEAN_CTX_PI_* env vars, then
-// ~/.pi/agent/extensions/pi-lean-ctx/config.json, then defaults (issue #344).
+// Which Pi builtins to suppress is resolved by resolveSuppressedBuiltins (in
+// config.ts, unit-tested). Settings resolve from (most explicit first):
+// LEAN_CTX_PI_* env vars, then ~/.pi/agent/extensions/pi-lean-ctx/config.json,
+// then defaults (issue #344).
 //   mode "additive" (default) — keep Pi builtins, add ctx_* alongside
 //   mode "replace"            — disable Pi builtins, only expose ctx_*
-const DISABLED_BUILTIN_TOOLS = new Set(["read", "bash", "ls", "find", "grep"]);
 const PI_CONFIG = loadPiConfig();
 const PI_MODE = PI_CONFIG.mode;
 // Max bytes constant for truncation warnings (same as Pi's DEFAULT_MAX_BYTES)
@@ -343,11 +343,7 @@ export default async function (pi: ExtensionAPI) {
   //     finding: 102 bash / 0 ctx_shell), so the heaviest addressable surface in
   //     a fix task — make/reproducer/test logs — never reaches the compressor.
   //   - "additive" without routeShell → suppress nothing (keep Pi builtins).
-  const suppressedBuiltins = PI_MODE === "replace"
-    ? DISABLED_BUILTIN_TOOLS
-    : PI_CONFIG.routeShell
-      ? new Set(["bash"])
-      : new Set<string>();
+  const suppressedBuiltins = resolveSuppressedBuiltins(PI_MODE, PI_CONFIG.routeShell);
 
   if (suppressedBuiltins.size > 0) {
     pi.on("session_start", () => {
