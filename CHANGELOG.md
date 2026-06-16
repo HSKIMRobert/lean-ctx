@@ -42,6 +42,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   re-serializes *that* (falling back to defaults only when no file exists),
   preserving user values while still materializing the fully-commented template;
   an unparseable file aborts with a clear message instead of being overwritten.
+- **OpenCode (and 18 other agents) now get the `ctx_*` usage rules injected (#442)** —
+  rule injection was gated on `rules_already_present()`, a hand-maintained list
+  that only knew about five agents. For everyone else it returned `false`, so with
+  `auto_inject_rules` unset the setup skipped injection and the model never saw
+  the "prefer `ctx_*` tools" guidance — defeating the whole point of MCP-only
+  mode. Detection is now derived from the single `build_rules_targets` catalog
+  (`rules_inject::any_rules_marker_present`), so every supported agent is covered
+  and can never drift from the writer again. The OpenCode hook additionally
+  injects the rules into `AGENTS.md` when running MCP-only (shadow mode off) and
+  MCP is registered, so the guidance lands even without the interception plugin.
 - **Impact graph self-heals after an upgrade so C# same-namespace edges apply (#398)** —
   the v3.8.3 fix added `type_ref` edges for C#/Java types consumed without a
   `using`/import (same-namespace/package visibility), but those edges only exist
