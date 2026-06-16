@@ -502,13 +502,22 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
             };
             let pc = t.pct_color(day_pct);
             let ratio = day_input_saved as f64 / max_day_saved as f64;
-            let day_bar = t.gradient_bar(ratio, 20);
+            // Pad the bar to a fixed width so the trailing version column lines up
+            // (matches the BY COMMAND bar above; gradient_bar can return < width).
+            let day_bar = theme::pad_right(&t.gradient_bar(ratio, 20), 20);
             let date_short = day.date.get(5..).unwrap_or(&day.date);
             let date_col = theme::pad_right(&format!("{m}{date_short}{rst}", m = t.muted.fg()), 7);
             let saved_col =
                 theme::pad_right(&format!("{pc}{bold}{}{rst}", format_big(day_saved)), 9);
+            // Per-day version attributes a compression change to a specific
+            // release (#307); pre-tracking days carry no version and show "—".
+            let ver = if day.version.is_empty() {
+                "—".to_string()
+            } else {
+                format!("v{}", day.version)
+            };
             out.push(sec_line(&format!(
-                "  {date_col} {:>4} cmds  {saved_col} {pc}{day_pct:>5.1}%{rst}  {day_bar}",
+                "  {date_col} {:>4} cmds  {saved_col} {pc}{day_pct:>5.1}%{rst}  {day_bar}  {dim}{ver}{rst}",
                 day.commands,
             )));
         }
