@@ -53,6 +53,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   boundary is unchanged.
 
 ### Fixed
+- **`proxy enable` now also routes Pi / forge through the proxy (#361)** — Pi and
+  forge resolve their endpoint from `~/.pi/agent/models.json`
+  (`providers.<name>.baseUrl`) + OAuth, not from `ANTHROPIC_BASE_URL` /
+  `OPENAI_BASE_URL`, so the shell and Claude/Codex env wiring silently bypassed
+  them (the tokbench review had to hand-edit `models.json`). `proxy enable` /
+  `disable` now wire Pi's `anthropic` (bare origin) and `openai` (`/v1`-suffixed)
+  providers when `~/.pi/agent` exists, preserving any custom remote endpoint
+  unless `--force` and reverting only the endpoints it set. Pi's OAuth keeps
+  working because the proxy forwards the credential verbatim to the real upstream.
 - **`config init --full` no longer resets the existing config to defaults (#443)** —
   the command rebuilt the file from `Config::default()` and saved that over the
   user's `config.toml`. Because the TOML merge writes every default value, this
