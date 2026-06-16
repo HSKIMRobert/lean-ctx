@@ -120,20 +120,20 @@ impl ModePredictor {
             true
         };
 
-        if let Some(local) = self.predict_from_local(sig) {
-            if allow_override(&local) {
-                return Some(local);
-            }
+        if let Some(local) = self.predict_from_local(sig)
+            && allow_override(&local)
+        {
+            return Some(local);
         }
-        if let Some(bandit) = self.predict_from_bandit(sig) {
-            if allow_override(&bandit) {
-                return Some(bandit);
-            }
+        if let Some(bandit) = self.predict_from_bandit(sig)
+            && allow_override(&bandit)
+        {
+            return Some(bandit);
         }
-        if let Some(cloud) = self.predict_from_cloud(sig) {
-            if allow_override(&cloud) {
-                return Some(cloud);
-            }
+        if let Some(cloud) = self.predict_from_cloud(sig)
+            && allow_override(&cloud)
+        {
+            return Some(cloud);
         }
         default_mode
     }
@@ -176,8 +176,8 @@ impl ModePredictor {
         mode_scores
             .into_iter()
             .max_by(|a, b| {
-                let avg_a = a.1 .0 / a.1 .1 as f64;
-                let avg_b = b.1 .0 / b.1 .1 as f64;
+                let avg_a = a.1.0 / a.1.1 as f64;
+                let avg_b = b.1.0 / b.1.1 as f64;
                 avg_a
                     .partial_cmp(&avg_b)
                     .unwrap_or(std::cmp::Ordering::Equal)
@@ -207,12 +207,13 @@ impl ModePredictor {
             let m_bucket = model["size_bucket"].as_str().unwrap_or("");
             let confidence = model["confidence"].as_f64().unwrap_or(0.0);
 
-            if m_ext == ext_with_dot && m_bucket == bucket_name && confidence > 0.5 {
-                if let Some(mode) = model["recommended_mode"].as_str() {
-                    if best.is_none_or(|(_, c)| confidence > c) {
-                        best = Some((mode, confidence));
-                    }
-                }
+            if m_ext == ext_with_dot
+                && m_bucket == bucket_name
+                && confidence > 0.5
+                && let Some(mode) = model["recommended_mode"].as_str()
+                && best.is_none_or(|(_, c)| confidence > c)
+            {
+                best = Some((mode, confidence));
             }
         }
 

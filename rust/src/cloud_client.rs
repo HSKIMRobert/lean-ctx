@@ -103,10 +103,10 @@ fn restrict_dir_permissions(_dir: &std::path::Path) {}
 #[cfg(unix)]
 fn tighten_secret_permissions(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(path) {
-        if meta.permissions().mode() & 0o077 != 0 {
-            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-        }
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.permissions().mode() & 0o077 != 0
+    {
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     }
 }
 
@@ -167,10 +167,9 @@ fn auth_bearer_token() -> Result<String, String> {
         if let (Some(token), Some(exp)) = (
             creds.oauth_access_token.clone(),
             creds.oauth_expires_at_unix,
-        ) {
-            if exp > now + 10 {
-                return Ok(token);
-            }
+        ) && exp > now + 10
+        {
+            return Ok(token);
         }
 
         let url = format!("{}/oauth/token", api_url());
@@ -565,10 +564,10 @@ pub fn save_plan(plan: &str) -> std::io::Result<()> {
 /// legacy `plan.txt` (no timestamp → `verified_at = 0`, i.e. immediately past
 /// grace until the next successful refresh re-stamps it).
 pub fn cached_plan() -> Option<PlanCache> {
-    if let Ok(data) = std::fs::read_to_string(plan_cache_path()) {
-        if let Ok(cache) = serde_json::from_str::<PlanCache>(&data) {
-            return Some(cache);
-        }
+    if let Ok(data) = std::fs::read_to_string(plan_cache_path())
+        && let Ok(cache) = serde_json::from_str::<PlanCache>(&data)
+    {
+        return Some(cache);
     }
     let legacy = std::fs::read_to_string(config_dir().join("plan.txt")).ok()?;
     Some(PlanCache {
@@ -649,16 +648,16 @@ pub fn resolve_effective_plan_cached() -> EffectivePlan {
 /// commands like `lean-ctx billing status` where a network round-trip is fine.
 #[must_use]
 pub fn refresh_effective_plan() -> EffectivePlan {
-    if is_logged_in() {
-        if let Ok(plan_str) = fetch_plan() {
-            let _ = save_plan(&plan_str);
-            return EffectivePlan {
-                plan: crate::core::billing::Plan::parse(&plan_str),
-                source: PlanSource::Live,
-                verified_at: Some(now_unix()),
-                grace_days: PLAN_GRACE_DAYS,
-            };
-        }
+    if is_logged_in()
+        && let Ok(plan_str) = fetch_plan()
+    {
+        let _ = save_plan(&plan_str);
+        return EffectivePlan {
+            plan: crate::core::billing::Plan::parse(&plan_str),
+            source: PlanSource::Live,
+            verified_at: Some(now_unix()),
+            grace_days: PLAN_GRACE_DAYS,
+        };
     }
     resolve_effective_plan_cached()
 }
@@ -1075,7 +1074,7 @@ mod tests {
     fn cached_resolve_grants_within_grace_then_expires_to_free() {
         let _env = test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         // A fresh save is served from cache, within grace, at full plan.
         save_plan("pro").unwrap();
@@ -1093,18 +1092,18 @@ mod tests {
         assert_eq!(eff.plan, Plan::Free);
         assert_eq!(eff.source, PlanSource::Expired);
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn no_cache_resolves_to_free_none() {
         let _env = test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
         let eff = resolve_effective_plan_cached();
         assert_eq!(eff.plan, Plan::Free);
         assert_eq!(eff.source, PlanSource::None);
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     // P0-2 (#414): credentials must be owner-only on disk.
@@ -1114,7 +1113,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let _env = test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         save_credentials("sk-test-key", "user-1", "a@b.c").unwrap();
 
@@ -1140,7 +1139,7 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "atomic write must not leak tmp files");
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     // P0-2 (#414): pre-existing world-readable credentials are tightened on load.
@@ -1150,7 +1149,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let _env = test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         std::fs::create_dir_all(config_dir()).unwrap();
         let path = credentials_path();
@@ -1166,14 +1165,14 @@ mod tests {
             "legacy file must be tightened to 0o600"
         );
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn legacy_plan_txt_is_migrated_but_treated_as_stale() {
         let _env = test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
         // Only the legacy flat file exists (no timestamp) → past grace until refresh.
         std::fs::create_dir_all(config_dir()).unwrap();
         std::fs::write(config_dir().join("plan.txt"), "team").unwrap();
@@ -1181,6 +1180,6 @@ mod tests {
         assert_eq!(cache.plan, "team");
         assert_eq!(cache.verified_at, 0);
         assert_eq!(resolve_effective_plan_cached().source, PlanSource::Expired);
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

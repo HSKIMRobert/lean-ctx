@@ -1,5 +1,5 @@
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -32,20 +32,20 @@ fn compress_playwright(output: &str) -> String {
 
     for line in trimmed.lines() {
         let l = line.trim().to_lowercase();
-        if l.contains("passed") {
-            if let Some(n) = extract_number(&l, "passed") {
-                passed = n;
-            }
+        if l.contains("passed")
+            && let Some(n) = extract_number(&l, "passed")
+        {
+            passed = n;
         }
-        if l.contains("failed") {
-            if let Some(n) = extract_number(&l, "failed") {
-                failed = n;
-            }
+        if l.contains("failed")
+            && let Some(n) = extract_number(&l, "failed")
+        {
+            failed = n;
         }
-        if l.contains("skipped") {
-            if let Some(n) = extract_number(&l, "skipped") {
-                skipped = n;
-            }
+        if l.contains("skipped")
+            && let Some(n) = extract_number(&l, "skipped")
+        {
+            skipped = n;
         }
         if let Some(caps) = pw_failed_re().captures(line) {
             failed_names.push(caps[1].trim().to_string());

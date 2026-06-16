@@ -127,10 +127,10 @@ impl ProviderBandit {
     /// model that genuinely learns which providers pay off for which task types.
     pub fn load(project_root: &str) -> Self {
         let path = provider_bandit_path(project_root);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(bandit) = serde_json::from_str::<ProviderBandit>(&content) {
-                return bandit;
-            }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(bandit) = serde_json::from_str::<ProviderBandit>(&content)
+        {
+            return bandit;
         }
         Self::new()
     }
@@ -299,7 +299,7 @@ mod tests {
     fn persistence_roundtrip_preserves_learning() {
         let _env = crate::core::data_dir::test_env_lock();
         let data_dir = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
         let project = "/tmp/provider-bandit-roundtrip";
 
         let mut bandit = ProviderBandit::new();
@@ -317,6 +317,6 @@ mod tests {
         let fresh = ProviderBandit::load("/tmp/provider-bandit-unseen");
         assert!((fresh.estimated_probability("bugfix", "github") - 0.5).abs() < f64::EPSILON);
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

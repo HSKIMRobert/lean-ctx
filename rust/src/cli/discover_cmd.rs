@@ -40,10 +40,10 @@ fn card_target(args: &[String]) -> Option<String> {
             path = Some(v.to_string());
         } else if a == "--card" {
             requested = true;
-            if let Some(next) = args.get(i + 1) {
-                if !next.starts_with('-') {
-                    path = Some(next.clone());
-                }
+            if let Some(next) = args.get(i + 1)
+                && !next.starts_with('-')
+            {
+                path = Some(next.clone());
             }
         }
     }

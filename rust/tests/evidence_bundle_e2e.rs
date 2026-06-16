@@ -5,7 +5,7 @@
 //! deliberately against the contract, not against this generator.
 
 use lean_ctx::core::audit_trail::{self, AuditEntryData, AuditEventType};
-use lean_ctx::core::evidence_bundle::{generate, BundleSpec};
+use lean_ctx::core::evidence_bundle::{BundleSpec, generate};
 use serial_test::serial;
 use std::io::Read;
 
@@ -13,7 +13,8 @@ use std::io::Read;
 #[serial]
 fn bundle_is_deterministic_and_complete() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path()) };
 
     for (i, tool) in ["ctx_read", "ctx_search", "ctx_shell"].iter().enumerate() {
         audit_trail::record(AuditEntryData {
@@ -63,9 +64,11 @@ fn bundle_is_deterministic_and_complete() {
     assert!(names.contains(&"audit/trail.jsonl".to_string()));
     assert!(names.contains(&"coverage/cgb.json".to_string()));
     assert!(names.contains(&"coverage/eu-ai-act.json".to_string()));
-    assert!(names
-        .iter()
-        .any(|n| n.starts_with("policies/") && n.ends_with(".resolved.json")));
+    assert!(
+        names
+            .iter()
+            .any(|n| n.starts_with("policies/") && n.ends_with(".resolved.json"))
+    );
 
     // Manifest invariants: chain bounds match the recorded segment and the
     // manifest carries a signature over a recomputable digest.
@@ -89,7 +92,8 @@ fn bundle_is_deterministic_and_complete() {
     // No wall-clock fields: the manifest must not contain a created_at.
     assert!(manifest.get("created_at").is_none());
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }
 
 /// Regression (GL #425): concurrent appends from multiple threads/handles
@@ -100,7 +104,8 @@ fn bundle_is_deterministic_and_complete() {
 #[serial]
 fn concurrent_appends_do_not_fork_the_chain() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path()) };
 
     let threads: Vec<_> = (0..4)
         .map(|t| {
@@ -131,14 +136,16 @@ fn concurrent_appends_do_not_fork_the_chain() {
         chain.first_invalid_at
     );
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }
 
 #[test]
 #[serial]
 fn empty_period_is_an_error_not_an_empty_attestation() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path()) };
 
     audit_trail::record(AuditEntryData {
         agent_id: "agent-1".into(),
@@ -160,5 +167,6 @@ fn empty_period_is_an_error_not_an_empty_attestation() {
     let err = generate(&spec).expect_err("empty period must fail");
     assert!(err.contains("no audit entries"), "{err}");
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }

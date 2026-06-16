@@ -1,7 +1,7 @@
 use chrono::Utc;
 
 use super::{
-    compact_score, display_user_path, print_compact_status, shell_aliases_outcome, DIM, RST,
+    DIM, RST, compact_score, display_user_path, print_compact_status, shell_aliases_outcome,
 };
 
 pub(super) struct DoctorFixOptions {
@@ -10,7 +10,7 @@ pub(super) struct DoctorFixOptions {
 
 pub(super) fn run_fix(opts: &DoctorFixOptions) -> Result<i32, String> {
     use crate::core::setup_report::{
-        doctor_report_path, PlatformInfo, SetupItem, SetupReport, SetupStepReport,
+        PlatformInfo, SetupItem, SetupReport, SetupStepReport, doctor_report_path,
     };
 
     let _quiet_guard = opts

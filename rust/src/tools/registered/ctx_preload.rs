@@ -1,8 +1,8 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str};
 use crate::tool_defs::tool_def;
 
 pub struct CtxPreloadTool;
@@ -91,67 +91,62 @@ impl McpTool for CtxPreloadTool {
         if let Some(ref session_lock) = ctx.session {
             if let Some(mut session_guard) =
                 crate::server::bounded_lock::write(session_lock, "ctx_preload:session_write")
-            {
-                if session_guard.active_structured_intent.is_none()
+                && (session_guard.active_structured_intent.is_none()
                     || session_guard
                         .active_structured_intent
                         .as_ref()
-                        .is_none_or(|i| i.confidence < 0.6)
-                {
-                    session_guard.set_task(&task, Some("preload"));
-                }
+                        .is_none_or(|i| i.confidence < 0.6))
+            {
+                session_guard.set_task(&task, Some("preload"));
             }
 
             if let Some(session_guard) =
                 crate::server::bounded_lock::read(session_lock, "ctx_preload:session_read")
+                && let Some(ref intent) = session_guard.active_structured_intent
+                && let Some(ref ledger_lock) = ctx.ledger
             {
-                if let Some(ref intent) = session_guard.active_structured_intent {
-                    if let Some(ref ledger_lock) = ctx.ledger {
-                        let Some(ledger) =
-                            crate::server::bounded_lock::read(ledger_lock, "ctx_preload:ledger")
-                        else {
-                            return Ok(ToolOutput::simple(result));
-                        };
-                        if !ledger.entries.is_empty() {
-                            let known: Vec<String> = session_guard
-                                .files_touched
-                                .iter()
-                                .map(|f| f.path.clone())
-                                .collect();
-                            let deficit = crate::core::context_deficit::detect_deficit(
-                                &ledger, intent, &known,
-                            );
-                            if !deficit.suggested_files.is_empty() {
-                                result.push_str("\n\n--- SUGGESTED FILES ---");
-                                for s in &deficit.suggested_files {
-                                    result.push_str(&format!(
-                                        "\n  {} ({:?}, ~{} tok, mode: {})",
-                                        s.path, s.reason, s.estimated_tokens, s.recommended_mode
-                                    ));
-                                }
-                            }
+                let Some(ledger) =
+                    crate::server::bounded_lock::read(ledger_lock, "ctx_preload:ledger")
+                else {
+                    return Ok(ToolOutput::simple(result));
+                };
+                if !ledger.entries.is_empty() {
+                    let known: Vec<String> = session_guard
+                        .files_touched
+                        .iter()
+                        .map(|f| f.path.clone())
+                        .collect();
+                    let deficit =
+                        crate::core::context_deficit::detect_deficit(&ledger, intent, &known);
+                    if !deficit.suggested_files.is_empty() {
+                        result.push_str("\n\n--- SUGGESTED FILES ---");
+                        for s in &deficit.suggested_files {
+                            result.push_str(&format!(
+                                "\n  {} ({:?}, ~{} tok, mode: {})",
+                                s.path, s.reason, s.estimated_tokens, s.recommended_mode
+                            ));
+                        }
+                    }
 
-                            let pressure = ledger.pressure();
-                            if pressure.utilization > 0.7 {
-                                let plan = ledger.reinjection_plan(intent, 0.6);
-                                if !plan.actions.is_empty() {
-                                    result.push_str("\n\n--- REINJECTION PLAN ---");
-                                    result.push_str(&format!(
-                                        "\n  Context pressure: {:.0}% -> target: 60%",
-                                        pressure.utilization * 100.0
-                                    ));
-                                    for a in &plan.actions {
-                                        result.push_str(&format!(
-                                            "\n  {} : {} -> {} (frees ~{} tokens)",
-                                            a.path, a.current_mode, a.new_mode, a.tokens_freed
-                                        ));
-                                    }
-                                    result.push_str(&format!(
-                                        "\n  Total freeable: {} tokens",
-                                        plan.total_tokens_freed
-                                    ));
-                                }
+                    let pressure = ledger.pressure();
+                    if pressure.utilization > 0.7 {
+                        let plan = ledger.reinjection_plan(intent, 0.6);
+                        if !plan.actions.is_empty() {
+                            result.push_str("\n\n--- REINJECTION PLAN ---");
+                            result.push_str(&format!(
+                                "\n  Context pressure: {:.0}% -> target: 60%",
+                                pressure.utilization * 100.0
+                            ));
+                            for a in &plan.actions {
+                                result.push_str(&format!(
+                                    "\n  {} : {} -> {} (frees ~{} tokens)",
+                                    a.path, a.current_mode, a.new_mode, a.tokens_freed
+                                ));
                             }
+                            result.push_str(&format!(
+                                "\n  Total freeable: {} tokens",
+                                plan.total_tokens_freed
+                            ));
                         }
                     }
                 }

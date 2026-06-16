@@ -1,7 +1,7 @@
 use regex::Regex;
 
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -351,22 +351,22 @@ fn extract_ts_signatures(content: &str) -> Vec<Signature> {
                 start_line: Some(line_no),
                 end_line: Some(line_no),
             });
-        } else if let Some(caps) = const_re().captures(line) {
-            if caps.get(2).is_some() {
-                sigs.push(Signature {
-                    kind: "const",
-                    name: caps[4].to_string(),
-                    params: String::new(),
-                    return_type: caps
-                        .get(5)
-                        .map_or(String::new(), |m| m.as_str().to_string()),
-                    is_async: false,
-                    is_exported: true,
-                    indent: 0,
-                    start_line: Some(line_no),
-                    end_line: Some(line_no),
-                });
-            }
+        } else if let Some(caps) = const_re().captures(line)
+            && caps.get(2).is_some()
+        {
+            sigs.push(Signature {
+                kind: "const",
+                name: caps[4].to_string(),
+                params: String::new(),
+                return_type: caps
+                    .get(5)
+                    .map_or(String::new(), |m| m.as_str().to_string()),
+                is_async: false,
+                is_exported: true,
+                indent: 0,
+                start_line: Some(line_no),
+                end_line: Some(line_no),
+            });
         }
     }
 

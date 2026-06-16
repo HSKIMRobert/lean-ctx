@@ -1,5 +1,5 @@
-use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use std::time::Instant;
 use tokio::sync::RwLock;
 
@@ -29,10 +29,10 @@ pub use crate::core::protocol::CrpMode;
 impl CrpMode {
     /// Effective CRP mode: explicit env var wins; otherwise derived from CompressionLevel.
     pub fn effective() -> Self {
-        if let Ok(v) = std::env::var("LEAN_CTX_CRP_MODE") {
-            if !v.trim().is_empty() {
-                return Self::parse(&v).unwrap_or(Self::Off);
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_CRP_MODE")
+            && !v.trim().is_empty()
+        {
+            return Self::parse(&v).unwrap_or(Self::Off);
         }
         let config = crate::core::config::Config::load();
         let level = crate::core::config::CompressionLevel::effective(&config);

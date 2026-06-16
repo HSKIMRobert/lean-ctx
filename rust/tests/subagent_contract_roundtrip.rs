@@ -37,7 +37,8 @@ fn brief_then_return_roundtrip() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let data_dir = tmp.path().join("data");
     std::fs::create_dir_all(&data_dir).expect("create data dir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_string_lossy().to_string());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.to_string_lossy().to_string()) };
 
     let project_root = tmp.path().join("proj");
     std::fs::create_dir_all(&project_root).expect("create project root");
@@ -107,5 +108,6 @@ fn brief_then_return_roundtrip() {
         "distilled fact must be recallable in parent knowledge"
     );
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }

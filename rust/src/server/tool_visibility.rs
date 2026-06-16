@@ -10,7 +10,7 @@
 //!   * The universal invoker (`ctx_call`) is force-advertised in non-full mode so
 //!     tools hidden by lazy/profile filtering stay reachable.
 
-use super::dynamic_tools::{categorize_tool, ToolCategory};
+use super::dynamic_tools::{ToolCategory, categorize_tool};
 use crate::core::tool_profiles::ToolProfile;
 
 /// The universal invoker tool name. A static-list MCP client can call any
@@ -122,14 +122,13 @@ pub fn advertised_tool_defs_default() -> Vec<rmcp::model::Tool> {
         .collect();
 
     let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
-    if needs_invoker(full_mode, already, true, &disabled) {
-        if let Some(def) = registry
+    if needs_invoker(full_mode, already, true, &disabled)
+        && let Some(def) = registry
             .tool_defs()
             .into_iter()
             .find(|t| t.name.as_ref() == INVOKER)
-        {
-            tools.push(def);
-        }
+    {
+        tools.push(def);
     }
 
     let level = crate::core::config::CompressionLevel::effective(&cfg);

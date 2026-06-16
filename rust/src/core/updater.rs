@@ -41,7 +41,9 @@ pub fn run(args: &[String]) {
                     Ok(info) => {
                         crate::core::update_scheduler::set_auto_update(true, true, hours);
                         println!("  \x1b[32m✓\x1b[0m Update notifications enabled ({info})");
-                        println!("  \x1b[2mYou'll be notified but updates won't install automatically.\x1b[0m");
+                        println!(
+                            "  \x1b[2mYou'll be notified but updates won't install automatically.\x1b[0m"
+                        );
                     }
                     Err(e) => {
                         eprintln!("  \x1b[31m✗\x1b[0m {e}");
@@ -132,11 +134,15 @@ pub fn run(args: &[String]) {
             return;
         }
         println!("  \x1b[32m✓\x1b[0m Already up to date (v{CURRENT_VERSION}).");
-        println!("  \x1b[2mIf your IDE still uses an older version, restart it to reconnect the MCP server.\x1b[0m");
+        println!(
+            "  \x1b[2mIf your IDE still uses an older version, restart it to reconnect the MCP server.\x1b[0m"
+        );
         println!();
         if !check_only {
             if skip_rules {
-                println!("  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs — rules skipped)…\x1b[0m");
+                println!(
+                    "  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs — rules skipped)…\x1b[0m"
+                );
             } else {
                 println!(
                     "  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs, rules)…\x1b[0m"
@@ -163,7 +169,9 @@ pub fn run(args: &[String]) {
     }
 
     let Some(download_url) = find_asset_url(&release, &asset_name) else {
-        tracing::error!("No binary found for this platform ({asset_name}). Download manually: https://github.com/yvgude/lean-ctx/releases/latest");
+        tracing::error!(
+            "No binary found for this platform ({asset_name}). Download manually: https://github.com/yvgude/lean-ctx/releases/latest"
+        );
         std::process::exit(1);
     };
 
@@ -181,7 +189,9 @@ pub fn run(args: &[String]) {
             tracing::warn!("Proceeding due to --insecure");
         } else {
             tracing::error!("Integrity verification failed: {e}");
-            tracing::error!("Refusing to install an unverifiable binary. Re-run with `lean-ctx update --insecure` or download manually: https://github.com/yvgude/lean-ctx/releases/latest");
+            tracing::error!(
+                "Refusing to install an unverifiable binary. Re-run with `lean-ctx update --insecure` or download manually: https://github.com/yvgude/lean-ctx/releases/latest"
+            );
             std::process::exit(1);
         }
     }
@@ -212,7 +222,9 @@ pub fn run(args: &[String]) {
     if !quiet {
         println!();
         if skip_rules {
-            println!("  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs — rules skipped)…\x1b[0m");
+            println!(
+                "  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs — rules skipped)…\x1b[0m"
+            );
         } else {
             println!("  \x1b[36m\x1b[1mRefreshing setup (shell hook, MCP configs, rules)…\x1b[0m");
         }
@@ -932,15 +944,14 @@ fn detect_linux_libc() -> &'static str {
         for line in combined.lines() {
             if let Some(ver) = line.split_whitespace().last() {
                 let parts: Vec<&str> = ver.split('.').collect();
-                if parts.len() == 2 {
-                    if let (Ok(major), Ok(minor)) =
+                if parts.len() == 2
+                    && let (Ok(major), Ok(minor)) =
                         (parts[0].parse::<u32>(), parts[1].parse::<u32>())
-                    {
-                        if major > 2 || (major == 2 && minor >= 35) {
-                            return "gnu";
-                        }
-                        return "musl";
+                {
+                    if major > 2 || (major == 2 && minor >= 35) {
+                        return "gnu";
                     }
+                    return "musl";
                 }
             }
         }

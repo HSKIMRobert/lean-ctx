@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const HEATMAP_FLUSH_EVERY: usize = 25;
 const HEATMAP_MAX_ENTRIES: usize = 10_000;
@@ -79,10 +79,10 @@ impl HeatMap {
                 - (entry.total_original_tokens - entry.total_tokens_saved) as f32
                     / entry.total_original_tokens as f32;
         }
-        if let Some(aid) = agent_id {
-            if !aid.is_empty() {
-                *entry.agent_accesses.entry(aid.to_string()).or_insert(0) += 1;
-            }
+        if let Some(aid) = agent_id
+            && !aid.is_empty()
+        {
+            *entry.agent_accesses.entry(aid.to_string()).or_insert(0) += 1;
         }
         self.dirty = true;
     }
@@ -247,10 +247,10 @@ pub fn flush() {
     let guard = HEATMAP_BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(ref hm) = *guard {
-        if hm.dirty {
-            let _ = save_to_disk(hm);
-        }
+    if let Some(ref hm) = *guard
+        && hm.dirty
+    {
+        let _ = save_to_disk(hm);
     }
 }
 

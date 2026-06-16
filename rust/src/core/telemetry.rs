@@ -10,8 +10,8 @@
 //! Naming follows the OpenTelemetry GenAI Semantic Conventions:
 //! <https://opentelemetry.io/docs/specs/semconv/gen-ai/>
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 static METRICS: OnceLock<Metrics> = OnceLock::new();
@@ -536,10 +536,10 @@ pub(crate) fn ledger_totals_cached() -> (u64, f64) {
     let Ok(mut guard) = CACHE.lock() else {
         return (0, 0.0);
     };
-    if let Some((at, totals)) = *guard {
-        if at.elapsed() < Duration::from_secs(30) {
-            return totals;
-        }
+    if let Some((at, totals)) = *guard
+        && at.elapsed() < Duration::from_secs(30)
+    {
+        return totals;
     }
     let summary = crate::core::savings_ledger::summary();
     let totals = (summary.net_saved_tokens(), summary.saved_usd);
@@ -631,9 +631,11 @@ mod tests {
         let m = Metrics::new();
         m.record_tokens(100, 50, 200);
         let attrs = m.to_otel_attributes();
-        assert!(attrs
-            .iter()
-            .any(|(k, v)| *k == "gen_ai.usage.input_tokens" && v == "100"));
+        assert!(
+            attrs
+                .iter()
+                .any(|(k, v)| *k == "gen_ai.usage.input_tokens" && v == "100")
+        );
     }
 
     #[test]

@@ -174,7 +174,7 @@ mod tests {
     fn consolidate_promotes_decisions_and_salient_findings_only() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(
+        crate::test_env::set_var(
             "LEAN_CTX_DATA_DIR",
             tmp.path().to_string_lossy().to_string(),
         );
@@ -205,6 +205,6 @@ mod tests {
         let active = k.facts.iter().filter(|f| f.is_current()).count();
         assert!(active >= 2, "expected promoted facts");
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

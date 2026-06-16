@@ -36,6 +36,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   drop-in now without disabling WebSockets.
 
 ### Changed
+- **Rust crate migrated to edition 2024 (#438)** — `cargo fix --edition` plus
+  manual fixes for `#[cfg(windows)]` FFI (`unsafe extern "system"`) and
+  feature-gated paths `cargo fix` cannot reach on a single host. Newly-`unsafe`
+  `std::env::set_var` / `remove_var` calls are fully documented: the 13 production
+  sites carry exact `// SAFETY:` justifications (all single-threaded CLI/startup
+  paths), while the ~390 test sites route through one audited helper,
+  `crate::test_env`, instead of repeating the same comment at every call. Profile
+  switching no longer mutates the environment from the multi-threaded MCP server —
+  `set_active_profile` records the active profile in a thread-safe in-process cell,
+  removing a latent `env::set_var` data race. Nested `if` / `if let` collapsed to
+  edition-2024 let-chains tree-wide. No behavioural change. Thanks @dasTholo for
+  the original migration PR (#438).
 - **OpenCode plugin no longer double-registers the built-in overrides (#441)** —
   the plugin exposed `ctx_read`/`ctx_search`/`ctx_glob`/`ctx_edit`/`ctx_shell`
   both as static replacements of the native `read`/`grep`/`glob`/`edit`/`bash`

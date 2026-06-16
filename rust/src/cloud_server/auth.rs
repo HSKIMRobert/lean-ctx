@@ -1,7 +1,7 @@
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::{DateTime, Duration, Utc};
 use deadpool_postgres::Pool;
 use lettre::message::{Mailbox, Message};
@@ -349,21 +349,21 @@ pub(super) async fn forgot_password(
         .await
         .map_err(internal_error)?;
 
-    if let Some((user_id, _)) = user {
-        if let Some(ref mailer) = state.mailer {
-            let token = generate_token();
-            let token_sha = sha256_hex(&token);
-            let expires_at = Utc::now() + Duration::hours(1);
-            store_password_reset(&state.pool, &token_sha, user_id, expires_at)
-                .await
-                .map_err(internal_error)?;
-            let link = format!(
-                "{}/login?reset_token={}",
-                state.cfg.public_base_url.trim_end_matches('/'),
-                token
-            );
-            let _ = mailer.send_password_reset(&email, &link).await;
-        }
+    if let Some((user_id, _)) = user
+        && let Some(ref mailer) = state.mailer
+    {
+        let token = generate_token();
+        let token_sha = sha256_hex(&token);
+        let expires_at = Utc::now() + Duration::hours(1);
+        store_password_reset(&state.pool, &token_sha, user_id, expires_at)
+            .await
+            .map_err(internal_error)?;
+        let link = format!(
+            "{}/login?reset_token={}",
+            state.cfg.public_base_url.trim_end_matches('/'),
+            token
+        );
+        let _ = mailer.send_password_reset(&email, &link).await;
     }
 
     Ok(Json(
@@ -486,24 +486,22 @@ pub(super) async fn resend_verification(
         let verified = is_email_verified(&state.pool, user_id)
             .await
             .map_err(internal_error)?;
-        if !verified {
-            if let Some(ref mailer) = state.mailer {
-                let token = generate_token();
-                let token_sha = sha256_hex(&token);
-                let expires_at = Utc::now() + Duration::hours(2);
-                invalidate_pending_verifications(&state.pool, user_id)
-                    .await
-                    .map_err(internal_error)?;
-                store_email_verification(&state.pool, &token_sha, user_id, expires_at)
-                    .await
-                    .map_err(internal_error)?;
-                let link = format!(
-                    "{}/api/auth/verify-email?token={}",
-                    state.cfg.api_base_url.trim_end_matches('/'),
-                    token
-                );
-                let _ = mailer.send_verification(&email, &link).await;
-            }
+        if !verified && let Some(ref mailer) = state.mailer {
+            let token = generate_token();
+            let token_sha = sha256_hex(&token);
+            let expires_at = Utc::now() + Duration::hours(2);
+            invalidate_pending_verifications(&state.pool, user_id)
+                .await
+                .map_err(internal_error)?;
+            store_email_verification(&state.pool, &token_sha, user_id, expires_at)
+                .await
+                .map_err(internal_error)?;
+            let link = format!(
+                "{}/api/auth/verify-email?token={}",
+                state.cfg.api_base_url.trim_end_matches('/'),
+                token
+            );
+            let _ = mailer.send_verification(&email, &link).await;
         }
     }
 
@@ -552,25 +550,24 @@ pub(super) async fn auth_user(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<(Uuid, String), (StatusCode, String)> {
-    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION) {
-        if let Ok(s) = v.to_str() {
-            if let Some(key) = s.strip_prefix("Bearer ").map(str::trim) {
-                let sha = sha256_hex(key);
-                if let Some((user_id, email)) = lookup_api_key(&state.pool, &sha)
-                    .await
-                    .map_err(internal_error)?
-                {
-                    return Ok((user_id, email));
-                }
-                if let Some((user_id, email)) = super::oauth::lookup_access_token(&state.pool, &sha)
-                    .await
-                    .map_err(internal_error)?
-                {
-                    return Ok((user_id, email));
-                }
-                return Err((StatusCode::UNAUTHORIZED, "Invalid token".into()));
-            }
+    if let Some(v) = headers.get(axum::http::header::AUTHORIZATION)
+        && let Ok(s) = v.to_str()
+        && let Some(key) = s.strip_prefix("Bearer ").map(str::trim)
+    {
+        let sha = sha256_hex(key);
+        if let Some((user_id, email)) = lookup_api_key(&state.pool, &sha)
+            .await
+            .map_err(internal_error)?
+        {
+            return Ok((user_id, email));
         }
+        if let Some((user_id, email)) = super::oauth::lookup_access_token(&state.pool, &sha)
+            .await
+            .map_err(internal_error)?
+        {
+            return Ok((user_id, email));
+        }
+        return Err((StatusCode::UNAUTHORIZED, "Invalid token".into()));
     }
 
     Err((StatusCode::UNAUTHORIZED, "Unauthorized".into()))
@@ -777,8 +774,8 @@ async fn consume_password_reset(pool: &Pool, token_sha: &str) -> Result<Uuid, Co
 
 fn hash_password(password: &str) -> String {
     use argon2::{
-        password_hash::{PasswordHasher, SaltString},
         Algorithm, Argon2, Params, Version,
+        password_hash::{PasswordHasher, SaltString},
     };
     let mut raw = [0u8; 16];
     getrandom::fill(&mut raw).expect("CSPRNG unavailable");
@@ -800,8 +797,8 @@ fn dummy_verify(password: &str) -> bool {
 fn verify_password(password: &str, stored: &str) -> bool {
     if stored.starts_with("$argon2") {
         use argon2::{
-            password_hash::{PasswordHash, PasswordVerifier},
             Argon2,
+            password_hash::{PasswordHash, PasswordVerifier},
         };
         let Ok(parsed) = PasswordHash::new(stored) else {
             return false;

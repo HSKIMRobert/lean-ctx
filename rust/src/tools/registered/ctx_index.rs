@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str};
 use crate::tool_defs::tool_def;
 
 pub struct CtxIndexTool;
@@ -64,12 +64,11 @@ impl McpTool for CtxIndexTool {
         // MCP tool runs in the process that owns this session's `SessionCache`, so
         // clear it in-process here. Otherwise `ctx_read` map/signatures keep
         // serving pre-rebuild output from the long-lived cache.
-        if action == "build-full" {
-            if let Some(cache) = ctx.cache.as_ref() {
-                if let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_index") {
-                    guard.clear();
-                }
-            }
+        if action == "build-full"
+            && let Some(cache) = ctx.cache.as_ref()
+            && let Some(mut guard) = crate::server::bounded_lock::write(cache, "ctx_index")
+        {
+            guard.clear();
         }
 
         Ok(ToolOutput::simple(result))

@@ -16,7 +16,8 @@ async fn ctx_handoff_create_show_list_pull_clear() {
     let dir = tempfile::tempdir().expect("tempdir");
     let data_dir = dir.path().join("data");
     std::fs::create_dir_all(&data_dir).expect("create data dir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir) };
 
     let project = tempfile::tempdir().expect("project");
     let file = project.path().join("a.rs");
@@ -125,5 +126,6 @@ async fn ctx_handoff_create_show_list_pull_clear() {
         .expect("handoff clear");
     assert!(cleared.contains("removed:"), "clear: {cleared}");
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }

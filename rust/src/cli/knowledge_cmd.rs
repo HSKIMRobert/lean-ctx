@@ -127,7 +127,9 @@ fn cmd_remember(args: &[String], project_root: &str) {
         eprintln!(
             "Usage: lean-ctx knowledge remember <value> --category <cat> --key <key> [--confidence <0.0-1.0>]"
         );
-        eprintln!("Example: lean-ctx knowledge remember \"Uses JWT for auth\" --category auth --key token-type");
+        eprintln!(
+            "Example: lean-ctx knowledge remember \"Uses JWT for auth\" --category auth --key token-type"
+        );
         std::process::exit(1);
     }
 
@@ -182,7 +184,9 @@ fn cmd_recall(args: &[String], project_root: &str) {
     }
 
     if category.is_none() && query.is_none() {
-        eprintln!("Usage: lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid] [--as-of <YYYY-MM-DD|RFC3339>]");
+        eprintln!(
+            "Usage: lean-ctx knowledge recall [query] [--category <cat>] [--mode auto|semantic|hybrid] [--as-of <YYYY-MM-DD|RFC3339>]"
+        );
         eprintln!("Example: lean-ctx knowledge recall \"auth\" --category security");
         eprintln!("Example: lean-ctx knowledge recall \"auth\" --as-of 2026-05-01   (time travel)");
         std::process::exit(1);
@@ -577,10 +581,10 @@ fn positional_after(args: &[String], subcommand: &str) -> Option<String> {
             .position(|x| std::ptr::eq(x, a))
             .and_then(|i| i.checked_sub(1))
             .map(|i| &args[i]);
-        if let Some(p) = prev {
-            if p.starts_with("--") || p == "-c" || p == "-k" || p == "-m" {
-                continue;
-            }
+        if let Some(p) = prev
+            && (p.starts_with("--") || p == "-c" || p == "-k" || p == "-m")
+        {
+            continue;
         }
         return Some(a.clone());
     }

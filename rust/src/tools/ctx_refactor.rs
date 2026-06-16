@@ -392,17 +392,18 @@ fn live_jetbrains_backend(
     project_root: &str,
 ) -> Result<Box<dyn crate::lsp::backend::LspBackend>, String> {
     use crate::lsp::port_discovery;
-    if let Some(pf) = port_discovery::read_port_file(project_root) {
-        if port_discovery::pid_alive(pf.pid) && port_discovery::health_ok(&pf) {
-            return Ok(Box::new(
-                crate::lsp::jetbrains_backend::JetBrainsHttpBackend::new(
-                    pf.port,
-                    pf.token,
-                    project_root.to_string(),
-                    pf.pid,
-                ),
-            ));
-        }
+    if let Some(pf) = port_discovery::read_port_file(project_root)
+        && port_discovery::pid_alive(pf.pid)
+        && port_discovery::health_ok(&pf)
+    {
+        return Ok(Box::new(
+            crate::lsp::jetbrains_backend::JetBrainsHttpBackend::new(
+                pf.port,
+                pf.token,
+                project_root.to_string(),
+                pf.pid,
+            ),
+        ));
     }
     Err("BACKEND_REQUIRED: rename requires a running JetBrains IDE \
          (no live port file / health check failed)"
@@ -1840,7 +1841,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().join("data");
         std::fs::create_dir_all(&data).unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
 
         let proj = tmp.path().join("proj");
         std::fs::create_dir_all(proj.join("src")).unwrap();
@@ -1860,7 +1861,7 @@ mod tests {
         assert!(r.rel_path.ends_with("lib.rs"), "got: {}", r.rel_path);
         assert!(r.end_line >= r.start_line && r.start_line > 0);
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -1869,7 +1870,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let data = tmp.path().join("data");
         std::fs::create_dir_all(&data).unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
 
         let proj = tmp.path().join("proj");
         std::fs::create_dir_all(proj.join("src")).unwrap();
@@ -1888,7 +1889,7 @@ mod tests {
         let err = super::resolve_name_path("ZzzNoSuchSymbol123", &root).unwrap_err();
         assert!(err.starts_with("NO_SYMBOL"), "got: {err}");
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -1967,9 +1968,11 @@ mod tests {
         let out = super::handle(&stale, dir.path().to_str().unwrap(), "");
         assert!(out.contains("CONFLICT"), "got: {out}");
         // file unchanged
-        assert!(std::fs::read_to_string(dir.path().join("a.rs"))
-            .unwrap()
-            .contains("fn old()"));
+        assert!(
+            std::fs::read_to_string(dir.path().join("a.rs"))
+                .unwrap()
+                .contains("fn old()")
+        );
     }
 
     #[test]

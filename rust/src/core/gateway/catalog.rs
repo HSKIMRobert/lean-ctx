@@ -67,12 +67,11 @@ pub fn invalidate() {
 /// `cache_ttl_secs`.
 pub async fn get(cfg: &GatewayConfig) -> Catalog {
     let ttl = Duration::from_secs(cfg.cache_ttl_secs);
-    if let Ok(guard) = CACHE.lock() {
-        if let Some((at, cat)) = guard.as_ref() {
-            if at.elapsed() < ttl {
-                return cat.clone();
-            }
-        }
+    if let Ok(guard) = CACHE.lock()
+        && let Some((at, cat)) = guard.as_ref()
+        && at.elapsed() < ttl
+    {
+        return cat.clone();
     }
     let fresh = build(cfg).await;
     if let Ok(mut guard) = CACHE.lock() {

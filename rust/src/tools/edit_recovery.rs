@@ -128,12 +128,12 @@ pub(crate) fn cross_file_hint(target: &Path, old_str: &str) -> String {
         if too_big {
             continue;
         }
-        if let Ok(content) = std::fs::read_to_string(path) {
-            if content.contains(needle) {
-                hits.push(path.to_path_buf());
-                if hits.len() >= MAX_HITS {
-                    break;
-                }
+        if let Ok(content) = std::fs::read_to_string(path)
+            && content.contains(needle)
+        {
+            hits.push(path.to_path_buf());
+            if hits.len() >= MAX_HITS {
+                break;
             }
         }
     }
@@ -150,7 +150,7 @@ pub(crate) fn cross_file_hint(target: &Path, old_str: &str) -> String {
 }
 
 /// Builds the bounded, `.gitignore`-aware walker shared by both helpers.
-fn walk(root: &Path) -> impl Iterator<Item = ignore::DirEntry> {
+fn walk(root: &Path) -> impl Iterator<Item = ignore::DirEntry> + use<> {
     WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)

@@ -297,8 +297,8 @@ mod tests {
     fn visibility_gated_tests() {
         let _lock = crate::core::data_dir::test_env_lock();
 
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
         let result = format_footer_basic(100, 50);
         assert!(
             result.is_empty(),
@@ -308,9 +308,9 @@ mod tests {
         let result = append_footer_basic("hello", 100, 50);
         assert_eq!(result, "hello");
 
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
-        std::env::remove_var("LEAN_CTX_QUIET");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
+        crate::test_env::remove_var("LEAN_CTX_QUIET");
         super::super::protocol::set_mcp_context(false);
 
         let result = append_footer_basic("hello", 100, 50);
@@ -325,8 +325,8 @@ mod tests {
 
         // Restore ALL touched env — leaking LEAN_CTX_SAVINGS_FOOTER=always
         // made footers visible in unrelated tests (GL #556 flakiness).
-        std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
-        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 
     #[test]

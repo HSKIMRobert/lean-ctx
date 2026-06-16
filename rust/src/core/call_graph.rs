@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::deep_queries;
-use super::graph_index::{normalize_project_root, ProjectIndex, SymbolEntry};
+use super::graph_index::{ProjectIndex, SymbolEntry, normalize_project_root};
 
 // ---------------------------------------------------------------------------
 // Data types
@@ -289,12 +289,12 @@ impl CallGraph {
         }
 
         // Try serving from disk cache first
-        if let Some(cached) = Self::load(project_root) {
-            if !cache_looks_stale(&cached, &index) {
-                let arc = Arc::new(cached);
-                *guard = BuildState::Ready(Arc::clone(&arc));
-                return Ok(arc);
-            }
+        if let Some(cached) = Self::load(project_root)
+            && !cache_looks_stale(&cached, &index)
+        {
+            let arc = Arc::new(cached);
+            *guard = BuildState::Ready(Arc::clone(&arc));
+            return Ok(arc);
         }
 
         let files_total = index.files.len();
@@ -797,10 +797,10 @@ fn rank_callee_def_file(
     }
     if let Some(imported) = imports.get(caller_file) {
         let mut in_scope = def_files.iter().filter(|f| imported.contains(**f));
-        if let Some(first) = in_scope.next() {
-            if in_scope.next().is_none() {
-                return Some((*first).to_string());
-            }
+        if let Some(first) = in_scope.next()
+            && in_scope.next().is_none()
+        {
+            return Some((*first).to_string());
         }
     }
     if def_files.len() == 1 {
@@ -856,13 +856,13 @@ pub fn resolve_callee_files(index: &ProjectIndex, edges: &[CallEdge]) -> HashMap
 
     let mut resolved: HashMap<&str, HashSet<String>> = HashMap::new();
     for e in edges {
-        if let Some(defs) = name_files.get(e.callee_name.as_str()) {
-            if let Some(file) = rank_callee_def_file(defs, &e.caller_file, &imports) {
-                resolved
-                    .entry(e.callee_name.as_str())
-                    .or_default()
-                    .insert(file);
-            }
+        if let Some(defs) = name_files.get(e.callee_name.as_str())
+            && let Some(file) = rank_callee_def_file(defs, &e.caller_file, &imports)
+        {
+            resolved
+                .entry(e.callee_name.as_str())
+                .or_default()
+                .insert(file);
         }
     }
 

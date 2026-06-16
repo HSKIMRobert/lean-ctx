@@ -62,10 +62,10 @@ pub fn active_count() -> usize {
     let mut count = 0;
     for slot in 0..MAX_CONCURRENT {
         let path = dir.join(format!("slot-{slot}.lock"));
-        if let Ok(f) = std::fs::OpenOptions::new().read(true).open(&path) {
-            if !try_flock(&f) {
-                count += 1;
-            }
+        if let Ok(f) = std::fs::OpenOptions::new().read(true).open(&path)
+            && !try_flock(&f)
+        {
+            count += 1;
         }
     }
     count
@@ -96,8 +96,8 @@ mod tests {
     impl Drop for EnvRestore {
         fn drop(&mut self) {
             match &self.0 {
-                Some(v) => std::env::set_var("LEAN_CTX_DATA_DIR", v),
-                None => std::env::remove_var("LEAN_CTX_DATA_DIR"),
+                Some(v) => crate::test_env::set_var("LEAN_CTX_DATA_DIR", v),
+                None => crate::test_env::remove_var("LEAN_CTX_DATA_DIR"),
             }
         }
     }
@@ -115,7 +115,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         // Restore runs before `tmp` is removed and while the lock is still held.
         let _restore = EnvRestore(std::env::var("LEAN_CTX_DATA_DIR").ok());
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
         body();
     }
 

@@ -2,7 +2,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::common::*;
-use super::{Outcome, BOLD, DIM, GREEN, RED, RST, YELLOW};
+use super::{BOLD, DIM, GREEN, Outcome, RED, RST, YELLOW};
 use std::net::TcpListener;
 
 /// Reports the shell allowlist exactly as the MCP tools enforce it — and, crucially,
@@ -93,7 +93,11 @@ pub(super) fn path_jail_outcome() -> Outcome {
             line: format!(
                 "{BOLD}Path jail{RST}  {RED}{} allow_paths entr{} never match{RST}  {DIM}({} — unset $VAR or missing path){RST}",
                 dead.len(),
-                if dead.len() == 1 { "y will" } else { "ies will" },
+                if dead.len() == 1 {
+                    "y will"
+                } else {
+                    "ies will"
+                },
                 dead.join(", ")
             ),
         };
@@ -288,7 +292,9 @@ pub(super) fn mcp_config_outcome() -> Outcome {
     } else if !exists_no_ref.is_empty() {
         let has_claude = exists_no_ref.iter().any(|n| n.starts_with("Claude Code"));
         let cause = if has_claude {
-            format!("{DIM}(Claude Code may overwrite ~/.claude.json on startup — lean-ctx entry missing from mcpServers){RST}")
+            format!(
+                "{DIM}(Claude Code may overwrite ~/.claude.json on startup — lean-ctx entry missing from mcpServers){RST}"
+            )
         } else {
             String::new()
         };
@@ -385,14 +391,15 @@ pub(super) fn provider_outcome() -> Outcome {
     }
     let labels: Vec<String> = ids
         .iter()
-        .map(|id| {
-            if let Some(p) = registry.get(id) {
+        .map(|id| match registry.get(id) {
+            Some(p) => {
                 if p.is_available() {
                     format!("{GREEN}{id}{RST}")
                 } else {
                     format!("{YELLOW}{id}(no auth){RST}")
                 }
-            } else {
+            }
+            _ => {
                 format!("{RED}{id}(missing){RST}")
             }
         })
@@ -415,7 +422,9 @@ pub(super) fn mcp_bridge_outcomes() -> Vec<Outcome> {
     let auto_idx = if cfg.providers.auto_index {
         format!("{GREEN}auto_index=true{RST}")
     } else {
-        format!("{YELLOW}auto_index=false (provider data won't be indexed into BM25/Graph/Knowledge){RST}")
+        format!(
+            "{YELLOW}auto_index=false (provider data won't be indexed into BM25/Graph/Knowledge){RST}"
+        )
     };
     results.push(Outcome {
         ok: cfg.providers.auto_index,
@@ -495,14 +504,8 @@ pub(super) fn session_state_outcome() -> Outcome {
 
     match SessionState::load_latest() {
         Some(session) => {
-            let root = session
-                .project_root
-                .as_deref()
-                .unwrap_or("(not set)");
-            let cwd = session
-                .shell_cwd
-                .as_deref()
-                .unwrap_or("(not tracked)");
+            let root = session.project_root.as_deref().unwrap_or("(not set)");
+            let cwd = session.shell_cwd.as_deref().unwrap_or("(not tracked)");
             Outcome {
                 ok: true,
                 line: format!(
@@ -809,7 +812,7 @@ pub(super) fn proxy_subscription_conflict_outcome() -> Option<Outcome> {
 }
 
 pub(super) fn proxy_upstream_outcome() -> Outcome {
-    use crate::core::config::{is_local_proxy_url, Config, ProxyProvider};
+    use crate::core::config::{Config, ProxyProvider, is_local_proxy_url};
 
     let cfg = Config::load();
     let checks = [
@@ -1225,12 +1228,16 @@ pub(super) fn semantic_index_outcome() -> Option<Outcome> {
         }
         "ready" => Outcome {
             ok: true,
-            line: format!("{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}{timing}){RST}"),
+            line: format!(
+                "{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}{timing}){RST}"
+            ),
         },
         // idle: never asked to build this session — report disk state only.
         _ if disk.bm25_index.exists => Outcome {
             ok: true,
-            line: format!("{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}, on disk){RST}"),
+            line: format!(
+                "{BOLD}Semantic index{RST}  {GREEN}ready{RST} {DIM}({persisted}, on disk){RST}"
+            ),
         },
         _ => Outcome {
             ok: true,
@@ -1440,83 +1447,78 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
 
         let mut checks: Vec<(String, usize, usize)> = Vec::new();
 
-        if let Ok(content) = std::fs::read_to_string(hash_dir.join("knowledge.json")) {
-            if let Ok(k) =
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("knowledge.json"))
+            && let Ok(k) =
                 serde_json::from_str::<crate::core::knowledge::ProjectKnowledge>(&content)
-            {
-                checks.push((
-                    "facts".to_string(),
-                    k.facts.len(),
-                    policy.knowledge.max_facts,
-                ));
-                checks.push((
-                    "patterns".to_string(),
-                    k.patterns.len(),
-                    policy.knowledge.max_patterns,
-                ));
-                checks.push((
-                    "history".to_string(),
-                    k.history.len(),
-                    policy.knowledge.max_history,
-                ));
-            }
+        {
+            checks.push((
+                "facts".to_string(),
+                k.facts.len(),
+                policy.knowledge.max_facts,
+            ));
+            checks.push((
+                "patterns".to_string(),
+                k.patterns.len(),
+                policy.knowledge.max_patterns,
+            ));
+            checks.push((
+                "history".to_string(),
+                k.history.len(),
+                policy.knowledge.max_history,
+            ));
         }
 
-        if let Ok(content) = std::fs::read_to_string(hash_dir.join("embeddings.json")) {
-            if let Ok(idx) = serde_json::from_str::<
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("embeddings.json"))
+            && let Ok(idx) = serde_json::from_str::<
                 crate::core::knowledge_embedding::KnowledgeEmbeddingIndex,
             >(&content)
-            {
-                checks.push((
-                    "embeddings".to_string(),
-                    idx.entries.len(),
-                    policy.embeddings.max_facts,
-                ));
-            }
+        {
+            checks.push((
+                "embeddings".to_string(),
+                idx.entries.len(),
+                policy.embeddings.max_facts,
+            ));
         }
 
-        if let Ok(content) = std::fs::read_to_string(hash_dir.join("gotchas.json")) {
-            if let Ok(g) =
+        if let Ok(content) = std::fs::read_to_string(hash_dir.join("gotchas.json"))
+            && let Ok(g) =
                 serde_json::from_str::<crate::core::gotcha_tracker::GotchaStore>(&content)
-            {
-                checks.push((
-                    "gotchas".to_string(),
-                    g.gotchas.len(),
-                    policy.gotcha.max_gotchas_per_project,
-                ));
-            }
+        {
+            checks.push((
+                "gotchas".to_string(),
+                g.gotchas.len(),
+                policy.gotcha.max_gotchas_per_project,
+            ));
         }
 
         let episodes_path = data_dir
             .join("memory")
             .join("episodes")
             .join(format!("{hash}.json"));
-        if let Ok(content) = std::fs::read_to_string(&episodes_path) {
-            if let Ok(e) =
+        if let Ok(content) = std::fs::read_to_string(&episodes_path)
+            && let Ok(e) =
                 serde_json::from_str::<crate::core::episodic_memory::EpisodicStore>(&content)
-            {
-                checks.push((
-                    "episodes".to_string(),
-                    e.episodes.len(),
-                    policy.episodic.max_episodes,
-                ));
-            }
+        {
+            checks.push((
+                "episodes".to_string(),
+                e.episodes.len(),
+                policy.episodic.max_episodes,
+            ));
         }
 
         let procedures_path = data_dir
             .join("memory")
             .join("procedures")
             .join(format!("{hash}.json"));
-        if let Ok(content) = std::fs::read_to_string(&procedures_path) {
-            if let Ok(p) =
+        if let Ok(content) = std::fs::read_to_string(&procedures_path)
+            && let Ok(p) =
                 serde_json::from_str::<crate::core::procedural_memory::ProceduralStore>(&content)
-            {
-                checks.push((
-                    "procedures".to_string(),
-                    p.procedures.len(),
-                    policy.procedural.max_procedures,
-                ));
-            }
+        {
+            checks.push((
+                "procedures".to_string(),
+                p.procedures.len(),
+                policy.procedural.max_procedures,
+            ));
         }
 
         let mut warnings: Vec<String> = Vec::new();
@@ -1581,28 +1583,27 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
 
     // Graph index file count vs limit
     let graph_max_files = cfg.graph_index_max_files;
-    if graph_max_files > 0 {
-        if let Some(session) = crate::core::session::SessionState::load_latest() {
-            if let Some(ref project_root) = session.project_root {
-                let disk_status = crate::core::index_orchestrator::disk_status(project_root);
-                if let Some(graph_files) = disk_status.graph_index.file_count {
-                    let pct = (graph_files as f64 / graph_max_files as f64 * 100.0) as u32;
-                    if pct >= 95 {
-                        results.push(Outcome {
+    if graph_max_files > 0
+        && let Some(session) = crate::core::session::SessionState::load_latest()
+        && let Some(ref project_root) = session.project_root
+    {
+        let disk_status = crate::core::index_orchestrator::disk_status(project_root);
+        if let Some(graph_files) = disk_status.graph_index.file_count {
+            let pct = (graph_files as f64 / graph_max_files as f64 * 100.0) as u32;
+            if pct >= 95 {
+                results.push(Outcome {
                             ok: false,
                             line: format!(
                                 "{BOLD}Capacity [graph]{RST} {RED}CRIT: files {graph_files}/{graph_max_files} ({pct}%){RST}"
                             ),
                         });
-                    } else if pct >= 80 {
-                        results.push(Outcome {
+            } else if pct >= 80 {
+                results.push(Outcome {
                             ok: true,
                             line: format!(
                                 "{BOLD}Capacity [graph]{RST} {YELLOW}WARN: files {graph_files}/{graph_max_files} ({pct}%){RST}"
                             ),
                         });
-                    }
-                }
             }
         }
     }
@@ -1618,7 +1619,7 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
 }
 
 pub(super) fn lsp_server_outcomes() -> Vec<Outcome> {
-    use crate::lsp::config::{find_binary_in_path, KNOWN_SERVERS};
+    use crate::lsp::config::{KNOWN_SERVERS, find_binary_in_path};
 
     KNOWN_SERVERS
         .iter()

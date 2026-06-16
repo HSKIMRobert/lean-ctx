@@ -4,9 +4,9 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use super::backend::LspBackend;
-use super::client::{file_path_to_uri, LspClient};
+use super::client::{LspClient, file_path_to_uri};
 use super::config::{
-    check_server_available, default_servers, language_for_extension, LspServerConfig,
+    LspServerConfig, check_server_available, default_servers, language_for_extension,
 };
 use super::jetbrains_backend::JetBrainsHttpBackend;
 use super::port_discovery;
@@ -15,10 +15,10 @@ static BACKENDS: std::sync::LazyLock<Mutex<HashMap<String, Box<dyn LspBackend>>>
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn expand_tilde(path: &str) -> String {
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return format!("{}/{rest}", home.display());
-        }
+    if let Some(rest) = path.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return format!("{}/{rest}", home.display());
     }
     path.to_string()
 }
@@ -63,15 +63,16 @@ fn select_backend(language: &str, project_root: &str) -> Result<Box<dyn LspBacke
     let b_only = mode == Some("jetbrains");
 
     if want_b {
-        if let Some(pf) = port_discovery::read_port_file(project_root) {
-            if port_discovery::pid_alive(pf.pid) && port_discovery::health_ok(&pf) {
-                return Ok(Box::new(JetBrainsHttpBackend::new(
-                    pf.port,
-                    pf.token,
-                    project_root.to_string(),
-                    pf.pid,
-                )));
-            }
+        if let Some(pf) = port_discovery::read_port_file(project_root)
+            && port_discovery::pid_alive(pf.pid)
+            && port_discovery::health_ok(&pf)
+        {
+            return Ok(Box::new(JetBrainsHttpBackend::new(
+                pf.port,
+                pf.token,
+                project_root.to_string(),
+                pf.pid,
+            )));
         }
         if b_only {
             return Err(format!(

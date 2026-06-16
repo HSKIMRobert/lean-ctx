@@ -1,5 +1,5 @@
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -91,21 +91,17 @@ fn compress_poetry(output: &str, prefer_update: bool) -> String {
         let trim = t.trim();
         let tl = trim.to_ascii_lowercase();
 
-        if prefer_update {
-            if let Some(caps) = poetry_updating_re().captures(trim) {
-                packages.push(format!("{} {}", &caps[1], &caps[2]));
-                continue;
-            }
+        if prefer_update && let Some(caps) = poetry_updating_re().captures(trim) {
+            packages.push(format!("{} {}", &caps[1], &caps[2]));
+            continue;
         }
         if let Some(caps) = poetry_installing_re().captures(trim) {
             packages.push(format!("{} {}", &caps[1], &caps[2]));
             continue;
         }
-        if !prefer_update {
-            if let Some(caps) = poetry_updating_re().captures(trim) {
-                packages.push(format!("{} {}", &caps[1], &caps[2]));
-                continue;
-            }
+        if !prefer_update && let Some(caps) = poetry_updating_re().captures(trim) {
+            packages.push(format!("{} {}", &caps[1], &caps[2]));
+            continue;
         }
 
         if tl.contains("error")

@@ -75,7 +75,7 @@ impl LeanCtxServer {
                         return Err(ErrorData::invalid_params(
                             "arguments must be an object",
                             None,
-                        ))
+                        ));
                     }
                 };
 
@@ -108,20 +108,24 @@ impl LeanCtxServer {
                             let mut wf = self.workflow.write().await;
                             *wf = None;
                             let _ = crate::core::workflow::clear_active();
-                        } else if let Some(state) = run.spec.state(&run.current) {
-                            if let Some(allowed) = &state.allowed_tools {
-                                let ok = allowed.iter().any(|t| t == &inner);
-                                if !ok {
-                                    let mut shown = allowed.clone();
-                                    shown.sort();
-                                    shown.truncate(30);
-                                    return Ok((format!(
+                        } else if let Some(state) = run.spec.state(&run.current)
+                            && let Some(allowed) = &state.allowed_tools
+                        {
+                            let ok = allowed.iter().any(|t| t == &inner);
+                            if !ok {
+                                let mut shown = allowed.clone();
+                                shown.sort();
+                                shown.truncate(30);
+                                return Ok((
+                                    format!(
                                         "Tool '{inner}' blocked by workflow '{}' (state: {}). Allowed: {}. Use ctx_workflow(action=\"stop\") to exit.",
                                         run.spec.name,
                                         run.current,
                                         shown.join(", ")
-                                    ), 0, None));
-                                }
+                                    ),
+                                    0,
+                                    None,
+                                ));
                             }
                         }
                     }
@@ -180,7 +184,9 @@ impl LeanCtxServer {
                         match self.resolve_path(raw).await {
                             Ok(resolved) => {
                                 if !["path", "project_root", "root"].contains(key) {
-                                    tracing::trace!("[pathjail] resolved non-standard path key '{key}': {raw} -> {resolved}");
+                                    tracing::trace!(
+                                        "[pathjail] resolved non-standard path key '{key}': {raw} -> {resolved}"
+                                    );
                                 }
                                 resolved_paths.insert(key.to_string(), resolved);
                             }
@@ -245,10 +251,10 @@ impl LeanCtxServer {
             // the watchdog always return a response.
             let output = self.run_tool_handler(name, tool, args_map, ctx).await?;
 
-            if output.changed {
-                if let Some(peer) = self.peer.read().await.as_ref() {
-                    super::notifications::send_tools_list_changed(peer).await;
-                }
+            if output.changed
+                && let Some(peer) = self.peer.read().await.as_ref()
+            {
+                super::notifications::send_tools_list_changed(peer).await;
             }
 
             let headers_only =

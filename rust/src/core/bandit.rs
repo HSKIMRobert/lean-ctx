@@ -162,12 +162,11 @@ impl BanditStore {
 
     pub fn load(project_root: &str) -> Self {
         let path = bandit_path(project_root);
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(store) = serde_json::from_str::<BanditStore>(&content) {
-                    return store;
-                }
-            }
+        if path.exists()
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(store) = serde_json::from_str::<BanditStore>(&content)
+        {
+            return store;
         }
         Self::default()
     }
@@ -318,7 +317,7 @@ mod tests {
     fn store_save_load_roundtrip() {
         let _env = crate::core::data_dir::test_env_lock();
         let data_dir = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
 
         let project = tempfile::tempdir().unwrap();
         let root = project.path().to_string_lossy().to_string();

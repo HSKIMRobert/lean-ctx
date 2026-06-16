@@ -7,17 +7,17 @@
 //! [`Plan::Free`](crate::core::billing::Plan) — so the open backend runs fully
 //! standalone and **no local capability is ever gated** (Local-Free Invariant).
 
-use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::{IntoResponse, Response};
 use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::core::billing::Plan;
 
-use super::auth::{auth_user, AppState};
+use super::auth::{AppState, auth_user};
 use super::config::Config;
 
 /// Resolve a user's effective plan via the private billing service. Any failure
@@ -726,10 +726,10 @@ pub(super) struct AuditQuery {
 /// untrusted is ever spliced into the upstream URL.
 fn build_audit_query(q: &AuditQuery) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if let Some(b) = q.before {
-        if b > 0 {
-            parts.push(format!("before={b}"));
-        }
+    if let Some(b) = q.before
+        && b > 0
+    {
+        parts.push(format!("before={b}"));
     }
     if let Some(l) = q.limit {
         parts.push(format!("limit={}", l.clamp(1, 200)));

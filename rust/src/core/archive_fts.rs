@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -185,10 +185,10 @@ fn enforce_cap_locked(conn: &Connection) {
 /// Public entry point to enforce the archive DB size cap on demand (e.g. from
 /// idle maintenance or `doctor`). Returns the resulting size in bytes.
 pub fn enforce_cap() -> u64 {
-    if let Ok(guard) = DB.lock() {
-        if let Some(conn) = guard.as_ref() {
-            enforce_cap_locked(conn);
-        }
+    if let Ok(guard) = DB.lock()
+        && let Some(conn) = guard.as_ref()
+    {
+        enforce_cap_locked(conn);
     }
     db_size_bytes()
 }
@@ -233,21 +233,18 @@ pub fn search(query: &str, limit: usize) -> Vec<FtsResult> {
         return Vec::new();
     };
 
-    let results = stmt
-        .query_map(params![query, limit as i64], |row| {
-            Ok(FtsResult {
-                archive_id: row.get(0)?,
-                tool: row.get(1)?,
-                command: row.get(2)?,
-                snippet: row.get(3)?,
-                rank: row.get(4)?,
-            })
+    stmt.query_map(params![query, limit as i64], |row| {
+        Ok(FtsResult {
+            archive_id: row.get(0)?,
+            tool: row.get(1)?,
+            command: row.get(2)?,
+            snippet: row.get(3)?,
+            rank: row.get(4)?,
         })
-        .ok()
-        .map(|rows| rows.flatten().collect::<Vec<_>>())
-        .unwrap_or_default();
-
-    results
+    })
+    .ok()
+    .map(|rows| rows.flatten().collect::<Vec<_>>())
+    .unwrap_or_default()
 }
 
 pub fn entry_count() -> usize {
@@ -269,7 +266,7 @@ mod tests {
     fn fts_roundtrip() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         // Force re-open by directly testing open_db
         let conn = open_db().expect("should open");
@@ -297,7 +294,7 @@ mod tests {
     fn open_db_bounds_the_wal() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         let conn = open_db().expect("should open");
 

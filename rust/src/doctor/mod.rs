@@ -353,18 +353,16 @@ pub fn run() {
     }
     if let Some(log_path) = crate::core::startup_guard::crash_loop_log_path(
         crate::core::startup_guard::MCP_PROCESS_NAME,
-    ) {
-        if log_path.exists() {
-            if let Ok(contents) = std::fs::read_to_string(&log_path) {
-                let lines: Vec<&str> = contents.lines().collect();
-                if lines.len() >= 5 {
-                    println!(
-                        "  {YELLOW}⚠{RST}  Crash-loop log: {} recent restarts  {DIM}({}){RST}",
-                        lines.len(),
-                        display_user_path(&log_path)
-                    );
-                }
-            }
+    ) && log_path.exists()
+        && let Ok(contents) = std::fs::read_to_string(&log_path)
+    {
+        let lines: Vec<&str> = contents.lines().collect();
+        if lines.len() >= 5 {
+            println!(
+                "  {YELLOW}⚠{RST}  Crash-loop log: {} recent restarts  {DIM}({}){RST}",
+                lines.len(),
+                display_user_path(&log_path)
+            );
         }
     }
 
@@ -503,9 +501,13 @@ pub fn run() {
     // Shadow mode status
     let cfg = crate::core::config::Config::load();
     let shadow_line = if cfg.shadow_mode {
-        format!("{BOLD}Shadow mode{RST}  {GREEN}active{RST}  {DIM}(native tools intercepted → ctx_*){RST}")
+        format!(
+            "{BOLD}Shadow mode{RST}  {GREEN}active{RST}  {DIM}(native tools intercepted → ctx_*){RST}"
+        )
     } else {
-        format!("{BOLD}Shadow mode{RST}  {DIM}disabled{RST}  {DIM}(enable: lean-ctx config set shadow_mode true){RST}")
+        format!(
+            "{BOLD}Shadow mode{RST}  {DIM}disabled{RST}  {DIM}(enable: lean-ctx config set shadow_mode true){RST}"
+        )
     };
     println!("  {shadow_line}");
 
@@ -764,7 +766,7 @@ mod tests {
     fn bashrc_not_active_on_windows_even_with_bash_in_shell_env() {
         // Issue #214: On Windows, Git Bash sets $SHELL globally to bash.exe.
         // .bashrc should NOT be flagged on Windows unless actually inside bash.
-        std::env::remove_var("BASH_VERSION");
+        crate::test_env::remove_var("BASH_VERSION");
         assert!(!is_active_shell_impl(
             "~/.bashrc",
             "C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe",
@@ -798,7 +800,7 @@ mod tests {
     fn bashrc_not_active_on_windows_without_powershell_detection() {
         // Windows + $SHELL=bash but NOT in actual bash session (no BASH_VERSION).
         // This is the exact scenario from issue #214: Git Bash sets $SHELL globally.
-        std::env::remove_var("BASH_VERSION");
+        crate::test_env::remove_var("BASH_VERSION");
         assert!(!is_active_shell_impl(
             "~/.bashrc",
             "/usr/bin/bash",

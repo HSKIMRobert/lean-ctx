@@ -6,10 +6,10 @@ use axum::{
 };
 use serde_json::Value;
 
+use super::ProxyState;
 use super::compress::compress_tool_result;
 use super::forward;
-use super::tool_kind::{self, should_protect, ToolResultKind};
-use super::ProxyState;
+use super::tool_kind::{self, ToolResultKind, should_protect};
 
 pub async fn handler(
     State(state): State<ProxyState>,
@@ -100,19 +100,18 @@ fn compress_content_field(
         Value::Array(arr) => {
             let mut modified = false;
             for item in arr.iter_mut() {
-                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    if let Some(text) = item
+                if item.get("type").and_then(|t| t.as_str()) == Some("text")
+                    && let Some(text) = item
                         .get_mut("text")
                         .and_then(|t| t.as_str().map(String::from))
-                    {
-                        if should_protect(kind, &text) {
-                            continue;
-                        }
-                        let compressed = compress_tool_result(&text, tool_name);
-                        if compressed.len() < text.len() {
-                            item["text"] = Value::String(compressed);
-                            modified = true;
-                        }
+                {
+                    if should_protect(kind, &text) {
+                        continue;
+                    }
+                    let compressed = compress_tool_result(&text, tool_name);
+                    if compressed.len() < text.len() {
+                        item["text"] = Value::String(compressed);
+                        modified = true;
                     }
                 }
             }

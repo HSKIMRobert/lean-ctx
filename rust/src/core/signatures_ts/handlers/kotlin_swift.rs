@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use crate::core::signatures::{compact_params, Signature};
+use crate::core::signatures::{Signature, compact_params};
 
 use super::super::helpers::{clean_return_type, field_text, has_named_child, strip_parens};
 
@@ -111,10 +111,10 @@ fn swift_parameters_before_body(node: &Node, source: &[u8]) -> String {
         if n.start_byte() >= end_byte {
             return false;
         }
-        if n.kind() == "parameter" {
-            if let Ok(t) = n.utf8_text(source) {
-                parts.push(t.to_string());
-            }
+        if n.kind() == "parameter"
+            && let Ok(t) = n.utf8_text(source)
+        {
+            parts.push(t.to_string());
         }
         true
     });
@@ -128,12 +128,11 @@ fn swift_parameters_before_body(node: &Node, source: &[u8]) -> String {
 pub(crate) fn csharp_has_modifier_text(node: &Node, needle: &str, source: &[u8]) -> bool {
     let mut cursor = node.walk();
     for c in node.children(&mut cursor) {
-        if c.kind() == "modifier" {
-            if let Ok(t) = c.utf8_text(source) {
-                if t.contains(needle) {
-                    return true;
-                }
-            }
+        if c.kind() == "modifier"
+            && let Ok(t) = c.utf8_text(source)
+            && t.contains(needle)
+        {
+            return true;
         }
     }
     false

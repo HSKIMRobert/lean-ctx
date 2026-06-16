@@ -532,7 +532,7 @@ mod first_contact {
         let src = crate::server_dispatch_src();
         // Find the auto_context section
         let auto_ctx_pos = src
-            .find("if let Some(ctx) = auto_context")
+            .find("let Some(ctx) = auto_context")
             .expect("auto_context block must exist");
         let block = &src[auto_ctx_pos..auto_ctx_pos + 200];
 
@@ -547,7 +547,7 @@ mod first_contact {
     fn scenario_token_budget_enforced() {
         let src = crate::server_dispatch_src();
         let auto_ctx_pos = src
-            .find("if let Some(ctx) = auto_context")
+            .find("let Some(ctx) = auto_context")
             .expect("auto_context block must exist");
         let block = &src[auto_ctx_pos..auto_ctx_pos + 300];
 
@@ -560,10 +560,13 @@ mod first_contact {
     #[test]
     fn scenario_raw_shell_still_skips_auto_context() {
         let src = crate::server_dispatch_src();
-        let normalized = src.replace("\r\n", "\n");
+        // Collapse whitespace so the gating check survives the edition-2024
+        // let-chain collapse (`if !is_raw_shell { if let Some(ctx) = … }` →
+        // `if !is_raw_shell && let Some(ctx) = …`) and any rustfmt line wrapping.
+        let collapsed = src.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            normalized.contains("if !is_raw_shell {\n            if let Some(ctx) = auto_context"),
-            "auto_context must still be skipped for raw shell"
+            collapsed.contains("if !is_raw_shell && let Some(ctx) = auto_context"),
+            "auto_context must still be gated behind !is_raw_shell"
         );
     }
 }

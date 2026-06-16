@@ -121,7 +121,7 @@ mod tests {
 
         write_linked_config(root.path(), other.path());
 
-        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+        crate::test_env::remove_var("LEAN_CTX_ALLOW_PATH");
         let res = load_linked_projects(root.path());
         assert!(res.roots.is_empty());
         assert!(
@@ -141,7 +141,7 @@ mod tests {
 
         write_linked_config(root.path(), other.path());
 
-        std::env::set_var(
+        crate::test_env::set_var(
             "LEAN_CTX_ALLOW_PATH",
             other.path().to_string_lossy().to_string(),
         );
@@ -149,6 +149,6 @@ mod tests {
         assert_eq!(res.roots.len(), 1);
         assert_eq!(res.roots[0], other.path().canonicalize().expect("canon"));
 
-        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+        crate::test_env::remove_var("LEAN_CTX_ALLOW_PATH");
     }
 }

@@ -16,9 +16,12 @@ impl TestEnv {
         let home = tmp.path().to_path_buf();
         let data_dir = home.join(".lean-ctx");
         std::fs::create_dir_all(&data_dir).unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
-        std::env::set_var("CLAUDE_CONFIG_DIR", home.join(".claude"));
-        std::env::set_var("CODEX_HOME", home.join(".codex"));
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir) };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", home.join(".claude")) };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("CODEX_HOME", home.join(".codex")) };
         Self { _tmp: tmp, home }
     }
 
@@ -37,9 +40,12 @@ impl TestEnv {
 
 impl Drop for TestEnv {
     fn drop(&mut self) {
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
-        std::env::remove_var("CLAUDE_CONFIG_DIR");
-        std::env::remove_var("CODEX_HOME");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var("CODEX_HOME") };
     }
 }
 

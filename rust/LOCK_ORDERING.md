@@ -62,6 +62,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L49 | `BASELINE` | `core/datadog_push.rs:46` | `Mutex<Option<Baseline>>` | Last pushed counter totals for the Datadog agentless push — deltas are computed against it each interval (#401) |
 | L50 | `LINE_EMBED_CACHE` | `core/entropy.rs:299` | `Mutex<Option<HashMap<u64, Vec<f32>>>>` | Per-line embedding cache (line-hash → vector) for the semantic redundancy filter (#544); capacity-bounded, never blocks on model loads |
 | L51 | `SELECTED_ARMS` | `core/adaptive_thresholds.rs:342` | `Mutex<Option<SelectedArmRegistry>>` | Registry of recently selected bandit arms (per project root) so real bounce/edit-fail signals are attributed to the arm that produced the compression (#593); capacity-bounded (64 paths, oldest-first eviction) |
+| L52 | `ACTIVE_PROFILE_OVERRIDE` | `core/profiles.rs:1008` | `RwLock<Option<String>>` | In-process active-profile override set by `set_active_profile`; replaces the former `std::env::set_var("LEAN_CTX_PROFILE")` so profile switching is data-race-free under the multi-threaded MCP runtime (Edition 2024). Read on every `active_profile_name()` (override → env → config → "coder") |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -171,9 +172,9 @@ Override via `LEAN_CTX_WORKER_THREADS` (positive integer) for environments with 
 concurrent subagents. Example: `LEAN_CTX_WORKER_THREADS=8`. The blocking thread pool
 is always `worker_threads * 4`, clamped to `[8, 32]`.
 
-### Independent Static Locks (L3–L51)
+### Independent Static Locks (L3–L52)
 
-All other static locks (L3–L51) — **except the L22 → L4 pair documented above** — are
+All other static locks (L3–L52) — **except the L22 → L4 pair documented above** — are
 **independent singletons**: they protect isolated subsystem state and are never nested inside
 each other. Each should be acquired in isolation:
 

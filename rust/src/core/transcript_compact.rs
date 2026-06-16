@@ -123,19 +123,20 @@ fn compact_jsonl_line(line: &str) -> Option<String> {
                     modified = true;
                 }
             }
-        } else if let Some(s) = content.as_str() {
-            if s.len() > MAX_TOOL_OUTPUT_CHARS && has_tool_markers(s) {
-                let summary = summarize_content(s);
-                *content = serde_json::Value::String(summary);
-                modified = true;
-            }
+        } else if let Some(s) = content.as_str()
+            && s.len() > MAX_TOOL_OUTPUT_CHARS
+            && has_tool_markers(s)
+        {
+            let summary = summarize_content(s);
+            *content = serde_json::Value::String(summary);
+            modified = true;
         }
     }
 
-    if let Some(result) = doc.get_mut("result") {
-        if compact_content_block(result) {
-            modified = true;
-        }
+    if let Some(result) = doc.get_mut("result")
+        && compact_content_block(result)
+    {
+        modified = true;
     }
 
     if modified {
@@ -146,23 +147,23 @@ fn compact_jsonl_line(line: &str) -> Option<String> {
 }
 
 fn compact_content_block(block: &mut serde_json::Value) -> bool {
-    if let Some(text) = block.get_mut("text") {
-        if let Some(s) = text.as_str() {
-            if s.len() > MAX_TOOL_OUTPUT_CHARS && has_tool_markers(s) {
-                let summary = summarize_content(s);
-                *text = serde_json::Value::String(summary);
-                return true;
-            }
-        }
+    if let Some(text) = block.get_mut("text")
+        && let Some(s) = text.as_str()
+        && s.len() > MAX_TOOL_OUTPUT_CHARS
+        && has_tool_markers(s)
+    {
+        let summary = summarize_content(s);
+        *text = serde_json::Value::String(summary);
+        return true;
     }
 
     if let Some(content) = block.get_mut("content") {
-        if let Some(s) = content.as_str() {
-            if s.len() > MAX_TOOL_OUTPUT_CHARS {
-                let summary = summarize_content(s);
-                *content = serde_json::Value::String(summary);
-                return true;
-            }
+        if let Some(s) = content.as_str()
+            && s.len() > MAX_TOOL_OUTPUT_CHARS
+        {
+            let summary = summarize_content(s);
+            *content = serde_json::Value::String(summary);
+            return true;
         }
         if let Some(arr) = content.as_array_mut() {
             let mut any_modified = false;

@@ -75,7 +75,8 @@ fn dir_has_entry(dir: &std::path::Path) -> bool {
 async fn memory_benchmark_suite_persists_core_artifacts() {
     let _lock = lean_ctx::core::data_dir::test_env_lock();
     let data_dir = tempfile::tempdir().expect("data dir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", data_dir.path()) };
 
     let dir = tempfile::tempdir().expect("project dir");
     // Ensure project-root detection can anchor on a marker.
@@ -220,5 +221,6 @@ async fn memory_benchmark_suite_persists_core_artifacts() {
         "expected at least one procedural store file"
     );
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }

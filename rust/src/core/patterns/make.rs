@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -92,10 +92,10 @@ fn compress_make_output(output: &str) -> String {
         }
     }
 
-    if let Some(ref last) = last_significant {
-        if !kept_non_warning.iter().any(|k| k == last) {
-            kept_non_warning.push(format!("result: {last}"));
-        }
+    if let Some(ref last) = last_significant
+        && !kept_non_warning.iter().any(|k| k == last)
+    {
+        kept_non_warning.push(format!("result: {last}"));
     }
 
     let mut sections: Vec<String> = Vec::new();

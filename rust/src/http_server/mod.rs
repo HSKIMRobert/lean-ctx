@@ -2,17 +2,17 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::{
+    Router,
     extract::Json,
     extract::Query,
     extract::State,
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::{self, Next},
     response::sse::{Event as SseEvent, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use futures::Stream;
 use rmcp::transport::{StreamableHttpServerConfig, StreamableHttpService};
@@ -127,10 +127,10 @@ impl HttpServerConfig {
     }
 
     pub fn effective_auth_token(&self) -> Option<String> {
-        if let Some(ref token) = self.auth_token {
-            if !token.is_empty() {
-                return Some(token.clone());
-            }
+        if let Some(ref token) = self.auth_token
+            && !token.is_empty()
+        {
+            return Some(token.clone());
         }
         let host = self.host.trim().to_lowercase();
         let is_loopback = host == "127.0.0.1" || host == "localhost" || host == "::1";
@@ -453,7 +453,7 @@ async fn v1_events(
     State(state): State<AppState>,
     Query(q): Query<EventsQuery>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
-    use crate::core::context_os::{redact_event_payload, ContextEventV1, RedactionLevel};
+    use crate::core::context_os::{ContextEventV1, RedactionLevel, redact_event_payload};
 
     let ws = sanitize_id(&q.workspace_id.unwrap_or_else(|| "default".to_string()));
     let ch = sanitize_id(&q.channel_id.unwrap_or_else(|| "default".to_string()));
@@ -908,8 +908,8 @@ async fn v1_agents_deregister(Json(body): Json<Value>) -> impl IntoResponse {
     Json(serde_json::json!({"status": "deregistered"}))
 }
 
-async fn v1_agents_events_sse(
-) -> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
+async fn v1_agents_events_sse()
+-> Sse<impl Stream<Item = Result<SseEvent, std::convert::Infallible>>> {
     let stream = futures::stream::unfold(0usize, |last_count| async move {
         loop {
             tokio::time::sleep(Duration::from_secs(5)).await;

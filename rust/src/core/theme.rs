@@ -105,27 +105,15 @@ pub const BOLD: &str = "\x1b[1m";
 pub const DIM: &str = "\x1b[2m";
 
 pub fn rst() -> &'static str {
-    if no_color() {
-        ""
-    } else {
-        RST
-    }
+    if no_color() { "" } else { RST }
 }
 
 pub fn bold() -> &'static str {
-    if no_color() {
-        ""
-    } else {
-        BOLD
-    }
+    if no_color() { "" } else { BOLD }
 }
 
 pub fn dim() -> &'static str {
-    if no_color() {
-        ""
-    } else {
-        DIM
-    }
+    if no_color() { "" } else { DIM }
 }
 
 impl Theme {
@@ -648,14 +636,12 @@ pub fn theme_file_path() -> Option<PathBuf> {
 }
 
 pub fn load_theme(config_theme: &str) -> Theme {
-    if let Some(path) = theme_file_path() {
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(theme) = toml::from_str::<Theme>(&content) {
-                    return theme;
-                }
-            }
-        }
+    if let Some(path) = theme_file_path()
+        && path.exists()
+        && let Ok(content) = std::fs::read_to_string(&path)
+        && let Ok(theme) = toml::from_str::<Theme>(&content)
+    {
+        return theme;
     }
 
     from_preset(config_theme).unwrap_or_default()
@@ -792,21 +778,21 @@ mod tests {
 
     #[test]
     fn border_line_width() {
-        std::env::set_var("NO_COLOR", "1");
+        crate::test_env::set_var("NO_COLOR", "1");
         let theme = preset_default();
         let line = theme.border_line(10);
         assert_eq!(line.chars().count(), 10);
-        std::env::remove_var("NO_COLOR");
+        crate::test_env::remove_var("NO_COLOR");
     }
 
     #[test]
     fn box_top_bottom_symmetric() {
-        std::env::set_var("NO_COLOR", "1");
+        crate::test_env::set_var("NO_COLOR", "1");
         let theme = preset_default();
         let top = theme.box_top(20);
         let bot = theme.box_bottom(20);
         assert_eq!(top.chars().count(), bot.chars().count());
-        std::env::remove_var("NO_COLOR");
+        crate::test_env::remove_var("NO_COLOR");
     }
 
     #[test]

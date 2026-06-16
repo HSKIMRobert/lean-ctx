@@ -94,10 +94,10 @@ pub fn create_ledger(input: CreateLedgerInput) -> Result<(HandoffLedgerV1, PathB
     let mut by_mode: BTreeMap<String, u64> = BTreeMap::new();
     for call in &input.tool_calls {
         *by_tool.entry(call.tool.clone()).or_insert(0) += 1;
-        if call.tool == "ctx_read" {
-            if let Some(m) = call.mode.as_deref() {
-                *by_mode.entry(m.to_string()).or_insert(0) += 1;
-            }
+        if call.tool == "ctx_read"
+            && let Some(m) = call.mode.as_deref()
+        {
+            *by_mode.entry(m.to_string()).or_insert(0) += 1;
         }
     }
 
@@ -454,7 +454,7 @@ mod tests {
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let previous = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            crate::test_env::set_var(key, value);
             Self { key, previous }
         }
     }
@@ -462,9 +462,9 @@ mod tests {
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(ref previous) = self.previous {
-                std::env::set_var(self.key, previous);
+                crate::test_env::set_var(self.key, previous);
             } else {
-                std::env::remove_var(self.key);
+                crate::test_env::remove_var(self.key);
             }
         }
     }

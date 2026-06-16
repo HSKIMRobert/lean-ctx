@@ -22,13 +22,13 @@ pub mod tool_trait;
 pub mod tool_visibility;
 
 use futures::FutureExt;
+use rmcp::ErrorData;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, Implementation, InitializeRequestParams,
     InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
-use rmcp::ErrorData;
 
 use crate::tools::{CrpMode, LeanCtxServer};
 mod call_tool;
@@ -45,10 +45,10 @@ pub fn build_claude_code_instructions_for_test() -> String {
 }
 
 fn is_home_or_agent_dir(dir: &std::path::Path) -> bool {
-    if let Some(home) = dirs::home_dir() {
-        if dir == home {
-            return true;
-        }
+    if let Some(home) = dirs::home_dir()
+        && dir == home
+    {
+        return true;
     }
     let dir_str = dir.to_string_lossy();
     dir_str.ends_with("/.claude")
@@ -145,7 +145,10 @@ fn detect_multi_root_workspace(dir: &std::path::Path) -> Option<String> {
         } else {
             format!("{existing}{sep}{}", child_projects.join(sep))
         };
-        std::env::set_var("LEAN_CTX_ALLOW_PATH", &merged);
+        // SAFETY: set during MCP `initialize` (connection bootstrap), before any
+        // tool-handler thread reads the jail allow-list via `pathjail`. The only
+        // concurrent startup tasks (proxy spawn, savings publish) never consult it.
+        unsafe { std::env::set_var("LEAN_CTX_ALLOW_PATH", &merged) };
         tracing::info!(
             "Multi-root workspace detected at {}: auto-allowing {} child projects",
             dir.display(),
@@ -339,7 +342,7 @@ mod tests {
             "should detect workspace with 2 child projects"
         );
 
-        std::env::remove_var("LEAN_CTX_ALLOW_PATH");
+        crate::test_env::remove_var("LEAN_CTX_ALLOW_PATH");
     }
 
     #[test]

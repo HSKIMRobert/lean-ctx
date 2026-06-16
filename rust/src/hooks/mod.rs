@@ -441,15 +441,14 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
         // AGENTS.md block + on-demand skill carry the same guidance, so the
         // lean-ctx-owned copy is removed instead of refreshed.
         let claude_rules_file = cwd.join(".claude").join("rules").join("lean-ctx.md");
-        if let Ok(existing) = std::fs::read_to_string(&claude_rules_file) {
-            if existing.contains("<!-- lean-ctx-rules-")
-                && std::fs::remove_file(&claude_rules_file).is_ok()
-                && !mcp_server_quiet_mode()
-            {
-                eprintln!(
-                    "Removed .claude/rules/lean-ctx.md (always-loaded duplicate; AGENTS.md block + skill replace it)."
-                );
-            }
+        if let Ok(existing) = std::fs::read_to_string(&claude_rules_file)
+            && existing.contains("<!-- lean-ctx-rules-")
+            && std::fs::remove_file(&claude_rules_file).is_ok()
+            && !mcp_server_quiet_mode()
+        {
+            eprintln!(
+                "Removed .claude/rules/lean-ctx.md (always-loaded duplicate; AGENTS.md block + skill replace it)."
+            );
         }
 
         install_claude_project_hooks(&cwd);
@@ -457,15 +456,14 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
 
     if wants("codebuddy") {
         let codebuddy_rules_file = cwd.join(".codebuddy").join("rules").join("lean-ctx.md");
-        if let Ok(existing) = std::fs::read_to_string(&codebuddy_rules_file) {
-            if existing.contains("<!-- lean-ctx-rules-")
-                && std::fs::remove_file(&codebuddy_rules_file).is_ok()
-                && !mcp_server_quiet_mode()
-            {
-                eprintln!(
-                    "Removed .codebuddy/rules/lean-ctx.md (always-loaded duplicate; CODEBUDDY.md block + skill replace it)."
-                );
-            }
+        if let Ok(existing) = std::fs::read_to_string(&codebuddy_rules_file)
+            && existing.contains("<!-- lean-ctx-rules-")
+            && std::fs::remove_file(&codebuddy_rules_file).is_ok()
+            && !mcp_server_quiet_mode()
+        {
+            eprintln!(
+                "Removed .codebuddy/rules/lean-ctx.md (always-loaded duplicate; CODEBUDDY.md block + skill replace it)."
+            );
         }
 
         install_codebuddy_project_hooks(&cwd);
@@ -737,7 +735,9 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         _ => {
             eprintln!("Unknown agent: {agent}");
             eprintln!("  Supported: aider, amazonq, amp, antigravity, antigravity-cli, augment,");
-            eprintln!("    claude, cline, codebuddy, codex, continue, copilot, crush, cursor, emacs, gemini,");
+            eprintln!(
+                "    claude, cline, codebuddy, codex, continue, copilot, crush, cursor, emacs, gemini,"
+            );
             eprintln!("    hermes, jetbrains, kiro, neovim, openclaw, opencode, pi, qoder,");
             eprintln!("    qoderwork, qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
@@ -910,8 +910,8 @@ mod tests {
         // server entry, otherwise the long-lived server rejects explicit paths
         // under sibling worktrees as jail escapes.
         let _iso = crate::core::data_dir::isolated_data_dir();
-        std::env::set_var("LEAN_CTX_PROJECT_ROOT", "/work/main");
-        std::env::set_var("LEAN_CTX_EXTRA_ROOTS", "/work/wt-a:/work/wt-b");
+        crate::test_env::set_var("LEAN_CTX_PROJECT_ROOT", "/work/main");
+        crate::test_env::set_var("LEAN_CTX_EXTRA_ROOTS", "/work/wt-a:/work/wt-b");
 
         let pairs = mcp_server_env_pairs();
         let get = |k: &str| pairs.iter().find(|(p, _)| p == k).map(|(_, v)| v.as_str());
@@ -926,8 +926,8 @@ mod tests {
         let json = mcp_server_env_json();
         assert_eq!(json["LEAN_CTX_PROJECT_ROOT"].as_str(), Some("/work/main"));
 
-        std::env::remove_var("LEAN_CTX_PROJECT_ROOT");
-        std::env::remove_var("LEAN_CTX_EXTRA_ROOTS");
+        crate::test_env::remove_var("LEAN_CTX_PROJECT_ROOT");
+        crate::test_env::remove_var("LEAN_CTX_EXTRA_ROOTS");
     }
 
     #[test]
@@ -935,8 +935,8 @@ mod tests {
         // No project context configured anywhere ⇒ only the data dir is emitted,
         // so we never write empty/placeholder root keys into agent configs.
         let _iso = crate::core::data_dir::isolated_data_dir();
-        std::env::remove_var("LEAN_CTX_PROJECT_ROOT");
-        std::env::remove_var("LEAN_CTX_EXTRA_ROOTS");
+        crate::test_env::remove_var("LEAN_CTX_PROJECT_ROOT");
+        crate::test_env::remove_var("LEAN_CTX_EXTRA_ROOTS");
 
         let pairs = mcp_server_env_pairs();
         let keys: Vec<&str> = pairs.iter().map(|(k, _)| k.as_str()).collect();

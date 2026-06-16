@@ -191,7 +191,7 @@ impl Drop for IsolatedDataDir {
         // Struct Drop runs before field drops, so the env is restored while
         // the lock is still held.
         for var in ISOLATED_ENV_VARS {
-            std::env::remove_var(var);
+            crate::test_env::remove_var(var);
         }
     }
 }
@@ -201,7 +201,7 @@ pub fn isolated_data_dir() -> IsolatedDataDir {
     let guard = test_env_lock();
     let tmp = tempfile::tempdir().expect("tempdir for isolated data dir");
     for var in ISOLATED_ENV_VARS {
-        std::env::set_var(var, tmp.path());
+        crate::test_env::set_var(var, tmp.path());
     }
     IsolatedDataDir { tmp, _guard: guard }
 }
@@ -250,15 +250,15 @@ mod tests {
         let _lock = test_env_lock();
         let xdg_config = tempfile::tempdir().unwrap();
         let xdg_data = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", "");
-        std::env::set_var("XDG_CONFIG_HOME", xdg_config.path());
-        std::env::set_var("XDG_DATA_HOME", xdg_data.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", "");
+        crate::test_env::set_var("XDG_CONFIG_HOME", xdg_config.path());
+        crate::test_env::set_var("XDG_DATA_HOME", xdg_data.path());
 
         let result = resolve_home_data_dir().unwrap();
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::remove_var("XDG_DATA_HOME");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("XDG_CONFIG_HOME");
+        crate::test_env::remove_var("XDG_DATA_HOME");
 
         // A real `~/.lean-ctx` (legacy) would correctly take precedence; only
         // assert the fresh default when it is absent (always true on CI).
@@ -284,10 +284,10 @@ mod tests {
         let dir = std::env::temp_dir().join("test_data_dir_env");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
-        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
         let result = lean_ctx_data_dir().unwrap();
         assert_eq!(result, dir);
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -311,15 +311,15 @@ mod tests {
         let _ = std::fs::create_dir_all(&xdg_dir);
         std::fs::write(xdg_dir.join("stats.json"), r#"{"total_commands":1}"#).unwrap();
 
-        std::env::set_var("LEAN_CTX_DATA_DIR", "");
-        std::env::set_var("XDG_CONFIG_HOME", xdg_base.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", "");
+        crate::test_env::set_var("XDG_CONFIG_HOME", xdg_base.to_str().unwrap());
 
         // Calls the home resolver directly: lean_ctx_data_dir() is sandboxed
         // under cfg(test) (GL #512) and would short-circuit before XDG logic.
         let result = resolve_home_data_dir().unwrap();
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
-        std::env::remove_var("XDG_CONFIG_HOME");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("XDG_CONFIG_HOME");
 
         let home = dirs::home_dir().unwrap();
         let legacy = home.join(".lean-ctx");
@@ -336,8 +336,8 @@ mod tests {
     #[cfg(unix)]
     fn restore_env(key: &str, val: Option<std::ffi::OsString>) {
         match val {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+            Some(v) => crate::test_env::set_var(key, v),
+            None => crate::test_env::remove_var(key),
         }
     }
 
@@ -360,10 +360,10 @@ mod tests {
         let saved_home = std::env::var_os("HOME");
         let saved_config = std::env::var_os("XDG_CONFIG_HOME");
         let saved_data = std::env::var_os("XDG_DATA_HOME");
-        std::env::set_var("HOME", &home);
-        std::env::remove_var("XDG_CONFIG_HOME");
-        std::env::set_var("XDG_DATA_HOME", &xdg_data);
-        std::env::set_var("LEAN_CTX_DATA_DIR", "");
+        crate::test_env::set_var("HOME", &home);
+        crate::test_env::remove_var("XDG_CONFIG_HOME");
+        crate::test_env::set_var("XDG_DATA_HOME", &xdg_data);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", "");
 
         let result = resolve_home_data_dir().unwrap();
 
@@ -371,7 +371,7 @@ mod tests {
         restore_env("HOME", saved_home);
         restore_env("XDG_CONFIG_HOME", saved_config);
         restore_env("XDG_DATA_HOME", saved_data);
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
 
         assert_eq!(
             result,

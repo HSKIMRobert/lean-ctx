@@ -112,7 +112,9 @@ fn main() {
     let workspace = temp.join("ws");
     std::fs::create_dir_all(&data_dir).ok();
     std::fs::create_dir_all(&workspace).ok();
-    std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
+    // SAFETY: single-threaded benchmark setup; runs in `main` before any worker
+    // threads start.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir) };
 
     let report = locomo::run(&suite_name, &samples, &workspace, args.top_k);
 

@@ -1,6 +1,6 @@
 use tree_sitter::Node;
 
-use crate::core::signatures::{compact_params, Signature};
+use crate::core::signatures::{Signature, compact_params};
 
 use super::super::helpers::strip_parens;
 
@@ -78,10 +78,9 @@ fn luau_return_type(node: &Node, source: &[u8]) -> String {
         if child.start_byte() >= params_end
             && child.kind() != "block"
             && (child.kind() == "type" || child.kind().ends_with("_type"))
+            && let Ok(t) = child.utf8_text(source)
         {
-            if let Ok(t) = child.utf8_text(source) {
-                return t.trim().to_string();
-            }
+            return t.trim().to_string();
         }
     }
     String::new()

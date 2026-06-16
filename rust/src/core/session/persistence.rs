@@ -187,18 +187,18 @@ impl SessionState {
                 if path.file_name().and_then(|n| n.to_str()) == Some("latest.json") {
                     continue;
                 }
-                if let Ok(json) = std::fs::read_to_string(&path) {
-                    if let Ok(session) = serde_json::from_str::<SessionState>(&json) {
-                        summaries.push(SessionSummary {
-                            id: session.id,
-                            started_at: session.started_at,
-                            updated_at: session.updated_at,
-                            version: session.version,
-                            task: session.task.as_ref().map(|t| t.description.clone()),
-                            tool_calls: session.stats.total_tool_calls,
-                            tokens_saved: session.stats.total_tokens_saved,
-                        });
-                    }
+                if let Ok(json) = std::fs::read_to_string(&path)
+                    && let Ok(session) = serde_json::from_str::<SessionState>(&json)
+                {
+                    summaries.push(SessionSummary {
+                        id: session.id,
+                        started_at: session.started_at,
+                        updated_at: session.updated_at,
+                        version: session.version,
+                        task: session.task.as_ref().map(|t| t.description.clone()),
+                        tool_calls: session.stats.total_tool_calls,
+                        tokens_saved: session.stats.total_tokens_saved,
+                    });
                 }
             }
         }
@@ -278,12 +278,12 @@ impl SessionState {
                 if latest.as_deref() == Some(filename) {
                     continue;
                 }
-                if let Ok(json) = std::fs::read_to_string(&path) {
-                    if let Ok(session) = serde_json::from_str::<SessionState>(&json) {
-                        if session.updated_at < cutoff && std::fs::remove_file(&path).is_ok() {
-                            removed += 1;
-                        }
-                    }
+                if let Ok(json) = std::fs::read_to_string(&path)
+                    && let Ok(session) = serde_json::from_str::<SessionState>(&json)
+                    && session.updated_at < cutoff
+                    && std::fs::remove_file(&path).is_ok()
+                {
+                    removed += 1;
                 }
             }
         }

@@ -61,11 +61,7 @@ fn cyclomatic_per_function_impl(source: &str, extension: &str) -> Option<Vec<Fun
         },
     )?;
 
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 #[cfg(feature = "tree-sitter")]
@@ -164,10 +160,10 @@ fn tally_decision(node: Node, source: &[u8], ext: &str) -> u32 {
 fn python_boolean_operator(node: Node, source: &[u8]) -> u32 {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if let Ok(t) = child.utf8_text(source) {
-            if t == "and" || t == "or" {
-                return 1;
-            }
+        if let Ok(t) = child.utf8_text(source)
+            && (t == "and" || t == "or")
+        {
+            return 1;
         }
     }
     0

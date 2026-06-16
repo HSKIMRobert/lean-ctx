@@ -1,8 +1,8 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str};
 use crate::tool_defs::tool_def;
 
 pub struct CtxIntentTool;
@@ -65,12 +65,11 @@ impl McpTool for CtxIntentTool {
         );
         drop(cache_guard);
 
-        if let Some(ref session) = ctx.session {
-            if let Some(mut session_guard) =
+        if let Some(ref session) = ctx.session
+            && let Some(mut session_guard) =
                 crate::server::bounded_lock::write(session, "ctx_intent:session")
-            {
-                session_guard.set_task(&query, Some("intent"));
-            }
+        {
+            session_guard.set_task(&query, Some("intent"));
         }
 
         Ok(ToolOutput {

@@ -130,13 +130,13 @@ fn reindex(project_root: &Path, format: Option<&str>) -> String {
                 res["chunks"].as_u64().unwrap_or(0),
                 res["index_file"].as_str().unwrap_or_default()
             ));
-            if let Some(w) = res["warnings"].as_array() {
-                if !w.is_empty() {
-                    out.push_str("\n## Warnings\n");
-                    for ww in w {
-                        if let Some(s) = ww.as_str() {
-                            out.push_str(&format!("- {s}\n"));
-                        }
+            if let Some(w) = res["warnings"].as_array()
+                && !w.is_empty()
+            {
+                out.push_str("\n## Warnings\n");
+                for ww in w {
+                    if let Some(s) = ww.as_str() {
+                        out.push_str(&format!("- {s}\n"));
                     }
                 }
             }
@@ -178,16 +178,16 @@ fn search(
                 q,
                 res["results"].as_array().map_or(0, Vec::len)
             ));
-            if let Some(w) = res["warnings"].as_array() {
-                if !w.is_empty() {
-                    out.push_str("## Warnings\n");
-                    for ww in w {
-                        if let Some(s) = ww.as_str() {
-                            out.push_str(&format!("- {s}\n"));
-                        }
+            if let Some(w) = res["warnings"].as_array()
+                && !w.is_empty()
+            {
+                out.push_str("## Warnings\n");
+                for ww in w {
+                    if let Some(s) = ww.as_str() {
+                        out.push_str(&format!("- {s}\n"));
                     }
-                    out.push('\n');
                 }
+                out.push('\n');
             }
             out.push_str("## Results\n");
             for r in results {

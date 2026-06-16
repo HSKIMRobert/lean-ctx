@@ -133,8 +133,8 @@ impl PolicySet {
             if !path_matches(&policy.match_pattern, path) {
                 continue;
             }
-            if let Some(ref condition) = policy.condition {
-                if !check_condition(
+            if let Some(ref condition) = policy.condition
+                && !check_condition(
                     condition,
                     seen_before,
                     token_count,
@@ -142,9 +142,9 @@ impl PolicySet {
                     agent_id,
                     role,
                     content,
-                ) {
-                    continue;
-                }
+                )
+            {
+                continue;
             }
             results.push(PolicyEvalResult {
                 policy_name: policy.name.clone(),
@@ -345,12 +345,16 @@ mod tests {
         let ps = PolicySet::defaults();
         let small = ps.evaluate("src/main.rs", false, 500);
         let large = ps.evaluate("src/main.rs", false, 10000);
-        assert!(!small
-            .iter()
-            .any(|r| matches!(&r.action, PolicyAction::SetView { view } if view == "signatures")),);
-        assert!(large
-            .iter()
-            .any(|r| matches!(&r.action, PolicyAction::SetView { view } if view == "signatures")),);
+        assert!(
+            !small.iter().any(
+                |r| matches!(&r.action, PolicyAction::SetView { view } if view == "signatures")
+            ),
+        );
+        assert!(
+            large.iter().any(
+                |r| matches!(&r.action, PolicyAction::SetView { view } if view == "signatures")
+            ),
+        );
     }
 
     #[test]

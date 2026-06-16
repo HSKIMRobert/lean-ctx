@@ -165,10 +165,10 @@ pub fn normalize_tool_path_lexical(path: &str) -> String {
         None => path.to_string(),
     };
 
-    if cfg!(windows) {
-        if let Some(translated) = translate_msys_drive_prefix(&p) {
-            p = translated;
-        }
+    if cfg!(windows)
+        && let Some(translated) = translate_msys_drive_prefix(&p)
+    {
+        p = translated;
     }
 
     p = p.replace('\\', "/");
@@ -205,12 +205,11 @@ pub fn normalize_tool_path(path: &str) -> String {
         && !is_root_only
         && !crate::core::io_health::is_slow_mount(&p)
         && may_probe_path(Path::new(&*p))
+        && let Ok(canonical) = safe_canonicalize(Path::new(&*p))
     {
-        if let Ok(canonical) = safe_canonicalize(Path::new(&*p)) {
-            let canonical_str = canonical.to_string_lossy().replace('\\', "/");
-            if !canonical_str.is_empty() {
-                p = canonical_str;
-            }
+        let canonical_str = canonical.to_string_lossy().replace('\\', "/");
+        if !canonical_str.is_empty() {
+            p = canonical_str;
         }
     }
 
@@ -222,10 +221,10 @@ pub fn normalize_tool_path(path: &str) -> String {
 /// directories (`.claude`, `.codex`). Used to prevent writing project-scoped
 /// data (overlays, policies) into the global `~/.lean-ctx/` data directory.
 pub fn is_broad_or_unsafe_root(dir: &Path) -> bool {
-    if let Some(home) = dirs::home_dir() {
-        if dir == home {
-            return true;
-        }
+    if let Some(home) = dirs::home_dir()
+        && dir == home
+    {
+        return true;
     }
     let s = dir.to_string_lossy();
     if s == "/" || s == "\\" || s == "." {
@@ -495,7 +494,7 @@ mod tests {
         };
         let doc_proj = home.join("Documents/some-project");
 
-        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        crate::test_env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
         assert!(process_is_tcc_standalone());
         assert!(!may_probe_path(&doc_proj));
         // Non-protected paths stay probeable even for standalone processes.
@@ -503,10 +502,10 @@ mod tests {
         // has_project_marker must refuse without touching the filesystem.
         assert!(!has_project_marker(&doc_proj));
 
-        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
+        crate::test_env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
         assert!(!process_is_tcc_standalone());
         assert!(may_probe_path(&doc_proj));
-        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+        crate::test_env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 
     #[test]
@@ -523,7 +522,7 @@ mod tests {
         // every heuristic canonicalize funnels through here.
         let missing = home.join("Documents/lean-ctx-tcc-test-does-not-exist-xyzzy");
 
-        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        crate::test_env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
         let guarded = safe_canonicalize(&missing);
         assert!(
             guarded.is_ok(),
@@ -538,10 +537,10 @@ mod tests {
 
         // Without standalone the guard is inactive: a missing ~/Documents path
         // Errs from the real `std::fs::canonicalize` as before.
-        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
+        crate::test_env::set_var("LEAN_CTX_TCC_STANDALONE", "0");
         assert!(safe_canonicalize(&missing).is_err());
 
-        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+        crate::test_env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 
     #[test]
@@ -559,7 +558,7 @@ mod tests {
         };
         let missing = home.join("Documents/lean-ctx-secure-canon-does-not-exist-xyzzy");
 
-        std::env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
+        crate::test_env::set_var("LEAN_CTX_TCC_STANDALONE", "1");
         // Guarded sink short-circuits (no fs access).
         assert_eq!(safe_canonicalize(&missing).unwrap(), missing);
         // Security sink ignores the guard and actually stats -> Err on a missing
@@ -570,7 +569,7 @@ mod tests {
             "canonicalize_secure must bypass the TCC guard and touch the filesystem"
         );
         assert_eq!(canonicalize_secure_or_self(&missing), missing);
-        std::env::remove_var("LEAN_CTX_TCC_STANDALONE");
+        crate::test_env::remove_var("LEAN_CTX_TCC_STANDALONE");
     }
 
     #[test]

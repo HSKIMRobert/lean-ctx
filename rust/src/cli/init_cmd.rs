@@ -81,11 +81,11 @@ pub fn cmd_init(args: &[String]) {
     let eval_shell = args
         .iter()
         .find(|a| matches!(a.as_str(), "bash" | "zsh" | "fish" | "powershell" | "pwsh"));
-    if let Some(shell) = eval_shell {
-        if !global {
-            super::shell_init::print_hook_stdout(shell);
-            return;
-        }
+    if let Some(shell) = eval_shell
+        && !global
+    {
+        super::shell_init::print_hook_stdout(shell);
+        return;
     }
 
     let shell_name = std::env::var("SHELL").unwrap_or_default();
@@ -143,11 +143,11 @@ pub fn cmd_init(args: &[String]) {
         }
     }
 
-    if let Ok(lean_dir) = crate::core::data_dir::lean_ctx_data_dir() {
-        if !lean_dir.exists() {
-            let _ = std::fs::create_dir_all(&lean_dir);
-            qprintln!("Created {}", lean_dir.display());
-        }
+    if let Ok(lean_dir) = crate::core::data_dir::lean_ctx_data_dir()
+        && !lean_dir.exists()
+    {
+        let _ = std::fs::create_dir_all(&lean_dir);
+        qprintln!("Created {}", lean_dir.display());
     }
 
     let rc = if is_powershell {
@@ -184,7 +184,10 @@ pub fn cmd_init(args: &[String]) {
 }
 
 pub fn cmd_init_quiet(args: &[String]) {
-    std::env::set_var("LEAN_CTX_QUIET", "1");
+    // SAFETY: the `init` CLI command is single-threaded; no other thread reads
+    // the environment between this set and the matching remove below.
+    unsafe { std::env::set_var("LEAN_CTX_QUIET", "1") };
     cmd_init(args);
-    std::env::remove_var("LEAN_CTX_QUIET");
+    // SAFETY: single-threaded CLI command; pairs with the set above.
+    unsafe { std::env::remove_var("LEAN_CTX_QUIET") };
 }

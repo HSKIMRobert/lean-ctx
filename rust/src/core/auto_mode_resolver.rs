@@ -125,13 +125,13 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return resolved("full", "binary");
     }
 
-    if let Some(cache) = ctx.cache {
-        if let Some(cached) = cache.get(ctx.path) {
-            if file_unchanged(ctx.path, cached) {
-                return resolved("full", "cache_hit");
-            }
-            return resolved("diff", "cache_changed");
+    if let Some(cache) = ctx.cache
+        && let Some(cached) = cache.get(ctx.path)
+    {
+        if file_unchanged(ctx.path, cached) {
+            return resolved("full", "cache_hit");
         }
+        return resolved("diff", "cache_changed");
     }
 
     if ctx.token_count <= 200 {
@@ -147,10 +147,10 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return resolved("full", "config_data");
     }
 
-    if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
-        if bt.should_force_full(ctx.path) {
-            return resolved("full", "bounce_tracker");
-        }
+    if let Ok(bt) = crate::core::bounce_tracker::global().lock()
+        && bt.should_force_full(ctx.path)
+    {
+        return resolved("full", "bounce_tracker");
     }
 
     // Per-path long-term memory (#496): a file that historically bounced in
@@ -187,27 +187,27 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         predicted = "full".to_string();
     }
 
-    if predicted != "full" {
-        if let Some(bandit_override) = bandit_explore(ctx.path, ctx.token_count) {
-            predicted = bandit_override;
-        }
+    if predicted != "full"
+        && let Some(bandit_override) = bandit_explore(ctx.path, ctx.token_count)
+    {
+        predicted = bandit_override;
     }
 
     // Heatmap signal (#496): a frequently-read file where compression barely
     // saves anything will likely trigger a follow-up read — step one mode more
     // conservative. avg_compression_ratio is the historical fraction saved.
-    if predicted != "full" {
-        if let Some((access_count, avg_ratio)) = crate::core::heatmap::entry_stats(ctx.path) {
-            if access_count >= 5 && avg_ratio < 0.30 {
-                let conservative = match predicted.as_str() {
-                    "signatures" | "aggressive" | "entropy" => "map".to_string(),
-                    "map" if ctx.token_count <= 6000 => "full".to_string(),
-                    other => other.to_string(),
-                };
-                if conservative != predicted {
-                    return resolved(&conservative, "heatmap_conservative");
-                }
-            }
+    if predicted != "full"
+        && let Some((access_count, avg_ratio)) = crate::core::heatmap::entry_stats(ctx.path)
+        && access_count >= 5
+        && avg_ratio < 0.30
+    {
+        let conservative = match predicted.as_str() {
+            "signatures" | "aggressive" | "entropy" => "map".to_string(),
+            "map" if ctx.token_count <= 6000 => "full".to_string(),
+            other => other.to_string(),
+        };
+        if conservative != predicted {
+            return resolved(&conservative, "heatmap_conservative");
         }
     }
 
@@ -505,7 +505,7 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-flush-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
         let _ = std::fs::remove_file(dir.join("auto_mode_sources.json"));
 
         // Unique test-only keys: parallel resolve() tests count real sources
@@ -532,7 +532,7 @@ mod tests {
         );
         assert_eq!(get("test_flush_beta"), 1);
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -605,7 +605,7 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-suspect-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
 
         // An explore-style task that would otherwise map (cf.
         // intent_explore_returns_map) — but it names the file, so the suspect
@@ -620,7 +620,7 @@ mod tests {
         assert_eq!(result.mode, "full");
         assert_eq!(result.source, "task_suspect_file");
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -664,8 +664,8 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-sf-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
-        std::env::set_var("LEAN_CTX_STRUCTURE_FIRST", "1");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_STRUCTURE_FIRST", "1");
 
         let suspect = AutoModeContext {
             path: "src/versioncmp.c",
@@ -685,8 +685,8 @@ mod tests {
         };
         assert_eq!(resolve(&tiny).mode, "full");
 
-        std::env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -695,8 +695,8 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-sfoff-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
-        std::env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
-        std::env::set_var("LEAN_CTX_STRUCTURE_FIRST", "0");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_STRUCTURE_FIRST", "0");
 
         let ctx = AutoModeContext {
             path: "src/versioncmp.c",
@@ -708,8 +708,8 @@ mod tests {
         assert_eq!(result.mode, "full");
         assert_eq!(result.source, "heuristic");
 
-        std::env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

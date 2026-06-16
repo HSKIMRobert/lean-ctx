@@ -172,8 +172,8 @@ mod tests {
 
     #[test]
     fn postgres_provider_unavailable_without_env() {
-        std::env::remove_var("DATABASE_URL");
-        std::env::remove_var("PGDATABASE");
+        crate::test_env::remove_var("DATABASE_URL");
+        crate::test_env::remove_var("PGDATABASE");
 
         let provider = PostgresProvider::new();
         assert!(!provider.is_available());

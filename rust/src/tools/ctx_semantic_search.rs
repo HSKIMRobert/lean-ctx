@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::core::bm25_index::{format_search_results, BM25Index};
+use crate::core::bm25_index::{BM25Index, format_search_results};
 use crate::core::embedding_index::EmbeddingIndex;
 #[cfg(feature = "embeddings")]
 use crate::core::embeddings::EmbeddingEngine;
-use crate::core::hybrid_search::{format_hybrid_results, HybridConfig, HybridResult};
+use crate::core::hybrid_search::{HybridConfig, HybridResult, format_hybrid_results};
 use crate::tools::CrpMode;
 
 /// Performs semantic code search using BM25, dense embeddings, or hybrid ranking.
@@ -34,13 +34,12 @@ pub fn handle(
 
     // Query-conditioned IB (#542): remember the latest search query as a
     // fallback relevance signal for subsequent compressed reads.
-    if !query.trim().is_empty() {
-        if let Some(mut session) = crate::core::session::SessionState::load_latest() {
-            if session.last_semantic_query.as_deref() != Some(query) {
-                session.last_semantic_query = Some(query.to_string());
-                let _ = session.save();
-            }
-        }
+    if !query.trim().is_empty()
+        && let Some(mut session) = crate::core::session::SessionState::load_latest()
+        && session.last_semantic_query.as_deref() != Some(query)
+    {
+        session.last_semantic_query = Some(query.to_string());
+        let _ = session.save();
     }
 
     let filter = match SearchFilter::new(languages, path_glob) {
@@ -1323,10 +1322,10 @@ impl SearchFilter {
 
     fn matches(&self, rel_path: &str) -> bool {
         let rel_path = rel_path.replace('\\', "/");
-        if let Some(p) = &self.path_glob {
-            if !p.matches(&rel_path) {
-                return false;
-            }
+        if let Some(p) = &self.path_glob
+            && !p.matches(&rel_path)
+        {
+            return false;
         }
         if let Some(exts) = &self.allowed_exts {
             let ext = Path::new(&rel_path)

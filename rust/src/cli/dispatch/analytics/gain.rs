@@ -368,10 +368,10 @@ fn svg_target(rest: &[String]) -> Option<String> {
             path = Some(v.to_string());
         } else if a == "--svg" || a == "--card" {
             requested = true;
-            if let Some(next) = rest.get(i + 1) {
-                if !next.starts_with('-') {
-                    path = Some(next.clone());
-                }
+            if let Some(next) = rest.get(i + 1)
+                && !next.starts_with('-')
+            {
+                path = Some(next.clone());
             }
         }
     }
@@ -393,10 +393,10 @@ fn share_target(rest: &[String]) -> Option<String> {
             path = Some(v.to_string());
         } else if a == "--share" || a == "--page" {
             requested = true;
-            if let Some(next) = rest.get(i + 1) {
-                if !next.starts_with('-') {
-                    path = Some(next.clone());
-                }
+            if let Some(next) = rest.get(i + 1)
+                && !next.starts_with('-')
+            {
+                path = Some(next.clone());
             }
         }
     }
@@ -434,13 +434,11 @@ fn share_side_effects(
             println!("Share text (copy it): {text}");
         }
     }
-    if open {
-        if let Some(p) = path {
-            if core::share::open_in_browser(p) {
-                println!("Opened {p}");
-            } else {
-                println!("Could not open {p} automatically — open it manually.");
-            }
+    if open && let Some(p) = path {
+        if core::share::open_in_browser(p) {
+            println!("Opened {p}");
+        } else {
+            println!("Could not open {p} automatically — open it manually.");
         }
     }
 }

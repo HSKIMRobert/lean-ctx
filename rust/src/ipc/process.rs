@@ -97,7 +97,7 @@ pub fn is_alive(pid: u32) -> bool {
     {
         use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE, WAIT_TIMEOUT};
         use windows_sys::Win32::System::Threading::{
-            GetExitCodeProcess, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, WaitForSingleObject,
         };
 
         // SAFETY: every Win32 call below takes integer args plus the local
@@ -162,7 +162,7 @@ pub fn force_kill(pid: u32) -> Result<()> {
     {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::Threading::{
-            OpenProcess, TerminateProcess, PROCESS_TERMINATE,
+            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
         };
 
         // SAFETY: the Win32 calls take integer args only; the handle is
@@ -253,10 +253,10 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
 fn collect_pids(stdout: &[u8], exclude_pid: u32, out: &mut Vec<u32>) {
     let text = String::from_utf8_lossy(stdout);
     for line in text.lines() {
-        if let Ok(pid) = line.trim().parse::<u32>() {
-            if pid != exclude_pid {
-                out.push(pid);
-            }
+        if let Ok(pid) = line.trim().parse::<u32>()
+            && pid != exclude_pid
+        {
+            out.push(pid);
         }
     }
 }
@@ -295,20 +295,15 @@ fn is_mcp_stdio_process(pid: u32) -> bool {
             return true;
         }
         let parts: Vec<&str> = t.split_whitespace().collect();
-        if let Some(ppid_str) = parts.first() {
-            if let Ok(ppid) = ppid_str.parse::<u32>() {
-                if let Ok(pp_out) = std::process::Command::new("ps")
-                    .args(["-o", "command=", "-p", &ppid.to_string()])
-                    .output()
-                {
-                    let pp_cmd = String::from_utf8_lossy(&pp_out.stdout);
-                    if pp_cmd.contains("Cursor")
-                        || pp_cmd.contains("cursor")
-                        || pp_cmd.contains("code")
-                    {
-                        return true;
-                    }
-                }
+        if let Some(ppid_str) = parts.first()
+            && let Ok(ppid) = ppid_str.parse::<u32>()
+            && let Ok(pp_out) = std::process::Command::new("ps")
+                .args(["-o", "command=", "-p", &ppid.to_string()])
+                .output()
+        {
+            let pp_cmd = String::from_utf8_lossy(&pp_out.stdout);
+            if pp_cmd.contains("Cursor") || pp_cmd.contains("cursor") || pp_cmd.contains("code") {
+                return true;
             }
         }
         let cmd_part = parts.get(1..).map(|p| p.join(" ")).unwrap_or_default();

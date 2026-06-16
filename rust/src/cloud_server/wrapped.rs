@@ -6,13 +6,13 @@
 //!
 //! Contract: `docs/contracts/wrapped-permalink-v1.md`.
 
+use axum::Json;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use super::auth::{auth_user, constant_time_eq, generate_token, sha256_hex, AppState};
+use super::auth::{AppState, auth_user, constant_time_eq, generate_token, sha256_hex};
 use super::helpers::internal_error;
 
 /// Max publishes accepted per `ip_hash` within the rolling rate-limit window.
@@ -99,10 +99,10 @@ impl PublishPayload {
                 return Err(bad_payload());
             }
         }
-        if let Some(m) = &self.model_key {
-            if m.chars().count() > MAX_LABEL_LEN || has_markup(m) {
-                return Err(bad_payload());
-            }
+        if let Some(m) = &self.model_key
+            && (m.chars().count() > MAX_LABEL_LEN || has_markup(m))
+        {
+            return Err(bad_payload());
         }
         if let Some(name) = &self.display_name {
             let len = name.chars().count();

@@ -5,7 +5,7 @@
 
 use crate::core::property_graph::{CodeGraph, DependencyChain, Edge, EdgeKind, ImpactResult, Node};
 use crate::core::tokens::count_tokens;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Stdio;
@@ -198,13 +198,13 @@ fn git_changed_files(root: &str) -> Vec<String> {
 
     let mut files: BTreeSet<String> = BTreeSet::new();
 
-    if let Ok(o) = output {
-        if o.status.success() {
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    files.insert(trimmed.to_string());
-                }
+    if let Ok(o) = output
+        && o.status.success()
+    {
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                files.insert(trimmed.to_string());
             }
         }
     }
@@ -216,13 +216,13 @@ fn git_changed_files(root: &str) -> Vec<String> {
         .stderr(Stdio::null())
         .output();
 
-    if let Ok(o) = staged {
-        if o.status.success() {
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    files.insert(trimmed.to_string());
-                }
+    if let Ok(o) = staged
+        && o.status.success()
+    {
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                files.insert(trimmed.to_string());
             }
         }
     }
@@ -234,13 +234,13 @@ fn git_changed_files(root: &str) -> Vec<String> {
         .stderr(Stdio::null())
         .output();
 
-    if let Ok(o) = untracked {
-        if o.status.success() {
-            for line in String::from_utf8_lossy(&o.stdout).lines() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    files.insert(trimmed.to_string());
-                }
+    if let Ok(o) = untracked
+        && o.status.success()
+    {
+        for line in String::from_utf8_lossy(&o.stdout).lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                files.insert(trimmed.to_string());
             }
         }
     }
@@ -338,7 +338,7 @@ fn handle_chain(path: Option<&str>, root: &str, fmt: OutputFormat) -> String {
             return format!(
                 "Invalid chain spec '{spec}'. Use format: from_file->to_file\n\
                  Example: src/server.rs->src/core/config.rs"
-            )
+            );
         }
     };
 
@@ -1282,11 +1282,7 @@ fn git_out(project_root: &Path, args: &[&str]) -> Option<String> {
     }
     let s = String::from_utf8(out.stdout).ok()?;
     let s = s.trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
-    }
+    if s.is_empty() { None } else { Some(s) }
 }
 
 #[cfg(test)]

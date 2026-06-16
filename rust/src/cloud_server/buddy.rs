@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 
 use super::auth::AppState;
 use super::billing_edge::require_cloud_sync;
@@ -73,10 +73,10 @@ pub(super) async fn get_buddy(
     match row {
         Some(r) => {
             let state_json: Option<String> = r.get(0);
-            if let Some(json_str) = state_json {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                    return Ok(Json(val));
-                }
+            if let Some(json_str) = state_json
+                && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+            {
+                return Ok(Json(val));
             }
             Ok(Json(serde_json::json!({
                 "name": r.get::<_, Option<String>>(1),

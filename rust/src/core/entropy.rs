@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 
 use super::tokens::{count_tokens, encode_tokens};
 
@@ -322,10 +322,10 @@ fn line_embedder(line_count: usize) -> impl Fn(&str) -> Option<Vec<f32>> {
         std::hash::Hash::hash(&line, &mut hasher);
         let key = std::hash::Hasher::finish(&hasher);
 
-        if let Ok(mut guard) = LINE_EMBED_CACHE.lock() {
-            if let Some(hit) = guard.get_or_insert_with(HashMap::new).get(&key) {
-                return Some(hit.clone());
-            }
+        if let Ok(mut guard) = LINE_EMBED_CACHE.lock()
+            && let Some(hit) = guard.get_or_insert_with(HashMap::new).get(&key)
+        {
+            return Some(hit.clone());
         }
         let emb = engine.embed(line).ok()?;
         if let Ok(mut guard) = LINE_EMBED_CACHE.lock() {

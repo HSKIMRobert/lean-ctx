@@ -142,10 +142,10 @@ impl AdjGraph {
         for &g in members {
             let li = local_of[&g];
             for &(h, w) in &self.adj[g] {
-                if let Some(&lj) = local_of.get(&h) {
-                    if li < lj {
-                        pairs.push((li, lj, w));
-                    }
+                if let Some(&lj) = local_of.get(&h)
+                    && li < lj
+                {
+                    pairs.push((li, lj, w));
                 }
             }
         }

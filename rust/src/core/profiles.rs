@@ -20,6 +20,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 /// A complete context profile definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -686,10 +687,10 @@ fn load_profile_recursive(name: &str, depth: usize) -> Option<Profile> {
     let mut profile = load_profile_from_disk(name).or_else(|| builtin_profiles().remove(name))?;
     profile.profile.name = name.to_string();
 
-    if let Some(ref parent_name) = profile.profile.inherits.clone() {
-        if let Some(parent) = load_profile_recursive(parent_name, depth + 1) {
-            profile = merge_profiles(parent, profile);
-        }
+    if let Some(ref parent_name) = profile.profile.inherits.clone()
+        && let Some(parent) = load_profile_recursive(parent_name, depth + 1)
+    {
+        profile = merge_profiles(parent, profile);
     }
 
     Some(profile)
@@ -998,9 +999,27 @@ fn profile_name_from_config_file() -> Option<String> {
         .map(String::from)
 }
 
+/// Process-wide active-profile override set by [`set_active_profile`].
+///
+/// Takes precedence over `LEAN_CTX_PROFILE`. Storing the runtime selection in an
+/// in-process cell (rather than mutating the environment) keeps profile
+/// switching thread-safe inside the multi-threaded MCP server, where
+/// `set_active_profile` may run on a blocking-pool worker while other workers
+/// resolve the active profile concurrently.
+static ACTIVE_PROFILE_OVERRIDE: RwLock<Option<String>> = RwLock::new(None);
+
 /// Returns the currently active profile name.
-/// Resolution order: LEAN_CTX_PROFILE env var → config.toml `profile` field → "coder".
+///
+/// Resolution order: in-process override (see [`set_active_profile`]) →
+/// `LEAN_CTX_PROFILE` env var → config.toml `profile` field → "coder".
 pub fn active_profile_name() -> String {
+    if let Some(name) = ACTIVE_PROFILE_OVERRIDE
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+    {
+        return name;
+    }
     if let Ok(v) = std::env::var("LEAN_CTX_PROFILE") {
         let v = v.trim().to_string();
         if !v.is_empty() {
@@ -1029,9 +1048,11 @@ pub fn active_profile() -> Profile {
     }
 }
 
-/// Sets the active profile for the current process by updating `LEAN_CTX_PROFILE`.
+/// Sets the active profile for the current process.
 ///
-/// Returns the resolved profile after applying inheritance.
+/// Records the selection in a thread-safe in-process override (see
+/// [`active_profile_name`]) and returns the resolved profile after applying
+/// inheritance.
 pub fn set_active_profile(name: &str) -> Result<Profile, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -1039,7 +1060,9 @@ pub fn set_active_profile(name: &str) -> Result<Profile, String> {
     }
     let prev = active_profile_name();
     let profile = load_profile(name).ok_or_else(|| format!("profile '{name}' not found"))?;
-    std::env::set_var("LEAN_CTX_PROFILE", name);
+    *ACTIVE_PROFILE_OVERRIDE
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(name.to_string());
     if prev != name {
         crate::core::events::emit_profile_changed(&prev, name);
     }
@@ -1065,26 +1088,26 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
         (ProfileSource::Global, profiles_dir_global()),
         (ProfileSource::Project, profiles_dir_project()),
     ] {
-        if let Some(dir) = dir {
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                            let name = stem.to_string();
-                            let desc = try_load_toml(&path)
-                                .map(|p| p.profile.description)
-                                .unwrap_or_default();
-                            profiles.insert(
-                                name.clone(),
-                                ProfileInfo {
-                                    name,
-                                    description: desc,
-                                    source,
-                                },
-                            );
-                        }
-                    }
+        if let Some(dir) = dir
+            && let Ok(entries) = std::fs::read_dir(&dir)
+        {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("toml")
+                    && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                {
+                    let name = stem.to_string();
+                    let desc = try_load_toml(&path)
+                        .map(|p| p.profile.description)
+                        .unwrap_or_default();
+                    profiles.insert(
+                        name.clone(),
+                        ProfileInfo {
+                            name,
+                            description: desc,
+                            source,
+                        },
+                    );
                 }
             }
         }
@@ -1279,7 +1302,7 @@ mod tests {
     #[test]
     fn active_profile_defaults_to_coder() {
         let _lock = crate::core::data_dir::test_env_lock();
-        std::env::remove_var("LEAN_CTX_PROFILE");
+        crate::test_env::remove_var("LEAN_CTX_PROFILE");
         let p = active_profile();
         assert_eq!(p.profile.name, "coder");
     }
@@ -1287,10 +1310,10 @@ mod tests {
     #[test]
     fn active_profile_from_env() {
         let _lock = crate::core::data_dir::test_env_lock();
-        std::env::set_var("LEAN_CTX_PROFILE", "hotfix");
+        crate::test_env::set_var("LEAN_CTX_PROFILE", "hotfix");
         let name = active_profile_name();
         assert_eq!(name, "hotfix");
-        std::env::remove_var("LEAN_CTX_PROFILE");
+        crate::test_env::remove_var("LEAN_CTX_PROFILE");
     }
 
     #[test]

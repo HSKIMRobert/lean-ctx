@@ -1,8 +1,8 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{get_bool, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_bool, get_str};
 use crate::tool_defs::tool_def;
 
 pub struct CtxAgentTool;
@@ -108,11 +108,11 @@ diary (log discovery/decision/blocker/progress/insight), recall_diary, diaries, 
         if action == "register" {
             if let Some(id) = result.split(':').nth(1) {
                 let id = id.split_whitespace().next().unwrap_or("").to_string();
-                if !id.is_empty() {
-                    if let Some(handle) = agent_id_handle {
-                        let mut guard = handle.blocking_write();
-                        *guard = Some(id);
-                    }
+                if !id.is_empty()
+                    && let Some(handle) = agent_id_handle
+                {
+                    let mut guard = handle.blocking_write();
+                    *guard = Some(id);
                 }
             }
 

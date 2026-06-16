@@ -11,8 +11,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use super::config_provider::discovery::discover_configs;
 use super::config_provider::ConfigProvider;
+use super::config_provider::discovery::discover_configs;
 use super::github::GitHubProvider;
 use super::gitlab::GitLabProvider;
 use super::jira::JiraProvider;
@@ -53,21 +53,21 @@ pub fn init_with_project_root(project_root: Option<&Path>) {
 
     // --- MCP Bridge providers (user-defined external MCP servers) ---
     for (name, entry) in &cfg.providers.mcp_bridges {
-        if let Some(url) = &entry.url {
-            if !url.is_empty() {
-                registry.register(Arc::new(McpBridgeProvider::new(name, url)));
-                continue;
-            }
+        if let Some(url) = &entry.url
+            && !url.is_empty()
+        {
+            registry.register(Arc::new(McpBridgeProvider::new(name, url)));
+            continue;
         }
-        if let Some(command) = &entry.command {
-            if !command.is_empty() {
-                registry.register(Arc::new(McpBridgeProvider::new_stdio(
-                    name,
-                    command,
-                    &entry.args,
-                )));
-                continue;
-            }
+        if let Some(command) = &entry.command
+            && !command.is_empty()
+        {
+            registry.register(Arc::new(McpBridgeProvider::new_stdio(
+                name,
+                command,
+                &entry.args,
+            )));
+            continue;
         }
         tracing::warn!("[providers] MCP bridge '{name}' has neither url nor command — skipping");
     }

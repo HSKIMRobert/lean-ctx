@@ -254,10 +254,10 @@ fn persist_to_disk(caps: &ClientMcpCapabilities) {
         "ts": ts,
     });
     let tmp = path.with_extension("tmp");
-    if let Ok(json) = serde_json::to_string_pretty(&payload) {
-        if std::fs::write(&tmp, &json).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
+    if let Ok(json) = serde_json::to_string_pretty(&payload)
+        && std::fs::write(&tmp, &json).is_ok()
+    {
+        let _ = std::fs::rename(&tmp, &path);
     }
 }
 

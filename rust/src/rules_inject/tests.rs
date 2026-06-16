@@ -1,7 +1,7 @@
 //! Tests for rules injection. `super::*` resolves to the `rules_inject` module.
 
 use super::content::{RULES_CURSOR_MDC, RULES_DEDICATED, RULES_SHARED};
-use super::skills::{build_skill_targets, SKILL_TEMPLATE};
+use super::skills::{SKILL_TEMPLATE, build_skill_targets};
 use super::write::{append_to_shared, replace_markdown_section, write_dedicated};
 use super::*;
 
@@ -426,8 +426,8 @@ fn write_dedicated_preserves_user_content_before_marker() {
     ensure_temp_dir();
     let path = std::env::temp_dir().join("test_dedicated_preserve_before.md");
     let old = format!(
-            "# My custom rules\nDo not delete this!\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold content\n{END_MARKER}"
-        );
+        "# My custom rules\nDo not delete this!\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold content\n{END_MARKER}"
+    );
     std::fs::write(&path, &old).unwrap();
 
     let result = write_dedicated(&path, RULES_DEDICATED).unwrap();
@@ -459,8 +459,8 @@ fn write_dedicated_preserves_user_content_after_marker() {
     ensure_temp_dir();
     let path = std::env::temp_dir().join("test_dedicated_preserve_after.md");
     let old = format!(
-            "{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold content\n{END_MARKER}\n\n# User's extra notes\nKeep this too!\n"
-        );
+        "{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold content\n{END_MARKER}\n\n# User's extra notes\nKeep this too!\n"
+    );
     std::fs::write(&path, &old).unwrap();
 
     let result = write_dedicated(&path, RULES_DEDICATED).unwrap();
@@ -488,8 +488,8 @@ fn write_dedicated_preserves_content_both_sides() {
     ensure_temp_dir();
     let path = std::env::temp_dir().join("test_dedicated_preserve_both.md");
     let old = format!(
-            "BEFORE CONTENT\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold\n{END_MARKER}\n\nAFTER CONTENT\n"
-        );
+        "BEFORE CONTENT\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold\n{END_MARKER}\n\nAFTER CONTENT\n"
+    );
     std::fs::write(&path, &old).unwrap();
 
     let result = write_dedicated(&path, RULES_DEDICATED).unwrap();
@@ -527,8 +527,8 @@ fn write_dedicated_preserves_mdc_frontmatter() {
     ensure_temp_dir();
     let path = std::env::temp_dir().join("test_dedicated_mdc_frontmatter.mdc");
     let old = format!(
-            "---\ndescription: custom\nglobs: **/*\nalwaysApply: true\n---\n\nUser preamble here\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold\n{END_MARKER}\n"
-        );
+        "---\ndescription: custom\nglobs: **/*\nalwaysApply: true\n---\n\nUser preamble here\n\n{MARKER}\n<!-- lean-ctx-rules-v2 -->\nold\n{END_MARKER}\n"
+    );
     std::fs::write(&path, &old).unwrap();
 
     let result = write_dedicated(&path, RULES_CURSOR_MDC).unwrap();
@@ -555,7 +555,9 @@ fn inject_result_tracks_backed_up_files() {
         ..Default::default()
     };
     assert_eq!(result.backed_up.len(), 1);
-    assert!(std::path::Path::new(&result.backed_up[0])
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("bak")));
+    assert!(
+        std::path::Path::new(&result.backed_up[0])
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"))
+    );
 }

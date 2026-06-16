@@ -285,11 +285,11 @@ fn top_k_by_similarity(
         let sim = similarity_fn(query, emb);
         if heap.len() < k {
             heap.push(MinEntry(sim, i));
-        } else if let Some(min) = heap.peek() {
-            if sim > min.0 {
-                heap.pop();
-                heap.push(MinEntry(sim, i));
-            }
+        } else if let Some(min) = heap.peek()
+            && sim > min.0
+        {
+            heap.pop();
+            heap.push(MinEntry(sim, i));
         }
     }
 
@@ -328,10 +328,10 @@ fn dense_results_qdrant(
     let hits = store.search(&collection, &query_vec, top_k)?;
     let mut out = Vec::with_capacity(hits.len());
     for hit in hits {
-        if let Some(pred) = filter {
-            if !pred(&hit.file_path) {
-                continue;
-            }
+        if let Some(pred) = filter
+            && !pred(&hit.file_path)
+        {
+            continue;
         }
         let snippet = snippet_from_disk(root, &hit.file_path, hit.start_line, hit.end_line, 5);
         out.push(DenseSearchResult {
@@ -430,16 +430,16 @@ mod tests {
     fn set_env(key: &str, value: Option<&str>) -> Option<String> {
         let old = std::env::var(key).ok();
         match value {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+            Some(v) => crate::test_env::set_var(key, v),
+            None => crate::test_env::remove_var(key),
         }
         old
     }
 
     fn restore_env(key: &str, old: Option<String>) {
         match old {
-            Some(v) => std::env::set_var(key, v),
-            None => std::env::remove_var(key),
+            Some(v) => crate::test_env::set_var(key, v),
+            None => crate::test_env::remove_var(key),
         }
     }
 

@@ -251,11 +251,11 @@ fn parse_cargo(output: &str) -> Vec<Diagnostic> {
         let trimmed = line.trim_start();
         if let Some(msg) = trimmed.strip_prefix("error") {
             // `error[E0308]: ...`, `error: ...` — but not `error_count` etc.
-            if let Some(rest) = msg.split_once(':').map(|(_, r)| r) {
-                if msg.starts_with('[') || msg.starts_with(':') {
-                    pending = Some((Severity::Error, cap_message(rest)));
-                    continue;
-                }
+            if let Some(rest) = msg.split_once(':').map(|(_, r)| r)
+                && (msg.starts_with('[') || msg.starts_with(':'))
+            {
+                pending = Some((Severity::Error, cap_message(rest)));
+                continue;
             }
         }
         if let Some(msg) = trimmed.strip_prefix("warning:") {
@@ -265,22 +265,22 @@ fn parse_cargo(output: &str) -> Vec<Diagnostic> {
             }
             continue;
         }
-        if let Some(loc) = trimmed.strip_prefix("--> ") {
-            if let Some((severity, message)) = pending.take() {
-                let mut parts = loc.rsplitn(3, ':');
-                let _col = parts.next();
-                let line_no = parts.next().and_then(|l| l.parse::<u32>().ok());
-                let path = parts.next().unwrap_or(loc).trim().to_string();
-                if !path.is_empty() {
-                    out.push(Diagnostic {
-                        path,
-                        line: line_no,
-                        severity,
-                        tool: "cargo".into(),
-                        message,
-                        recorded_unix: now,
-                    });
-                }
+        if let Some(loc) = trimmed.strip_prefix("--> ")
+            && let Some((severity, message)) = pending.take()
+        {
+            let mut parts = loc.rsplitn(3, ':');
+            let _col = parts.next();
+            let line_no = parts.next().and_then(|l| l.parse::<u32>().ok());
+            let path = parts.next().unwrap_or(loc).trim().to_string();
+            if !path.is_empty() {
+                out.push(Diagnostic {
+                    path,
+                    line: line_no,
+                    severity,
+                    tool: "cargo".into(),
+                    message,
+                    recorded_unix: now,
+                });
             }
         }
     }

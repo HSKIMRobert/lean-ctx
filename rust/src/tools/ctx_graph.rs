@@ -151,7 +151,9 @@ fn handle_symbol(
             .provider
             .find_symbols(symbol_name, Some(&rel_file), None);
         if available.is_empty() {
-            return format!("Symbol '{symbol_name}' not found in {rel_file}. Run ctx_graph action='build' to update the index.");
+            return format!(
+                "Symbol '{symbol_name}' not found in {rel_file}. Run ctx_graph action='build' to update the index."
+            );
         }
         let names: Vec<String> = available
             .iter()
@@ -340,20 +342,20 @@ fn file_path_to_module_prefixes(
     }
     if matches!(ext, "kt" | "kts") {
         let abs_path = Path::new(project_root).join(rel_path.trim_start_matches(['/', '\\']));
-        if let Ok(content) = std::fs::read_to_string(abs_path) {
-            if let Some(package_name) = content.lines().map(str::trim).find_map(|line| {
+        if let Ok(content) = std::fs::read_to_string(abs_path)
+            && let Some(package_name) = content.lines().map(str::trim).find_map(|line| {
                 line.strip_prefix("package ")
                     .map(|rest| rest.trim().trim_end_matches(';').to_string())
-            }) {
-                prefixes.push(package_name.clone());
-                if let Some(entry) = provider.get_file_entry(rel_path) {
-                    for export in &entry.exports {
-                        prefixes.push(format!("{package_name}.{export}"));
-                    }
+            })
+        {
+            prefixes.push(package_name.clone());
+            if let Some(entry) = provider.get_file_entry(rel_path) {
+                for export in &entry.exports {
+                    prefixes.push(format!("{package_name}.{export}"));
                 }
-                if let Some(file_stem) = Path::new(rel_path).file_stem().and_then(|s| s.to_str()) {
-                    prefixes.push(format!("{package_name}.{file_stem}"));
-                }
+            }
+            if let Some(file_stem) = Path::new(rel_path).file_stem().and_then(|s| s.to_str()) {
+                prefixes.push(format!("{package_name}.{file_stem}"));
             }
         }
     }
@@ -599,13 +601,13 @@ fn handle_context_query(query: Option<&str>, root: &str) -> String {
                 ));
             }
 
-            if let Ok(impact) = graph.impact_analysis(query, 3) {
-                if !impact.affected_files.is_empty() {
-                    result.push(format!(
-                        "**Impact radius:** {} files within 3 hops",
-                        impact.affected_files.len()
-                    ));
-                }
+            if let Ok(impact) = graph.impact_analysis(query, 3)
+                && !impact.affected_files.is_empty()
+            {
+                result.push(format!(
+                    "**Impact radius:** {} files within 3 hops",
+                    impact.affected_files.len()
+                ));
             }
         }
     } else {
@@ -744,7 +746,7 @@ mod gdscript_p0_tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let data = tmp.path().join("data");
         std::fs::create_dir_all(&data).unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.to_string_lossy().to_string());
 
         let proj = tmp.path().join("game");
         std::fs::create_dir_all(&proj).unwrap();
@@ -788,7 +790,7 @@ mod gdscript_p0_tests {
             "context should surface _ready symbols: {out}"
         );
         assert!(!out.contains("No matching nodes found"), "got: {out}");
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -805,7 +807,7 @@ mod gdscript_p0_tests {
             out.contains("Enemy.gd"),
             "Base.gd dependents should include Enemy: {out}"
         );
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -825,6 +827,6 @@ mod gdscript_p0_tests {
         assert!(out.contains("_ready"), "bare symbol should resolve: {out}");
         assert!(!out.contains("Invalid symbol spec"), "got: {out}");
         assert!(!out.to_lowercase().contains("not found"), "got: {out}");
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

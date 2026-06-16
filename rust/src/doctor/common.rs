@@ -1,6 +1,6 @@
 // Auto-split from the former monolithic doctor/mod.rs.
 
-use super::{Outcome, BOLD, DIM, GREEN, RED, RST, WHITE};
+use super::{BOLD, DIM, GREEN, Outcome, RED, RST, WHITE};
 use std::path::PathBuf;
 
 /// Human-readable byte size for doctor output (MB / KB / B).
@@ -151,10 +151,10 @@ pub(super) fn rc_has_pipe_guard(path: &PathBuf) -> bool {
                 for dir in &dirs_to_check {
                     for ext in &["zsh", "bash", "fish", "ps1"] {
                         let hook = dir.join(format!("shell-hook.{ext}"));
-                        if let Ok(h) = std::fs::read_to_string(&hook) {
-                            if has_pipe_guard_in_content(&h) {
-                                return true;
-                            }
+                        if let Ok(h) = std::fs::read_to_string(&hook)
+                            && has_pipe_guard_in_content(&h)
+                        {
+                            return true;
                         }
                     }
                 }
@@ -465,10 +465,10 @@ pub(super) fn has_lean_ctx_mcp_entry(content: &str) -> bool {
         //   servers          — VS Code mcp.json
         //   context_servers  — Zed settings.json
         for key in ["mcpServers", "servers", "context_servers"] {
-            if let Some(servers) = json.get(key).and_then(|v| v.as_object()) {
-                if servers.contains_key("lean-ctx") {
-                    return true;
-                }
+            if let Some(servers) = json.get(key).and_then(|v| v.as_object())
+                && servers.contains_key("lean-ctx")
+            {
+                return true;
             }
         }
         // mcp.servers.lean-ctx (OpenCode et al.)
@@ -476,10 +476,9 @@ pub(super) fn has_lean_ctx_mcp_entry(content: &str) -> bool {
             .get("mcp")
             .and_then(|v| v.get("servers"))
             .and_then(|v| v.as_object())
+            && servers.contains_key("lean-ctx")
         {
-            if servers.contains_key("lean-ctx") {
-                return true;
-            }
+            return true;
         }
         // Parsed cleanly but no lean-ctx entry under any known key.
         return false;
@@ -706,13 +705,13 @@ mod tests {
     #[test]
     fn display_user_path_respects_component_boundary() {
         // `/home/foo` must never turn `/home/foo-sibling/...` into `~-sibling/...`.
-        if let Some(home) = dirs::home_dir() {
-            if let (Some(parent), Some(name)) = (home.parent(), home.file_name()) {
-                let sibling = parent
-                    .join(format!("{}-sibling", name.to_string_lossy()))
-                    .join("x");
-                assert!(!display_user_path(&sibling).starts_with('~'));
-            }
+        if let Some(home) = dirs::home_dir()
+            && let (Some(parent), Some(name)) = (home.parent(), home.file_name())
+        {
+            let sibling = parent
+                .join(format!("{}-sibling", name.to_string_lossy()))
+                .join("x");
+            assert!(!display_user_path(&sibling).starts_with('~'));
         }
     }
 

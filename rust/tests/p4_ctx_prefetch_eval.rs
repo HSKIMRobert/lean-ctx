@@ -7,7 +7,8 @@ async fn ctx_prefetch_warms_cache_for_full_read() {
     let dir = tempfile::tempdir().expect("tempdir");
     let data_dir = dir.path().join("data");
     std::fs::create_dir_all(&data_dir).expect("create data dir");
-    std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", &data_dir) };
 
     let project = tempfile::tempdir().expect("project");
     let file_a = project.path().join("a.rs");
@@ -43,5 +44,6 @@ async fn ctx_prefetch_warms_cache_for_full_read() {
         "expected cache hit, got: {full}"
     );
 
-    std::env::remove_var("LEAN_CTX_DATA_DIR");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_DATA_DIR") };
 }

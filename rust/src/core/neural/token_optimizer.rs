@@ -189,10 +189,10 @@ fn collapse_closing_braces(lines: &[String]) -> Vec<String> {
             brace_run += 1;
             if brace_run <= 2 {
                 result.push(trimmed.to_string());
-            } else if brace_run == 3 {
-                if let Some(last) = result.last_mut() {
-                    last.push_str(trimmed);
-                }
+            } else if brace_run == 3
+                && let Some(last) = result.last_mut()
+            {
+                last.push_str(trimmed);
             }
             continue;
         }

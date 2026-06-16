@@ -57,10 +57,10 @@ impl GitHubConfig {
 }
 
 fn detect_owner_repo() -> (Option<String>, Option<String>) {
-    if let Ok(full) = std::env::var("GITHUB_REPOSITORY") {
-        if let Some((owner, repo)) = full.split_once('/') {
-            return (Some(owner.to_string()), Some(repo.to_string()));
-        }
+    if let Ok(full) = std::env::var("GITHUB_REPOSITORY")
+        && let Some((owner, repo)) = full.split_once('/')
+    {
+        return (Some(owner.to_string()), Some(repo.to_string()));
     }
     if let (Ok(o), Ok(r)) = (
         std::env::var("GITHUB_REPOSITORY_OWNER"),
@@ -151,10 +151,10 @@ pub fn list_issues(
     );
 
     let cache_key = format!("github:issues:{slug}:{state_param}:{per_page}");
-    if let Some(cached) = cache::get_cached(&cache_key) {
-        if let Ok(result) = serde_json::from_str::<ProviderResult>(&cached) {
-            return Ok(result);
-        }
+    if let Some(cached) = cache::get_cached(&cache_key)
+        && let Ok(result) = serde_json::from_str::<ProviderResult>(&cached)
+    {
+        return Ok(result);
     }
 
     let body = api_get(config, &endpoint)?;
@@ -194,10 +194,10 @@ pub fn list_pull_requests(
     );
 
     let cache_key = format!("github:prs:{slug}:{state_param}:{per_page}");
-    if let Some(cached) = cache::get_cached(&cache_key) {
-        if let Ok(result) = serde_json::from_str::<ProviderResult>(&cached) {
-            return Ok(result);
-        }
+    if let Some(cached) = cache::get_cached(&cache_key)
+        && let Ok(result) = serde_json::from_str::<ProviderResult>(&cached)
+    {
+        return Ok(result);
     }
 
     let body = api_get(config, &endpoint)?;
@@ -399,9 +399,9 @@ mod tests {
 
     #[test]
     fn provider_unavailable_without_token() {
-        std::env::remove_var("GITHUB_TOKEN");
-        std::env::remove_var("GH_TOKEN");
-        std::env::remove_var("LEAN_CTX_GITHUB_TOKEN");
+        crate::test_env::remove_var("GITHUB_TOKEN");
+        crate::test_env::remove_var("GH_TOKEN");
+        crate::test_env::remove_var("LEAN_CTX_GITHUB_TOKEN");
         let provider = GitHubProvider::new();
         assert!(!provider.is_available());
     }

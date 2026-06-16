@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use chrono::{Datelike, Utc};
 
-use super::savings_summary::{aggregate, member_drilldown, TeamSavingsSummary};
+use super::savings_summary::{TeamSavingsSummary, aggregate, member_drilldown};
 use super::team::TeamAppState;
 
 /// Hourly tick: cheap enough to be negligible, frequent enough that a
@@ -122,10 +122,10 @@ fn save_state(path: &Path, state: &WebhookState) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(json) = serde_json::to_string_pretty(state) {
-        if let Err(e) = std::fs::write(path, json) {
-            tracing::warn!("could not persist ROI webhook state: {e}");
-        }
+    if let Ok(json) = serde_json::to_string_pretty(state)
+        && let Err(e) = std::fs::write(path, json)
+    {
+        tracing::warn!("could not persist ROI webhook state: {e}");
     }
 }
 
@@ -453,9 +453,11 @@ mod tests {
         let bodies = handle.join().unwrap();
         assert!(bodies[0].contains("POST /hook"));
         // ureq normalizes header casing — compare case-insensitively.
-        assert!(bodies[0]
-            .to_ascii_lowercase()
-            .contains("content-type: application/json"));
+        assert!(
+            bodies[0]
+                .to_ascii_lowercase()
+                .contains("content-type: application/json")
+        );
         assert!(bodies[0].contains("lean-ctx team ROI"));
     }
 }

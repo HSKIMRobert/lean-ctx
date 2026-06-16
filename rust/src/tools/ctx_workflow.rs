@@ -41,10 +41,10 @@ fn handle_start(args: Option<&serde_json::Map<String, Value>>, agent_id: Option<
         _ => WorkflowSpec::builtin_plan_code_test(),
     };
 
-    if let Some(name) = name_override {
-        if !name.trim().is_empty() {
-            spec.name = name;
-        }
+    if let Some(name) = name_override
+        && !name.trim().is_empty()
+    {
+        spec.name = name;
     }
 
     if let Err(e) = workflow::validate_spec(&spec) {
@@ -84,17 +84,17 @@ fn handle_status(session: &SessionState, agent_id: Option<&str>) -> String {
         lines.push("  WARNING: Workflow inactive >20min, will auto-expire at 30min. Use action=stop to exit now.".to_string());
     }
 
-    if let Some(state) = run.spec.state(&run.current) {
-        if let Some(ref tools) = state.allowed_tools {
-            let mut tools = tools.clone();
-            tools.sort();
-            let tools = tools.into_iter().take(30).collect::<Vec<_>>();
-            lines.push(format!(
-                "  Allowed tools ({} shown): {}",
-                tools.len(),
-                tools.join(", ")
-            ));
-        }
+    if let Some(state) = run.spec.state(&run.current)
+        && let Some(ref tools) = state.allowed_tools
+    {
+        let mut tools = tools.clone();
+        tools.sort();
+        let tools = tools.into_iter().take(30).collect::<Vec<_>>();
+        lines.push(format!(
+            "  Allowed tools ({} shown): {}",
+            tools.len(),
+            tools.join(", ")
+        ));
     }
 
     let transitions = workflow::allowed_transitions(&run.spec, &run.current);

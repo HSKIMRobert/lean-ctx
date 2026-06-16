@@ -287,13 +287,11 @@ impl SessionState {
         }
 
         let knowledge_ok = !self.findings.is_empty() || !self.decisions.is_empty();
-        if knowledge_ok {
-            if let Some(q) = self.knowledge_recall_query_stem() {
-                let q_esc = escape_xml_attr(&q);
-                parts.push(format!(
-                    "<knowledge_context>\n<recall query=\"{q_esc}\" />\n</knowledge_context>",
-                ));
-            }
+        if knowledge_ok && let Some(q) = self.knowledge_recall_query_stem() {
+            let q_esc = escape_xml_attr(&q);
+            parts.push(format!(
+                "<knowledge_context>\n<recall query=\"{q_esc}\" />\n</knowledge_context>",
+            ));
         }
 
         if let Some(root) = self
@@ -379,11 +377,7 @@ impl SessionState {
             }
         }
         let q = bits.join(" ").trim().to_string();
-        if q.is_empty() {
-            None
-        } else {
-            Some(q)
-        }
+        if q.is_empty() { None } else { Some(q) }
     }
 
     fn task_keyword_stem(text: &str) -> String {

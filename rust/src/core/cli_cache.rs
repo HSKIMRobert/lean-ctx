@@ -103,18 +103,19 @@ pub fn check_and_read(path: &str) -> CacheResult {
 
     store.total_reads += 1;
 
-    if let Some(entry) = store.entries.get_mut(&key) {
-        if entry.hash == hash && (now - entry.timestamp) < CACHE_TTL_SECS {
-            entry.read_count += 1;
-            entry.timestamp = now;
-            store.total_hits += 1;
-            let result = CacheResult::Hit {
-                entry: entry.clone(),
-                file_ref: file_ref(&key, &store),
-            };
-            save_store(&store);
-            return result;
-        }
+    if let Some(entry) = store.entries.get_mut(&key)
+        && entry.hash == hash
+        && (now - entry.timestamp) < CACHE_TTL_SECS
+    {
+        entry.read_count += 1;
+        entry.timestamp = now;
+        store.total_hits += 1;
+        let result = CacheResult::Hit {
+            entry: entry.clone(),
+            file_ref: file_ref(&key, &store),
+        };
+        save_store(&store);
+        return result;
     }
 
     let line_count = content.lines().count();
@@ -273,14 +274,14 @@ mod tests {
             timestamp: now_secs(),
             read_count: 3,
         };
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
         let output = format_hit(&entry, "F1", "test.rs");
         assert!(output.contains("cached test.rs"));
         assert!(output.contains("42L"));
         assert!(!output.contains("F1"));
         assert!(!output.contains("500t"));
         assert!(!output.contains("read #3"));
-        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 
     #[test]
@@ -301,7 +302,7 @@ mod tests {
             .as_nanos();
         let test_data_dir = std::env::temp_dir().join(format!("lean_ctx_cache_iso_{nanos}"));
         std::fs::create_dir_all(&test_data_dir).unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", &test_data_dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", &test_data_dir);
 
         let tmp = test_data_dir.join("test_file.txt");
         std::fs::write(&tmp, "fn main() {}\n").unwrap();
@@ -323,7 +324,7 @@ mod tests {
         let result3 = check_and_read(path_str);
         assert!(matches!(result3, CacheResult::Miss { .. }));
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&test_data_dir);
     }
 }

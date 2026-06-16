@@ -8,7 +8,7 @@
 //! "Tool … was not contributed". This module gives `doctor` a clear, early
 //! diagnosis instead of leaving the user to trace a Copilot runtime failure.
 
-use super::{Outcome, BOLD, DIM, GREEN, RED, RST, YELLOW};
+use super::{BOLD, DIM, GREEN, Outcome, RED, RST, YELLOW};
 
 /// A workspace-scope MCP config location, relative to the project root (cwd).
 struct WorkspaceLocation {
@@ -142,16 +142,15 @@ pub(super) fn fix_workspace_dual_scope(user_scope_has_lean_ctx: bool) -> usize {
         }
         if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
             let removed = remove_lean_ctx_from_json(&mut json);
-            if removed {
-                if let Ok(out) = serde_json::to_string_pretty(&json) {
-                    if std::fs::write(&path, out.as_bytes()).is_ok() {
-                        tracing::info!(
-                            "Removed lean-ctx from workspace-scope {} (user-scope preferred)",
-                            path.display()
-                        );
-                        fixed += 1;
-                    }
-                }
+            if removed
+                && let Ok(out) = serde_json::to_string_pretty(&json)
+                && std::fs::write(&path, out.as_bytes()).is_ok()
+            {
+                tracing::info!(
+                    "Removed lean-ctx from workspace-scope {} (user-scope preferred)",
+                    path.display()
+                );
+                fixed += 1;
             }
         }
     }
@@ -163,14 +162,14 @@ fn remove_lean_ctx_from_json(json: &mut serde_json::Value) -> bool {
     let containers = ["servers", "mcpServers", "mcp.servers"];
     let mut removed = false;
     for key in containers {
-        if let Some(map) = navigate_mut(json, key) {
-            if let Some(obj) = map.as_object_mut() {
-                if obj.remove("lean-ctx").is_some() {
-                    removed = true;
-                }
-                if obj.remove("user-lean-ctx").is_some() {
-                    removed = true;
-                }
+        if let Some(map) = navigate_mut(json, key)
+            && let Some(obj) = map.as_object_mut()
+        {
+            if obj.remove("lean-ctx").is_some() {
+                removed = true;
+            }
+            if obj.remove("user-lean-ctx").is_some() {
+                removed = true;
             }
         }
     }

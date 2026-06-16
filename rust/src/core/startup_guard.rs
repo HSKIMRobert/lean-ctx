@@ -41,21 +41,19 @@ impl StartupLockGuard {
 /// If the owner is alive, or the lock predates PID tracking (legacy 0-byte
 /// file), we fall back to the long-standing mtime staleness safety valve.
 fn lock_is_reclaimable(path: &std::path::Path, stale_after: Duration) -> bool {
-    if let Ok(content) = std::fs::read_to_string(path) {
-        if let Some(pid) = content
+    if let Ok(content) = std::fs::read_to_string(path)
+        && let Some(pid) = content
             .lines()
             .next()
             .and_then(|l| l.trim().parse::<u32>().ok())
-        {
-            if !crate::ipc::process::is_alive(pid) {
-                return true;
-            }
-        }
+        && !crate::ipc::process::is_alive(pid)
+    {
+        return true;
     }
-    if let Ok(meta) = std::fs::metadata(path) {
-        if let Ok(modified) = meta.modified() {
-            return modified.elapsed().unwrap_or_default() > stale_after;
-        }
+    if let Ok(meta) = std::fs::metadata(path)
+        && let Ok(modified) = meta.modified()
+    {
+        return modified.elapsed().unwrap_or_default() > stale_after;
     }
     false
 }
@@ -192,7 +190,7 @@ mod tests {
     impl EnvVarGuard {
         fn set(key: &'static str, value: &std::path::Path) -> Self {
             let prev = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            crate::test_env::set_var(key, value);
             Self { key, prev }
         }
     }
@@ -200,8 +198,8 @@ mod tests {
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             match self.prev.as_deref() {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
+                Some(v) => crate::test_env::set_var(self.key, v),
+                None => crate::test_env::remove_var(self.key),
             }
         }
     }

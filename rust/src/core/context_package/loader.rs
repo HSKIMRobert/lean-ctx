@@ -132,24 +132,24 @@ pub fn load_package(
         }
     }
 
-    if let Some(ref kl) = content.knowledge {
-        if let Err(e) = merge_knowledge(kl, project_root, manifest, &mut report) {
-            report
-                .warnings
-                .push(format!("knowledge import failed: {e}"));
-        }
+    if let Some(ref kl) = content.knowledge
+        && let Err(e) = merge_knowledge(kl, project_root, manifest, &mut report)
+    {
+        report
+            .warnings
+            .push(format!("knowledge import failed: {e}"));
     }
 
-    if let Some(ref gl) = content.graph {
-        if let Err(e) = import_graph(gl, project_root, &mut report) {
-            report.warnings.push(format!("graph import failed: {e}"));
-        }
+    if let Some(ref gl) = content.graph
+        && let Err(e) = import_graph(gl, project_root, &mut report)
+    {
+        report.warnings.push(format!("graph import failed: {e}"));
     }
 
-    if let Some(ref patterns) = content.patterns {
-        if let Err(e) = import_patterns(patterns, project_root, manifest, &mut report) {
-            report.warnings.push(format!("patterns import failed: {e}"));
-        }
+    if let Some(ref patterns) = content.patterns
+        && let Err(e) = import_patterns(patterns, project_root, manifest, &mut report)
+    {
+        report.warnings.push(format!("patterns import failed: {e}"));
     }
 
     if let Some(ref gotchas) = content.gotchas {
@@ -517,12 +517,12 @@ fn import_session(
         }
     }
 
-    if report.session_findings_merged > 0 || report.session_decisions_merged > 0 {
-        if let Err(e) = knowledge.save() {
-            report
-                .warnings
-                .push(format!("session knowledge save failed: {e}"));
-        }
+    if (report.session_findings_merged > 0 || report.session_decisions_merged > 0)
+        && let Err(e) = knowledge.save()
+    {
+        report
+            .warnings
+            .push(format!("session knowledge save failed: {e}"));
     }
 }
 
@@ -593,10 +593,12 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let report = load_package(&manifest, &content, dir.path().to_str().unwrap()).unwrap();
-        assert!(report
-            .warnings
-            .iter()
-            .any(|w| w.contains("requires lean-ctx >= 99.0.0")));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("requires lean-ctx >= 99.0.0"))
+        );
     }
 
     #[test]
@@ -620,10 +622,12 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let report = load_package(&manifest, &content, dir.path().to_str().unwrap()).unwrap();
-        assert!(report
-            .warnings
-            .iter()
-            .any(|w| w.contains("unresolved dependency: missing-pkg")));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.contains("unresolved dependency: missing-pkg"))
+        );
     }
 
     #[test]

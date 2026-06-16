@@ -115,22 +115,22 @@ impl LoopDetector {
         *total += 1;
         let total_count = *total;
 
-        if let Some(&limit) = self.tool_total_limits.get(tool) {
-            if total_count > limit {
-                let msg = if crate::core::protocol::meta_visible() {
-                    Some(format!(
-                        "Warning: {tool} called {total_count}x total (limit: {limit}). \
+        if let Some(&limit) = self.tool_total_limits.get(tool)
+            && total_count > limit
+        {
+            let msg = if crate::core::protocol::meta_visible() {
+                Some(format!(
+                    "Warning: {tool} called {total_count}x total (limit: {limit}). \
                          Consider ctx_compress or narrowing scope."
-                    ))
-                } else {
-                    None
-                };
-                return ThrottleResult {
-                    level: ThrottleLevel::Reduced,
-                    call_count: total_count,
-                    message: msg,
-                };
-            }
+                ))
+            } else {
+                None
+            };
+            return ThrottleResult {
+                level: ThrottleLevel::Reduced,
+                call_count: total_count,
+                message: msg,
+            };
         }
 
         let key = format!("{tool}:{args_fingerprint}");
@@ -312,7 +312,7 @@ impl LoopDetector {
         let mut entries: Vec<(String, u32)> = self
             .duplicate_counts
             .iter()
-            .filter(|(_, &count)| count > 1)
+            .filter(|&(_, &count)| count > 1)
             .map(|(k, &v)| (k.clone(), v))
             .collect();
         entries.sort_by_key(|x| std::cmp::Reverse(x.1));
@@ -332,23 +332,22 @@ impl LoopDetector {
             return;
         }
 
-        if fresh {
-            if let Some((prev_time, _)) = self.recent_reads.get(path) {
-                if now.duration_since(*prev_time) < CORRECTION_WINDOW {
-                    self.correction_signals
-                        .push((now, CorrectionKind::FreshReRead));
-                }
-            }
+        if fresh
+            && let Some((prev_time, _)) = self.recent_reads.get(path)
+            && now.duration_since(*prev_time) < CORRECTION_WINDOW
+        {
+            self.correction_signals
+                .push((now, CorrectionKind::FreshReRead));
         }
 
-        if mode == "full" {
-            if let Some((prev_time, prev_mode)) = self.recent_reads.get(path) {
-                let is_bounce = (prev_mode == "map" || prev_mode == "signatures")
-                    && now.duration_since(*prev_time) < MODE_BOUNCE_WINDOW;
-                if is_bounce {
-                    self.correction_signals
-                        .push((now, CorrectionKind::ModeBounce));
-                }
+        if mode == "full"
+            && let Some((prev_time, prev_mode)) = self.recent_reads.get(path)
+        {
+            let is_bounce = (prev_mode == "map" || prev_mode == "signatures")
+                && now.duration_since(*prev_time) < MODE_BOUNCE_WINDOW;
+            if is_bounce {
+                self.correction_signals
+                    .push((now, CorrectionKind::ModeBounce));
             }
         }
 
@@ -367,11 +366,11 @@ impl LoopDetector {
         }
 
         let key = normalize_shell_command(command);
-        if let Some(prev_time) = self.recent_commands.get(&key) {
-            if now.duration_since(*prev_time) < SHELL_RERUN_WINDOW {
-                self.correction_signals
-                    .push((now, CorrectionKind::ShellReRun));
-            }
+        if let Some(prev_time) = self.recent_commands.get(&key)
+            && now.duration_since(*prev_time) < SHELL_RERUN_WINDOW
+        {
+            self.correction_signals
+                .push((now, CorrectionKind::ShellReRun));
         }
         self.recent_commands.insert(key, now);
     }
@@ -567,7 +566,7 @@ mod tests {
     #[test]
     fn repeated_calls_trigger_reduced() {
         let _lock = crate::core::data_dir::test_env_lock();
-        std::env::set_var("LEAN_CTX_META", "1");
+        crate::test_env::set_var("LEAN_CTX_META", "1");
         let cfg = LoopDetectionConfig::default();
         let mut detector = LoopDetector::with_config(&cfg);
         for _ in 0..cfg.normal_threshold {
@@ -576,7 +575,7 @@ mod tests {
         let result = detector.record_call("ctx_read", "same_fp");
         assert_eq!(result.level, ThrottleLevel::Reduced);
         assert!(result.message.is_some());
-        std::env::remove_var("LEAN_CTX_META");
+        crate::test_env::remove_var("LEAN_CTX_META");
     }
 
     #[test]

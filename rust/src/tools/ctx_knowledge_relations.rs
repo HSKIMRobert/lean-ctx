@@ -1,7 +1,7 @@
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::knowledge_relations::{
-    format_mermaid, parse_node_ref, KnowledgeEdge, KnowledgeEdgeKind, KnowledgeNodeRef,
-    KnowledgeRelationGraph,
+    KnowledgeEdge, KnowledgeEdgeKind, KnowledgeNodeRef, KnowledgeRelationGraph, format_mermaid,
+    parse_node_ref,
 };
 
 fn load_policy_or_error() -> Result<crate::core::memory_policy::MemoryPolicy, String> {
@@ -47,23 +47,23 @@ fn derived_supersedes_edges(
 
     for f in knowledge.facts.iter().filter(|f| f.is_current()) {
         if f.category == focus.category && f.key == focus.key {
-            if let Some(s) = &f.supersedes {
-                if let Some(to) = parse_node_ref(s) {
-                    if to == *focus {
-                        continue;
-                    }
-                    out.push(KnowledgeEdge {
-                        from: focus.clone(),
-                        to,
-                        kind: KnowledgeEdgeKind::Supersedes,
-                        created_at: f.created_at,
-                        last_seen: None,
-                        count: 0,
-                        source_session: f.source_session.clone(),
-                        strength: 0.5,
-                        decay_rate: 0.02,
-                    });
+            if let Some(s) = &f.supersedes
+                && let Some(to) = parse_node_ref(s)
+            {
+                if to == *focus {
+                    continue;
                 }
+                out.push(KnowledgeEdge {
+                    from: focus.clone(),
+                    to,
+                    kind: KnowledgeEdgeKind::Supersedes,
+                    created_at: f.created_at,
+                    last_seen: None,
+                    count: 0,
+                    source_session: f.source_session.clone(),
+                    strength: 0.5,
+                    decay_rate: 0.02,
+                });
             }
         } else if f.supersedes.as_deref() == Some(&focus_id) {
             out.push(KnowledgeEdge {

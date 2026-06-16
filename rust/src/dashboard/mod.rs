@@ -107,13 +107,13 @@ pub async fn start(
     // Only safe to auto-detect for local dashboards without auth.
     if is_local && dashboard_responding(&host, port) {
         println!("\n  lean-ctx dashboard already running → http://{host}:{port}{base_path}");
-        if let Some(req) = requested_token.as_deref() {
-            if load_saved_token().as_deref() != Some(req) {
-                eprintln!(
-                    "  \x1b[33m⚠\x1b[0m The running instance uses a different token — your {token_src} \
+        if let Some(req) = requested_token.as_deref()
+            && load_saved_token().as_deref() != Some(req)
+        {
+            eprintln!(
+                "  \x1b[33m⚠\x1b[0m The running instance uses a different token — your {token_src} \
                      will be rejected. Stop it (Ctrl+C) and restart to apply the new token."
-                );
-            }
+            );
         }
         println!("  Tip: use Ctrl+C in the existing terminal to stop it.\n");
         if let Some(t) = load_saved_token() {
@@ -621,12 +621,13 @@ async fn handle_request(
         // scrape `/metrics` without holding the full dashboard token. Valid
         // for the metrics endpoint only — every other API stays gated on the
         // dashboard token.
-        if !has_header_auth && path == "/metrics" {
-            if let Ok(scrape) = std::env::var(SCRAPE_TOKEN_ENV) {
-                let scrape = scrape.trim();
-                if !scrape.is_empty() && check_auth(&header_text, scrape) {
-                    has_header_auth = true;
-                }
+        if !has_header_auth
+            && path == "/metrics"
+            && let Ok(scrape) = std::env::var(SCRAPE_TOKEN_ENV)
+        {
+            let scrape = scrape.trim();
+            if !scrape.is_empty() && check_auth(&header_text, scrape) {
+                has_header_auth = true;
             }
         }
 
@@ -823,13 +824,13 @@ mod tests {
     #[test]
     fn open_mode_env_is_used_when_no_flag() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("LEAN_CTX_DASHBOARD_OPEN", "none");
+        crate::test_env::set_var("LEAN_CTX_DASHBOARD_OPEN", "none");
         assert_eq!(resolve_open_mode(None), DashboardOpen::None);
-        std::env::set_var("LEAN_CTX_DASHBOARD_OPEN", "vscode");
+        crate::test_env::set_var("LEAN_CTX_DASHBOARD_OPEN", "vscode");
         assert_eq!(resolve_open_mode(None), DashboardOpen::Vscode);
         // Flag still overrides the env var.
         assert_eq!(resolve_open_mode(Some("browser")), DashboardOpen::Browser);
-        std::env::remove_var("LEAN_CTX_DASHBOARD_OPEN");
+        crate::test_env::remove_var("LEAN_CTX_DASHBOARD_OPEN");
         assert_eq!(resolve_open_mode(None), DashboardOpen::Browser);
     }
 
@@ -919,10 +920,11 @@ mod tests {
         assert_eq!(ct, "application/json");
         let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
         assert!(v.get("plan").and_then(|p| p.as_str()).is_some());
-        assert!(v
-            .get("supporter")
-            .and_then(serde_json::Value::as_bool)
-            .is_some());
+        assert!(
+            v.get("supporter")
+                .and_then(serde_json::Value::as_bool)
+                .is_some()
+        );
         assert!(
             matches!(
                 v.get("source").and_then(|s| s.as_str()),
@@ -965,7 +967,7 @@ mod tests {
         .expect("write foo.rs");
 
         let root_s = root.to_string_lossy().to_string();
-        std::env::set_var("LEAN_CTX_DASHBOARD_PROJECT", &root_s);
+        crate::test_env::set_var("LEAN_CTX_DASHBOARD_PROJECT", &root_s);
 
         let (_status, _ct, body) = routes::route_response(
             "/api/compression-demo",
@@ -983,7 +985,7 @@ mod tests {
             Some("src/moved/foo.rs")
         );
 
-        std::env::remove_var("LEAN_CTX_DASHBOARD_PROJECT");
+        crate::test_env::remove_var("LEAN_CTX_DASHBOARD_PROJECT");
         if let Some(dir) = crate::core::graph_index::ProjectIndex::index_dir(&root_s) {
             let _ = std::fs::remove_dir_all(dir);
         }
@@ -992,9 +994,9 @@ mod tests {
     #[test]
     fn resolve_token_uses_env_var_verbatim() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var(HTTP_TOKEN_ENV, "lctx_mystatic");
+        crate::test_env::set_var(HTTP_TOKEN_ENV, "lctx_mystatic");
         let (token, src) = resolve_requested_token(None);
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         assert_eq!(
             src, HTTP_TOKEN_ENV,
             "token should be reported as env-sourced"
@@ -1005,9 +1007,9 @@ mod tests {
     #[test]
     fn resolve_token_trims_env_var() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var(HTTP_TOKEN_ENV, "  lctx_padded  ");
+        crate::test_env::set_var(HTTP_TOKEN_ENV, "  lctx_padded  ");
         let (token, src) = resolve_requested_token(None);
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         assert_eq!(src, HTTP_TOKEN_ENV);
         assert_eq!(token.as_deref(), Some("lctx_padded"));
     }
@@ -1015,7 +1017,7 @@ mod tests {
     #[test]
     fn resolve_token_falls_back_to_random_when_unset() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         let (token, src) = resolve_requested_token(None);
         assert!(token.is_none(), "unset env requests no fixed token");
         assert!(src.is_empty());
@@ -1034,9 +1036,9 @@ mod tests {
     #[test]
     fn resolve_token_ignores_empty_env() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var(HTTP_TOKEN_ENV, "   ");
+        crate::test_env::set_var(HTTP_TOKEN_ENV, "   ");
         let (token, src) = resolve_requested_token(None);
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         assert!(
             token.is_none(),
             "whitespace-only env requests no fixed token"
@@ -1049,9 +1051,9 @@ mod tests {
         // #377: --auth-token must win over LEAN_CTX_HTTP_TOKEN so it survives
         // environments that strip/fail to inherit the env var.
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var(HTTP_TOKEN_ENV, "lctx_fromenv");
+        crate::test_env::set_var(HTTP_TOKEN_ENV, "lctx_fromenv");
         let (token, src) = resolve_requested_token(Some("lctx_fromflag"));
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         assert_eq!(src, "--auth-token");
         assert_eq!(token.as_deref(), Some("lctx_fromflag"));
     }
@@ -1059,7 +1061,7 @@ mod tests {
     #[test]
     fn resolve_token_uses_flag_when_env_unset() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         let (token, src) = resolve_requested_token(Some("  lctx_flag_padded  "));
         assert_eq!(src, "--auth-token");
         assert_eq!(token.as_deref(), Some("lctx_flag_padded"));
@@ -1068,9 +1070,9 @@ mod tests {
     #[test]
     fn resolve_token_empty_flag_falls_back_to_env() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        std::env::set_var(HTTP_TOKEN_ENV, "lctx_fromenv");
+        crate::test_env::set_var(HTTP_TOKEN_ENV, "lctx_fromenv");
         let (token, src) = resolve_requested_token(Some("   "));
-        std::env::remove_var(HTTP_TOKEN_ENV);
+        crate::test_env::remove_var(HTTP_TOKEN_ENV);
         assert_eq!(src, HTTP_TOKEN_ENV);
         assert_eq!(token.as_deref(), Some("lctx_fromenv"));
     }

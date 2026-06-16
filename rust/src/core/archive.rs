@@ -57,19 +57,19 @@ pub fn is_enabled() -> bool {
 }
 
 fn threshold_chars() -> usize {
-    if let Ok(v) = std::env::var("LEAN_CTX_ARCHIVE_THRESHOLD") {
-        if let Ok(n) = v.parse::<usize>() {
-            return n;
-        }
+    if let Ok(v) = std::env::var("LEAN_CTX_ARCHIVE_THRESHOLD")
+        && let Ok(n) = v.parse::<usize>()
+    {
+        return n;
     }
     super::config::Config::load().archive.threshold_chars
 }
 
 fn max_age_hours() -> u64 {
-    if let Ok(v) = std::env::var("LEAN_CTX_ARCHIVE_TTL") {
-        if let Ok(n) = v.parse::<u64>() {
-            return n;
-        }
+    if let Ok(v) = std::env::var("LEAN_CTX_ARCHIVE_TTL")
+        && let Ok(n) = v.parse::<u64>()
+    {
+        return n;
     }
     super::config::Config::load().archive_max_age_hours_effective()
 }
@@ -330,15 +330,15 @@ pub fn list_entries(session_id: Option<&str>) -> Vec<ArchiveEntry> {
                     if path.extension().and_then(|e| e.to_str()) != Some("json") {
                         continue;
                     }
-                    if let Ok(data) = std::fs::read_to_string(&path) {
-                        if let Ok(entry) = serde_json::from_str::<ArchiveEntry>(&data) {
-                            if let Some(sid) = session_id {
-                                if entry.session_id.as_deref() != Some(sid) {
-                                    continue;
-                                }
-                            }
-                            entries.push(entry);
+                    if let Ok(data) = std::fs::read_to_string(&path)
+                        && let Ok(entry) = serde_json::from_str::<ArchiveEntry>(&data)
+                    {
+                        if let Some(sid) = session_id
+                            && entry.session_id.as_deref() != Some(sid)
+                        {
+                            continue;
                         }
+                        entries.push(entry);
                     }
                 }
             }
@@ -503,7 +503,7 @@ mod tests {
     fn cleanup_removes_expired_keeps_fresh() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         let now = Utc::now();
         write_test_entry("aa_old", now - chrono::Duration::hours(100), 100);
@@ -516,14 +516,14 @@ mod tests {
         assert!(!meta_path("aa_old").exists());
         assert!(content_path("bb_new").exists());
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn cleanup_enforces_disk_budget_oldest_first() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
 
         let now = Utc::now();
         write_test_entry("c1_oldest", now - chrono::Duration::minutes(30), 10_000);
@@ -538,6 +538,6 @@ mod tests {
         assert!(content_path("c2_middle").exists());
         assert!(content_path("c3_newest").exists());
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

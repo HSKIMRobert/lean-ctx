@@ -3,7 +3,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::*;
-use crate::core::plugins::{executor::HookPoint, PluginManager};
+use crate::core::plugins::{PluginManager, executor::HookPoint};
 
 pub(crate) fn handle_remember(
     project_root: &str,
@@ -211,19 +211,41 @@ pub(crate) fn handle_recall(
             } else {
                 embedding_engine_nonblocking()
             };
-            if let Some(engine) = engine_opt {
-                if let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
+            if let Some(engine) = engine_opt
+                && let Some(idx) = crate::core::knowledge_embedding::KnowledgeEmbeddingIndex::load(
                     &knowledge.project_hash,
-                ) {
-                    let limit = policy.knowledge.recall_facts_limit;
-                    if mode == "semantic" {
-                        let scored =
-                            crate::core::knowledge_embedding::semantic_recall_semantic_only(
-                                &knowledge, &idx, engine, q, limit,
-                            );
-                        if scored.is_empty() {
-                            return format!("No semantic facts matching '{q}'.");
-                        }
+                )
+            {
+                let limit = policy.knowledge.recall_facts_limit;
+                if mode == "semantic" {
+                    let scored = crate::core::knowledge_embedding::semantic_recall_semantic_only(
+                        &knowledge, &idx, engine, q, limit,
+                    );
+                    if scored.is_empty() {
+                        return format!("No semantic facts matching '{q}'.");
+                    }
+                    let hits: Vec<SemanticHit> = scored
+                        .iter()
+                        .map(|s| SemanticHit {
+                            category: s.fact.category.clone(),
+                            key: s.fact.key.clone(),
+                            value: s.fact.value.clone(),
+                            score: s.score,
+                            semantic_score: s.semantic_score,
+                            confidence_score: s.confidence_score,
+                        })
+                        .collect();
+                    apply_retrieval_signals_from_hits(&mut knowledge, &hits);
+                    let out = format_semantic_facts(&format!("{q} (mode=semantic)"), &hits);
+                    save_knowledge_deferred(knowledge, project_root);
+                    return out;
+                }
+
+                if mode == "hybrid" || mode == "auto" {
+                    let scored = crate::core::knowledge_embedding::semantic_recall(
+                        &knowledge, &idx, engine, q, limit,
+                    );
+                    if !scored.is_empty() {
                         let hits: Vec<SemanticHit> = scored
                             .iter()
                             .map(|s| SemanticHit {
@@ -236,32 +258,9 @@ pub(crate) fn handle_recall(
                             })
                             .collect();
                         apply_retrieval_signals_from_hits(&mut knowledge, &hits);
-                        let out = format_semantic_facts(&format!("{q} (mode=semantic)"), &hits);
+                        let out = format_semantic_facts(&format!("{q} (mode=hybrid)"), &hits);
                         save_knowledge_deferred(knowledge, project_root);
                         return out;
-                    }
-
-                    if mode == "hybrid" || mode == "auto" {
-                        let scored = crate::core::knowledge_embedding::semantic_recall(
-                            &knowledge, &idx, engine, q, limit,
-                        );
-                        if !scored.is_empty() {
-                            let hits: Vec<SemanticHit> = scored
-                                .iter()
-                                .map(|s| SemanticHit {
-                                    category: s.fact.category.clone(),
-                                    key: s.fact.key.clone(),
-                                    value: s.fact.value.clone(),
-                                    score: s.score,
-                                    semantic_score: s.semantic_score,
-                                    confidence_score: s.confidence_score,
-                                })
-                                .collect();
-                            apply_retrieval_signals_from_hits(&mut knowledge, &hits);
-                            let out = format_semantic_facts(&format!("{q} (mode=hybrid)"), &hits);
-                            save_knowledge_deferred(knowledge, project_root);
-                            return out;
-                        }
                     }
                 }
             }
@@ -465,10 +464,10 @@ pub(crate) fn rehydrate_from_archives(
             continue;
         };
         for f in facts {
-            if let Some(cat) = category {
-                if f.category != cat {
-                    continue;
-                }
+            if let Some(cat) = category
+                && f.category != cat
+            {
+                continue;
             }
             if terms.is_empty() {
                 cands.push(Cand {
@@ -544,7 +543,7 @@ pub(crate) fn rehydrate_from_archives(
 /// item that the last wakeup injection already placed means the placement did
 /// not register with the model — record a miss for that position.
 fn score_placement_misses(query: &str) {
-    use crate::core::litm_calibration::{key_matches, record_outcome, Position};
+    use crate::core::litm_calibration::{Position, key_matches, record_outcome};
 
     let Some(mut session) = crate::core::session::SessionState::load_latest() else {
         return;

@@ -280,16 +280,16 @@ fn check_line_numbers(source: &str, compressed: &str) -> Vec<VerificationWarning
 
     if let Some(re_like) = re_like {
         for cap in re_like.captures_iter(compressed) {
-            if let Some(m) = cap.get(1) {
-                if let Ok(n) = m.as_str().parse::<usize>() {
-                    if n > source_max && n < 999_999 {
-                        warnings.push(VerificationWarning {
-                            kind: WarningKind::LineNumberDrift,
-                            detail: format!("Line {n} exceeds source max {source_max}"),
-                            severity: WarningSeverity::Low,
-                        });
-                    }
-                }
+            if let Some(m) = cap.get(1)
+                && let Ok(n) = m.as_str().parse::<usize>()
+                && n > source_max
+                && n < 999_999
+            {
+                warnings.push(VerificationWarning {
+                    kind: WarningKind::LineNumberDrift,
+                    detail: format!("Line {n} exceeds source max {source_max}"),
+                    severity: WarningSeverity::Low,
+                });
             }
         }
     }
@@ -528,10 +528,11 @@ mod tests {
         let src = "import { foo } from src/utils/helper.ts";
         let compressed = "import foo";
         let r = verify_output(src, compressed, &cfg());
-        assert!(r
-            .warnings
-            .iter()
-            .any(|w| w.kind == WarningKind::MissingPath));
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.kind == WarningKind::MissingPath)
+        );
     }
 
     #[test]
@@ -539,10 +540,11 @@ mod tests {
         let src = "fn calculate_monthly_revenue(data: &[f64]) -> f64 { data.iter().sum() }";
         let compressed = "fn calc() -> f64 { sum }";
         let r = verify_output(src, compressed, &cfg());
-        assert!(r
-            .warnings
-            .iter()
-            .any(|w| w.kind == WarningKind::MangledIdentifier));
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.kind == WarningKind::MangledIdentifier)
+        );
     }
 
     #[test]
@@ -550,10 +552,11 @@ mod tests {
         let src = "fn a() { if true { b(); } } fn c() { d(); } fn e() { f(); }";
         let compressed = "fn a() { if true { b(); fn c() { d(); fn e() { f();";
         let r = verify_output(src, compressed, &cfg());
-        assert!(r
-            .warnings
-            .iter()
-            .any(|w| w.kind == WarningKind::TruncatedBlock));
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.kind == WarningKind::TruncatedBlock)
+        );
     }
 
     #[test]

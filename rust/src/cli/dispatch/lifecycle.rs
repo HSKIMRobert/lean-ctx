@@ -224,7 +224,7 @@ pub(super) fn cmd_dev_install() {
 /// each build, voiding the TCC grant; a stable identity keeps it.
 #[cfg(target_os = "macos")]
 pub(super) fn cmd_codesign_setup() {
-    use crate::core::codesign::{setup_identity, sign_binary, SetupOutcome};
+    use crate::core::codesign::{SetupOutcome, setup_identity, sign_binary};
 
     eprintln!("Setting up a stable code-signing identity for lean-ctx (#356)…");
     eprintln!(
@@ -240,10 +240,10 @@ pub(super) fn cmd_codesign_setup() {
         Ok(SetupOutcome::Created) => {
             eprintln!("  ✓ Signing identity created and trusted.");
             // Re-sign the installed binary now so this grant applies immediately.
-            if let Ok(exe) = std::env::current_exe() {
-                if sign_binary(&exe) == crate::core::codesign::SignKind::Stable {
-                    eprintln!("  ✓ Re-signed {} with the stable identity.", exe.display());
-                }
+            if let Ok(exe) = std::env::current_exe()
+                && sign_binary(&exe) == crate::core::codesign::SignKind::Stable
+            {
+                eprintln!("  ✓ Re-signed {} with the stable identity.", exe.display());
             }
             eprintln!(
                 "\n  Done. `dev-install` and self-updates now reuse this identity.\n  \
@@ -320,12 +320,12 @@ pub(super) fn find_cargo_project_root() -> Option<std::path::PathBuf> {
 }
 
 pub(super) fn resolve_install_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Ok(canonical) = exe.canonicalize() {
-            let is_in_cargo_target = canonical.components().any(|c| c.as_os_str() == "target");
-            if !is_in_cargo_target && canonical.exists() {
-                return canonical;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Ok(canonical) = exe.canonicalize()
+    {
+        let is_in_cargo_target = canonical.components().any(|c| c.as_os_str() == "target");
+        if !is_in_cargo_target && canonical.exists() {
+            return canonical;
         }
     }
 

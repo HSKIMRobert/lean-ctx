@@ -11,7 +11,9 @@ pub(crate) fn cmd_control(args: &[String]) {
             "Usage: lean-ctx control <action> [target] [--scope session|project|call] \
              [--reason \"...\"] [--value \"...\"]"
         );
-        eprintln!("Actions: exclude, include, pin, unpin, set_view, set_priority, mark_outdated, reset, list, history");
+        eprintln!(
+            "Actions: exclude, include, pin, unpin, set_view, set_priority, mark_outdated, reset, list, history"
+        );
         std::process::exit(1);
     }
 
@@ -72,10 +74,10 @@ pub(crate) fn cmd_plan(args: &[String]) {
     let budget = flag_value(args, "--budget");
 
     let mut json = serde_json::json!({ "task": task });
-    if let Some(b) = &budget {
-        if let Ok(n) = b.parse::<u64>() {
-            json["budget"] = serde_json::Value::Number(n.into());
-        }
+    if let Some(b) = &budget
+        && let Ok(n) = b.parse::<u64>()
+    {
+        json["budget"] = serde_json::Value::Number(n.into());
     }
 
     #[cfg(unix)]
@@ -103,10 +105,10 @@ pub(crate) fn cmd_compile(args: &[String]) {
     let budget = flag_value(args, "--budget");
 
     let mut json = serde_json::json!({ "mode": mode });
-    if let Some(b) = &budget {
-        if let Ok(n) = b.parse::<u64>() {
-            json["budget"] = serde_json::Value::Number(n.into());
-        }
+    if let Some(b) = &budget
+        && let Ok(n) = b.parse::<u64>()
+    {
+        json["budget"] = serde_json::Value::Number(n.into());
     }
 
     #[cfg(unix)]

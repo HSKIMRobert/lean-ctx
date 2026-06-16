@@ -6,8 +6,8 @@
 //! 3. Performs a TOML round-trip to set the value
 //! 4. Deserializes back into `Config` for full serde validation
 
-use super::schema::{ConfigSchema, KeySchema};
 use super::Config;
+use super::schema::{ConfigSchema, KeySchema};
 
 /// Attempts to set a config key generically via schema-validated TOML round-trip.
 ///
@@ -67,13 +67,13 @@ fn parse_value(value: &str, schema: &KeySchema) -> Result<toml::Value, String> {
         }
         "string" | "string?" => Ok(toml::Value::String(value.to_string())),
         "enum" => {
-            if let Some(ref allowed) = schema.values {
-                if !allowed.iter().any(|v| v == value) {
-                    return Err(format!(
-                        "Invalid value '{value}'. Allowed: {}",
-                        allowed.join(", ")
-                    ));
-                }
+            if let Some(ref allowed) = schema.values
+                && !allowed.iter().any(|v| v == value)
+            {
+                return Err(format!(
+                    "Invalid value '{value}'. Allowed: {}",
+                    allowed.join(", ")
+                ));
             }
             Ok(toml::Value::String(value.to_string()))
         }

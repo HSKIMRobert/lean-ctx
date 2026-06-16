@@ -166,8 +166,8 @@ mod tests {
     #[test]
     fn savings_footer_from_env_accepts_auto() {
         let _guard = crate::core::data_dir::test_env_lock();
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "auto");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "auto");
         assert_eq!(SavingsFooter::from_env(), Some(SavingsFooter::Auto));
-        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 }

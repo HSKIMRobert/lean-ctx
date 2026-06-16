@@ -82,16 +82,16 @@ fn is_project_root_marker(dir: &Path) -> bool {
 /// Checks LEAN_CTX_PROJECT_ROOT env var and config.toml `project_root` first.
 /// Logs a warning when the fallback is a broad directory (home, root).
 pub fn detect_project_root_or_cwd(file_path: &str) -> String {
-    if let Ok(env_root) = std::env::var("LEAN_CTX_PROJECT_ROOT") {
-        if !env_root.is_empty() {
-            return env_root;
-        }
+    if let Ok(env_root) = std::env::var("LEAN_CTX_PROJECT_ROOT")
+        && !env_root.is_empty()
+    {
+        return env_root;
     }
     let cfg = crate::core::config::Config::load();
-    if let Some(ref cfg_root) = cfg.project_root {
-        if !cfg_root.is_empty() {
-            return cfg_root.clone();
-        }
+    if let Some(ref cfg_root) = cfg.project_root
+        && !cfg_root.is_empty()
+    {
+        return cfg_root.clone();
     }
     if let Some(ide_root) = resolve_ide_path(&cfg, file_path) {
         return ide_root;
@@ -194,12 +194,11 @@ pub fn shorten_path_relative(path: &str, root: &str) -> String {
     let norm_path = display_path(path);
     let norm_root = display_path(root);
     let norm_root = norm_root.strip_suffix('/').unwrap_or(&norm_root);
-    if let Some(rest) = norm_path.strip_prefix(norm_root) {
-        if let Some(rel) = rest.strip_prefix('/') {
-            if !rel.is_empty() {
-                return rel.to_string();
-            }
-        }
+    if let Some(rest) = norm_path.strip_prefix(norm_root)
+        && let Some(rel) = rest.strip_prefix('/')
+        && !rel.is_empty()
+    {
+        return rel.to_string();
     }
     shorten_path(&norm_path)
 }
@@ -555,9 +554,9 @@ mod tests {
 
         // Test: always mode shows box-drawing format
         super::MCP_CONTEXT.store(false, std::sync::atomic::Ordering::Relaxed);
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
-        std::env::remove_var("LEAN_CTX_QUIET");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::remove_var("LEAN_CTX_QUIET");
 
         let s = super::format_savings(100, 50);
         assert!(s.contains("\u{2192}"), "expected arrow: {s}");
@@ -573,8 +572,8 @@ mod tests {
         assert!(s.contains("\u{2193}80%"), "expected 80%: {s}");
 
         // Test: never mode suppresses
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
         let s = super::format_savings(100, 50);
         assert!(s.is_empty(), "expected empty with never: {s}");
 
@@ -583,22 +582,22 @@ mod tests {
 
         // Test: MCP auto mode suppresses
         super::MCP_CONTEXT.store(true, std::sync::atomic::Ordering::Relaxed);
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "auto");
-        std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "auto");
+        crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
         let s = super::format_savings(100, 50);
         assert!(s.is_empty(), "expected empty in MCP+auto: {s}");
         super::MCP_CONTEXT.store(false, std::sync::atomic::Ordering::Relaxed);
 
         // Test: SHOW_SAVINGS overrides config
-        std::env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "never");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
         assert!(super::savings_footer_visible());
-        std::env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
         assert!(!super::savings_footer_visible());
 
         // Restore ALL touched env — leaking LEAN_CTX_SAVINGS_FOOTER made
         // footers visible in unrelated tests (GL #556 flakiness).
-        std::env::remove_var("LEAN_CTX_SHOW_SAVINGS");
-        std::env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
     }
 }

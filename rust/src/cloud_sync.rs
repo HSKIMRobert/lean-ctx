@@ -121,11 +121,9 @@ pub fn cloud_background_tasks() {
             }
         }
 
-        if !already_pulled {
-            if let Ok(data) = crate::cloud_client::pull_cloud_models() {
-                let _ = crate::cloud_client::save_cloud_models(&data);
-                config.cloud.last_model_pull = Some(today.clone());
-            }
+        if !already_pulled && let Ok(data) = crate::cloud_client::pull_cloud_models() {
+            let _ = crate::cloud_client::save_cloud_models(&data);
+            config.cloud.last_model_pull = Some(today.clone());
         }
 
         // Opt-in Personal-Cloud auto-push (GL #384): silent, once per day,
@@ -433,25 +431,22 @@ pub fn collect_cep_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_
 pub fn collect_gotcha_entries() -> Vec<serde_json::Value> {
     let mut all_gotchas = crate::core::gotcha_tracker::load_universal_gotchas();
 
-    if let Ok(knowledge_dir) = crate::core::paths::data_dir().map(|d| d.join("knowledge")) {
-        if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
-            for entry in entries.flatten() {
-                let gotcha_path = entry.path().join("gotchas.json");
-                if gotcha_path.exists() {
-                    if let Ok(content) = std::fs::read_to_string(&gotcha_path) {
-                        if let Ok(store) = serde_json::from_str::<
-                            crate::core::gotcha_tracker::GotchaStore,
-                        >(&content)
-                        {
-                            for g in store.gotchas {
-                                if !all_gotchas
-                                    .iter()
-                                    .any(|existing| existing.trigger == g.trigger)
-                                {
-                                    all_gotchas.push(g);
-                                }
-                            }
-                        }
+    if let Ok(knowledge_dir) = crate::core::paths::data_dir().map(|d| d.join("knowledge"))
+        && let Ok(entries) = std::fs::read_dir(&knowledge_dir)
+    {
+        for entry in entries.flatten() {
+            let gotcha_path = entry.path().join("gotchas.json");
+            if gotcha_path.exists()
+                && let Ok(content) = std::fs::read_to_string(&gotcha_path)
+                && let Ok(store) =
+                    serde_json::from_str::<crate::core::gotcha_tracker::GotchaStore>(&content)
+            {
+                for g in store.gotchas {
+                    if !all_gotchas
+                        .iter()
+                        .any(|existing| existing.trigger == g.trigger)
+                    {
+                        all_gotchas.push(g);
                     }
                 }
             }
@@ -496,37 +491,36 @@ pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
 
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
         let mode_stats_path = data_dir.join("mode_stats.json");
-        if let Ok(data) = std::fs::read_to_string(&mode_stats_path) {
-            if let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data) {
-                if let Some(history) = predictor["history"].as_object() {
-                    for (_key, outcomes) in history {
-                        if let Some(arr) = outcomes.as_array() {
-                            for outcome in arr.iter().rev().take(3) {
-                                let ext = outcome["ext"].as_str().unwrap_or("unknown");
-                                let mode = outcome["mode"].as_str().unwrap_or("full");
-                                let t_in = outcome["tokens_in"].as_u64().unwrap_or(0);
-                                let t_out = outcome["tokens_out"].as_u64().unwrap_or(0);
-                                let ratio = if t_in > 0 {
-                                    1.0 - t_out as f64 / t_in as f64
-                                } else {
-                                    0.0
-                                };
-                                let bucket = match t_in {
-                                    0..=500 => "0-500",
-                                    501..=2000 => "500-2k",
-                                    2001..=10000 => "2k-10k",
-                                    _ => "10k+",
-                                };
-                                entries.push(serde_json::json!({
-                                    "file_ext": format!(".{ext}"),
-                                    "size_bucket": bucket,
-                                    "best_mode": mode,
-                                    "compression_ratio": (ratio * 100.0).round() / 100.0,
-                                }));
-                                if entries.len() >= 200 {
-                                    return entries;
-                                }
-                            }
+        if let Ok(data) = std::fs::read_to_string(&mode_stats_path)
+            && let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data)
+            && let Some(history) = predictor["history"].as_object()
+        {
+            for (_key, outcomes) in history {
+                if let Some(arr) = outcomes.as_array() {
+                    for outcome in arr.iter().rev().take(3) {
+                        let ext = outcome["ext"].as_str().unwrap_or("unknown");
+                        let mode = outcome["mode"].as_str().unwrap_or("full");
+                        let t_in = outcome["tokens_in"].as_u64().unwrap_or(0);
+                        let t_out = outcome["tokens_out"].as_u64().unwrap_or(0);
+                        let ratio = if t_in > 0 {
+                            1.0 - t_out as f64 / t_in as f64
+                        } else {
+                            0.0
+                        };
+                        let bucket = match t_in {
+                            0..=500 => "0-500",
+                            501..=2000 => "500-2k",
+                            2001..=10000 => "2k-10k",
+                            _ => "10k+",
+                        };
+                        entries.push(serde_json::json!({
+                            "file_ext": format!(".{ext}"),
+                            "size_bucket": bucket,
+                            "best_mode": mode,
+                            "compression_ratio": (ratio * 100.0).round() / 100.0,
+                        }));
+                        if entries.len() >= 200 {
+                            return entries;
                         }
                     }
                 }

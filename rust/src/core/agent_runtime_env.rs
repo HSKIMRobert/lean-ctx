@@ -146,10 +146,10 @@ pub fn capture() {
         return;
     };
     migrate_legacy_key_file(&path);
-    if let Some((existing, _)) = read_store(&path) {
-        if existing == vars {
-            return;
-        }
+    if let Some((existing, _)) = read_store(&path)
+        && existing == vars
+    {
+        return;
     }
     let payload = serde_json::json!({ "vars": vars, "captured_at": now_secs() });
     let Ok(json) = serde_json::to_string_pretty(&payload) else {
@@ -196,12 +196,12 @@ mod tests {
     #[test]
     fn capture_then_load_roundtrips() {
         let _iso = crate::core::data_dir::isolated_data_dir();
-        std::env::set_var("CODEX_THREAD_ID", "thread-roundtrip");
+        crate::test_env::set_var("CODEX_THREAD_ID", "thread-roundtrip");
 
         capture();
         let loaded = load();
 
-        std::env::remove_var("CODEX_THREAD_ID");
+        crate::test_env::remove_var("CODEX_THREAD_ID");
 
         assert_eq!(
             loaded.get("CODEX_THREAD_ID").map(String::as_str),
@@ -214,7 +214,7 @@ mod tests {
         let _iso = crate::core::data_dir::isolated_data_dir();
         // Ensure no forwardable vars leak in from the host test environment.
         for (key, _) in collect_from_process() {
-            std::env::remove_var(key);
+            crate::test_env::remove_var(key);
         }
 
         capture();
@@ -245,13 +245,13 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let _iso = crate::core::data_dir::isolated_data_dir();
         for (key, _) in collect_from_process() {
-            std::env::remove_var(key);
+            crate::test_env::remove_var(key);
         }
-        std::env::set_var("GEMINI_API_KEY", "secret-token");
+        crate::test_env::set_var("GEMINI_API_KEY", "secret-token");
 
         capture();
         let path = store_path().unwrap();
-        std::env::remove_var("GEMINI_API_KEY");
+        crate::test_env::remove_var("GEMINI_API_KEY");
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "captured key file must be owner-only");
@@ -262,13 +262,13 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let state = tempfile::tempdir().unwrap();
         let config = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_STATE_DIR", state.path());
-        std::env::set_var("LEAN_CTX_CONFIG_DIR", config.path());
+        crate::test_env::set_var("LEAN_CTX_STATE_DIR", state.path());
+        crate::test_env::set_var("LEAN_CTX_CONFIG_DIR", config.path());
 
         let path = store_path().unwrap();
 
-        std::env::remove_var("LEAN_CTX_STATE_DIR");
-        std::env::remove_var("LEAN_CTX_CONFIG_DIR");
+        crate::test_env::remove_var("LEAN_CTX_STATE_DIR");
+        crate::test_env::remove_var("LEAN_CTX_CONFIG_DIR");
 
         assert!(
             path.starts_with(state.path()),
@@ -286,8 +286,8 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let data = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data.path());
-        std::env::set_var("LEAN_CTX_STATE_DIR", state.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.path());
+        crate::test_env::set_var("LEAN_CTX_STATE_DIR", state.path());
 
         let legacy = data.path().join(FILE_NAME);
         let payload =
@@ -301,8 +301,8 @@ mod tests {
         let migrated = state_path.exists();
         let parent_ok = state_path.parent() == Some(state.path());
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
-        std::env::remove_var("LEAN_CTX_STATE_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_STATE_DIR");
 
         assert!(migrated, "key file must be moved into the state dir");
         assert!(!legacy_exists, "legacy key file must be removed after move");
@@ -317,8 +317,8 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         let data = tempfile::tempdir().unwrap();
         let state = tempfile::tempdir().unwrap();
-        std::env::set_var("LEAN_CTX_DATA_DIR", data.path());
-        std::env::set_var("LEAN_CTX_STATE_DIR", state.path());
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.path());
+        crate::test_env::set_var("LEAN_CTX_STATE_DIR", state.path());
 
         let legacy = data.path().join(FILE_NAME);
         std::fs::write(&legacy, "{}").unwrap();
@@ -328,8 +328,8 @@ mod tests {
         migrate_legacy_key_file(&state_path);
 
         let legacy_exists = legacy.exists();
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
-        std::env::remove_var("LEAN_CTX_STATE_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_STATE_DIR");
 
         assert!(
             !legacy_exists,

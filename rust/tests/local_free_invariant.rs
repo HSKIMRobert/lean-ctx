@@ -4,10 +4,10 @@
 //! (team/cloud), so this test fails the build if any local capability is ever
 //! placed behind a paywall.
 
-use lean_ctx::core::billing::{entitlement_allows, Plan};
+use lean_ctx::core::billing::{Plan, entitlement_allows};
 use lean_ctx::core::server_capabilities::{
-    capabilities_value, COMMERCIAL_PLANE_FEATURES, LOCAL_ALWAYS_ON_FEATURES,
-    LOCAL_OPTIONAL_FEATURES,
+    COMMERCIAL_PLANE_FEATURES, LOCAL_ALWAYS_ON_FEATURES, LOCAL_OPTIONAL_FEATURES,
+    capabilities_value,
 };
 
 #[test]
@@ -53,11 +53,13 @@ fn local_features_are_unaffected_by_license_or_plan_env() {
 
     let before = snapshot();
     for var in ["LEAN_CTX_LICENSE", "LEAN_CTX_PLAN", "LEAN_CTX_ACCOUNT"] {
-        std::env::set_var(var, "expired");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var(var, "expired") };
     }
     let after = snapshot();
     for var in ["LEAN_CTX_LICENSE", "LEAN_CTX_PLAN", "LEAN_CTX_ACCOUNT"] {
-        std::env::remove_var(var);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(var) };
     }
 
     assert_eq!(

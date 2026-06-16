@@ -100,16 +100,16 @@ impl ServerHandler for LeanCtxServer {
                 }
             }
             if self.session_mode == crate::tools::SessionMode::Shared {
-                if let Some(ref root) = session.project_root {
-                    if let Some(ref rt) = self.context_os {
-                        rt.shared_sessions.persist_best_effort(
-                            root,
-                            &self.workspace_id,
-                            &self.channel_id,
-                            &session,
-                        );
-                        rt.metrics.record_session_persisted();
-                    }
+                if let Some(ref root) = session.project_root
+                    && let Some(ref rt) = self.context_os
+                {
+                    rt.shared_sessions.persist_best_effort(
+                        root,
+                        &self.workspace_id,
+                        &self.channel_id,
+                        &session,
+                    );
+                    rt.metrics.record_session_persisted();
                 }
             } else if let Err(e) = session.save() {
                 tracing::warn!("lean-ctx: failed to persist session state: {e}");
@@ -187,18 +187,18 @@ impl ServerHandler for LeanCtxServer {
             dynamic_tools::init_from_config(&cats);
         }
 
-        if client_caps.dynamic_tools {
-            if let Ok(mut dt) = dynamic_tools::global().lock() {
-                dt.set_supports_list_changed(true);
-            }
+        if client_caps.dynamic_tools
+            && let Ok(mut dt) = dynamic_tools::global().lock()
+        {
+            dt.set_supports_list_changed(true);
         }
-        if let Some(max) = client_caps.max_tools {
-            if let Ok(mut dt) = dynamic_tools::global().lock() {
-                dt.set_supports_list_changed(true);
-                if max < 100 {
-                    dt.unload_category(dynamic_tools::ToolCategory::Debug);
-                    dt.unload_category(dynamic_tools::ToolCategory::Memory);
-                }
+        if let Some(max) = client_caps.max_tools
+            && let Ok(mut dt) = dynamic_tools::global().lock()
+        {
+            dt.set_supports_list_changed(true);
+            if max < 100 {
+                dt.unload_category(dynamic_tools::ToolCategory::Debug);
+                dt.unload_category(dynamic_tools::ToolCategory::Memory);
             }
         }
 
@@ -309,14 +309,12 @@ impl ServerHandler for LeanCtxServer {
                     already,
                     active_role.is_tool_allowed(INVOKER),
                     &disabled,
-                ) {
-                    if let Some(def) = self.registry.as_ref().and_then(|reg| {
-                        reg.tool_defs()
-                            .into_iter()
-                            .find(|t| t.name.as_ref() == INVOKER)
-                    }) {
-                        tools.push(def);
-                    }
+                ) && let Some(def) = self.registry.as_ref().and_then(|reg| {
+                    reg.tool_defs()
+                        .into_iter()
+                        .find(|t| t.name.as_ref() == INVOKER)
+                }) {
+                    tools.push(def);
                 }
                 tools
             };
@@ -358,21 +356,21 @@ impl ServerHandler for LeanCtxServer {
                         let mut wf = self.workflow.write().await;
                         *wf = None;
                         let _ = crate::core::workflow::clear_active();
-                    } else if let Some(state) = run.spec.state(&run.current) {
-                        if let Some(allowed) = &state.allowed_tools {
-                            let mut allow: std::collections::HashSet<&str> =
-                                allowed.iter().map(std::string::String::as_str).collect();
-                            for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
-                                allow.insert(passthrough);
-                            }
-                            return Ok(ListToolsResult {
-                                tools: tools
-                                    .into_iter()
-                                    .filter(|t| allow.contains(t.name.as_ref()))
-                                    .collect(),
-                                ..Default::default()
-                            });
+                    } else if let Some(state) = run.spec.state(&run.current)
+                        && let Some(allowed) = &state.allowed_tools
+                    {
+                        let mut allow: std::collections::HashSet<&str> =
+                            allowed.iter().map(std::string::String::as_str).collect();
+                        for passthrough in WORKFLOW_PASSTHROUGH_TOOLS {
+                            allow.insert(passthrough);
                         }
+                        return Ok(ListToolsResult {
+                            tools: tools
+                                .into_iter()
+                                .filter(|t| allow.contains(t.name.as_ref()))
+                                .collect(),
+                            ..Default::default()
+                        });
                     }
                 }
                 tools

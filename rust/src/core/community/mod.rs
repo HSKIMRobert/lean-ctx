@@ -21,7 +21,7 @@ mod stable_ids;
 #[cfg(test)]
 mod tests;
 
-use graph::{edge_counts, AdjGraph};
+use graph::{AdjGraph, edge_counts};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Community {
@@ -120,10 +120,10 @@ fn analyze(
     let mut assignment = hardening::partition_with_hub_exclusion(graph);
     hardening::split_oversized_and_incohesive(graph, &mut assignment);
     let mut assignment = stable_ids::canonicalize(graph, &assignment);
-    if let Some(prev) = previous {
-        if !prev.is_empty() {
-            assignment = stable_ids::remap_to_previous(graph, &assignment, prev);
-        }
+    if let Some(prev) = previous
+        && !prev.is_empty()
+    {
+        assignment = stable_ids::remap_to_previous(graph, &assignment, prev);
     }
 
     let result = build_result(graph, &assignment);

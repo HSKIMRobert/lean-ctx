@@ -28,7 +28,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use axum::response::Response;
 use futures::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::ProxyState;
 
@@ -191,10 +191,10 @@ async fn stream_sse_to_ws(socket: &mut WebSocket, resp: reqwest::Response) -> Co
             if line.last() == Some(&b'\r') {
                 line.pop();
             }
-            if let Some(payload) = sse_data_payload(&line) {
-                if socket.send(Message::Text(payload.into())).await.is_err() {
-                    return ControlFlow::Break(());
-                }
+            if let Some(payload) = sse_data_payload(&line)
+                && socket.send(Message::Text(payload.into())).await.is_err()
+            {
+                return ControlFlow::Break(());
             }
         }
     }

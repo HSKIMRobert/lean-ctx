@@ -14,11 +14,11 @@ pub(crate) fn cmd_proof(args: &[String]) {
             continue;
         }
         if a == "--format" {
-            if let Some(v) = it.peek() {
-                if !v.starts_with("--") {
-                    format = Some((*v).clone());
-                    it.next();
-                }
+            if let Some(v) = it.peek()
+                && !v.starts_with("--")
+            {
+                format = Some((*v).clone());
+                it.next();
             }
             continue;
         }
@@ -39,11 +39,11 @@ pub(crate) fn cmd_proof(args: &[String]) {
             continue;
         }
         if a == "--filename" {
-            if let Some(v) = it.peek() {
-                if !v.starts_with("--") {
-                    filename = Some((*v).clone());
-                    it.next();
-                }
+            if let Some(v) = it.peek()
+                && !v.starts_with("--")
+            {
+                filename = Some((*v).clone());
+                it.next();
             }
             continue;
         }
@@ -52,11 +52,11 @@ pub(crate) fn cmd_proof(args: &[String]) {
             continue;
         }
         if a == "--max-evidence" {
-            if let Some(v) = it.peek() {
-                if !v.starts_with("--") {
-                    max_evidence = (*v).parse::<usize>().ok();
-                    it.next();
-                }
+            if let Some(v) = it.peek()
+                && !v.starts_with("--")
+            {
+                max_evidence = (*v).parse::<usize>().ok();
+                it.next();
             }
             continue;
         }
@@ -64,13 +64,12 @@ pub(crate) fn cmd_proof(args: &[String]) {
             max_ledger_files = v.parse::<usize>().ok();
             continue;
         }
-        if a == "--max-ledger-files" {
-            if let Some(v) = it.peek() {
-                if !v.starts_with("--") {
-                    max_ledger_files = (*v).parse::<usize>().ok();
-                    it.next();
-                }
-            }
+        if a == "--max-ledger-files"
+            && let Some(v) = it.peek()
+            && !v.starts_with("--")
+        {
+            max_ledger_files = (*v).parse::<usize>().ok();
+            it.next();
         }
     }
 

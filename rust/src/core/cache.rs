@@ -1,7 +1,7 @@
 use md5::{Digest, Md5};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use super::tokens::count_tokens;
@@ -175,10 +175,9 @@ impl CacheEntry {
         const MAX_COMPRESSED_VARIANTS: usize = 3;
         if self.compressed_outputs.len() >= MAX_COMPRESSED_VARIANTS
             && !self.compressed_outputs.contains_key(mode_key)
+            && let Some(oldest_key) = self.compressed_outputs.keys().next().cloned()
         {
-            if let Some(oldest_key) = self.compressed_outputs.keys().next().cloned() {
-                self.compressed_outputs.remove(&oldest_key);
-            }
+            self.compressed_outputs.remove(&oldest_key);
         }
         self.compressed_outputs.insert(mode_key.to_string(), output);
     }
@@ -975,7 +974,7 @@ mod tests {
 
     #[test]
     fn evict_if_needed_removes_lowest_score() {
-        std::env::set_var("LEAN_CTX_CACHE_MAX_TOKENS", "50");
+        crate::test_env::set_var("LEAN_CTX_CACHE_MAX_TOKENS", "50");
         let mut cache = SessionCache::new();
         let big_content = "a]".repeat(30); // ~30 tokens
         cache.store("/old.rs", &big_content);
@@ -991,7 +990,7 @@ mod tests {
             cache.total_cached_tokens() <= 60,
             "eviction should have kicked in"
         );
-        std::env::remove_var("LEAN_CTX_CACHE_MAX_TOKENS");
+        crate::test_env::remove_var("LEAN_CTX_CACHE_MAX_TOKENS");
     }
 
     #[test]

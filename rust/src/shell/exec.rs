@@ -506,12 +506,11 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         }
         config::TeeMode::Never => false,
     };
-    if should_tee {
-        if let Some(path) = super::redact::save_tee(command, &full_output) {
-            if !matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1") {
-                eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
-            }
-        }
+    if should_tee
+        && let Some(path) = super::redact::save_tee(command, &full_output)
+        && !matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
+    {
+        eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
     }
 
     let threshold = cfg.slow_command_threshold_ms;
@@ -572,9 +571,9 @@ mod exec_tests {
 
     #[test]
     fn exec_argv_passes_through_when_disabled() {
-        std::env::set_var("LEAN_CTX_DISABLED", "1");
+        crate::test_env::set_var("LEAN_CTX_DISABLED", "1");
         let code = super::exec_argv(&["true".to_string()]);
-        std::env::remove_var("LEAN_CTX_DISABLED");
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
         assert_eq!(code, 0);
     }
 

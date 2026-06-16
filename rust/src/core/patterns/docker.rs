@@ -1,5 +1,5 @@
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -118,12 +118,13 @@ fn compress_ps(output: &str) -> String {
                 status = format!("{status} {annotation}");
             }
         }
-        if line.contains("Exited") && !status.contains("Exited") {
-            if let Some(pos) = line.find("Exited") {
-                let end = line[pos..].find(')').map_or(pos + 6, |p| pos + p + 1);
-                let exited_str = &line[pos..end.min(line.len())];
-                status = exited_str.to_string();
-            }
+        if line.contains("Exited")
+            && !status.contains("Exited")
+            && let Some(pos) = line.find("Exited")
+        {
+            let end = line[pos..].find(')').map_or(pos + 6, |p| pos + p + 1);
+            let exited_str = &line[pos..end.min(line.len())];
+            status = exited_str.to_string();
         }
 
         let mut entry = name.clone();
@@ -169,11 +170,7 @@ fn extract_column(line: &str, cols: &[(String, usize)], name: &str) -> Option<St
     }
     let end = end.min(line.len());
     let val = line[start..end].trim().to_string();
-    if val.is_empty() {
-        None
-    } else {
-        Some(val)
-    }
+    if val.is_empty() { None } else { Some(val) }
 }
 
 fn extract_last_word(line: &str) -> String {
@@ -220,11 +217,11 @@ fn compress_logs(output: &str) -> String {
             continue;
         }
 
-        if let Some(last) = deduped.last_mut() {
-            if last.0 == stripped {
-                last.1 += 1;
-                continue;
-            }
+        if let Some(last) = deduped.last_mut()
+            && last.0 == stripped
+        {
+            last.1 += 1;
+            continue;
         }
         deduped.push((stripped, 1));
     }
@@ -373,10 +370,10 @@ fn compress_volume(output: &str) -> String {
 
 fn compress_inspect(output: &str) -> String {
     let trimmed = output.trim();
-    if trimmed.starts_with('[') || trimmed.starts_with('{') {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            return compress_json_value(&val, 0);
-        }
+    if (trimmed.starts_with('[') || trimmed.starts_with('{'))
+        && let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed)
+    {
+        return compress_json_value(&val, 0);
     }
     if trimmed.lines().count() > 20 {
         let lines: Vec<&str> = trimmed.lines().collect();

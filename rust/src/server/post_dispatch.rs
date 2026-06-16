@@ -74,10 +74,10 @@ impl LeanCtxServer {
             let ir_clone = self.context_ir.clone();
             tokio::task::spawn_blocking(move || {
                 let _ = prepared.write_to_disk();
-                if let Some(ir) = ir_clone {
-                    if let Ok(ir_guard) = ir.try_read() {
-                        ir_guard.save();
-                    }
+                if let Some(ir) = ir_clone
+                    && let Ok(ir_guard) = ir.try_read()
+                {
+                    ir_guard.save();
                 }
             });
         }
@@ -96,16 +96,16 @@ impl LeanCtxServer {
                 (session.stats.total_tool_calls, session.project_root.clone())
             };
 
-            if let Some(root) = project_root {
-                if crate::tools::autonomy::should_auto_consolidate(&self.autonomy, calls) {
-                    let root_clone = root.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let _ = crate::core::consolidation_engine::consolidate_latest(
-                            &root_clone,
-                            crate::core::consolidation_engine::ConsolidationBudgets::default(),
-                        );
-                    });
-                }
+            if let Some(root) = project_root
+                && crate::tools::autonomy::should_auto_consolidate(&self.autonomy, calls)
+            {
+                let root_clone = root.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _ = crate::core::consolidation_engine::consolidate_latest(
+                        &root_clone,
+                        crate::core::consolidation_engine::ConsolidationBudgets::default(),
+                    );
+                });
             }
         }
 
@@ -204,15 +204,13 @@ impl LeanCtxServer {
 
             if let Some(secondary) =
                 crate::core::context_os::secondary_event_kind(&tool, tool_action.as_deref())
-            {
-                if rt
+                && rt
                     .bus
                     .append(&ws, &ch, &secondary, agent.as_deref(), base_payload)
                     .is_some()
-                {
-                    rt.metrics.record_event_appended();
-                    rt.metrics.record_event_broadcast();
-                }
+            {
+                rt.metrics.record_event_appended();
+                rt.metrics.record_event_broadcast();
             }
         });
     }

@@ -4,7 +4,7 @@ use crate::core::cache::SessionCache;
 use crate::core::compressor;
 use crate::core::deps;
 use crate::core::entropy;
-use crate::core::plugins::{executor::HookPoint, PluginManager};
+use crate::core::plugins::{PluginManager, executor::HookPoint};
 use crate::core::protocol;
 use crate::core::signatures;
 use crate::core::symbol_map::{self, SymbolMap};
@@ -179,15 +179,15 @@ fn open_nofollow(path: &str) -> Result<std::fs::File, std::io::Error> {
     // but apply O_NOFOLLOW only to the final file component. This prevents
     // symlink-following attacks on the target file while allowing legitimate
     // directory symlinks (e.g., /tmp → /private/tmp on macOS).
-    if let (Some(parent), Some(filename)) = (p.parent(), p.file_name()) {
-        if parent.exists() {
-            let canonical_parent = crate::core::pathutil::safe_canonicalize_bounded(parent, 2000);
-            let canonical_path = canonical_parent.join(filename);
-            return std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&canonical_path);
-        }
+    if let (Some(parent), Some(filename)) = (p.parent(), p.file_name())
+        && parent.exists()
+    {
+        let canonical_parent = crate::core::pathutil::safe_canonicalize_bounded(parent, 2000);
+        let canonical_path = canonical_parent.join(filename);
+        return std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&canonical_path);
     }
 
     // Fallback: direct open with O_NOFOLLOW
@@ -310,13 +310,11 @@ fn handle_with_options_resolved(
         result.resolved_mode.as_str(),
         "map" | "signatures" | "aggressive" | "entropy" | "task"
     );
-    if dedup_allowed {
-        if let Some(deduped) = cache.apply_dedup(path, &result.content) {
-            let new_tokens = count_tokens(&deduped);
-            if new_tokens < result.output_tokens {
-                result.content = deduped;
-                result.output_tokens = new_tokens;
-            }
+    if dedup_allowed && let Some(deduped) = cache.apply_dedup(path, &result.content) {
+        let new_tokens = count_tokens(&deduped);
+        if new_tokens < result.output_tokens {
+            result.content = deduped;
+            result.output_tokens = new_tokens;
         }
     }
 
@@ -490,16 +488,16 @@ fn handle_with_options_inner(
         };
     }
 
-    if mode != "full" {
-        if let Some(existing) = cache.get(path) {
-            let stale = crate::core::cache::is_cache_entry_stale_verified(
-                path,
-                existing.stored_mtime,
-                &existing.hash,
-            );
-            if stale {
-                cache.invalidate(path);
-            }
+    if mode != "full"
+        && let Some(existing) = cache.get(path)
+    {
+        let stale = crate::core::cache::is_cache_entry_stale_verified(
+            path,
+            existing.stored_mtime,
+            &existing.hash,
+        );
+        if stale {
+            cache.invalidate(path);
         }
     }
 
@@ -827,18 +825,18 @@ fn handle_full_with_auto_delta(
     let Ok(disk_content) = read_file_lossy(path) else {
         cache.record_cache_hit(path);
         if let Some(existing) = cache.get(path) {
-            if !crate::core::protocol::meta_visible() {
-                if let Some(cached) = existing.content() {
-                    return format_full_output(
-                        file_ref,
-                        short,
-                        ext,
-                        &cached,
-                        existing.original_tokens,
-                        existing.line_count,
-                        task,
-                    );
-                }
+            if !crate::core::protocol::meta_visible()
+                && let Some(cached) = existing.content()
+            {
+                return format_full_output(
+                    file_ref,
+                    short,
+                    ext,
+                    &cached,
+                    existing.original_tokens,
+                    existing.line_count,
+                    task,
+                );
             }
             let out = format!(
                 "[using cached version — file read failed]\n{file_ref}={short} cached {}t {}L",

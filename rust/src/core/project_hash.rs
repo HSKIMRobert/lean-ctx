@@ -167,13 +167,11 @@ fn git_remote_url(root: &Path) -> Option<String> {
             in_origin = trimmed == r#"[remote "origin"]"#;
             continue;
         }
-        if in_origin {
-            if let Some(url) = trimmed.strip_prefix("url") {
-                let url = url.trim_start_matches([' ', '=']);
-                let url = url.trim();
-                if !url.is_empty() {
-                    return Some(normalize_git_url(url));
-                }
+        if in_origin && let Some(url) = trimmed.strip_prefix("url") {
+            let url = url.trim_start_matches([' ', '=']);
+            let url = url.trim();
+            if !url.is_empty() {
+                return Some(normalize_git_url(url));
             }
         }
     }
@@ -240,14 +238,14 @@ fn gradle_project(root: &Path) -> Option<String> {
 fn dotnet_solution(root: &Path) -> Option<String> {
     let entries = std::fs::read_dir(root).ok()?;
     for entry in entries.flatten() {
-        if let Some(ext) = entry.path().extension() {
-            if ext == "sln" {
-                return entry
-                    .path()
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(String::from);
-            }
+        if let Some(ext) = entry.path().extension()
+            && ext == "sln"
+        {
+            return entry
+                .path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(String::from);
         }
     }
     None
@@ -270,14 +268,12 @@ fn extract_toml_value(path: &Path, key: &str, section: Option<&str>) -> Option<S
             continue;
         }
 
-        if in_section {
-            if let Some(rest) = trimmed.strip_prefix(key) {
-                let rest = rest.trim_start();
-                if let Some(rest) = rest.strip_prefix('=') {
-                    let val = rest.trim().trim_matches('"');
-                    if !val.is_empty() {
-                        return Some(val.to_string());
-                    }
+        if in_section && let Some(rest) = trimmed.strip_prefix(key) {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let val = rest.trim().trim_matches('"');
+                if !val.is_empty() {
+                    return Some(val.to_string());
                 }
             }
         }

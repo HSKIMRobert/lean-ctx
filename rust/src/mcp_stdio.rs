@@ -9,7 +9,7 @@ use rmcp::{
     service::{RoleServer, RxJsonRpcMessage, ServiceRole, TxJsonRpcMessage},
     transport::Transport,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -226,14 +226,12 @@ fn try_parse_with_compatibility<T: DeserializeOwned>(
         match serde_json::from_slice(payload) {
             Ok(item) => Ok(Some(item)),
             Err(error) => {
-                if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(line_str) {
-                    if let Some(method) =
+                if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(line_str)
+                    && let Some(method) =
                         json_value.get("method").and_then(serde_json::Value::as_str)
-                    {
-                        if should_ignore_notification(&json_value, method) {
-                            return Ok(None);
-                        }
-                    }
+                    && should_ignore_notification(&json_value, method)
+                {
+                    return Ok(None);
                 }
 
                 tracing::debug!(
@@ -511,8 +509,10 @@ mod tests {
             )
             .unwrap();
 
-        assert!(std::str::from_utf8(&buf)
-            .unwrap()
-            .starts_with("Content-Length: "));
+        assert!(
+            std::str::from_utf8(&buf)
+                .unwrap()
+                .starts_with("Content-Length: ")
+        );
     }
 }

@@ -40,10 +40,10 @@ pub fn video_id(url: &str) -> Option<String> {
         return clean_id(path.trim_start_matches('/'));
     }
     if host == "youtube.com" || host.ends_with(".youtube.com") {
-        if path.starts_with("/watch") {
-            if let Some(v) = query_param(query, "v") {
-                return clean_id(&v);
-            }
+        if path.starts_with("/watch")
+            && let Some(v) = query_param(query, "v")
+        {
+            return clean_id(&v);
         }
         for prefix in ["/shorts/", "/embed/", "/v/", "/live/"] {
             if let Some(rest) = path.strip_prefix(prefix) {
@@ -336,11 +336,7 @@ fn split_path_query(pq: &str) -> (&str, &str) {
 fn query_param(query: &str, key: &str) -> Option<String> {
     query.split('&').find_map(|pair| {
         let (k, v) = pair.split_once('=')?;
-        if k == key {
-            Some(v.to_string())
-        } else {
-            None
-        }
+        if k == key { Some(v.to_string()) } else { None }
     })
 }
 
@@ -349,11 +345,7 @@ fn clean_id(raw: &str) -> Option<String> {
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .collect();
-    if id.is_empty() {
-        None
-    } else {
-        Some(id)
-    }
+    if id.is_empty() { None } else { Some(id) }
 }
 
 #[cfg(test)]

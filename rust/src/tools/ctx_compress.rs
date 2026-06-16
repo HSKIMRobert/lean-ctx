@@ -2,8 +2,8 @@ use crate::core::cache::SessionCache;
 use crate::core::protocol;
 use crate::core::signatures;
 use crate::core::tokens::count_tokens;
-use crate::tools::ctx_response;
 use crate::tools::CrpMode;
+use crate::tools::ctx_response;
 
 pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode) -> String {
     let entries = cache.get_all_entries();
@@ -116,7 +116,9 @@ pub fn handle(cache: &SessionCache, include_signatures: bool, crp_mode: CrpMode)
     let compressed_tokens = count_tokens(&cleaned_output) + count_tokens(&legend);
     let savings = protocol::format_savings(total_original, compressed_tokens);
 
-    format!("{cleaned_output}{legend}\nCOMPRESSION: {total_original} → {compressed_tokens} tok\n{savings}")
+    format!(
+        "{cleaned_output}{legend}\nCOMPRESSION: {total_original} → {compressed_tokens} tok\n{savings}"
+    )
 }
 
 /// Grow-and-refine (#541): fold the latest session findings, decisions and
@@ -165,25 +167,25 @@ fn update_playbook_from_session() -> Option<String> {
     }
     // Pitfalls from live bounce evidence: extensions that keep bouncing are
     // exactly the "this bit us" knowledge ACE wants preserved verbatim.
-    if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
-        if bt.total_bounces() > 0 {
-            for ext_stat in bt.per_extension_json() {
-                let (Some(ext), Some(rate)) = (
-                    ext_stat.get("ext").and_then(|v| v.as_str()),
-                    ext_stat.get("rate").and_then(serde_json::Value::as_f64),
-                ) else {
-                    continue;
-                };
-                if rate >= 0.3 {
-                    session.playbook.add_delta(
-                        EntryKind::Pitfall,
-                        &format!(
-                            "{ext} files bounce often ({:.0}% rate) — prefer mode=full",
-                            rate * 100.0
-                        ),
-                        turn,
-                    );
-                }
+    if let Ok(bt) = crate::core::bounce_tracker::global().lock()
+        && bt.total_bounces() > 0
+    {
+        for ext_stat in bt.per_extension_json() {
+            let (Some(ext), Some(rate)) = (
+                ext_stat.get("ext").and_then(|v| v.as_str()),
+                ext_stat.get("rate").and_then(serde_json::Value::as_f64),
+            ) else {
+                continue;
+            };
+            if rate >= 0.3 {
+                session.playbook.add_delta(
+                    EntryKind::Pitfall,
+                    &format!(
+                        "{ext} files bounce often ({:.0}% rate) — prefer mode=full",
+                        rate * 100.0
+                    ),
+                    turn,
+                );
             }
         }
     }

@@ -1,5 +1,5 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
+use rmcp::model::Tool;
 use serde_json::{Map, Value};
 
 /// Outcome of a shell execution, carried alongside the rendered text so the
@@ -114,7 +114,7 @@ pub trait McpTool: Send + Sync {
     /// Execute the tool. Args are the raw JSON-RPC arguments.
     /// `ctx` provides access to resolved paths and project state.
     fn handle(&self, args: &Map<String, Value>, ctx: &ToolContext)
-        -> Result<ToolOutput, ErrorData>;
+    -> Result<ToolOutput, ErrorData>;
 }
 
 /// Context passed to tool handlers. Contains pre-resolved values that
@@ -234,21 +234,21 @@ pub fn require_resolved_path(
     if let Some(err) = ctx.path_error(key) {
         return Err(ErrorData::invalid_params(format!("{key}: {err}"), None));
     }
-    if let Some(val) = args.get(key) {
-        if !val.is_string() {
-            let type_name = match val {
-                Value::Number(_) => "number",
-                Value::Bool(_) => "boolean",
-                Value::Array(_) => "array",
-                Value::Object(_) => "object",
-                Value::Null => "null",
-                Value::String(_) => unreachable!(),
-            };
-            return Err(ErrorData::invalid_params(
-                format!("{key} must be a string, got {type_name}"),
-                None,
-            ));
-        }
+    if let Some(val) = args.get(key)
+        && !val.is_string()
+    {
+        let type_name = match val {
+            Value::Number(_) => "number",
+            Value::Bool(_) => "boolean",
+            Value::Array(_) => "array",
+            Value::Object(_) => "object",
+            Value::Null => "null",
+            Value::String(_) => unreachable!(),
+        };
+        return Err(ErrorData::invalid_params(
+            format!("{key} must be a string, got {type_name}"),
+            None,
+        ));
     }
     Err(ErrorData::invalid_params(
         format!("{key} is required"),

@@ -110,11 +110,11 @@ impl SessionState {
         }
 
         // Source 2: git diff summary
-        if let Some(ref root) = self.project_root {
-            if let Some(task_from_git) = Self::infer_task_from_git(root) {
-                self.set_task(&task_from_git, Some("git"));
-                return;
-            }
+        if let Some(ref root) = self.project_root
+            && let Some(task_from_git) = Self::infer_task_from_git(root)
+        {
+            self.set_task(&task_from_git, Some("git"));
+            return;
         }
 
         // Source 3: File patterns from intent engine
@@ -312,17 +312,17 @@ impl SessionState {
             intent.occurrences = 1;
         }
 
-        if let Some(last) = self.intents.last_mut() {
-            if last.fingerprint() == intent.fingerprint() {
-                last.occurrences = last.occurrences.saturating_add(intent.occurrences);
-                last.timestamp = intent.timestamp;
-                match intent.source {
-                    IntentSource::Inferred => self.stats.intents_inferred += 1,
-                    IntentSource::Explicit => self.stats.intents_explicit += 1,
-                }
-                self.increment();
-                return;
+        if let Some(last) = self.intents.last_mut()
+            && last.fingerprint() == intent.fingerprint()
+        {
+            last.occurrences = last.occurrences.saturating_add(intent.occurrences);
+            last.timestamp = intent.timestamp;
+            match intent.source {
+                IntentSource::Inferred => self.stats.intents_inferred += 1,
+                IntentSource::Explicit => self.stats.intents_explicit += 1,
             }
+            self.increment();
+            return;
         }
 
         match intent.source {
@@ -412,10 +412,11 @@ impl SessionState {
     /// to prevent MCP clients from escaping the workspace.
     pub fn effective_cwd(&self, explicit_cwd: Option<&str>) -> String {
         let root = self.project_root.as_deref().unwrap_or(".");
-        if let Some(cwd) = explicit_cwd {
-            if !cwd.is_empty() && cwd != "." {
-                return Self::jail_cwd(cwd, root);
-            }
+        if let Some(cwd) = explicit_cwd
+            && !cwd.is_empty()
+            && cwd != "."
+        {
+            return Self::jail_cwd(cwd, root);
         }
         if let Some(ref cwd) = self.shell_cwd {
             return cwd.clone();

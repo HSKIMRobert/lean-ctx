@@ -608,7 +608,7 @@ mod tests {
     fn cognition_loop_runs_all_steps() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(
+        crate::test_env::set_var(
             "LEAN_CTX_DATA_DIR",
             tmp.path().to_string_lossy().to_string(),
         );
@@ -627,6 +627,6 @@ mod tests {
         let report = run_cognition_loop(&project_root_str, 8);
         assert_eq!(report.steps_run, 8);
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

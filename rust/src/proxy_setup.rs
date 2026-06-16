@@ -11,8 +11,7 @@ const DEFAULT_PROXY_PORT: u16 = 4444;
 /// key is detectable. A Claude Pro/Max subscription authenticates via OAuth against
 /// `api.anthropic.com` directly and is rejected by any custom base URL, so we must not
 /// route it through the proxy.
-const ANTHROPIC_OMITTED_NOTE: &str =
-    "ANTHROPIC_BASE_URL omitted: Claude Pro/Max subscription authenticates against api.anthropic.com directly (set ANTHROPIC_API_KEY to route Claude through the proxy)";
+const ANTHROPIC_OMITTED_NOTE: &str = "ANTHROPIC_BASE_URL omitted: Claude Pro/Max subscription authenticates against api.anthropic.com directly (set ANTHROPIC_API_KEY to route Claude through the proxy)";
 
 pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
     let cfg = crate::core::config::Config::load();
@@ -44,23 +43,23 @@ pub fn install_proxy_env_unchecked(home: &Path, port: u16, quiet: bool, force_en
 pub fn preview_proxy_cleanup(home: &Path) {
     let settings_dir = crate::core::editor_registry::claude_state_dir(home);
     let settings_path = settings_dir.join("settings.json");
-    if let Ok(content) = std::fs::read_to_string(&settings_path) {
-        if content.contains("ANTHROPIC_BASE_URL") {
-            let cfg = crate::core::config::Config::load();
-            if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
-                println!("  Would restore ANTHROPIC_BASE_URL → {upstream} in Claude Code settings");
-            } else {
-                println!("  Would remove ANTHROPIC_BASE_URL from Claude Code settings");
-            }
+    if let Ok(content) = std::fs::read_to_string(&settings_path)
+        && content.contains("ANTHROPIC_BASE_URL")
+    {
+        let cfg = crate::core::config::Config::load();
+        if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
+            println!("  Would restore ANTHROPIC_BASE_URL → {upstream} in Claude Code settings");
+        } else {
+            println!("  Would remove ANTHROPIC_BASE_URL from Claude Code settings");
         }
     }
 
     let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let codex_path = codex_dir.join("config.toml");
-    if let Ok(content) = std::fs::read_to_string(codex_path) {
-        if content.contains("OPENAI_BASE_URL") {
-            println!("  Would remove OPENAI_BASE_URL from Codex CLI config");
-        }
+    if let Ok(content) = std::fs::read_to_string(codex_path)
+        && content.contains("OPENAI_BASE_URL")
+    {
+        println!("  Would remove OPENAI_BASE_URL from Codex CLI config");
     }
 }
 
@@ -76,65 +75,56 @@ pub fn cleanup_stale_proxy_env(home: &Path) -> usize {
 
     let settings_dir = crate::core::editor_registry::claude_state_dir(home);
     let settings_path = settings_dir.join("settings.json");
-    if let Ok(content) = std::fs::read_to_string(&settings_path) {
-        if let Ok(mut doc) = crate::core::jsonc::parse_jsonc(&content) {
-            if let Some(base_url) = doc
-                .get("env")
-                .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
-                .and_then(|v| v.as_str())
-                .map(String::from)
-            {
-                if is_local_lean_ctx_url(&base_url) {
-                    if let Some(env_obj) = doc.get_mut("env").and_then(|e| e.as_object_mut()) {
-                        if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
-                            env_obj.insert(
-                                "ANTHROPIC_BASE_URL".to_string(),
-                                serde_json::Value::String(upstream.clone()),
-                            );
-                            println!(
-                                "  ✓ Restored ANTHROPIC_BASE_URL → {upstream} in Claude Code settings"
-                            );
-                        } else {
-                            env_obj.remove("ANTHROPIC_BASE_URL");
-                            if env_obj.is_empty() {
-                                doc.as_object_mut().map(|o| o.remove("env"));
-                            }
-                            println!(
-                                "  ✓ Removed stale ANTHROPIC_BASE_URL from Claude Code settings"
-                            );
-                        }
-                        let out = serde_json::to_string_pretty(&doc).unwrap_or_default();
-                        let _ = std::fs::write(&settings_path, out + "\n");
-                        cleaned += 1;
-                    }
-                }
+    if let Ok(content) = std::fs::read_to_string(&settings_path)
+        && let Ok(mut doc) = crate::core::jsonc::parse_jsonc(&content)
+        && let Some(base_url) = doc
+            .get("env")
+            .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+        && is_local_lean_ctx_url(&base_url)
+        && let Some(env_obj) = doc.get_mut("env").and_then(|e| e.as_object_mut())
+    {
+        if let Some(ref upstream) = cfg.proxy.anthropic_upstream {
+            env_obj.insert(
+                "ANTHROPIC_BASE_URL".to_string(),
+                serde_json::Value::String(upstream.clone()),
+            );
+            println!("  ✓ Restored ANTHROPIC_BASE_URL → {upstream} in Claude Code settings");
+        } else {
+            env_obj.remove("ANTHROPIC_BASE_URL");
+            if env_obj.is_empty() {
+                doc.as_object_mut().map(|o| o.remove("env"));
             }
+            println!("  ✓ Removed stale ANTHROPIC_BASE_URL from Claude Code settings");
         }
+        let out = serde_json::to_string_pretty(&doc).unwrap_or_default();
+        let _ = std::fs::write(&settings_path, out + "\n");
+        cleaned += 1;
     }
 
     let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let codex_path = codex_dir.join("config.toml");
-    if let Ok(content) = std::fs::read_to_string(&codex_path) {
-        if content.contains("OPENAI_BASE_URL")
-            && (content.contains("127.0.0.1") || content.contains("localhost"))
-        {
-            let filtered: String = content
-                .lines()
-                .filter(|line| !line.trim().starts_with("OPENAI_BASE_URL"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let filtered = filtered
-                .replace("\n[env]\n\n", "\n")
-                .replace("[env]\n\n", "");
-            let filtered = if filtered.trim() == "[env]" {
-                String::new()
-            } else {
-                filtered
-            };
-            let _ = std::fs::write(&codex_path, &filtered);
-            println!("  ✓ Removed stale OPENAI_BASE_URL from Codex CLI config");
-            cleaned += 1;
-        }
+    if let Ok(content) = std::fs::read_to_string(&codex_path)
+        && content.contains("OPENAI_BASE_URL")
+        && (content.contains("127.0.0.1") || content.contains("localhost"))
+    {
+        let filtered: String = content
+            .lines()
+            .filter(|line| !line.trim().starts_with("OPENAI_BASE_URL"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let filtered = filtered
+            .replace("\n[env]\n\n", "\n")
+            .replace("[env]\n\n", "");
+        let filtered = if filtered.trim() == "[env]" {
+            String::new()
+        } else {
+            filtered
+        };
+        let _ = std::fs::write(&codex_path, &filtered);
+        println!("  ✓ Removed stale OPENAI_BASE_URL from Codex CLI config");
+        cleaned += 1;
     }
 
     cleaned
@@ -249,16 +239,16 @@ pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
     }
 
     let ps_profile = dirs::home_dir().map(|h| crate::shell::platform::powershell_profile_path(&h));
-    if let Some(ref ps) = ps_profile {
-        if ps.exists() {
-            marked_block::remove_from_file(
-                ps,
-                PROXY_ENV_START,
-                PROXY_ENV_END,
-                quiet,
-                "proxy env from PowerShell profile",
-            );
-        }
+    if let Some(ref ps) = ps_profile
+        && ps.exists()
+    {
+        marked_block::remove_from_file(
+            ps,
+            PROXY_ENV_START,
+            PROXY_ENV_END,
+            quiet,
+            "proxy env from PowerShell profile",
+        );
     }
 
     uninstall_claude_env(home, quiet);
@@ -344,29 +334,29 @@ set -gx GEMINI_API_BASE_URL "{base}"
     }
 
     let ps_profile = dirs::home_dir().map(|h| crate::shell::platform::powershell_profile_path(&h));
-    if let Some(ref ps) = ps_profile {
-        if ps.exists() {
-            let ps_anthropic = if include_anthropic {
-                format!(r#"$env:ANTHROPIC_BASE_URL = "{base}""#)
-            } else {
-                format!("# {ANTHROPIC_OMITTED_NOTE}")
-            };
-            let ps_block = format!(
-                r#"{PROXY_ENV_START}
+    if let Some(ref ps) = ps_profile
+        && ps.exists()
+    {
+        let ps_anthropic = if include_anthropic {
+            format!(r#"$env:ANTHROPIC_BASE_URL = "{base}""#)
+        } else {
+            format!("# {ANTHROPIC_OMITTED_NOTE}")
+        };
+        let ps_block = format!(
+            r#"{PROXY_ENV_START}
 {ps_anthropic}
 $env:OPENAI_BASE_URL = "{openai_base}"
 $env:GEMINI_API_BASE_URL = "{base}"
 {PROXY_ENV_END}"#
-            );
-            marked_block::upsert(
-                ps,
-                PROXY_ENV_START,
-                PROXY_ENV_END,
-                &ps_block,
-                quiet,
-                "proxy env in PowerShell profile",
-            );
-        }
+        );
+        marked_block::upsert(
+            ps,
+            PROXY_ENV_START,
+            PROXY_ENV_END,
+            &ps_block,
+            quiet,
+            "proxy env in PowerShell profile",
+        );
     }
 }
 
@@ -510,13 +500,12 @@ fn install_pi_env_at(agent_dir: &Path, port: u16, quiet: bool, force: bool) {
             continue;
         }
         // Never silently clobber a user's custom remote gateway; --force overrides.
-        if !force {
-            if let Some(custom) = normalize_url_opt(&current) {
-                if !is_local_proxy_url(&custom) {
-                    kept_custom.push(format!("{provider} → {custom}"));
-                    continue;
-                }
-            }
+        if !force
+            && let Some(custom) = normalize_url_opt(&current)
+            && !is_local_proxy_url(&custom)
+        {
+            kept_custom.push(format!("{provider} → {custom}"));
+            continue;
         }
         set_pi_provider_base_url(&mut doc, provider, &proxy_url);
         changed = true;
@@ -633,7 +622,7 @@ fn install_claude_env(home: &Path, port: u16, quiet: bool) {
 }
 
 fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
-    use crate::core::config::{is_local_proxy_url, normalize_url_opt, Config};
+    use crate::core::config::{Config, is_local_proxy_url, normalize_url_opt};
 
     let base = format!("http://127.0.0.1:{port}");
 
@@ -695,26 +684,26 @@ fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
     }
 
     // HARD GUARD: never overwrite non-local endpoints unless --force
-    if let Some(upstream) = normalize_url_opt(&current_url) {
-        if !is_local_proxy_url(&upstream) {
-            let mut cfg = Config::load();
-            if cfg.proxy.anthropic_upstream.is_none() {
-                cfg.proxy.anthropic_upstream = Some(upstream.clone());
-                let _ = cfg.save();
-            }
+    if let Some(upstream) = normalize_url_opt(&current_url)
+        && !is_local_proxy_url(&upstream)
+    {
+        let mut cfg = Config::load();
+        if cfg.proxy.anthropic_upstream.is_none() {
+            cfg.proxy.anthropic_upstream = Some(upstream.clone());
+            let _ = cfg.save();
+        }
 
-            if !force {
-                if !quiet {
-                    eprintln!("  \u{26a0} Custom endpoint detected: {upstream}");
-                    eprintln!(
-                        "    Skipping proxy URL write. Use `lean-ctx proxy enable --force` to override."
-                    );
-                }
-                return;
-            }
+        if !force {
             if !quiet {
-                println!("  Overriding custom endpoint (--force): {upstream}");
+                eprintln!("  \u{26a0} Custom endpoint detected: {upstream}");
+                eprintln!(
+                    "    Skipping proxy URL write. Use `lean-ctx proxy enable --force` to override."
+                );
             }
+            return;
+        }
+        if !quiet {
+            println!("  Overriding custom endpoint (--force): {upstream}");
         }
     }
 
@@ -746,10 +735,10 @@ fn install_claude_env_inner(home: &Path, port: u16, quiet: bool, force: bool) {
 
 /// Proxy reachability timeout. Priority: env var > config.toml > 200ms default.
 pub fn proxy_timeout() -> std::time::Duration {
-    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_TIMEOUT_MS") {
-        if let Ok(ms) = val.parse::<u64>() {
-            return std::time::Duration::from_millis(ms);
-        }
+    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_TIMEOUT_MS")
+        && let Ok(ms) = val.parse::<u64>()
+    {
+        return std::time::Duration::from_millis(ms);
     }
     if let Some(ms) = crate::core::config::Config::load().proxy_timeout_ms {
         return std::time::Duration::from_millis(ms);
@@ -834,10 +823,10 @@ fn install_codex_env_at(config_dir: &Path, port: u16, quiet: bool) {
 }
 
 pub fn default_port() -> u16 {
-    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_PORT") {
-        if let Ok(port) = val.parse::<u16>() {
-            return port;
-        }
+    if let Ok(val) = std::env::var("LEAN_CTX_PROXY_PORT")
+        && let Ok(port) = val.parse::<u16>()
+    {
+        return port;
     }
     let cfg = crate::core::config::Config::load();
     if let Some(port) = cfg.proxy_port {

@@ -3,16 +3,16 @@ use crate::core::gain::gain_score::GainScore;
 use crate::core::gain::model_pricing::ModelPricing;
 use crate::core::gain::task_classifier::{TaskCategory, TaskClassifier};
 use crate::tui::event_reader::EventTail;
+use crossterm::ExecutableCommand;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use crossterm::ExecutableCommand;
+use ratatui::Terminal;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Row, Table};
-use ratatui::Terminal;
 use std::io::stdout;
 use std::time::{Duration, Instant};
 
@@ -247,35 +247,34 @@ pub fn run() -> anyhow::Result<()> {
         terminal.draw(|f| draw(f, &state))?;
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
-        if event::poll(timeout)? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    if state.search_active {
-                        match key.code {
-                            KeyCode::Esc | KeyCode::Enter => state.search_active = false,
-                            KeyCode::Backspace => {
-                                state.search_query.pop();
-                            }
-                            KeyCode::Char(c) => state.search_query.push(c),
-                            _ => {}
-                        }
-                    } else {
-                        match key.code {
-                            KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
-                            KeyCode::Tab => state.focus = (state.focus + 1) % 5,
-                            KeyCode::Char('1') => state.focus = 0,
-                            KeyCode::Char('2') => state.focus = 1,
-                            KeyCode::Char('3') => state.focus = 2,
-                            KeyCode::Char('4') => state.focus = 3,
-                            KeyCode::Char('5') => state.focus = 4,
-                            KeyCode::Char('f') => state.filter = state.filter.next(),
-                            KeyCode::Char('/') => {
-                                state.search_active = true;
-                                state.search_query.clear();
-                            }
-                            _ => {}
-                        }
+        if event::poll(timeout)?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            if state.search_active {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter => state.search_active = false,
+                    KeyCode::Backspace => {
+                        state.search_query.pop();
                     }
+                    KeyCode::Char(c) => state.search_query.push(c),
+                    _ => {}
+                }
+            } else {
+                match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => state.quit = true,
+                    KeyCode::Tab => state.focus = (state.focus + 1) % 5,
+                    KeyCode::Char('1') => state.focus = 0,
+                    KeyCode::Char('2') => state.focus = 1,
+                    KeyCode::Char('3') => state.focus = 2,
+                    KeyCode::Char('4') => state.focus = 3,
+                    KeyCode::Char('5') => state.focus = 4,
+                    KeyCode::Char('f') => state.filter = state.filter.next(),
+                    KeyCode::Char('/') => {
+                        state.search_active = true;
+                        state.search_query.clear();
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1004,8 +1003,8 @@ mod tests {
     /// is laid out without panicking. Run with `--nocapture` to eyeball the grid.
     #[test]
     fn dashboard_snapshot_renders_all_panels() {
-        use ratatui::backend::TestBackend;
         use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
 
         let mut state = mk_state();
         state.total_saved = 515_300_000;

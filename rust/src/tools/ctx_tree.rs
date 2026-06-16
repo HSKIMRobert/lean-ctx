@@ -102,10 +102,10 @@ fn generate_compact_tree(
     let mut dir_file_counts: std::collections::HashMap<&std::path::Path, usize> =
         std::collections::HashMap::new();
     for e in &entries {
-        if !e.is_dir {
-            if let Some(parent) = e.path.parent() {
-                *dir_file_counts.entry(parent).or_default() += 1;
-            }
+        if !e.is_dir
+            && let Some(parent) = e.path.parent()
+        {
+            *dir_file_counts.entry(parent).or_default() += 1;
         }
     }
 

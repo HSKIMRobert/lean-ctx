@@ -1,5 +1,5 @@
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -83,11 +83,11 @@ pub fn compress(output: &str) -> Option<String> {
             error_lines.push(stripped.clone());
         }
 
-        if let Some(last) = current.entries.last_mut() {
-            if last.0 == stripped {
-                last.1 += 1;
-                continue;
-            }
+        if let Some(last) = current.entries.last_mut()
+            && last.0 == stripped
+        {
+            last.1 += 1;
+            continue;
         }
         current.entries.push((stripped, 1));
     }

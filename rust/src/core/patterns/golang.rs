@@ -1,5 +1,5 @@
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -66,12 +66,12 @@ fn compress_test(output: &str) -> String {
             let name = line.replace("--- FAIL:", "").trim().to_string();
             failed_tests.push(name);
         }
-        if line.contains("--- PASS:") {
-            if let Some(name) = line.split("--- PASS:").nth(1) {
-                let name = name.split_whitespace().next().unwrap_or("");
-                if !name.is_empty() {
-                    passed_tests.push(name.to_string());
-                }
+        if line.contains("--- PASS:")
+            && let Some(name) = line.split("--- PASS:").nth(1)
+        {
+            let name = name.split_whitespace().next().unwrap_or("");
+            if !name.is_empty() {
+                passed_tests.push(name.to_string());
             }
         }
     }

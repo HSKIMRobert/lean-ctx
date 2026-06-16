@@ -10,7 +10,8 @@ use lean_ctx::core::memory_policy::MemoryPolicy;
 /// store is never touched.
 fn isolate_data_dir() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    std::env::set_var("LEAN_CTX_DATA_DIR", dir.path());
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_DATA_DIR", dir.path()) };
     dir
 }
 

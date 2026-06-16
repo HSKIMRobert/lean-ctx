@@ -163,10 +163,10 @@ pub fn should_force_full(path: &str) -> bool {
 }
 
 pub fn flush() {
-    if let Ok(store) = global().lock() {
-        if store.dirty {
-            let _ = store.save();
-        }
+    if let Ok(store) = global().lock()
+        && store.dirty
+    {
+        let _ = store.save();
     }
 }
 

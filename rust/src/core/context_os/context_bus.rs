@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -155,15 +155,15 @@ impl TopicFilter {
                 Some(_) | None => return false,
             }
         }
-        if let Some(min) = self.min_consistency {
-            if event.consistency() < min {
-                return false;
-            }
+        if let Some(min) = self.min_consistency
+            && event.consistency() < min
+        {
+            return false;
         }
-        if let Some(ref aid) = self.agent_id {
-            if !event.is_visible_to_agent(aid) {
-                return false;
-            }
+        if let Some(ref aid) = self.agent_id
+            && !event.is_visible_to_agent(aid)
+        {
+            return false;
         }
         true
     }

@@ -57,11 +57,11 @@ pub fn index_git_history(
         stats.commits_indexed += 1;
 
         for file in &commit.files_changed {
-            if let Some(file_node) = graph.get_node_by_path(file)? {
-                if let Some(file_id) = file_node.id {
-                    graph.upsert_edge(&Edge::new(file_id, commit_id, EdgeKind::ChangedIn))?;
-                    stats.edges_created += 1;
-                }
+            if let Some(file_node) = graph.get_node_by_path(file)?
+                && let Some(file_id) = file_node.id
+            {
+                graph.upsert_edge(&Edge::new(file_id, commit_id, EdgeKind::ChangedIn))?;
+                stats.edges_created += 1;
             }
         }
     }
@@ -162,19 +162,19 @@ pub fn index_tests(graph: &CodeGraph, project_root: &Path) -> anyhow::Result<Enr
         stats.tests_indexed += 1;
 
         let tested_file = infer_tested_file(file);
-        if let Some(ref tested) = tested_file {
-            if files.contains(tested) {
-                let target_node = graph.get_node_by_path(tested)?;
-                if let Some(target) = target_node {
-                    if let Some(target_id) = target.id {
-                        graph.upsert_edge(&Edge::new(target_id, test_id, EdgeKind::TestedBy))?;
-                        stats.edges_created += 1;
-                    }
-                } else {
-                    let file_id = graph.upsert_node(&Node::file(tested))?;
-                    graph.upsert_edge(&Edge::new(file_id, test_id, EdgeKind::TestedBy))?;
+        if let Some(ref tested) = tested_file
+            && files.contains(tested)
+        {
+            let target_node = graph.get_node_by_path(tested)?;
+            if let Some(target) = target_node {
+                if let Some(target_id) = target.id {
+                    graph.upsert_edge(&Edge::new(target_id, test_id, EdgeKind::TestedBy))?;
                     stats.edges_created += 1;
                 }
+            } else {
+                let file_id = graph.upsert_node(&Node::file(tested))?;
+                graph.upsert_edge(&Edge::new(file_id, test_id, EdgeKind::TestedBy))?;
+                stats.edges_created += 1;
             }
         }
     }
@@ -239,17 +239,12 @@ pub fn index_knowledge(graph: &CodeGraph, project_root: &str) -> anyhow::Result<
         stats.knowledge_indexed += 1;
 
         for file_ref in extract_file_refs(&fact.value) {
-            if mentioned_files.insert(format!("{}:{}", fact.key, file_ref)) {
-                if let Some(file_node) = graph.get_node_by_path(&file_ref)? {
-                    if let Some(file_id) = file_node.id {
-                        graph.upsert_edge(&Edge::new(
-                            file_id,
-                            knowledge_id,
-                            EdgeKind::MentionedIn,
-                        ))?;
-                        stats.edges_created += 1;
-                    }
-                }
+            if mentioned_files.insert(format!("{}:{}", fact.key, file_ref))
+                && let Some(file_node) = graph.get_node_by_path(&file_ref)?
+                && let Some(file_id) = file_node.id
+            {
+                graph.upsert_edge(&Edge::new(file_id, knowledge_id, EdgeKind::MentionedIn))?;
+                stats.edges_created += 1;
             }
         }
     }
@@ -380,11 +375,11 @@ fn consolidate_callgraph(graph: &CodeGraph, project_root: &str) -> anyhow::Resul
         let from_node = graph.get_node_by_path(from_file)?;
         let to_node = graph.get_node_by_path(to_file)?;
 
-        if let (Some(from_n), Some(to_n)) = (from_node, to_node) {
-            if let (Some(from_id), Some(to_id)) = (from_n.id, to_n.id) {
-                graph.upsert_edge(&Edge::new(from_id, to_id, EdgeKind::Calls))?;
-                stats.edges_created += 1;
-            }
+        if let (Some(from_n), Some(to_n)) = (from_node, to_node)
+            && let (Some(from_id), Some(to_id)) = (from_n.id, to_n.id)
+        {
+            graph.upsert_edge(&Edge::new(from_id, to_id, EdgeKind::Calls))?;
+            stats.edges_created += 1;
         }
     }
 

@@ -17,13 +17,13 @@
 //! A failing bucket query degrades to an empty bucket rather than failing the
 //! whole dashboard, and accounts without the entitlement get the upsell payload.
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use super::auth::{auth_user, AppState};
+use super::auth::{AppState, auth_user};
 use super::billing_edge::{cloud_sync_allowed, resolve_plan};
 use super::helpers::internal_error;
 
@@ -67,18 +67,18 @@ pub(super) async fn get_account_cloud(
         // E2E buckets (GL #467): once an account pushed a vault, its legacy
         // plaintext rows are purged — the count lives in the blob's
         // client-declared metadata instead.
-        if count == 0 {
-            if let Some(blob_table) = match key {
+        if count == 0
+            && let Some(blob_table) = match key {
                 "knowledge" => Some("knowledge_blobs"),
                 "gotchas" => Some("gotcha_blobs"),
                 _ => None,
-            } {
-                let sql =
-                    format!("SELECT entry_count, updated_at FROM {blob_table} WHERE user_id = $1");
-                if let Ok(Some(row)) = client.query_opt(&sql, &[&user_id]).await {
-                    count = row.get(0);
-                    last = row.get(1);
-                }
+            }
+        {
+            let sql =
+                format!("SELECT entry_count, updated_at FROM {blob_table} WHERE user_id = $1");
+            if let Ok(Some(row)) = client.query_opt(&sql, &[&user_id]).await {
+                count = row.get(0);
+                last = row.get(1);
             }
         }
         merge_latest(&mut latest, last);
@@ -287,7 +287,7 @@ fn merge_latest(latest: &mut Option<DateTime<Utc>>, candidate: Option<DateTime<U
 
 #[cfg(test)]
 mod tests {
-    use super::{fill_series, merge_latest, DayRow};
+    use super::{DayRow, fill_series, merge_latest};
     use chrono::{Duration, TimeZone, Utc};
 
     #[test]

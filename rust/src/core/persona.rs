@@ -304,10 +304,10 @@ fn tool_profile_is_explicit(cfg: &super::config::Config) -> bool {
 /// overrides the default so containers/CI/tests can isolate it.
 #[must_use]
 pub fn personas_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("LEAN_CTX_PERSONAS_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+    if let Some(dir) = std::env::var_os("LEAN_CTX_PERSONAS_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
     }
     if let Some(config_dir) = dirs::config_dir() {
         config_dir.join("lean-ctx").join("personas")
@@ -336,12 +336,11 @@ pub fn list_personas() -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(personas_dir()) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("toml") {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !names.iter().any(|n| n == stem) {
-                        names.push(stem.to_string());
-                    }
-                }
+            if path.extension().and_then(|e| e.to_str()) == Some("toml")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && !names.iter().any(|n| n == stem)
+            {
+                names.push(stem.to_string());
             }
         }
     }
@@ -446,7 +445,7 @@ intent_taxonomy = ["prospect", "qualify", "enrich"]
             "name = \"research\"\ntool_profile = \"standard\"\ndefault_read_mode = \"map\"\n",
         )
         .unwrap();
-        std::env::set_var("LEAN_CTX_PERSONAS_DIR", dir.path());
+        crate::test_env::set_var("LEAN_CTX_PERSONAS_DIR", dir.path());
 
         let loaded = load_from_dir("research").unwrap().unwrap();
         assert_eq!(loaded.name, "research");
@@ -456,6 +455,6 @@ intent_taxonomy = ["prospect", "qualify", "enrich"]
         assert!(names.contains(&"research".to_string()));
         assert!(names.contains(&"coding".to_string()));
 
-        std::env::remove_var("LEAN_CTX_PERSONAS_DIR");
+        crate::test_env::remove_var("LEAN_CTX_PERSONAS_DIR");
     }
 }

@@ -14,8 +14,10 @@ use std::ffi::OsString;
 
 fn restore(key: &str, val: Option<OsString>) {
     match val {
-        Some(v) => std::env::set_var(key, v),
-        None => std::env::remove_var(key),
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        Some(v) => unsafe { std::env::set_var(key, v) },
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        None => unsafe { std::env::remove_var(key) },
     }
 }
 
@@ -50,18 +52,24 @@ fn markerless_legacy_keeps_xdg_split_for_every_category() {
     let saved: Vec<(&str, Option<OsString>)> =
         keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
 
-    std::env::set_var("HOME", &home);
-    std::env::set_var("XDG_CONFIG_HOME", &xc);
-    std::env::set_var("XDG_DATA_HOME", &xd);
-    std::env::set_var("XDG_STATE_HOME", &xs);
-    std::env::set_var("XDG_CACHE_HOME", &xk);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("HOME", &home) };
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("XDG_CONFIG_HOME", &xc) };
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("XDG_DATA_HOME", &xd) };
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("XDG_STATE_HOME", &xs) };
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("XDG_CACHE_HOME", &xk) };
     for k in [
         "LEAN_CTX_DATA_DIR",
         "LEAN_CTX_CONFIG_DIR",
         "LEAN_CTX_STATE_DIR",
         "LEAN_CTX_CACHE_DIR",
     ] {
-        std::env::remove_var(k);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::remove_var(k) };
     }
 
     let data = lean_ctx::core::paths::data_dir();

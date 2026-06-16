@@ -1,18 +1,18 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use axum::{
+    Router,
     body::{self, Body},
     extract::{Extension, Json, Query, State},
-    http::{header, Request, StatusCode},
+    http::{Request, StatusCode, header},
     middleware::{self, Next},
     response::sse::{Event as SseEvent, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 use futures::Stream;
 use md5::{Digest, Md5};
@@ -22,11 +22,11 @@ use rmcp::{
         CallToolRequest, CallToolRequestParams, CallToolResult, ClientJsonRpcMessage,
         ClientRequest, JsonRpcRequest, NumberOrString, ServerJsonRpcMessage, ServerResult,
     },
-    service::{serve_directly, RequestContext, RoleServer},
+    service::{RequestContext, RoleServer, serve_directly},
     transport::{OneshotTransport, StreamableHttpService},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::broadcast;
@@ -231,13 +231,14 @@ impl TeamServerConfig {
                 .with_context(|| format!("token '{id}' invalid sha256Hex"))?;
         }
 
-        if let Some(parent) = self.audit_log_path.parent() {
-            if !parent.as_os_str().is_empty() && !parent.exists() {
-                return Err(anyhow!(
-                    "auditLogPath parent does not exist: {}",
-                    parent.display()
-                ));
-            }
+        if let Some(parent) = self.audit_log_path.parent()
+            && !parent.as_os_str().is_empty()
+            && !parent.exists()
+        {
+            return Err(anyhow!(
+                "auditLogPath parent does not exist: {}",
+                parent.display()
+            ));
         }
         Ok(())
     }
@@ -451,7 +452,7 @@ impl TeamContextEngine {
             Some(other) => {
                 return Err(anyhow!(
                     "tool arguments must be a JSON object (got {other})"
-                ))
+                ));
             }
         };
 
@@ -1065,13 +1066,13 @@ async fn v1_tool_call(
             WORKSPACE_ARG_KEY.to_string(),
             Value::String(workspace_id.clone()),
         );
-        if let Some(ch) = body.channel_id.as_deref() {
-            if !ch.trim().is_empty() {
-                m.insert(
-                    CHANNEL_ARG_KEY.to_string(),
-                    Value::String(ch.trim().to_string()),
-                );
-            }
+        if let Some(ch) = body.channel_id.as_deref()
+            && !ch.trim().is_empty()
+        {
+            m.insert(
+                CHANNEL_ARG_KEY.to_string(),
+                Value::String(ch.trim().to_string()),
+            );
         }
     }
 
@@ -1214,7 +1215,7 @@ async fn v1_events(
     let pending: std::collections::VecDeque<crate::core::context_os::ContextEventV1> =
         replay.into();
 
-    use crate::core::context_os::{redact_event_payload, RedactionLevel};
+    use crate::core::context_os::{RedactionLevel, redact_event_payload};
     let redaction = RedactionLevel::RefsOnly;
 
     let stream = futures::stream::unfold(

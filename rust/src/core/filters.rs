@@ -73,10 +73,10 @@ impl FilterEngine {
         let cmd_lower = command.to_ascii_lowercase();
 
         for rule in &self.rules {
-            if let Some(ref cmd_re) = rule.command_re {
-                if !cmd_re.is_match(&cmd_lower) {
-                    continue;
-                }
+            if let Some(ref cmd_re) = rule.command_re
+                && !cmd_re.is_match(&cmd_lower)
+            {
+                continue;
             }
 
             if !rule.keep_lines.is_empty() {
@@ -93,7 +93,7 @@ impl FilterEngine {
                 }
             }
 
-            if let (Some(ref pat_re), Some(ref replacement)) = (&rule.pattern_re, &rule.replace) {
+            if let (Some(pat_re), Some(replacement)) = (&rule.pattern_re, &rule.replace) {
                 let result = pat_re.replace_all(output, replacement.as_str());
                 if result != output {
                     return Some(result.to_string());

@@ -216,7 +216,7 @@ impl ContextLedger {
         window_size: usize,
         task: Option<&str>,
     ) -> f64 {
-        use crate::core::context_field::{compute_signals_for_path, ContextField};
+        use crate::core::context_field::{ContextField, compute_signals_for_path};
 
         let (signals, _costs) =
             compute_signals_for_path(path, task, None, window_size, original_tokens);
@@ -260,13 +260,13 @@ impl ContextLedger {
         self.record(path, mode, original_tokens, sent_tokens);
         if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
             entry.kind = Some(kind);
-            if let Some(h) = source_hash {
-                if entry.source_hash.as_deref() != Some(h) {
-                    if entry.source_hash.is_some() {
-                        entry.state = Some(ContextState::Stale);
-                    }
-                    entry.source_hash = Some(h.to_string());
+            if let Some(h) = source_hash
+                && entry.source_hash.as_deref() != Some(h)
+            {
+                if entry.source_hash.is_some() {
+                    entry.state = Some(ContextState::Stale);
                 }
+                entry.source_hash = Some(h.to_string());
             }
             if let Some(prov) = provenance {
                 entry.provenance = Some(prov);
@@ -326,13 +326,12 @@ impl ContextLedger {
 
     /// Mark entries as stale if their source hash has changed.
     pub fn mark_stale_by_hash(&mut self, path: &str, new_hash: &str) {
-        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
-            if let Some(ref old_hash) = entry.source_hash {
-                if old_hash != new_hash {
-                    entry.state = Some(ContextState::Stale);
-                    entry.source_hash = Some(new_hash.to_string());
-                }
-            }
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path)
+            && let Some(ref old_hash) = entry.source_hash
+            && old_hash != new_hash
+        {
+            entry.state = Some(ContextState::Stale);
+            entry.source_hash = Some(new_hash.to_string());
         }
     }
 
@@ -463,10 +462,10 @@ impl ContextLedger {
     /// Reduces I/O overhead during burst sequences of tool calls.
     pub fn save_debounced(&mut self) {
         let now = std::time::Instant::now();
-        if let Some(last) = self.last_flush {
-            if now.duration_since(last) < std::time::Duration::from_secs(3) {
-                return;
-            }
+        if let Some(last) = self.last_flush
+            && now.duration_since(last) < std::time::Duration::from_secs(3)
+        {
+            return;
         }
         self.save();
         self.last_flush = Some(now);
@@ -579,10 +578,9 @@ impl ContextLedger {
     }
 
     pub fn adjusted_total_saved(&self) -> isize {
-        if let Ok(bt) = crate::core::bounce_tracker::global().lock() {
-            bt.adjusted_savings(self.total_tokens_saved)
-        } else {
-            self.total_tokens_saved as isize
+        match crate::core::bounce_tracker::global().lock() {
+            Ok(bt) => bt.adjusted_savings(self.total_tokens_saved),
+            _ => self.total_tokens_saved as isize,
         }
     }
 }

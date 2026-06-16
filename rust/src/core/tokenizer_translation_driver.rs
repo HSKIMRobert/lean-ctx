@@ -222,13 +222,13 @@ fn is_synthetic_tdd_signature_line(line: &str) -> bool {
     }
 
     // Unicode TDD signature markers: λ/§/∂/τ/ε/ν + visibility +/-.
-    if let Some(first) = t.chars().next() {
-        if matches!(first, 'λ' | '§' | '∂' | 'τ' | 'ε' | 'ν') {
-            let mut it = t.chars();
-            let _ = it.next();
-            if matches!(it.next(), Some('+' | '-')) {
-                return true;
-            }
+    if let Some(first) = t.chars().next()
+        && matches!(first, 'λ' | '§' | '∂' | 'τ' | 'ε' | 'ν')
+    {
+        let mut it = t.chars();
+        let _ = it.next();
+        if matches!(it.next(), Some('+' | '-')) {
+            return true;
         }
     }
 
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn ruleset_disabled_is_legacy() {
         let _lock = env_lock();
-        std::env::remove_var("LEAN_CTX_MODEL");
+        crate::test_env::remove_var("LEAN_CTX_MODEL");
         let cfg = TranslationConfig {
             enabled: Some(false),
             ruleset: Some("auto".to_string()),
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn translation_skips_json_outputs() {
         let _lock = env_lock();
-        std::env::set_var("LEAN_CTX_MODEL", "gpt-5.4");
+        crate::test_env::set_var("LEAN_CTX_MODEL", "gpt-5.4");
         let cfg = TranslationConfig {
             enabled: Some(true),
             ruleset: Some("auto".to_string()),

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use super::deep_queries::{self, ImportKind};
 
 macro_rules! static_regex {
-    ($pattern:expr) => {{
+    ($pattern:expr_2021) => {{
         static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         RE.get_or_init(|| {
             regex::Regex::new($pattern).expect(concat!("BUG: invalid static regex: ", $pattern))
@@ -125,10 +125,10 @@ fn extract_ts_deps(content: &str) -> DepInfo {
             }
         }
 
-        if trimmed.starts_with("export ") {
-            if let Some(name) = extract_export_name(trimmed) {
-                exports.push(name);
-            }
+        if trimmed.starts_with("export ")
+            && let Some(name) = extract_export_name(trimmed)
+        {
+            exports.push(name);
         }
     }
 
@@ -160,14 +160,13 @@ fn extract_rust_deps(content: &str) -> DepInfo {
             {
                 exports.push(name.to_string());
             }
-        } else if trimmed.starts_with("pub struct ")
+        } else if (trimmed.starts_with("pub struct ")
             || trimmed.starts_with("pub enum ")
-            || trimmed.starts_with("pub trait ")
+            || trimmed.starts_with("pub trait "))
+            && let Some(name) = trimmed.split_whitespace().nth(2)
         {
-            if let Some(name) = trimmed.split_whitespace().nth(2) {
-                let clean = name.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                exports.push(clean.to_string());
-            }
+            let clean = name.trim_end_matches(|c: char| !c.is_alphanumeric() && c != '_');
+            exports.push(clean.to_string());
         }
     }
 
@@ -184,15 +183,15 @@ fn extract_python_deps(content: &str) -> DepInfo {
     for line in content.lines() {
         let trimmed = line.trim();
 
-        if let Some(caps) = py_import_re().captures(trimmed) {
-            if let Some(m) = caps.get(1).or(caps.get(2)) {
-                let module = m.as_str();
-                if !module.starts_with("os")
-                    && !module.starts_with("sys")
-                    && !module.starts_with("json")
-                {
-                    imports.insert(module.to_string());
-                }
+        if let Some(caps) = py_import_re().captures(trimmed)
+            && let Some(m) = caps.get(1).or(caps.get(2))
+        {
+            let module = m.as_str();
+            if !module.starts_with("os")
+                && !module.starts_with("sys")
+                && !module.starts_with("json")
+            {
+                imports.insert(module.to_string());
             }
         }
 
@@ -203,13 +202,12 @@ fn extract_python_deps(content: &str) -> DepInfo {
             {
                 exports.push(name.to_string());
             }
-        } else if trimmed.starts_with("class ") {
-            if let Some(name) = trimmed
+        } else if trimmed.starts_with("class ")
+            && let Some(name) = trimmed
                 .strip_prefix("class ")
                 .and_then(|s| s.split(['(', ':']).next())
-            {
-                exports.push(name.to_string());
-            }
+        {
+            exports.push(name.to_string());
         }
     }
 
@@ -508,9 +506,10 @@ class Feature
 fun build(): Feature = Feature()
 ";
         let deps = extract_deps(content, "kt");
-        assert!(deps
-            .imports
-            .contains(&"com.example.services.UserService".to_string()));
+        assert!(
+            deps.imports
+                .contains(&"com.example.services.UserService".to_string())
+        );
         assert!(deps.imports.contains(&"com.example.shared.*".to_string()));
         assert!(deps.exports.contains(&"Feature".to_string()));
         assert!(deps.exports.contains(&"build".to_string()));

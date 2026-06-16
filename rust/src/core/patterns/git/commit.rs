@@ -171,10 +171,10 @@ pub(super) fn compress_fetch(output: &str) -> String {
     let mut new_branches = Vec::new();
     for line in trimmed.lines() {
         let l = line.trim();
-        if l.contains("[new branch]") || l.contains("[new tag]") {
-            if let Some(name) = l.split("->").last() {
-                new_branches.push(name.trim().to_string());
-            }
+        if (l.contains("[new branch]") || l.contains("[new tag]"))
+            && let Some(name) = l.split("->").last()
+        {
+            new_branches.push(name.trim().to_string());
         }
     }
 

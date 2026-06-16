@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
-    get_bool, get_int, get_str, require_resolved_path, McpTool, ToolContext, ToolOutput,
+    McpTool, ToolContext, ToolOutput, get_bool, get_int, get_str, require_resolved_path,
 };
 use crate::tool_defs::tool_def;
 
@@ -68,7 +68,9 @@ impl McpTool for CtxReadTool {
         })) {
             Ok(result) => result,
             Err(_) => Err(ErrorData::internal_error(
-                format!("ctx_read panicked while processing '{path}'. This is a bug — please report it."),
+                format!(
+                    "ctx_read panicked while processing '{path}'. This is a bug — please report it."
+                ),
                 None,
             )),
         }
@@ -196,27 +198,26 @@ impl CtxReadTool {
         }
         {
             let cap = crate::core::limits::max_read_bytes() as u64;
-            if let Ok(meta) = std::fs::metadata(path) {
-                if meta.len() > cap {
-                    let msg = format!(
-                        "File too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
+            if let Ok(meta) = std::fs::metadata(path)
+                && meta.len() > cap
+            {
+                let msg = format!(
+                    "File too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
                          Use mode=\"lines:1-100\" for partial reads or increase the limit.",
-                        meta.len(),
-                        cap
-                    );
-                    return Err(ErrorData::invalid_params(msg, None));
-                }
+                    meta.len(),
+                    cap
+                );
+                return Err(ErrorData::invalid_params(msg, None));
             }
         }
 
         // Compaction-aware: if host compacted since last check, reset delivery flags
         // so post-compaction reads deliver full content instead of stubs.
-        if !fresh {
-            if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
-                if let Ok(mut cache) = cache_lock.try_write() {
-                    crate::server::compaction_sync::sync_if_compacted(&mut cache, &data_dir);
-                }
-            }
+        if !fresh
+            && let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir()
+            && let Ok(mut cache) = cache_lock.try_write()
+        {
+            crate::server::compaction_sync::sync_if_compacted(&mut cache, &data_dir);
         }
 
         // Fast path: if both per-file lock and cache write-lock are immediately
@@ -238,23 +239,22 @@ impl CtxReadTool {
                 // unchanged file in full mode. Serve that stub under a *read*
                 // lock so parallel reads of distinct files run concurrently
                 // instead of serializing on the global write lock.
-                if !fresh && mode == "full" {
-                    if let Ok(cache) = cache_lock.try_read() {
-                        if let Some(read_output) =
-                            crate::tools::ctx_read::try_stub_hit_readonly(&cache, path)
-                        {
-                            let content = read_output.content;
-                            let rmode = read_output.resolved_mode;
-                            let orig = cache.get(path).map_or(0, |e| e.original_tokens);
-                            let hit = content.contains(" cached ")
-                                || content.contains("[unchanged")
-                                || content.contains("[delta:");
-                            let fref = cache.file_ref_map().get(path).cloned();
-                            let stats = cache.get_stats();
-                            let stats_snapshot = (stats.total_reads(), stats.cache_hits());
-                            break 'fast Some((content, rmode, orig, hit, fref, stats_snapshot));
-                        }
-                    }
+                if !fresh
+                    && mode == "full"
+                    && let Ok(cache) = cache_lock.try_read()
+                    && let Some(read_output) =
+                        crate::tools::ctx_read::try_stub_hit_readonly(&cache, path)
+                {
+                    let content = read_output.content;
+                    let rmode = read_output.resolved_mode;
+                    let orig = cache.get(path).map_or(0, |e| e.original_tokens);
+                    let hit = content.contains(" cached ")
+                        || content.contains("[unchanged")
+                        || content.contains("[delta:");
+                    let fref = cache.file_ref_map().get(path).cloned();
+                    let stats = cache.get_stats();
+                    let stats_snapshot = (stats.total_reads(), stats.cache_hits());
+                    break 'fast Some((content, rmode, orig, hit, fref, stats_snapshot));
                 }
 
                 // Phase 2 (write lock): cache miss, changed file, or non-stub
@@ -343,8 +343,14 @@ impl CtxReadTool {
                                     "ctx_read: cache write-lock timeout after 25s for {path_owned}"
                                 );
                                 let _ = tx.send((
-                                    format!("cache lock contention for {path_owned} — retry in a moment"),
-                                    "error".to_string(), 0, false, None, (0, 0),
+                                    format!(
+                                        "cache lock contention for {path_owned} — retry in a moment"
+                                    ),
+                                    "error".to_string(),
+                                    0,
+                                    false,
+                                    None,
+                                    (0, 0),
                                 ));
                                 return;
                             }
@@ -447,11 +453,10 @@ impl CtxReadTool {
                     .project_root
                     .as_deref()
                     .is_none_or(|r| r.trim().is_empty());
-                if root_missing {
-                    if let Some(root) = crate::core::protocol::detect_project_root(path) {
-                        session.project_root = Some(root.clone());
-                        ensured_root = Some(root);
-                    }
+                if root_missing && let Some(root) = crate::core::protocol::detect_project_root(path)
+                {
+                    session.project_root = Some(root.clone());
+                    ensured_root = Some(root);
                 }
                 project_root_snapshot = session
                     .project_root

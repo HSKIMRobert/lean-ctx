@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
 use lean_ctx::core::cache::SessionCache;
-use lean_ctx::tools::ctx_multi_read;
 use lean_ctx::tools::CrpMode;
+use lean_ctx::tools::ctx_multi_read;
 
 /// `LCTX_MAX_MULTI_READ_BYTES` is process-global, so tests that mutate it must
 /// not run concurrently or they clobber each other's value. Serialize them.
@@ -25,7 +25,8 @@ fn multi_read_respects_output_cap() {
     let _guard = ENV_GUARD
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "10000");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "10000") };
     let (_dir, paths) = setup_test_files(20, 5000);
 
     let mut cache = SessionCache::new();
@@ -40,7 +41,8 @@ fn multi_read_respects_output_cap() {
         output.contains("file(s) skipped"),
         "must report skipped files"
     );
-    std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES") };
 }
 
 #[test]
@@ -48,7 +50,8 @@ fn multi_read_no_cap_when_under_limit() {
     let _guard = ENV_GUARD
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "1000000");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "1000000") };
     let (_dir, paths) = setup_test_files(3, 100);
 
     let mut cache = SessionCache::new();
@@ -59,7 +62,8 @@ fn multi_read_no_cap_when_under_limit() {
         "should not cap when under limit"
     );
     assert!(output.contains("Read 3 files"), "should read all files");
-    std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES") };
 }
 
 #[test]
@@ -77,7 +81,8 @@ fn multi_read_single_large_file_passes() {
     let _guard = ENV_GUARD
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "100000");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LCTX_MAX_MULTI_READ_BYTES", "100000") };
     let (_dir, paths) = setup_test_files(1, 50000);
 
     let mut cache = SessionCache::new();
@@ -91,5 +96,6 @@ fn multi_read_single_large_file_passes() {
         !output.contains("Output capped"),
         "single file should not trigger cap"
     );
-    std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LCTX_MAX_MULTI_READ_BYTES") };
 }

@@ -49,7 +49,9 @@ fn is_quiet() -> bool {
 /// Mark this process as a hook child so the daemon-client never auto-starts
 /// the daemon from inside a hook (which would create zombie processes).
 pub fn mark_hook_environment() {
-    std::env::set_var("LEAN_CTX_HOOK_CHILD", "1");
+    // SAFETY: called once at hook-process startup (CLI dispatch), before any
+    // threads that read the environment are spawned.
+    unsafe { std::env::set_var("LEAN_CTX_HOOK_CHILD", "1") };
 }
 
 /// Arms a watchdog that force-exits the process after the given duration.

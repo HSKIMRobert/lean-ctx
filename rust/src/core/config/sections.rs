@@ -145,10 +145,10 @@ impl ArchiveConfig {
     }
 
     pub fn ephemeral_min_tokens_effective(&self) -> usize {
-        if let Ok(v) = std::env::var("LEAN_CTX_EPHEMERAL_MIN_TOKENS") {
-            if let Ok(n) = v.trim().parse::<usize>() {
-                return n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_EPHEMERAL_MIN_TOKENS")
+            && let Ok(n) = v.trim().parse::<usize>()
+        {
+            return n;
         }
         self.ephemeral_min_tokens
     }
@@ -298,10 +298,10 @@ impl UpdatesConfig {
         if let Ok(v) = std::env::var("LEAN_CTX_AUTO_UPDATE") {
             cfg.auto_update = v == "1" || v.eq_ignore_ascii_case("true");
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_UPDATE_INTERVAL_HOURS") {
-            if let Ok(h) = v.parse::<u64>() {
-                cfg.check_interval_hours = h.clamp(1, 168);
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_UPDATE_INTERVAL_HOURS")
+            && let Ok(h) = v.parse::<u64>()
+        {
+            cfg.check_interval_hours = h.clamp(1, 168);
         }
         if let Ok(v) = std::env::var("LEAN_CTX_UPDATE_NOTIFY_ONLY") {
             cfg.notify_only = v == "1" || v.eq_ignore_ascii_case("true");
@@ -314,10 +314,10 @@ impl AutonomyConfig {
     /// Creates an autonomy config from env vars, falling back to defaults.
     pub fn from_env() -> Self {
         let mut cfg = Self::default();
-        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY") {
-            if v == "false" || v == "0" {
-                cfg.enabled = false;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY")
+            && (v == "false" || v == "0")
+        {
+            cfg.enabled = false;
         }
         if let Ok(v) = std::env::var("LEAN_CTX_AUTO_PRELOAD") {
             cfg.auto_preload = v != "false" && v != "0";
@@ -334,33 +334,33 @@ impl AutonomyConfig {
         if let Ok(v) = std::env::var("LEAN_CTX_SILENT_PRELOAD") {
             cfg.silent_preload = v != "false" && v != "0";
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD") {
-            if let Ok(n) = v.parse() {
-                cfg.dedup_threshold = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD")
+            && let Ok(n) = v.parse()
+        {
+            cfg.dedup_threshold = n;
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_EVERY_CALLS") {
-            if let Ok(n) = v.parse() {
-                cfg.consolidate_every_calls = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_EVERY_CALLS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.consolidate_every_calls = n;
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_COOLDOWN_SECS") {
-            if let Ok(n) = v.parse() {
-                cfg.consolidate_cooldown_secs = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_CONSOLIDATE_COOLDOWN_SECS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.consolidate_cooldown_secs = n;
         }
         if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_ENABLED") {
             cfg.cognition_loop_enabled = v != "false" && v != "0";
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_INTERVAL_SECS") {
-            if let Ok(n) = v.parse() {
-                cfg.cognition_loop_interval_secs = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_INTERVAL_SECS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.cognition_loop_interval_secs = n;
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_MAX_STEPS") {
-            if let Ok(n) = v.parse() {
-                cfg.cognition_loop_max_steps = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_MAX_STEPS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.cognition_loop_max_steps = n;
         }
         cfg
     }
@@ -369,10 +369,10 @@ impl AutonomyConfig {
     pub fn load() -> Self {
         let file_cfg = Config::load().autonomy;
         let mut cfg = file_cfg;
-        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY") {
-            if v == "false" || v == "0" {
-                cfg.enabled = false;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_AUTONOMY")
+            && (v == "false" || v == "0")
+        {
+            cfg.enabled = false;
         }
         if let Ok(v) = std::env::var("LEAN_CTX_AUTO_PRELOAD") {
             cfg.auto_preload = v != "false" && v != "0";
@@ -386,23 +386,23 @@ impl AutonomyConfig {
         if let Ok(v) = std::env::var("LEAN_CTX_SILENT_PRELOAD") {
             cfg.silent_preload = v != "false" && v != "0";
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD") {
-            if let Ok(n) = v.parse() {
-                cfg.dedup_threshold = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_DEDUP_THRESHOLD")
+            && let Ok(n) = v.parse()
+        {
+            cfg.dedup_threshold = n;
         }
         if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_ENABLED") {
             cfg.cognition_loop_enabled = v != "false" && v != "0";
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_INTERVAL_SECS") {
-            if let Ok(n) = v.parse() {
-                cfg.cognition_loop_interval_secs = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_INTERVAL_SECS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.cognition_loop_interval_secs = n;
         }
-        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_MAX_STEPS") {
-            if let Ok(n) = v.parse() {
-                cfg.cognition_loop_max_steps = n;
-            }
+        if let Ok(v) = std::env::var("LEAN_CTX_COGNITION_LOOP_MAX_STEPS")
+            && let Ok(n) = v.parse()
+        {
+            cfg.cognition_loop_max_steps = n;
         }
         cfg
     }

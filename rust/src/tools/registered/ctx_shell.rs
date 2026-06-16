@@ -1,9 +1,9 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
-    get_bool, get_str, McpTool, ShellOutcome, ToolContext, ToolOutput,
+    McpTool, ShellOutcome, ToolContext, ToolOutput, get_bool, get_str,
 };
 use crate::tool_defs::tool_def;
 
@@ -116,11 +116,11 @@ impl McpTool for CtxShellTool {
                     .is_none_or(|r| r.trim().is_empty());
                 if root_missing {
                     let home = dirs::home_dir().map(|h| h.to_string_lossy().to_string());
-                    if let Some(root) = crate::core::protocol::detect_project_root(&effective_cwd) {
-                        if home.as_deref() != Some(root.as_str()) {
-                            session.project_root = Some(root.clone());
-                            crate::core::index_orchestrator::ensure_all_background(&root);
-                        }
+                    if let Some(root) = crate::core::protocol::detect_project_root(&effective_cwd)
+                        && home.as_deref() != Some(root.as_str())
+                    {
+                        session.project_root = Some(root.clone());
+                        crate::core::index_orchestrator::ensure_all_background(&root);
                     }
                 }
             }
@@ -191,7 +191,11 @@ impl McpTool for CtxShellTool {
                         if savings_pct > 70.0 && original > 100 =>
                     {
                         crate::shell::save_tee(&cmd_clone, &output)
-                            .map(|p| format!("\n[compressed {savings_pct:.0}%: full output at {p} if needed]"))
+                            .map(|p| {
+                                format!(
+                                    "\n[compressed {savings_pct:.0}%: full output at {p} if needed]"
+                                )
+                            })
                             .unwrap_or_default()
                     }
                     _ => {

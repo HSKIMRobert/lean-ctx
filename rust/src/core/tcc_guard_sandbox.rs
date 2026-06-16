@@ -77,17 +77,17 @@ fn sbpl_escape(s: &str) -> String {
 /// `KeepAlive` crash-loop). Otherwise returns the plain `[binary, args…]`: the
 /// binary always launches, with the path guards as the remaining safety layer.
 pub fn wrap_launchd_args(binary: &str, args: &[&str]) -> Vec<String> {
-    if let Some(profile) = tcc_deny_profile() {
-        if sandbox_exec_usable(&profile) {
-            let mut wrapped = vec![
-                SANDBOX_EXEC.to_string(),
-                "-p".to_string(),
-                profile,
-                binary.to_string(),
-            ];
-            wrapped.extend(args.iter().map(|a| (*a).to_string()));
-            return wrapped;
-        }
+    if let Some(profile) = tcc_deny_profile()
+        && sandbox_exec_usable(&profile)
+    {
+        let mut wrapped = vec![
+            SANDBOX_EXEC.to_string(),
+            "-p".to_string(),
+            profile,
+            binary.to_string(),
+        ];
+        wrapped.extend(args.iter().map(|a| (*a).to_string()));
+        return wrapped;
     }
     unwrapped_args(binary, args)
 }

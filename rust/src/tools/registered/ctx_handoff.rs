@@ -1,9 +1,9 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
-    get_bool, get_str, get_str_array, McpTool, ToolContext, ToolOutput,
+    McpTool, ToolContext, ToolOutput, get_bool, get_str, get_str_array,
 };
 use crate::tool_defs::tool_def;
 
@@ -393,18 +393,16 @@ fn handle_pull(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String, E
     let apply_session = get_bool(args, "apply_session").unwrap_or(true);
     let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
 
-    if apply_workflow {
-        if let Some(wf_lock) = ctx.workflow.as_ref() {
-            let mut wf = wf_lock.blocking_write();
-            if ledger
-                .workflow
-                .as_ref()
-                .is_some_and(|r| r.current == "done")
-            {
-                *wf = None;
-            } else {
-                wf.clone_from(&ledger.workflow);
-            }
+    if apply_workflow && let Some(wf_lock) = ctx.workflow.as_ref() {
+        let mut wf = wf_lock.blocking_write();
+        if ledger
+            .workflow
+            .as_ref()
+            .is_some_and(|r| r.current == "done")
+        {
+            *wf = None;
+        } else {
+            wf.clone_from(&ledger.workflow);
         }
     }
 
@@ -544,18 +542,16 @@ fn handle_import(args: &Map<String, Value>, ctx: &ToolContext) -> Result<String,
     let apply_session = get_bool(args, "apply_session").unwrap_or(true);
     let apply_knowledge = get_bool(args, "apply_knowledge").unwrap_or(true);
 
-    if apply_workflow {
-        if let Some(wf_lock) = ctx.workflow.as_ref() {
-            let mut wf = wf_lock.blocking_write();
-            if ledger
-                .workflow
-                .as_ref()
-                .is_some_and(|r| r.current == "done")
-            {
-                *wf = None;
-            } else {
-                wf.clone_from(&ledger.workflow);
-            }
+    if apply_workflow && let Some(wf_lock) = ctx.workflow.as_ref() {
+        let mut wf = wf_lock.blocking_write();
+        if ledger
+            .workflow
+            .as_ref()
+            .is_some_and(|r| r.current == "done")
+        {
+            *wf = None;
+        } else {
+            wf.clone_from(&ledger.workflow);
         }
     }
 

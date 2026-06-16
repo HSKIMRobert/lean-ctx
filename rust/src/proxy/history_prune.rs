@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::core::config::HistoryMode;
 
-use super::tool_kind::{classify_tool_name, should_protect, ToolResultKind};
+use super::tool_kind::{ToolResultKind, classify_tool_name, should_protect};
 
 /// Minimum number of messages at the tail that are never pruned in
 /// cache-aware mode. The boundary staircase keeps between `KEEP_MIN` and
@@ -86,12 +86,12 @@ pub fn prune_history(
                     .and_then(|v| v.as_str())
                     .and_then(|id| tool_names.get(id))
                     .map_or(ToolResultKind::Other, |n| classify_tool_name(n));
-                if let Some(content) = msg.get("content").and_then(|c| c.as_str()) {
-                    if content.len() > 200 {
-                        let summary = summarize_or_stub(content, kind);
-                        msg["content"] = Value::String(summary);
-                        modified = true;
-                    }
+                if let Some(content) = msg.get("content").and_then(|c| c.as_str())
+                    && content.len() > 200
+                {
+                    let summary = summarize_or_stub(content, kind);
+                    msg["content"] = Value::String(summary);
+                    modified = true;
                 }
             }
             _ => {}
@@ -114,13 +114,12 @@ fn summarize_anthropic_tool_result(block: &mut Value, kind: ToolResultKind) -> b
             }
             Value::Array(arr) => {
                 for item in arr.iter_mut() {
-                    if item.get("type").and_then(|t| t.as_str()) == Some("text") {
-                        if let Some(Value::String(s)) = item.get_mut("text") {
-                            if s.len() > 200 {
-                                *s = summarize_or_stub(s, kind);
-                                modified = true;
-                            }
-                        }
+                    if item.get("type").and_then(|t| t.as_str()) == Some("text")
+                        && let Some(Value::String(s)) = item.get_mut("text")
+                        && s.len() > 200
+                    {
+                        *s = summarize_or_stub(s, kind);
+                        modified = true;
                     }
                 }
             }
@@ -313,10 +312,12 @@ mod tests {
         let block = &messages[0]["content"][0];
         assert_eq!(block["cache_control"]["type"], "ephemeral");
         assert_eq!(block["content"][0]["cache_control"]["type"], "ephemeral");
-        assert!(block["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("pruned by lean-ctx"));
+        assert!(
+            block["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("pruned by lean-ctx")
+        );
     }
 
     #[test]

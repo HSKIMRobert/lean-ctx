@@ -433,7 +433,7 @@ mod tests {
     fn reset_removes_index_file() {
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(
+        crate::test_env::set_var(
             "LEAN_CTX_DATA_DIR",
             tmp.path().to_string_lossy().to_string(),
         );
@@ -453,7 +453,7 @@ mod tests {
         reset("projhash").expect("reset");
         assert!(KnowledgeEmbeddingIndex::load("projhash").is_none());
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
@@ -466,7 +466,7 @@ mod tests {
         // is needed) and asserts every concurrently-stored embedding survives.
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
-        std::env::set_var(
+        crate::test_env::set_var(
             "LEAN_CTX_DATA_DIR",
             tmp.path().to_string_lossy().to_string(),
         );
@@ -517,7 +517,7 @@ mod tests {
             idx.entries.len()
         );
 
-        std::env::remove_var("LEAN_CTX_DATA_DIR");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]

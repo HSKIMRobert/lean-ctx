@@ -185,19 +185,19 @@ pub fn compute_relevance_from_intent(
             "java" => Some("java"),
             _ => None,
         };
-        if let Some(ext) = lang_ext {
-            if file_seeds.is_empty() {
-                for path in &file_paths {
-                    if path.ends_with(&format!(".{ext}")) {
-                        extra_keywords.push(
-                            std::path::Path::new(path)
-                                .file_stem()
-                                .and_then(|s| s.to_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        );
-                        break;
-                    }
+        if let Some(ext) = lang_ext
+            && file_seeds.is_empty()
+        {
+            for path in &file_paths {
+                if path.ends_with(&format!(".{ext}")) {
+                    extra_keywords.push(
+                        std::path::Path::new(path)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    );
+                    break;
                 }
             }
         }
@@ -237,15 +237,14 @@ fn resolve_symbol_to_files(gp: &GraphProvider, symbol: &str) -> Vec<String> {
     if matches.is_empty() {
         let sym_lower = symbol.to_lowercase();
         for path in gp.file_paths() {
-            if let Some(entry) = gp.get_file_entry(&path) {
-                if entry
+            if let Some(entry) = gp.get_file_entry(&path)
+                && entry
                     .exports
                     .iter()
                     .any(|e| e.to_lowercase().contains(&sym_lower))
-                    && !matches.contains(&path)
-                {
-                    matches.push(path);
-                }
+                && !matches.contains(&path)
+            {
+                matches.push(path);
             }
         }
     }
@@ -790,9 +789,11 @@ mod tests {
         let (files, keywords) =
             parse_task_hints("Fix the authentication bug in src/auth.rs and update tests");
         assert!(files.iter().any(|f| f.contains("auth.rs")));
-        assert!(keywords
-            .iter()
-            .any(|k| k.to_lowercase().contains("authentication")));
+        assert!(
+            keywords
+                .iter()
+                .any(|k| k.to_lowercase().contains("authentication"))
+        );
     }
 
     #[test]

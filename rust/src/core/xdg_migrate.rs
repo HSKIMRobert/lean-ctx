@@ -659,8 +659,8 @@ mod tests {
                 .collect();
             for (k, v) in pairs {
                 match v {
-                    Some(p) => std::env::set_var(k, p),
-                    None => std::env::remove_var(k),
+                    Some(p) => crate::test_env::set_var(k, p),
+                    None => crate::test_env::remove_var(k),
                 }
             }
             EnvVars(saved)
@@ -672,8 +672,8 @@ mod tests {
         fn drop(&mut self) {
             for (k, v) in &self.0 {
                 match v {
-                    Some(val) => std::env::set_var(k, val),
-                    None => std::env::remove_var(k),
+                    Some(val) => crate::test_env::set_var(k, val),
+                    None => crate::test_env::remove_var(k),
                 }
             }
         }

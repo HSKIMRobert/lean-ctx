@@ -121,10 +121,10 @@ pub fn format_cep_report() -> String {
         );
     }
 
-    if cep.sessions == 0 {
-        if let Some(ref lv) = live {
-            return format_cep_live(lv, &theme);
-        }
+    if cep.sessions == 0
+        && let Some(ref lv) = live
+    {
+        return format_cep_live(lv, &theme);
     }
 
     let total_saved = cep

@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rmcp::{
     model::{
         CallToolRequest, CallToolRequestParams, CallToolResult, ClientJsonRpcMessage,
         ClientRequest, JsonRpcRequest, NumberOrString, ServerJsonRpcMessage, ServerResult,
     },
-    service::serve_directly,
     service::RoleServer,
+    service::serve_directly,
     transport::OneshotTransport,
 };
 use serde_json::{Map, Value};
@@ -70,7 +70,7 @@ impl ContextEngine {
             Some(other) => {
                 return Err(anyhow!(
                     "tool arguments must be a JSON object (got {other})"
-                ))
+                ));
             }
         };
 
@@ -111,10 +111,10 @@ impl ContextEngine {
                 out.push_str(&t.text);
             }
         }
-        if out.is_empty() {
-            if let Some(v) = result.structured_content {
-                out = v.to_string();
-            }
+        if out.is_empty()
+            && let Some(v) = result.structured_content
+        {
+            out = v.to_string();
         }
         Ok(out)
     }

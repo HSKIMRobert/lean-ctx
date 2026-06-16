@@ -44,11 +44,14 @@ fn claude_mcp_add_json_used_when_available() {
     }
 
     let old_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", &home);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("HOME", &home) };
     let old_path = std::env::var("PATH").unwrap_or_default();
     let new_path = format!("{}:{}", bin_dir.to_string_lossy(), old_path);
-    std::env::set_var("PATH", new_path);
-    std::env::set_var("LEAN_CTX_TRUST_CLAUDE_PATH", "1");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("PATH", new_path) };
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("LEAN_CTX_TRUST_CLAUDE_PATH", "1") };
 
     let targets = lean_ctx::core::editor_registry::detect::build_targets(&home);
     let claude_target = targets
@@ -73,9 +76,12 @@ fn claude_mcp_add_json_used_when_available() {
     assert!(v.get("command").is_some(), "must be server entry json");
 
     // Restore env
-    std::env::remove_var("LEAN_CTX_TRUST_CLAUDE_PATH");
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::remove_var("LEAN_CTX_TRUST_CLAUDE_PATH") };
     if let Some(h) = old_home {
-        std::env::set_var("HOME", h);
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe { std::env::set_var("HOME", h) };
     }
-    std::env::set_var("PATH", old_path);
+    // TODO: Audit that the environment access only happens in single-threaded code.
+    unsafe { std::env::set_var("PATH", old_path) };
 }

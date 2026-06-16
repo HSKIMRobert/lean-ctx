@@ -25,11 +25,11 @@ fn apply_harden(level: &str) {
         applied.push("Set LEAN_CTX_HARDEN=1 in MCP configs");
     }
 
-    if level == "hard" {
-        if let Some(msg) = apply_claude_permissions_deny() {
-            applied.push("Claude Code: added Bash to permissions.deny");
-            println!("  {msg}");
-        }
+    if level == "hard"
+        && let Some(msg) = apply_claude_permissions_deny()
+    {
+        applied.push("Claude Code: added Bash to permissions.deny");
+        println!("  {msg}");
     }
 
     if applied.is_empty() {
@@ -60,34 +60,33 @@ fn set_env_in_mcp_configs() -> bool {
     let mut any_set = false;
 
     for path in targets {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
-                if let Some(servers) = find_lean_ctx_server_mut(&mut json) {
-                    let env = servers
-                        .as_object_mut()
-                        .and_then(|s| s.get_mut("env"))
-                        .and_then(|e| e.as_object_mut());
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content)
+            && let Some(servers) = find_lean_ctx_server_mut(&mut json)
+        {
+            let env = servers
+                .as_object_mut()
+                .and_then(|s| s.get_mut("env"))
+                .and_then(|e| e.as_object_mut());
 
-                    if let Some(env_map) = env {
-                        env_map.insert(
-                            "LEAN_CTX_HARDEN".to_string(),
-                            serde_json::Value::String("1".to_string()),
-                        );
-                    } else if let Some(server_obj) = servers.as_object_mut() {
-                        let mut env_map = serde_json::Map::new();
-                        env_map.insert(
-                            "LEAN_CTX_HARDEN".to_string(),
-                            serde_json::Value::String("1".to_string()),
-                        );
-                        server_obj.insert("env".to_string(), serde_json::Value::Object(env_map));
-                    }
+            if let Some(env_map) = env {
+                env_map.insert(
+                    "LEAN_CTX_HARDEN".to_string(),
+                    serde_json::Value::String("1".to_string()),
+                );
+            } else if let Some(server_obj) = servers.as_object_mut() {
+                let mut env_map = serde_json::Map::new();
+                env_map.insert(
+                    "LEAN_CTX_HARDEN".to_string(),
+                    serde_json::Value::String("1".to_string()),
+                );
+                server_obj.insert("env".to_string(), serde_json::Value::Object(env_map));
+            }
 
-                    if let Ok(out) = serde_json::to_string_pretty(&json) {
-                        let _ = std::fs::write(&path, out);
-                        any_set = true;
-                        println!("  [OK] {}", path.display());
-                    }
-                }
+            if let Ok(out) = serde_json::to_string_pretty(&json) {
+                let _ = std::fs::write(&path, out);
+                any_set = true;
+                println!("  [OK] {}", path.display());
             }
         }
     }
@@ -96,20 +95,17 @@ fn set_env_in_mcp_configs() -> bool {
 
 fn remove_env_from_mcp_configs() {
     for path in discover_mcp_configs() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content) {
-                if let Some(servers) = find_lean_ctx_server_mut(&mut json) {
-                    if let Some(env) = servers
-                        .as_object_mut()
-                        .and_then(|s| s.get_mut("env"))
-                        .and_then(|e| e.as_object_mut())
-                    {
-                        env.remove("LEAN_CTX_HARDEN");
-                        if let Ok(out) = serde_json::to_string_pretty(&json) {
-                            let _ = std::fs::write(&path, out);
-                        }
-                    }
-                }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(mut json) = crate::core::jsonc::parse_jsonc(&content)
+            && let Some(servers) = find_lean_ctx_server_mut(&mut json)
+            && let Some(env) = servers
+                .as_object_mut()
+                .and_then(|s| s.get_mut("env"))
+                .and_then(|e| e.as_object_mut())
+        {
+            env.remove("LEAN_CTX_HARDEN");
+            if let Ok(out) = serde_json::to_string_pretty(&json) {
+                let _ = std::fs::write(&path, out);
             }
         }
     }
@@ -194,10 +190,10 @@ fn discover_mcp_configs() -> Vec<PathBuf> {
 }
 
 fn find_lean_ctx_server_mut(json: &mut serde_json::Value) -> Option<&mut serde_json::Value> {
-    if let Some(servers) = json.get_mut("mcpServers") {
-        if let Some(lctx) = servers.get_mut("lean-ctx") {
-            return Some(lctx);
-        }
+    if let Some(servers) = json.get_mut("mcpServers")
+        && let Some(lctx) = servers.get_mut("lean-ctx")
+    {
+        return Some(lctx);
     }
     None
 }

@@ -118,12 +118,12 @@ pub fn reciprocal_rank_fusion(
         entry.dense_rank = Some(rank + 1);
     }
 
-    if let Some(gr) = graph_file_ranks {
-        if !gr.is_empty() {
-            for entry in scores.values_mut() {
-                if let Some(&rank) = gr.get(&entry.file_path) {
-                    entry.rrf_score += 1.0 / (RRF_K + rank as f64 + 1.0);
-                }
+    if let Some(gr) = graph_file_ranks
+        && !gr.is_empty()
+    {
+        for entry in scores.values_mut() {
+            if let Some(&rank) = gr.get(&entry.file_path) {
+                entry.rrf_score += 1.0 / (RRF_K + rank as f64 + 1.0);
             }
         }
     }

@@ -40,7 +40,9 @@ fn decode_windows_output(bytes: &[u8]) -> String {
         return lossy.into_owned();
     }
 
-    extern "system" {
+    // SAFETY: declares Win32 API symbols that exist in kernel32; signatures
+    // match the documented ABI.
+    unsafe extern "system" {
         fn GetACP() -> u32;
         fn MultiByteToWideChar(
             cp: u32,
@@ -92,7 +94,9 @@ fn decode_windows_output(bytes: &[u8]) -> String {
 
 #[cfg(windows)]
 pub(super) fn set_console_utf8() {
-    extern "system" {
+    // SAFETY: declares a Win32 API symbol that exists in kernel32; the
+    // signature matches the documented ABI.
+    unsafe extern "system" {
         fn SetConsoleOutputCP(id: u32) -> i32;
     }
     // SAFETY: `SetConsoleOutputCP` takes a code-page id (65001 = UTF-8) by
@@ -109,15 +113,15 @@ pub fn is_container() -> bool {
         if std::path::Path::new("/.dockerenv").exists() {
             return true;
         }
-        if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup") {
-            if cgroup.contains("/docker/") || cgroup.contains("/lxc/") {
-                return true;
-            }
+        if let Ok(cgroup) = std::fs::read_to_string("/proc/1/cgroup")
+            && (cgroup.contains("/docker/") || cgroup.contains("/lxc/"))
+        {
+            return true;
         }
-        if let Ok(mounts) = std::fs::read_to_string("/proc/self/mountinfo") {
-            if mounts.contains("/docker/containers/") {
-                return true;
-            }
+        if let Ok(mounts) = std::fs::read_to_string("/proc/self/mountinfo")
+            && mounts.contains("/docker/containers/")
+        {
+            return true;
         }
         false
     }

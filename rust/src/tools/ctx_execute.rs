@@ -46,7 +46,7 @@ pub fn handle_file(
             return (
                 format!("Error reading {path_str}: {e}"),
                 ShellOutcome::Blocked,
-            )
+            );
         }
     };
     if meta.len() > cap as u64 {
@@ -64,7 +64,7 @@ pub fn handle_file(
             return (
                 format!("Error reading {path_str}: {e}"),
                 ShellOutcome::Blocked,
-            )
+            );
         }
     };
 
@@ -123,10 +123,10 @@ fn format_result(result: &SandboxResult, intent: Option<&str>) -> String {
             let raw_tokens = count_tokens(stdout);
             parts.push(stdout.to_string());
 
-            if let Some(intent_desc) = intent {
-                if raw_tokens > 50 {
-                    parts.push(format!("[intent: {intent_desc}]"));
-                }
+            if let Some(intent_desc) = intent
+                && raw_tokens > 50
+            {
+                parts.push(format!("[intent: {intent_desc}]"));
             }
         }
     } else {

@@ -1,8 +1,8 @@
-use rmcp::model::Tool;
 use rmcp::ErrorData;
-use serde_json::{json, Map, Value};
+use rmcp::model::Tool;
+use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{get_bool, get_int, get_str, McpTool, ToolContext, ToolOutput};
+use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_bool, get_int, get_str};
 use crate::tool_defs::tool_def;
 
 pub struct CtxGlobTool;
@@ -47,10 +47,10 @@ impl McpTool for CtxGlobTool {
         let max = (get_int(args, "max_results").unwrap_or(200) as usize).min(500);
         let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
 
-        if no_gitignore {
-            if let Err(e) = crate::core::io_boundary::ensure_ignore_gitignore_allowed("ctx_glob") {
-                return Ok(ToolOutput::simple(e));
-            }
+        if no_gitignore
+            && let Err(e) = crate::core::io_boundary::ensure_ignore_gitignore_allowed("ctx_glob")
+        {
+            return Ok(ToolOutput::simple(e));
         }
 
         let respect = !no_gitignore;
