@@ -34,6 +34,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `ctx_*` tool is still registered dynamically. Thanks @omar-mohamed-khallaf.
 
 ### Fixed
+- **Impact graph self-heals after an upgrade so C# same-namespace edges apply (#398)** —
+  the v3.8.3 fix added `type_ref` edges for C#/Java types consumed without a
+  `using`/import (same-namespace/package visibility), but those edges only exist
+  in a freshly built graph. `ctx_impact` rebuilt the property graph only when it
+  was *completely empty*, so after upgrading, an existing graph (built before the
+  edges existed) was served unchanged — leaving the consumed class a
+  false-negative leaf that reported "no impact". The property graph now records
+  the engine generation that produced it (`engine_version` + `built_with` in
+  `graph.meta.json`), and `ctx_impact analyze`/`diff`/`chain` detect a graph
+  built by an older engine and transparently rebuild it once before querying.
+  Combined with the XDG resolver fixes (#436/#439) — which keep the graph and
+  `config.toml` in a single stable location — a stale or misplaced graph can no
+  longer mask the real blast radius. Thanks @nigeldun.
 - **Direct writers stop re-creating `~/.lean-ctx` after migration (#439)** — the
   resolver fix (#436) flips the *data tree* to XDG, but several feature-specific
   writers still hard-coded `~/.lean-ctx` and re-created it post-split regardless
