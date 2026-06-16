@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.8.8] — 2026-06-16
 
 ### Added
 - **R2 benchmark faithful-arm preflight (#361)** — `bench/agent-task/r2/preflight.mjs`
@@ -13,20 +13,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `102 native bash / 0 ctx_shell`. The shell-suppression decision is now the
   single, unit-tested invariant `resolveSuppressedBuiltins`
   (`packages/pi-lean-ctx`), so the routing fix can never silently regress.
+- **Proxy accepts a trusted non-loopback HTTP upstream behind an opt-in (#440)** —
+  Codex and other clients that sit in front of the proxy need to point it at an
+  upstream like `http://host.docker.internal:2455`, but `validate_upstream_url`
+  rejected every non-loopback `http://` URL with a misleading "must use HTTPS"
+  error and no escape hatch. A trusted plaintext upstream is now allowed via
+  `LEAN_CTX_ALLOW_INSECURE_HTTP_UPSTREAM=1` or
+  `[proxy] allow_insecure_http_upstream = true`; the startup banner and `doctor`
+  flag the plaintext hop so it stays a conscious choice. Documented end-to-end in
+  `docs/reference/05-advanced.md`, including the `supports_websockets = false`
+  Codex HTTP/SSE setup (a bridge until native WebSocket `/responses` lands).
+
+### Changed
+- **OpenCode plugin no longer double-registers the built-in overrides (#441)** —
+  the plugin exposed `ctx_read`/`ctx_search`/`ctx_glob`/`ctx_edit`/`ctx_shell`
+  both as static replacements of the native `read`/`grep`/`glob`/`edit`/`bash`
+  tools and again under their `ctx_*` names via dynamic MCP registration, so the
+  model saw two copies of each and paid for the duplicate schemas. The five
+  already-overridden tools are now filtered out of the dynamic set; every other
+  `ctx_*` tool is still registered dynamically. Thanks @omar-mohamed-khallaf.
 
 ### Fixed
 - **Direct writers stop re-creating `~/.lean-ctx` after migration (#439)** — the
-  resolver fix (#436) flips the *data tree* to XDG, but a few feature-specific
+  resolver fix (#436) flips the *data tree* to XDG, but several feature-specific
   writers still hard-coded `~/.lean-ctx` and re-created it post-split regardless
   of where the resolver pointed: multi-agent `shared_knowledge.json`
-  (`core::agents`), Jira OAuth credentials (`core::providers::jira_oauth`) and the
-  personal-cloud cache/knowledge readers (`cloud_client` / `cloud_sync`). All now
-  route through the typed `data_dir()` resolver — the same category `doctor --fix`
-  migrates them to — so a post-migration session reads and writes the XDG data
-  dir. The legacy-path firewall (`rust/tests`) was tightened to also catch the
-  multi-line `dirs::home_dir()…join(".lean-ctx")` chains it previously missed, so
-  the tracked-debt allowlist can only shrink. (The background auto-updater's log
-  path is the remaining hard-coded writer, tracked by the firewall.)
+  (`core::agents`), Jira OAuth credentials (`core::providers::jira_oauth`), the
+  personal-cloud cache/knowledge readers (`cloud_client` / `cloud_sync`), the
+  LaunchAgent proxy logs and scheduled-update logs (`proxy_autostart` /
+  `update_scheduler`), the A2A task store (`core::a2a::task`) and the cloud
+  `mode_stats` reader (`cli::cloud`). All now route through the typed
+  `data_dir()` / `state_dir()` resolvers — the same categories `doctor --fix`
+  migrates them to — so a post-migration session reads and writes the XDG dirs,
+  while legacy single-dir installs still resolve in place. The source-level
+  legacy-path firewall (`rust/tests`) was tightened to catch both the multi-line
+  `dirs::home_dir()…join(".lean-ctx")` chains and the `join(".lean-ctx/…")`
+  subpath form it previously missed, so the tracked-debt allowlist can only shrink.
+- **`doctor` shows `~` instead of the absolute home path (#437)** — dozens of
+  checks printed the full `/Users/<name>/…` (or `/home/<name>/…`) path, leaking
+  the username and adding noise. Two chokepoint helpers in `doctor/common.rs`
+  (`tildify_home` for formatted lines, `display_user_path` for raw paths, with
+  component-boundary safety so a sibling like `…/<name>-backup` is never mangled)
+  collapse the home dir back to `~` at the central output sinks, so `doctor` and
+  `doctor integrations` no longer print an absolute home path.
 - **Data dir no longer re-adopts a marker-free `~/.lean-ctx` (#436)** — the data
   resolver returned the legacy `~/.lean-ctx` whenever that directory merely
   *existed*, even after `doctor --fix` had moved every data marker to the XDG
