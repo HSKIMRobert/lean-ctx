@@ -35,8 +35,6 @@ const ALLOWLIST: &[&str] = &[
     "doctor/common.rs",
     // Group 2: pre-existing direct home-writers/readers (tracked debt).
     "report.rs",
-    "cloud_client.rs",
-    "cloud_sync.rs",
     "core/slo.rs",
     "core/update_scheduler.rs",
     "core/context_package/keys.rs",
@@ -63,16 +61,31 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// A line builds the HOME legacy dir when it joins `".lean-ctx"` and a `home`
-/// token appears *before* that join (covers `home.join(".lean-ctx")`,
-/// `dirs::home_dir()…join(".lean-ctx")`, `PathBuf::from(home).join(".lean-ctx")`).
-/// Project-local joins (`project_root`, `root`, `cwd`, `dir`) have no home token
-/// and are ignored by design.
-fn builds_home_legacy_path(line: &str) -> bool {
-    match line.find(r#"join(".lean-ctx")"#) {
-        Some(idx) => line[..idx].contains("home"),
-        None => false,
+/// True when the file builds the HOME legacy dir `~/.lean-ctx` directly: some
+/// `join(".lean-ctx")` is rooted at a `home` token (`home.join(".lean-ctx")`,
+/// `dirs::home_dir()…join(".lean-ctx")`, `resolve_home_dir()…join(".lean-ctx")`).
+///
+/// The scan spans lines on purpose — the join is frequently chained on its own
+/// line below `dirs::home_dir()`, which the earlier line-by-line check missed
+/// (it under-counted real writers like `core::agents`). A bounded, char-boundary
+/// safe look-back keeps project-local roots (`project_root`, `root`, `cwd`,
+/// `dir`) — which carry no `home` token — out of scope by design.
+fn builds_home_legacy_path(text: &str) -> bool {
+    const NEEDLE: &str = r#"join(".lean-ctx")"#;
+    const LOOKBACK: usize = 160;
+    let mut search_from = 0;
+    while let Some(rel) = text[search_from..].find(NEEDLE) {
+        let idx = search_from + rel;
+        let mut start = idx.saturating_sub(LOOKBACK);
+        while start > 0 && !text.is_char_boundary(start) {
+            start -= 1;
+        }
+        if text[start..idx].contains("home") {
+            return true;
+        }
+        search_from = idx + NEEDLE.len();
     }
+    false
 }
 
 #[test]
@@ -87,7 +100,7 @@ fn no_new_home_legacy_path_construction() {
         let Ok(text) = std::fs::read_to_string(file) else {
             continue;
         };
-        if text.lines().any(builds_home_legacy_path) {
+        if builds_home_legacy_path(&text) {
             let rel = file
                 .strip_prefix(&src)
                 .unwrap()

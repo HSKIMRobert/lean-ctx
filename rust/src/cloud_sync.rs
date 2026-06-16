@@ -311,10 +311,10 @@ pub fn build_sync_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_j
 // (GL #384): pure local reads, no network, no stdout.
 
 pub fn collect_knowledge_entries() -> Vec<serde_json::Value> {
-    let Some(home) = dirs::home_dir() else {
+    let Ok(data_dir) = crate::core::paths::data_dir() else {
         return Vec::new();
     };
-    let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+    let knowledge_dir = data_dir.join("knowledge");
     if !knowledge_dir.is_dir() {
         return Vec::new();
     }
@@ -433,8 +433,7 @@ pub fn collect_cep_entries(store: &crate::core::stats::StatsStore) -> Vec<serde_
 pub fn collect_gotcha_entries() -> Vec<serde_json::Value> {
     let mut all_gotchas = crate::core::gotcha_tracker::load_universal_gotchas();
 
-    if let Some(home) = dirs::home_dir() {
-        let knowledge_dir = home.join(".lean-ctx").join("knowledge");
+    if let Ok(knowledge_dir) = crate::core::paths::data_dir().map(|d| d.join("knowledge")) {
         if let Ok(entries) = std::fs::read_dir(&knowledge_dir) {
             for entry in entries.flatten() {
                 let gotcha_path = entry.path().join("gotchas.json");
@@ -495,10 +494,8 @@ pub fn collect_feedback_entries() -> Vec<serde_json::Value> {
 pub fn collect_contribute_entries() -> Vec<serde_json::Value> {
     let mut entries = Vec::new();
 
-    if let Some(home) = dirs::home_dir() {
-        let mode_stats_path = crate::core::data_dir::lean_ctx_data_dir()
-            .unwrap_or_else(|_| home.join(".lean-ctx"))
-            .join("mode_stats.json");
+    if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
+        let mode_stats_path = data_dir.join("mode_stats.json");
         if let Ok(data) = std::fs::read_to_string(&mode_stats_path) {
             if let Ok(predictor) = serde_json::from_str::<serde_json::Value>(&data) {
                 if let Some(history) = predictor["history"].as_object() {

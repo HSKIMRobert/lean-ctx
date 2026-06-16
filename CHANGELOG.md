@@ -15,6 +15,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (`packages/pi-lean-ctx`), so the routing fix can never silently regress.
 
 ### Fixed
+- **Direct writers stop re-creating `~/.lean-ctx` after migration (#439)** — the
+  resolver fix (#436) flips the *data tree* to XDG, but a few feature-specific
+  writers still hard-coded `~/.lean-ctx` and re-created it post-split regardless
+  of where the resolver pointed: multi-agent `shared_knowledge.json`
+  (`core::agents`), Jira OAuth credentials (`core::providers::jira_oauth`) and the
+  personal-cloud cache/knowledge readers (`cloud_client` / `cloud_sync`). All now
+  route through the typed `data_dir()` resolver — the same category `doctor --fix`
+  migrates them to — so a post-migration session reads and writes the XDG data
+  dir. The legacy-path firewall (`rust/tests`) was tightened to also catch the
+  multi-line `dirs::home_dir()…join(".lean-ctx")` chains it previously missed, so
+  the tracked-debt allowlist can only shrink. (The background auto-updater's log
+  path is the remaining hard-coded writer, tracked by the firewall.)
 - **Data dir no longer re-adopts a marker-free `~/.lean-ctx` (#436)** — the data
   resolver returned the legacy `~/.lean-ctx` whenever that directory merely
   *existed*, even after `doctor --fix` had moved every data marker to the XDG
