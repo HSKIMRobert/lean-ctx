@@ -29,6 +29,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   the cache. Per-message tool-result compression is unchanged (it is
   content-deterministic and prefix-stable), and requests without `cache_control`
   (e.g. OpenAI) are byte-for-byte unaffected.
+- **`ctx_retrieve` / `ctx_share` no longer serve stale cached content** — both
+  paths returned the *cached* full content for a file (`get_full_content`) with
+  **no staleness check**, so an agent that retrieved a file — or received one via
+  a cross-agent `ctx_share` handover — could be handed a version that no longer
+  matched disk if the file had been edited since it was first read. This is the
+  classic handover failure: agent A edits a handover file, agent B reads the
+  pre-edit cached copy and "does not see the changes". `ctx_read` was already
+  safe (it revalidates by mtime **and** content hash and re-reads on any
+  mismatch); the two retrieve/share accessors bypassed that guard. Both now go
+  through a new staleness-safe accessor (`SessionCache::current_full_content`)
+  that validates the cached entry against disk (mtime + hash) and transparently
+  re-reads the current bytes when the cache is behind the file, so a retrieve or
+  handover always reflects the latest content.
 
 ## [3.8.8] — 2026-06-17
 

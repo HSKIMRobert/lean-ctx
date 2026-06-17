@@ -59,8 +59,11 @@ impl McpTool for CtxRetrieveTool {
                 "[retrieve unavailable — cache busy, retry]".to_string(),
             ));
         };
-        let result = match guard.get_full_content(&resolved) {
-            Some(full) => {
+        // `current_full_content` revalidates against disk and re-reads when the
+        // cached copy is stale, so CCR can never hand back a version that no
+        // longer matches the file (e.g. a handover file edited between agents).
+        let result = match guard.current_full_content(&resolved) {
+            Some((full, _tokens)) => {
                 if let Some(ref q) = query {
                     ccr_search_within(&full, q)
                 } else {

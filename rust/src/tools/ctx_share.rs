@@ -66,18 +66,23 @@ fn handle_push(
     let mut not_found = Vec::new();
 
     for path in &path_list {
-        if let Some(entry) = cache.get(path) {
-            if let Some(content) = entry.content() {
-                shared_files.push(SharedFile {
-                    path: entry.path.clone(),
-                    content,
-                    mode: "full".to_string(),
-                    tokens: entry.original_tokens,
-                });
-            }
-        } else {
+        // Revalidate against disk before handing the file to another agent: a
+        // stale cached copy would silently pass an outdated handover file to the
+        // receiving agent. `current_full_content` re-reads when the cache is
+        // behind disk, so the receiver always gets the current content.
+        let Some((content, tokens)) = cache.current_full_content(path) else {
             not_found.push(*path);
-        }
+            continue;
+        };
+        let canonical = cache
+            .get(path)
+            .map_or_else(|| (*path).to_string(), |entry| entry.path.clone());
+        shared_files.push(SharedFile {
+            path: canonical,
+            content,
+            mode: "full".to_string(),
+            tokens,
+        });
     }
 
     if shared_files.is_empty() {
