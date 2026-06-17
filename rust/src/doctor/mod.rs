@@ -496,6 +496,14 @@ pub fn run() {
     let proxy_health = proxy_health_outcome();
     board.check(&proxy_health);
 
+    // 20a) Proxy upstream drift (#449): running proxy serves a different upstream
+    // than config.toml resolves to (env override masking config). Only surfaces
+    // when the proxy is up and actually drifting.
+    let upstream_drift = proxy_upstream_drift_outcome();
+    if let Some(ref check) = upstream_drift {
+        board.check(check);
+    }
+
     // 20) Stale proxy env (ANTHROPIC_BASE_URL pointing to local proxy while proxy is not enabled)
     let stale_env = stale_proxy_env_outcome();
     if let Some(ref check) = stale_env {

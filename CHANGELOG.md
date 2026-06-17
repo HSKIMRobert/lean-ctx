@@ -6,6 +6,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Proxy upstream is now live from `config.toml` — no more stale upstream on a long-lived proxy (#449)** —
+  the proxy froze its provider upstreams in `ProxyState` at startup and never
+  re-read them, so a later `lean-ctx config set proxy.openai_upstream …` (or any
+  `config.toml` edit) had no effect until a manual restart — and a shell
+  `export LEAN_CTX_OPENAI_UPSTREAM=…` could never reach an already-running,
+  service-managed proxy at all (the env simply does not propagate into a running
+  process). Now:
+  - **Live reload** — a background task re-resolves the upstreams from
+    `config.toml` every ~2s (`LEAN_CTX_PROXY_RELOAD_SECS` to tune) and publishes
+    any change through a `tokio::sync::watch` channel that every provider handler
+    reads per request, so `config set` takes effect on the running proxy within
+    seconds, without a restart. An invalid value keeps the last good upstream
+    instead of silently dropping to the provider default.
+  - **`config.toml` is the source of truth for long-lived proxies**; a
+    `LEAN_CTX_*_UPSTREAM` env var remains a *start-time* override only (it cannot
+    reach a process that is already running). MCP hosts make this acute: Codex
+    (and others) launch the lean-ctx MCP server with a stripped, allowlisted
+    environment that omits `LEAN_CTX_*_UPSTREAM`, so the proxy it spawns never
+    sees it — `config.toml` is the only mechanism that reaches every proxy.
+  - **Root cause for service/MCP-managed proxies — directory pinning** — a
+    launchd-spawned proxy inherits only launchd's minimal environment (no `HOME`,
+    no XDG vars) and so resolved a *different* config/data dir than the CLI: it
+    never read the user's `config.toml` (live reload had nothing to read) and
+    derived a mismatched session token (its `/status` 401'd). The proxy/daemon
+    LaunchAgent plists now bake in the exact `HOME` + `LEAN_CTX_{CONFIG,DATA,STATE,CACHE}_DIR`
+    the installing CLI resolves, so a managed process always agrees with the CLI.
+  - **Observability** — `/status` and `lean-ctx proxy status` now report the
+    active upstreams; `proxy status` derives liveness from the public `/health`
+    endpoint (so a running proxy is never misreported as down) and warns in two
+    cases: a `LEAN_CTX_*_UPSTREAM` set in the shell that never reached the proxy
+    (with the exact `config set` command to persist it), and a proxy started with
+    an env override now masking a later `config.toml` edit. `doctor` carries the
+    same drift check.
+  - **`lean-ctx proxy restart`** — new subcommand that cleanly restarts the
+    managed service (re-reads `config.toml`, drops any start-time env override).
 - **`ctx_impact` resolves C# extension-method hosts and disambiguates types by namespace (GH #398 follow-ups, #640–#643)** —
   the two deferred #398 follow-ups are now closed:
   - **Extension methods (#642)** — a call `value.WordCount()` to a C# extension

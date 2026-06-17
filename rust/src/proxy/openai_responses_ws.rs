@@ -47,7 +47,7 @@ const FORWARDED_UPGRADE_HEADERS: &[&str] = &[
 
 /// Upgrades a Responses WebSocket and bridges it to the HTTP/SSE upstream.
 pub fn upgrade(state: ProxyState, ws: WebSocketUpgrade, headers: &HeaderMap) -> Response {
-    let upstream = state.openai_upstream.clone();
+    let upstream = state.openai_upstream();
     let fwd = capture_forward_headers(headers);
     ws.on_upgrade(move |socket| bridge(socket, state, upstream, fwd))
 }

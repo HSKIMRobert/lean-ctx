@@ -17,6 +17,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::core::config::Upstreams;
+
 use axum::{
     Router,
     body::Body,
@@ -32,9 +34,31 @@ pub struct ProxyState {
     pub port: u16,
     pub stats: Arc<ProxyStats>,
     pub introspect: Arc<introspect::IntrospectState>,
-    pub anthropic_upstream: String,
-    pub openai_upstream: String,
-    pub gemini_upstream: String,
+    /// Live provider upstreams, refreshed from config.toml without a proxy
+    /// restart (#449). Read per request via [`ProxyState::openai_upstream`] etc.
+    pub upstreams: tokio::sync::watch::Receiver<Arc<Upstreams>>,
+}
+
+impl ProxyState {
+    /// Consistent snapshot of all upstreams for the current request/response.
+    pub fn upstream_snapshot(&self) -> Arc<Upstreams> {
+        self.upstreams.borrow().clone()
+    }
+
+    /// Current Anthropic upstream (live).
+    pub fn anthropic_upstream(&self) -> String {
+        self.upstreams.borrow().anthropic.clone()
+    }
+
+    /// Current OpenAI upstream (live).
+    pub fn openai_upstream(&self) -> String {
+        self.upstreams.borrow().openai.clone()
+    }
+
+    /// Current Gemini upstream (live).
+    pub fn gemini_upstream(&self) -> String {
+        self.upstreams.borrow().gemini.clone()
+    }
 }
 
 pub struct ProxyStats {
@@ -103,6 +127,53 @@ fn read_idle_timeout_secs() -> u64 {
         .unwrap_or(300)
 }
 
+/// How often (seconds) a running proxy re-reads config.toml for upstream
+/// changes. `LEAN_CTX_PROXY_RELOAD_SECS` overrides; default 2s.
+fn upstream_reload_secs() -> u64 {
+    std::env::var("LEAN_CTX_PROXY_RELOAD_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(2)
+}
+
+/// Background task: re-resolves the provider upstreams from config.toml on an
+/// interval and publishes any change to the live request handlers (#449). Ends
+/// once every receiver (the proxy itself) has been dropped.
+fn spawn_upstream_refresh(tx: tokio::sync::watch::Sender<Arc<Upstreams>>, initial: Upstreams) {
+    let interval = std::time::Duration::from_secs(upstream_reload_secs());
+    tokio::spawn(async move {
+        let mut last = initial;
+        loop {
+            tokio::time::sleep(interval).await;
+            let next = crate::core::config::Config::load()
+                .proxy
+                .refresh_upstreams(&last);
+            if next != last {
+                log_upstream_change(&last, &next);
+                last = next.clone();
+                if tx.send(Arc::new(next)).is_err() {
+                    break;
+                }
+            }
+        }
+    });
+}
+
+/// One stdout line per changed provider, matching the startup banner style so a
+/// running proxy's log shows when (and to what) an upstream switched.
+fn log_upstream_change(old: &Upstreams, new: &Upstreams) {
+    if old.anthropic != new.anthropic {
+        println!("  ↻ Anthropic upstream → {}", new.anthropic);
+    }
+    if old.openai != new.openai {
+        println!("  ↻ OpenAI upstream → {}", new.openai);
+    }
+    if old.gemini != new.gemini {
+        println!("  ↻ Gemini upstream → {}", new.gemini);
+    }
+}
+
 pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
     let token = crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN");
     start_proxy_with_token(port, Some(token)).await
@@ -119,7 +190,7 @@ fn effective_auth_token(auth_token: Option<String>) -> String {
 }
 
 pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
-    use crate::core::config::{Config, ProxyProvider, is_local_proxy_url};
+    use crate::core::config::{Config, is_local_proxy_url};
 
     let auth_token = effective_auth_token(auth_token);
 
@@ -137,18 +208,27 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     usage_meter::resume_from_disk();
 
     let cfg = Config::load();
-    let anthropic_upstream = cfg.proxy.resolve_upstream(ProxyProvider::Anthropic);
-    let openai_upstream = cfg.proxy.resolve_upstream(ProxyProvider::OpenAi);
-    let gemini_upstream = cfg.proxy.resolve_upstream(ProxyProvider::Gemini);
+    let initial = cfg.proxy.resolve_all();
+
+    // The proxy reads its upstreams live from a watch channel: a background task
+    // re-resolves them from config.toml on an interval and publishes any change,
+    // so `lean-ctx config set proxy.*_upstream` (or any config.toml edit) takes
+    // effect on the running proxy within seconds, without a restart (#449).
+    let (upstream_tx, upstream_rx) = tokio::sync::watch::channel(Arc::new(initial.clone()));
+    spawn_upstream_refresh(upstream_tx, initial.clone());
+
+    let Upstreams {
+        anthropic: anthropic_upstream,
+        openai: openai_upstream,
+        gemini: gemini_upstream,
+    } = initial;
 
     let state = ProxyState {
         client,
         port,
         stats: Arc::new(ProxyStats::default()),
         introspect: Arc::new(introspect::IntrospectState::default()),
-        anthropic_upstream: anthropic_upstream.clone(),
-        openai_upstream: openai_upstream.clone(),
-        gemini_upstream: gemini_upstream.clone(),
+        upstreams: upstream_rx,
     };
 
     let mut app = Router::new()
@@ -289,9 +369,19 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
     let spend = usage_meter::snapshot();
     let spend_total: f64 = spend.iter().map(|m| m.cost_usd).sum();
 
+    // Live upstreams the proxy is forwarding to right now (#449). This is the
+    // single source of truth for "where is my traffic actually going" — it
+    // reflects config.toml hot-reloads and any start-time env override.
+    let up = state.upstream_snapshot();
+
     let body = serde_json::json!({
         "status": "running",
         "port": state.port,
+        "upstreams": {
+            "anthropic": up.anthropic.clone(),
+            "openai": up.openai.clone(),
+            "gemini": up.gemini.clone(),
+        },
         "requests_total": s.requests_total.load(Relaxed),
         "requests_compressed": s.requests_compressed.load(Relaxed),
         "tokens_saved": s.tokens_saved.load(Relaxed),
@@ -728,5 +818,101 @@ mod auth_tests {
         use axum::http::Uri;
         let uri: Uri = "/v1/responses".parse().unwrap();
         assert!(normalized_provider_uri(&uri).is_none());
+    }
+}
+
+#[cfg(test)]
+mod upstream_tests {
+    use super::*;
+
+    fn upstreams_with_openai(openai: &str) -> Upstreams {
+        Upstreams {
+            anthropic: "https://api.anthropic.com".into(),
+            openai: openai.into(),
+            gemini: "https://generativelanguage.googleapis.com".into(),
+        }
+    }
+
+    /// The #449 core wiring: provider handlers read the upstream per request from
+    /// the watch channel, so a published change is served immediately, without
+    /// rebuilding the `ProxyState`.
+    #[tokio::test]
+    async fn proxy_state_reads_upstream_live_from_watch() {
+        let (tx, rx) =
+            tokio::sync::watch::channel(Arc::new(upstreams_with_openai("https://old.example")));
+        let state = ProxyState {
+            client: reqwest::Client::new(),
+            port: 0,
+            stats: Arc::new(ProxyStats::default()),
+            introspect: Arc::new(introspect::IntrospectState::default()),
+            upstreams: rx,
+        };
+        assert_eq!(state.openai_upstream(), "https://old.example");
+
+        tx.send(Arc::new(upstreams_with_openai("https://new.example")))
+            .unwrap();
+        assert_eq!(
+            state.openai_upstream(),
+            "https://new.example",
+            "a live handler read must reflect the published change"
+        );
+        assert_eq!(state.upstream_snapshot().openai, "https://new.example");
+    }
+
+    /// End-to-end #449 repro (in-process, no network): a `config set`-style edit
+    /// to config.toml is picked up by a *running* proxy's refresh task within the
+    /// reload interval — without any restart. Before the fix this value stayed
+    /// frozen at the start-time upstream forever.
+    ///
+    /// The process-global env lock is intentionally held across the polling
+    /// `.await`s to keep `LEAN_CTX_*` isolated for the whole test; safe because
+    /// each `#[tokio::test]` owns its current-thread runtime, so this std guard
+    /// only makes *other* test threads wait — it can never deadlock this one.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn config_change_is_picked_up_live_without_restart() {
+        use crate::core::config::Config;
+
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        // Isolate from a developer shell that exports the env override (#449),
+        // and make the reload fast + deterministic.
+        crate::test_env::remove_var("LEAN_CTX_OPENAI_UPSTREAM");
+        crate::test_env::set_var("LEAN_CTX_PROXY_RELOAD_SECS", "1");
+
+        // Start state: config.toml points OpenAI at a loopback upstream.
+        Config::update_global(|c| {
+            c.proxy.openai_upstream = Some("http://127.0.0.1:19101".into());
+        })
+        .unwrap();
+        let initial = Config::load().proxy.resolve_all();
+        assert_eq!(initial.openai, "http://127.0.0.1:19101");
+
+        let (tx, rx) = tokio::sync::watch::channel(Arc::new(initial.clone()));
+        spawn_upstream_refresh(tx, initial);
+
+        // `lean-ctx config set proxy.openai_upstream …` (same safe write path).
+        Config::update_global(|c| {
+            c.proxy.openai_upstream = Some("http://127.0.0.1:19102".into());
+        })
+        .unwrap();
+
+        // Poll the live value the handlers would read — no restart in between.
+        let mut live = rx.borrow().openai.clone();
+        for _ in 0..80 {
+            if live == "http://127.0.0.1:19102" {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            live = rx.borrow().openai.clone();
+        }
+        assert_eq!(
+            live, "http://127.0.0.1:19102",
+            "running proxy must serve the new config.toml upstream without a restart"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_PROXY_RELOAD_SECS");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }
