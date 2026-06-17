@@ -8,6 +8,8 @@
     var abs = Math.abs(n);
     // 3 decimals at B-scale keeps ~4 sig figs like the M rows; toFixed(1) only
     // moves every 100M tokens, making a growing total look frozen at "1.0B".
+    if (abs >= 1e15) return (n / 1e15).toFixed(3) + 'P';
+    if (abs >= 1e12) return (n / 1e12).toFixed(3) + 'T';
     if (abs >= 1e9) return (n / 1e9).toFixed(3) + 'B';
     if (abs >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (abs >= 1e3) return (n / 1e3).toFixed(1) + 'k';
@@ -18,6 +20,8 @@
     var abs = Math.abs(n);
     // 3 decimals at B-scale keeps ~4 sig figs like the M rows; toFixed(1) only
     // moves every 100M tokens, making a growing total look frozen at "1.0B".
+    if (abs >= 1e15) return (n / 1e15).toFixed(3) + 'P';
+    if (abs >= 1e12) return (n / 1e12).toFixed(3) + 'T';
     if (abs >= 1e9) return (n / 1e9).toFixed(3) + 'B';
     if (abs >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (abs >= 1e4) return (n / 1e3).toFixed(1) + 'k';

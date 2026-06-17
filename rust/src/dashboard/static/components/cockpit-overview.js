@@ -740,9 +740,24 @@ class CockpitOverview extends HTMLElement {
     var daily = this._filteredDaily();
     if (!daily.length) return;
 
+    // Baseline so the "All" view's right edge always equals the all-time total
+    // shown in the hero — even when older daily rows have aged out of retention.
+    // Shorter ranges stay zero-based to show in-window growth.
+    var stats = this._data && this._data.stats;
+    var baseline = 0;
+    if (this._range === 0 && stats) {
+      var allTime = Math.max(0, (stats.total_input_tokens || 0) - (stats.total_output_tokens || 0));
+      var stored = Array.isArray(stats.daily) ? stats.daily : [];
+      var storedSum = 0;
+      for (var j = 0; j < stored.length; j++) {
+        storedSum += (stored[j].input_tokens || 0) - (stored[j].output_tokens || 0);
+      }
+      baseline = Math.max(0, allTime - storedSum);
+    }
+
     var labels = [];
     var values = [];
-    var cum = 0;
+    var cum = baseline;
     for (var i = 0; i < daily.length; i++) {
       var d = daily[i];
       labels.push(String(d.date || '').slice(5));
