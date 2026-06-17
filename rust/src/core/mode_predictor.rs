@@ -151,10 +151,20 @@ impl ModePredictor {
                 .partial_cmp(&b.mean())
                 .unwrap_or(std::cmp::Ordering::Equal)
         })?;
+        // Arm semantics are defined by the trainer (`feedback::update_bandit`),
+        // which buckets each outcome by the entropy threshold actually used: a
+        // HIGH threshold (>= 1.0, the *most* compression) trains `conservative`,
+        // a LOW threshold (< 0.7, the *least*) trains `aggressive`. So a winning
+        // `conservative` arm means "high compression has been succeeding" and must
+        // map to a high-compression mode. The previous `conservative => "full"`
+        // inverted this: it disabled compression precisely when aggressive
+        // compression was working (GL #622). Spans heaviest → lightest structural
+        // compression; `full` is intentionally not a learned suggestion (forced
+        // full reads are handled by `should_force_full`).
         let mode = match best_arm.name.as_str() {
-            "conservative" => "full",
+            "conservative" => "aggressive",
             "balanced" => "signatures",
-            "aggressive" => "aggressive",
+            "aggressive" => "map",
             _ => return None,
         };
         Some(mode.to_string())
@@ -380,6 +390,37 @@ mod tests {
         }
         let best = predictor.predict_best_mode(&sig);
         assert_eq!(best, Some("map".to_string()));
+    }
+
+    #[test]
+    fn predict_from_bandit_maps_conservative_to_high_compression() {
+        // GL #622: `feedback::update_bandit` rewards the `conservative` arm on
+        // HIGH-compression success, so a winning `conservative` arm must resolve
+        // to a high-compression mode (not `full`). Guards against re-inverting the
+        // arm→mode mapping.
+        let _env = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data_dir.path());
+
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path().to_string_lossy().to_string();
+
+        let mut store = crate::core::bandit::BanditStore::default();
+        let bandit = store.get_or_create("rs_feedback");
+        bandit.total_pulls = 10;
+        for _ in 0..5 {
+            bandit.update("conservative", true);
+        }
+        store.save(&root).unwrap();
+
+        let mut predictor = ModePredictor::new();
+        predictor.set_project_root(&root);
+        let sig = FileSignature::from_path("big.rs", 5000);
+        assert_eq!(
+            predictor.predict_from_bandit(&sig),
+            Some("aggressive".to_string()),
+            "winning conservative arm must map to a high-compression mode, not full"
+        );
     }
 
     #[test]
