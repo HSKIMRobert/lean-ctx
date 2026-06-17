@@ -15,9 +15,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `$XDG_DATA_HOME/lean-ctx/graphs`). A new **layout pin**
   (`$XDG_CONFIG_HOME/lean-ctx/layout.toml`, `mode = "xdg"`) records the
   commitment: the resolver reads it *before* the legacy/mixed heuristic and never
-  re-adopts `~/.lean-ctx` for a pinned install. The pin is written by `setup`, the
-  MCP server start, and `doctor --fix` (after it migrates + reclaims), which also
-  auto-drains a residual `~/.lean-ctx`. Marker detection was hardened so an empty
+  re-adopts `~/.lean-ctx` for a pinned install. The pin is written (and a
+  residual `~/.lean-ctx` auto-drained) by every independent long-running writer
+  and repair path — `setup`, the MCP server start, the daemon
+  (`init_foreground_daemon`, incl. the launchd/systemd autostart), and
+  `doctor --fix` (after it migrates + reclaims). Marker detection was hardened so an empty
   `sessions/`/`graphs/` directory (or a zero-byte `stats.json`) no longer counts
   as data, and the Docker self-heal shell hook no longer touches `~/.lean-ctx`
   (heal timestamp → `$XDG_STATE_HOME`, lock count → `$XDG_DATA_HOME`). `doctor`
