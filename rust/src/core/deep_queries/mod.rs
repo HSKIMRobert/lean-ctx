@@ -7,6 +7,7 @@
 //! Elixir, Zig, and GDScript.
 
 mod calls;
+mod ext_methods;
 mod imports;
 mod type_defs;
 mod type_uses;
@@ -49,6 +50,7 @@ fn analyze_with_tree_sitter(content: &str, ext: &str) -> Option<DeepAnalysis> {
     let types = type_defs::extract_types(root, content, ext);
     let exports = type_defs::extract_exports(root, content, ext);
     let type_uses = type_uses::extract_type_uses(root, content, ext);
+    let ext_methods = ext_methods::extract_ext_methods(root, content, ext);
 
     Some(DeepAnalysis {
         imports,
@@ -56,6 +58,7 @@ fn analyze_with_tree_sitter(content: &str, ext: &str) -> Option<DeepAnalysis> {
         types,
         exports,
         type_uses,
+        ext_methods,
     })
 }
 
@@ -967,5 +970,95 @@ export type Vec = { x: number, y: number }
         // Lua (unlike Luau) has no type system — only functions/calls/imports.
         let analysis = analyze("type Account = {}", "lua");
         assert!(analysis.types.is_empty());
+    }
+
+    /// GH #398 follow-up (#641): every C# type definition records the namespace
+    /// it lives in — file-scoped (`namespace A.B;`), block-scoped
+    /// (`namespace A { … }`) and nested block namespaces (joined outer→inner).
+    /// Other languages leave `namespace` as `None`.
+    #[test]
+    fn csharp_type_namespace_extraction() {
+        let file_scoped = analyze("namespace App.Core;\n\npublic class Engine { }\n", "cs");
+        let engine = file_scoped
+            .types
+            .iter()
+            .find(|t| t.name == "Engine")
+            .expect("Engine type");
+        assert_eq!(engine.namespace.as_deref(), Some("App.Core"));
+
+        let block = analyze(
+            "namespace App.Data\n{\n    public class Repo { }\n}\n",
+            "cs",
+        );
+        let repo = block
+            .types
+            .iter()
+            .find(|t| t.name == "Repo")
+            .expect("Repo type");
+        assert_eq!(repo.namespace.as_deref(), Some("App.Data"));
+
+        let nested = analyze(
+            "namespace App\n{\n    namespace Services\n    {\n        public class Bus { }\n    }\n}\n",
+            "cs",
+        );
+        let bus = nested
+            .types
+            .iter()
+            .find(|t| t.name == "Bus")
+            .expect("Bus type");
+        assert_eq!(bus.namespace.as_deref(), Some("App.Services"));
+
+        // Java carries no namespace on the type def (package handling differs).
+        let java = analyze("package app;\npublic class Motor { }\n", "java");
+        let motor = java
+            .types
+            .iter()
+            .find(|t| t.name == "Motor")
+            .expect("Motor type");
+        assert_eq!(motor.namespace, None);
+    }
+
+    /// GH #398 follow-up (#642): a C# method whose first parameter carries the
+    /// `this` modifier is an extension method and is captured in `ext_methods`;
+    /// ordinary methods are not.
+    #[test]
+    fn csharp_extension_methods_detected() {
+        let src = r"
+namespace App.Extensions;
+
+public static class Helpers
+{
+    public static int WordCount(this string s) => s.Length;
+    public static string Shout(string s) => s.ToUpper();
+}
+";
+        let analysis = analyze(src, "cs");
+        let names: Vec<&str> = analysis
+            .ext_methods
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"WordCount"),
+            "`this`-parameter method must be an extension method, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"Shout"),
+            "ordinary method must not be an extension method, got {names:?}"
+        );
+    }
+
+    /// Extension-method extraction is C#-specific; other languages stay empty.
+    #[test]
+    fn ext_methods_empty_for_non_csharp() {
+        let cs = analyze(
+            "namespace N;\npublic static class E { public static void F(this int x) {} }\n",
+            "cs",
+        );
+        assert!(!cs.ext_methods.is_empty(), "C# baseline must detect one");
+        let java = analyze("class A { void f(int x) {} }", "java");
+        assert!(java.ext_methods.is_empty(), "java: {:?}", java.ext_methods);
+        let ts = analyze("function f(x: number) {}", "ts");
+        assert!(ts.ext_methods.is_empty(), "ts: {:?}", ts.ext_methods);
     }
 }

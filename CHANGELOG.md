@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **`ctx_impact` resolves C# extension-method hosts and disambiguates types by namespace (GH #398 follow-ups, #640–#643)** —
+  the two deferred #398 follow-ups are now closed:
+  - **Extension methods (#642)** — a call `value.WordCount()` to a C# extension
+    method (`static int WordCount(this string s)`) names neither the defining
+    static class nor any of its types, so it produced no edge and left the host
+    a false-negative leaf. A new `deep_queries::ext_methods` extractor collects
+    `this`-parameter methods, and `ctx_impact` links each `value.Foo()` call to
+    the defining file (file + symbol `TypeRef` edge), self-filtered and capped.
+  - **Namespace-aware resolution (#641)** — `TypeDef` now carries its C#
+    namespace (block-, file-scoped and nested), and `type_ref_targets` resolves
+    hybridly: a definer in the consumer's *visible* namespace (own namespace +
+    enclosing namespaces + `using`s) always links — even past the cap — and its
+    homonyms in other namespaces are dropped, so same-named types are no longer
+    conflated. With no namespace match the global fallback still links, with the
+    too-generic cap raised 3 → 5. Java (no namespaces) keeps the fallback path.
+  Both capabilities are wired into the embeddings **and** minimal builder paths;
+  all new regressions are gated on `tree-sitter` so they exercise both. Outputs
+  stay deterministic (sorted/deduped, bounded indexes; #498).
 - **`ctx_impact` now sees C# types used only in expression position (GH #398 follow-up)** —
   the v3.8.3 fix linked same-namespace C# consumers to definers for types in
   *declaration* positions (fields, parameters, return types, `base_list`,
@@ -20,8 +38,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   type, so precision is unchanged. The new end-to-end regression is gated on
   `tree-sitter` rather than `embeddings`, so it also exercises the
   `index_graph_file_minimal` builder path that the earlier #398 e2e tests never
-  reached. (Extension-method hosts and namespace-aware resolution remain
-  follow-ups.)
+  reached. (Extension-method hosts and namespace-aware resolution were the
+  remaining follow-ups, now closed above.)
 - **`lean-ctx update` / `config init --full` no longer reset or leak config values (#443)** —
   persisting a single setting could silently rewrite *other* customized keys in the
   global `config.toml` (e.g. `compression_level` → `lite`, `max_ram_percent` → 5).
