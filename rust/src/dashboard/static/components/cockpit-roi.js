@@ -50,7 +50,8 @@ class CockpitRoi extends HTMLElement {
     // content in place (no "Loading…" flash) once data exists.
     this._timer = setInterval(this._onRefresh, ROI_REFRESH_MS);
     this.render();
-    this.loadData();
+    // Lazy-load (#452): the router loads this view's data on activation; the
+    // interval above only refetches while the view is active (see _onRefresh).
   }
 
   disconnectedCallback() {

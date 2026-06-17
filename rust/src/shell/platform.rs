@@ -14,6 +14,17 @@ pub(crate) fn apply_utf8_locale(cmd: &mut std::process::Command) {
     }
 }
 
+/// Neutralizes inherited startup-file hooks so a non-login/non-interactive
+/// `sh -c` / `bash -c` cannot be hijacked into sourcing a profile or rc file
+/// (#451). lean-ctx runs the system POSIX shell profile-free and deterministic;
+/// a stray inherited `BASH_ENV` (read by bash even for `bash -c`) or `ENV`
+/// pointing at e.g. an `exec nu` snippet would otherwise silently replace the
+/// shell. Cleared to empty so the expansion names no file. No-op in effect for
+/// PowerShell/cmd, which ignore both variables.
+pub(crate) fn apply_profile_free_env(cmd: &mut std::process::Command) {
+    cmd.env("BASH_ENV", "").env("ENV", "");
+}
+
 pub fn decode_output(bytes: &[u8]) -> String {
     match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
@@ -648,6 +659,41 @@ mod platform_tests {
         assert!(
             result.starts_with('\''),
             "double quotes must be single-quoted: {result}"
+        );
+    }
+
+    // #451: a non-interactive `bash -c` sources $BASH_ENV. lean-ctx must run
+    // profile-free, so `apply_profile_free_env` has to neutralize an inherited
+    // BASH_ENV before it can pull in a contaminating startup file.
+    #[cfg(unix)]
+    #[test]
+    fn profile_free_env_blocks_bash_env_contamination() {
+        let Some(bash) = ["/bin/bash", "/usr/bin/bash", "/usr/local/bin/bash"]
+            .into_iter()
+            .find(|p| std::path::Path::new(p).exists())
+        else {
+            return; // no bash on this host → nothing to guard against
+        };
+
+        let startup = std::env::temp_dir().join(format!(
+            "lean_ctx_bashenv_{}_{}.sh",
+            std::process::id(),
+            "guard"
+        ));
+        std::fs::write(&startup, "echo CONTAMINATED\n").expect("write startup file");
+
+        let mut cmd = std::process::Command::new(bash);
+        cmd.arg("-c").arg("echo clean").env("BASH_ENV", &startup);
+        super::apply_profile_free_env(&mut cmd);
+        let out = cmd.output().expect("run bash");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+
+        let _ = std::fs::remove_file(&startup);
+
+        assert!(stdout.contains("clean"), "command output missing: {stdout}");
+        assert!(
+            !stdout.contains("CONTAMINATED"),
+            "apply_profile_free_env must neutralize BASH_ENV, got: {stdout}"
         );
     }
 }

@@ -362,6 +362,7 @@ fn exec_inherit(command: &str, shell: &str, shell_flag: &str) -> i32 {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     super::platform::apply_utf8_locale(&mut cmd);
+    super::platform::apply_profile_free_env(&mut cmd);
     let status = cmd.status();
 
     match status {
@@ -451,6 +452,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     super::platform::apply_utf8_locale(&mut cmd);
+    super::platform::apply_profile_free_env(&mut cmd);
     let child = cmd.spawn();
 
     let child = match child {

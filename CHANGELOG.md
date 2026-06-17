@@ -6,6 +6,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Dashboard no longer times out on load; heavy index/graph routes never block (#452)** —
+  opening the dashboard mounted ~22 `<cockpit-*>` components that each fired
+  `loadData()` from `connectedCallback()` at once — a thundering herd of
+  `/api/graph`, `/api/call-graph`, `/api/symbols`, `/api/search-index` and
+  `/api/tree` requests that ran synchronous, file-count-scaling index/graph
+  builds and starved the trivial `/api/settings` handler until the client
+  aborted after 8 s ("Settings timeout"). Fixed on two layers:
+  - **Frontend lazy-load (primary fix)** — components no longer load in
+    `connectedCallback()`; the router's view-loader fetches only the active
+    view, so `#context/settings` issues a single `/api/settings` request instead
+    of triggering every panel's data load at once.
+  - **Backend single-flight + non-blocking (hardening)** — `graph_index` and
+    `bm25_index` gained a `get_or_start_build` coordinator (one background build
+    per root, concurrent callers deduplicated) modeled on `call_graph`. Heavy
+    routes (`/api/tree`, `/api/symbols`, `/api/call-graph`, `/api/search-index`,
+    `/api/search`) now return `202 {status:"building"}` with progress instead of
+    blocking on a full scan; the affected panels poll and show an
+    "index building…" state until the build completes.
+- **`ctx_shell` is clearly labelled and runs profile-free (#451)** —
+  - **Pi renderer** — the Pi extension rendered shell calls with a bare `$`
+    prefix (inherited from Pi's bash renderer), making `ctx_shell` look like a
+    native interactive bash shell. It now renders an explicit `ctx_shell` label.
+  - **Profile-free shell** — `ctx_shell` (MCP `execute_command_with_env`) and the
+    CLI `lean-ctx -c` paths now neutralize inherited `BASH_ENV`/`ENV` so a
+    non-interactive `sh -c`/`bash -c` can no longer be hijacked into sourcing a
+    profile/rc file (e.g. an `exec nu` snippet silently replacing the shell).
+    Shell behavior is now deterministic and independent of user shell config.
+  - **Sharper description** — the tool description (MCP and Pi) states it runs
+    the system shell (`$SHELL`) profile-free, so agents stop treating it as a
+    config-loaded interactive bash.
 - **Proxy upstream is now live from `config.toml` — no more stale upstream on a long-lived proxy (#449)** —
   the proxy froze its provider upstreams in `ProxyState` at startup and never
   re-read them, so a later `lean-ctx config set proxy.openai_upstream …` (or any

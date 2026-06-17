@@ -67,7 +67,9 @@ class CockpitOverview extends HTMLElement {
     document.addEventListener('lctx:session-data', this._onSessionData);
     document.addEventListener('lctx:stats-data', this._onStatsData);
     this.render();
-    this.loadData();
+    // Lazy-load (#452): the router's view loader fetches when this view becomes
+    // active, so opening any deep link no longer fans out one request storm
+    // across every mounted cockpit component.
   }
 
   disconnectedCallback() {

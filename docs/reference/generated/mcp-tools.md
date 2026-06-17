@@ -402,7 +402,7 @@ Parameters: `action`*, `message`, `paths`, `to_agent`
 ## `ctx_shell`
 
 Run a shell command with compressed output. Prefer over native Shell/Bash.
-Especially for build/test/log commands (cargo, make, npm, pytest, go test, …), the heaviest output in a session. Compression is lossless for signal: compiler errors, test results and panics are kept verbatim. cwd persists across calls.
+Uses the system shell ($SHELL) profile-free — no rc/profile files sourced. Especially for build/test/log commands (cargo, make, npm, pytest, go test, …), the heaviest output in a session. Compression is lossless for signal: compiler errors, test results and panics are kept verbatim. cwd persists across calls.
 
 Parameters: `command`*, `cwd`, `env`, `raw`
 
