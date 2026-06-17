@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::memory_policy::MemoryPolicy;
@@ -9,11 +9,13 @@ mod defaults_allowlist;
 mod enums;
 mod memory;
 mod proxy;
+mod render;
 pub mod schema;
 mod sections;
 mod serde_defaults;
 pub mod setter;
 mod shell_activation;
+pub use render::render_annotated_config;
 pub use sections::*;
 #[cfg(test)]
 mod tests;
@@ -1259,6 +1261,69 @@ impl Config {
         }
     }
 
+    /// Loads ONLY the global config file — never merging project-local
+    /// `.lean-ctx.toml` overrides, and bypassing the in-memory cache. Every
+    /// PERSIST path must use this (or [`Config::update_global`]): [`Config::load`]
+    /// folds per-project overrides into the struct, and [`Config::save`] writes
+    /// the whole struct back to the GLOBAL file — so a `load → mutate → save`
+    /// round-trip silently leaks per-project values (and, historically, reset
+    /// customized keys) into the global config (#443). Reading global-only makes
+    /// the save leak-free by construction.
+    pub fn load_global() -> Self {
+        Self::path().map_or_else(Self::default, |p| Self::load_global_from(&p))
+    }
+
+    /// Path-parameterized core of [`Config::load_global`] (unit-testable without
+    /// the real config dir). Missing, empty, or unparseable files yield
+    /// defaults; persisting callers that must not clobber a corrupt file use
+    /// [`Config::update_global`], which refuses instead.
+    fn load_global_from(path: &Path) -> Self {
+        match std::fs::read_to_string(path) {
+            Ok(raw) if !raw.trim().is_empty() => toml::from_str(&raw).unwrap_or_default(),
+            _ => Self::default(),
+        }
+    }
+
+    /// Safely mutate and persist the GLOBAL config. Reads the global file only
+    /// (no project-local merge), applies `f`, then writes minimally. Refuses
+    /// (returns `Err`) when the file exists but is unparseable, so a typo can
+    /// never clobber a customized config (#443). Returns the saved `Config`.
+    ///
+    /// This is the canonical persistence entry point: prefer it over
+    /// `Config::load()` followed by `save()`, which leaks project-local
+    /// overrides into the global file.
+    pub fn update_global<F>(f: F) -> std::result::Result<Self, super::error::LeanCtxError>
+    where
+        F: FnOnce(&mut Self),
+    {
+        let path = Self::path().ok_or_else(|| {
+            super::error::LeanCtxError::Config("cannot determine home directory".into())
+        })?;
+        Self::update_global_at(&path, f)
+    }
+
+    /// Path-parameterized core of [`Config::update_global`] (unit-testable).
+    fn update_global_at<F>(
+        path: &Path,
+        f: F,
+    ) -> std::result::Result<Self, super::error::LeanCtxError>
+    where
+        F: FnOnce(&mut Self),
+    {
+        let mut cfg = match std::fs::read_to_string(path) {
+            Ok(raw) if !raw.trim().is_empty() => toml::from_str::<Self>(&raw).map_err(|e| {
+                super::error::LeanCtxError::Config(format!(
+                    "refusing to modify an unparseable config.toml ({e}); fix it \
+                     manually or run `lean-ctx doctor --fix`, then retry"
+                ))
+            })?,
+            _ => Self::default(),
+        };
+        f(&mut cfg);
+        cfg.save_to(path)?;
+        Ok(cfg)
+    }
+
     /// Persists the current config to the global config file.
     ///
     /// Preserves user comments, formatting, and unknown keys, keeps the file
@@ -1268,6 +1333,11 @@ impl Config {
         let path = Self::path().ok_or_else(|| {
             super::error::LeanCtxError::Config("cannot determine home directory".into())
         })?;
+        self.save_to(&path)
+    }
+
+    /// Path-parameterized core of [`Config::save`] (unit-testable).
+    fn save_to(&self, path: &Path) -> std::result::Result<(), super::error::LeanCtxError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -1280,7 +1350,7 @@ impl Config {
         let baseline = toml::from_str::<Self>("").unwrap_or_else(|_| Self::default());
         let defaults = toml::to_string_pretty(&baseline)
             .map_err(|e| super::error::LeanCtxError::Config(e.to_string()))?;
-        crate::config_io::write_toml_preserving_minimal(&path, &content, &defaults)
+        crate::config_io::write_toml_preserving_minimal(path, &content, &defaults)
             .map_err(super::error::LeanCtxError::Config)?;
         Ok(())
     }

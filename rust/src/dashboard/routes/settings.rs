@@ -120,9 +120,7 @@ fn apply_terse_agent(value: &str) -> Result<(), String> {
 fn apply_compression(value: &str) -> Result<(), String> {
     let level = CompressionLevel::from_str_label(value)
         .ok_or_else(|| format!("invalid compression level '{value}'"))?;
-    let mut cfg = Config::load();
-    cfg.compression_level = level;
-    cfg.save()
+    let cfg = Config::update_global(move |c| c.compression_level = level)
         .map_err(|e| format!("Error saving config: {e}"))?;
     let _ = crate::core::terse::rules_inject::inject(&cfg.compression_level);
     Ok(())

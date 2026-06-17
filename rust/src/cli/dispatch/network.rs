@@ -613,9 +613,11 @@ pub(super) fn cmd_proxy(rest: &[String]) {
             }
             "enable" => {
                 let force = rest.iter().any(|a| a == "--force");
-                let mut cfg = crate::core::config::Config::load();
-                cfg.proxy_enabled = Some(true);
-                let _ = cfg.save();
+                if let Err(e) =
+                    crate::core::config::Config::update_global(|c| c.proxy_enabled = Some(true))
+                {
+                    tracing::warn!("could not persist proxy_enabled: {e}");
+                }
 
                 let port = crate::proxy_setup::default_port();
                 crate::proxy_autostart::install(port, false);
@@ -628,9 +630,11 @@ pub(super) fn cmd_proxy(rest: &[String]) {
                 );
             }
             "disable" => {
-                let mut cfg = crate::core::config::Config::load();
-                cfg.proxy_enabled = Some(false);
-                let _ = cfg.save();
+                if let Err(e) =
+                    crate::core::config::Config::update_global(|c| c.proxy_enabled = Some(false))
+                {
+                    tracing::warn!("could not persist proxy_enabled: {e}");
+                }
 
                 crate::proxy_autostart::uninstall(false);
                 let home = dirs::home_dir().unwrap_or_default();

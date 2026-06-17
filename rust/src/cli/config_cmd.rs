@@ -144,10 +144,20 @@ fn config_for_full_init(existing_raw: Option<&str>) -> Result<config::Config, St
     }
 }
 
-/// Implements `config init --full`: (re)writes the global config while
-/// preserving the user's existing values (#443).
+/// Implements `config init --full`: (re)writes the global config as a fully
+/// annotated reference document, seeded with the user's existing values (#443).
+///
+/// Unlike `save()` (which keeps the file minimal), this emits every key with its
+/// documentation. The body is a verbatim serialization of the resolved config,
+/// so no customized value is ever lost; an unparseable existing file is refused
+/// upstream by [`config_for_full_init`] rather than clobbered.
 fn init_full_config() {
-    let existing_raw = config::Config::path().and_then(|p| std::fs::read_to_string(&p).ok());
+    let Some(path) = config::Config::path() else {
+        eprintln!("Error: cannot determine the config path");
+        return;
+    };
+
+    let existing_raw = std::fs::read_to_string(&path).ok();
 
     let cfg = match config_for_full_init(existing_raw.as_deref()) {
         Ok(cfg) => cfg,
@@ -160,14 +170,11 @@ fn init_full_config() {
         }
     };
 
-    match cfg.save() {
-        Ok(()) => {
-            let path = config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.to_string_lossy().to_string(),
-            );
-            println!("Created full config at {path}");
-        }
+    let schema = config::schema::ConfigSchema::generate();
+    let rendered = config::render_annotated_config(&cfg, &schema);
+
+    match crate::config_io::write_atomic_with_backup(&path, &rendered) {
+        Ok(()) => println!("Created full annotated config at {}", path.display()),
         Err(e) => eprintln!("Error: {e}"),
     }
 }

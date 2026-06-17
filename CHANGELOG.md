@@ -6,6 +6,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **`lean-ctx update` / `config init --full` no longer reset or leak config values (#443)** —
+  persisting a single setting could silently rewrite *other* customized keys in the
+  global `config.toml` (e.g. `compression_level` → `lite`, `max_ram_percent` → 5).
+  Three root causes, now closed by construction:
+  - **(A) default-seed clobber** — `config init --full` historically wrote
+    `Config::default()`, and `save()` overwrites every key present in both the
+    incoming document and the file (`config_io::merge_table`), resetting customized
+    values. (Already mitigated via `config_for_full_init`; now superseded.)
+  - **(B) project-local leak** — `Config::load()` folds project-local
+    `.lean-ctx.toml` overrides into the in-memory struct, so the common
+    `load() → mutate → save()` pattern (18 call sites across 10 files) wrote those
+    per-project values back into the *global* file.
+  - **(C) corrupt-file clobber** — `write_toml_preserving_minimal` wrote a fresh
+    document when the existing file failed to parse, discarding a hand-broken config.
+  The fix introduces a leak-free persistence API — `Config::load_global()` (reads
+  the global file only, never merging project-local overrides) and
+  `Config::update_global()` (read global-only → mutate → minimal save, and *refuses*
+  to touch an unparseable file) — and migrates every persist site to it. The runtime
+  read path (`Config::load()`, with project-local merge) is unchanged. In addition,
+  `write_toml_preserving_minimal` now refuses to overwrite an unparseable config
+  instead of clobbering it, and `config init --full` emits a fully annotated
+  reference document seeded with the user's current values (lossless round-trip,
+  independent of schema completeness).
 - **XDG layout no longer flips back to `~/.lean-ctx` (GL #623)** — once an install
   resolved to the XDG four-dir layout, a single stray marker appearing in
   `~/.lean-ctx` (a legacy residue, a restored backup, a concurrent older binary,
