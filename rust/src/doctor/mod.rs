@@ -205,7 +205,7 @@ pub fn run() {
     // (heal reclaims it on the next start / `doctor --fix`).
     {
         let pinned = crate::core::layout_pin::is_xdg_pinned();
-        let residual = dirs::home_dir().is_some_and(|h| h.join(".lean-ctx").is_dir());
+        let residual = crate::core::xdg_migrate::residual_legacy_present();
         let line = if pinned && residual {
             format!(
                 "{BOLD}layout{RST}  {GREEN}xdg-pinned{RST}  {YELLOW}residual ~/.lean-ctx present{RST}  {DIM}(auto-reclaimed on next start){RST}"
