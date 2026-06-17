@@ -211,10 +211,10 @@ mod landlock_sys {
 
         for path_str in &ruleset.read_paths {
             let path = Path::new(path_str);
-            if path.exists() {
-                if let Err(e) = landlock_add_path_rule(ruleset_fd, path, FS_READ) {
-                    eprintln!("[lean-ctx] landlock: skipping read rule for {path_str}: {e}");
-                }
+            if path.exists()
+                && let Err(e) = landlock_add_path_rule(ruleset_fd, path, FS_READ)
+            {
+                eprintln!("[lean-ctx] landlock: skipping read rule for {path_str}: {e}");
             }
         }
 
@@ -223,10 +223,10 @@ mod landlock_sys {
             if std::fs::create_dir_all(path).is_err() {
                 eprintln!("[lean-ctx] landlock: cannot ensure dir {path_str}");
             }
-            if path.exists() {
-                if let Err(e) = landlock_add_path_rule(ruleset_fd, path, FS_ALL) {
-                    eprintln!("[lean-ctx] landlock: skipping rw rule for {path_str}: {e}");
-                }
+            if path.exists()
+                && let Err(e) = landlock_add_path_rule(ruleset_fd, path, FS_ALL)
+            {
+                eprintln!("[lean-ctx] landlock: skipping rw rule for {path_str}: {e}");
             }
         }
 

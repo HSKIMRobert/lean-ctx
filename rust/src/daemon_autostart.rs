@@ -302,19 +302,18 @@ WantedBy=default.target
     }
 
     // Hint about linger for headless/server use (needed for boot-time start without login)
-    if !quiet {
-        if let Ok(o) = std::process::Command::new("loginctl")
+    if !quiet
+        && let Ok(o) = std::process::Command::new("loginctl")
             .args(["show-user", &whoami(), "-p", "Linger", "--value"])
             .output()
-        {
-            let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if val != "yes" {
-                println!(
-                    "  Note: for daemon to start at boot (without login), run:\n    \
-                     loginctl enable-linger {}",
-                    whoami()
-                );
-            }
+    {
+        let val = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if val != "yes" {
+            println!(
+                "  Note: for daemon to start at boot (without login), run:\n    \
+                 loginctl enable-linger {}",
+                whoami()
+            );
         }
     }
 }
