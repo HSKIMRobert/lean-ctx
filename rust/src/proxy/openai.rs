@@ -41,7 +41,13 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
             .proxy
             .resolved_history_mode();
         let boundary = super::history_prune::prune_boundary(mode, messages.len());
-        modified |= super::history_prune::prune_history(messages, boundary, &tool_names);
+        // Mirror the Anthropic guard: never rewrite content behind a client
+        // `cache_control` breakpoint (#448). OpenAI requests carry none, so this
+        // resolves to 0 and pruning is byte-for-byte unchanged — but the code
+        // path stays uniform across providers.
+        let cached = super::history_prune::cached_prefix_len(messages);
+        modified |=
+            super::history_prune::prune_history_range(messages, cached, boundary, &tool_names);
 
         for msg in messages.iter_mut() {
             let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");

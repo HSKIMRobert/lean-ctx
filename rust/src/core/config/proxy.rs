@@ -29,7 +29,10 @@ pub struct ProxyConfig {
 pub enum HistoryMode {
     /// Prune only at frozen generation boundaries that advance in large,
     /// deterministic steps. Between jumps the request prefix is byte-stable,
-    /// so provider prompt caches keep hitting. Default.
+    /// so provider prompt caches keep hitting. Content the client has marked
+    /// with a `cache_control` breakpoint is never rewritten, so an advancing
+    /// boundary can no longer invalidate the already-cached prefix (#448).
+    /// Default.
     CacheAware,
     /// Legacy behaviour: summarize everything older than the last N messages.
     /// Maximum raw-token reduction, but defeats provider prompt caching.

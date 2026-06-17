@@ -44,7 +44,14 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
             .proxy
             .resolved_history_mode();
         let boundary = super::history_prune::prune_boundary(mode, messages.len());
-        modified |= super::history_prune::prune_history(messages, boundary, &tool_names);
+        // Never rewrite content the client has marked with `cache_control`:
+        // pruning inside the already-cached prefix invalidates Anthropic's
+        // prompt cache from the first changed message (#448). Pruning therefore
+        // starts after the last breakpoint; with no breakpoint this is 0, i.e.
+        // the previous behaviour.
+        let cached = super::history_prune::cached_prefix_len(messages);
+        modified |=
+            super::history_prune::prune_history_range(messages, cached, boundary, &tool_names);
 
         for msg in messages.iter_mut() {
             let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");

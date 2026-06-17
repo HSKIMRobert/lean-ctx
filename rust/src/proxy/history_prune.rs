@@ -40,6 +40,43 @@ pub fn prune_boundary(mode: HistoryMode, len: usize) -> usize {
     }
 }
 
+/// Number of leading messages that belong to the client's provider-cached
+/// prefix: everything up to and including the last message that carries a
+/// `cache_control` breakpoint. On cache-metered rails (Anthropic) this content
+/// must never be rewritten, or the prompt cache is invalidated from the first
+/// changed message — re-billing cheap reads (0.1x) as writes (1.25x) every time
+/// the prune boundary advances a stride (#448). Returns `0` when no
+/// `cache_control` marker is present (e.g. every OpenAI request), so pruning is
+/// unchanged there.
+pub fn cached_prefix_len(messages: &[Value]) -> usize {
+    let mut cached = 0;
+    for (i, msg) in messages.iter().enumerate() {
+        if message_has_cache_control(msg) {
+            cached = i + 1;
+        }
+    }
+    cached
+}
+
+/// `true` if `msg` carries a `cache_control` marker at the message level, on any
+/// of its content blocks, or on a nested text item inside a block — the three
+/// shapes Anthropic clients use to set prompt-cache breakpoints.
+fn message_has_cache_control(msg: &Value) -> bool {
+    if msg.get("cache_control").is_some() {
+        return true;
+    }
+    let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) else {
+        return false;
+    };
+    blocks.iter().any(|block| {
+        block.get("cache_control").is_some()
+            || block
+                .get("content")
+                .and_then(|c| c.as_array())
+                .is_some_and(|items| items.iter().any(|it| it.get("cache_control").is_some()))
+    })
+}
+
 /// Summarize tool_result blocks in `messages[..prune_end]` to reduce token
 /// count. Returns `true` if at least one message was actually rewritten.
 ///
@@ -57,10 +94,25 @@ pub fn prune_history(
     prune_end: usize,
     tool_names: &HashMap<String, String>,
 ) -> bool {
+    prune_history_range(messages, 0, prune_end, tool_names)
+}
+
+/// Like [`prune_history`] but only rewrites `messages[prune_start..prune_end]`.
+/// `prune_start` skips the client's provider-cached prefix (see
+/// [`cached_prefix_len`]) so cache-aware pruning never invalidates an
+/// already-cached prompt prefix on metered rails (#448). With `prune_start = 0`
+/// this is identical to the historical `prune_history` behaviour.
+pub fn prune_history_range(
+    messages: &mut [Value],
+    prune_start: usize,
+    prune_end: usize,
+    tool_names: &HashMap<String, String>,
+) -> bool {
     let prune_end = prune_end.min(messages.len());
+    let prune_start = prune_start.min(prune_end);
     let mut modified = false;
 
-    for msg in &mut messages[..prune_end] {
+    for msg in &mut messages[prune_start..prune_end] {
         let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
 
         match role {
@@ -363,6 +415,107 @@ mod tests {
         assert!(
             summary.contains("lines pruned by lean-ctx"),
             "logs keep head/tail summary"
+        );
+    }
+
+    /// Build `pairs` Anthropic-shaped turns (assistant `tool_use` + user
+    /// `tool_result`). When `cache_last`, the latest `tool_result` carries a
+    /// `cache_control` breakpoint — i.e. the whole history is client-cached.
+    fn anthropic_turns(pairs: usize, cache_last: bool) -> Vec<Value> {
+        let long = (0..40)
+            .map(|i| format!("INFO line {i}: long enough diagnostic output to exceed threshold"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut messages = Vec::new();
+        for t in 0..pairs {
+            messages.push(serde_json::json!({
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": format!("t{t}"), "name": "Bash", "input": {}}],
+            }));
+            let mut block = serde_json::json!({
+                "type": "tool_result",
+                "tool_use_id": format!("t{t}"),
+                "content": format!("{long}\nturn {t}"),
+            });
+            if cache_last && t == pairs - 1 {
+                block["cache_control"] = serde_json::json!({"type": "ephemeral"});
+            }
+            messages.push(serde_json::json!({"role": "user", "content": [block]}));
+        }
+        messages
+    }
+
+    #[test]
+    fn cached_prefix_len_detects_markers_at_every_level() {
+        // message-level marker
+        let msgs = vec![
+            serde_json::json!({"role": "user", "content": "hi"}),
+            serde_json::json!({"role": "assistant", "cache_control": {"type": "ephemeral"}, "content": "ok"}),
+            serde_json::json!({"role": "user", "content": "next"}),
+        ];
+        assert_eq!(cached_prefix_len(&msgs), 2);
+
+        // content-block-level marker
+        let msgs = vec![
+            serde_json::json!({"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "t1", "cache_control": {"type": "ephemeral"}, "content": "x"}
+            ]}),
+            serde_json::json!({"role": "assistant", "content": "ok"}),
+        ];
+        assert_eq!(cached_prefix_len(&msgs), 1);
+
+        // nested text-item-level marker
+        let msgs = vec![serde_json::json!({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [
+                {"type": "text", "text": "x", "cache_control": {"type": "ephemeral"}}
+            ]}
+        ]})];
+        assert_eq!(cached_prefix_len(&msgs), 1);
+    }
+
+    #[test]
+    fn cached_prefix_len_is_zero_without_markers() {
+        let msgs = anthropic_turns(3, false);
+        assert_eq!(cached_prefix_len(&msgs), 0);
+    }
+
+    /// Inverted form of the #448 reporter's churn test: with a client
+    /// `cache_control` breakpoint on the latest `tool_result` (the whole history
+    /// is cached), advancing the prune boundary across a `STRIDE` multiple must
+    /// NOT rewrite any cached message — otherwise Anthropic's prompt cache is
+    /// invalidated from the first changed message.
+    #[test]
+    fn cached_prefix_is_never_rewritten_across_stride_jump() {
+        // Production guard: prune only `[cached_prefix_len .. boundary)`.
+        let stubs = |pairs: usize| -> usize {
+            let mut messages = anthropic_turns(pairs, true);
+            let boundary = prune_boundary(HistoryMode::CacheAware, messages.len());
+            let cached = cached_prefix_len(&messages);
+            prune_history_range(&mut messages, cached, boundary, &no_names());
+            messages
+                .iter()
+                .filter(|m| m.to_string().contains("pruned"))
+                .count()
+        };
+        // 11 pairs (22 msgs) -> boundary 0; 12 pairs (24 msgs) -> boundary 16.
+        // The breakpoint sits on the last message so `cached == len >= boundary`:
+        // the prune window is empty on both turns and nothing is stubbed.
+        assert_eq!(stubs(11), 0, "no pruning below the first stride jump");
+        assert_eq!(
+            stubs(12),
+            0,
+            "cached prefix not rewritten after the jump (#448)"
+        );
+        assert_eq!(stubs(20), 0, "still zero deep into the session");
+
+        // Contrast: the unguarded boundary (`prune_start = 0`) DOES stub the
+        // cached prefix at the same length — the exact churn #448 fixes.
+        let mut unguarded = anthropic_turns(12, true);
+        let boundary = prune_boundary(HistoryMode::CacheAware, unguarded.len());
+        prune_history(&mut unguarded, boundary, &no_names());
+        assert!(
+            unguarded.iter().any(|m| m.to_string().contains("pruned")),
+            "guardless pruning rewrites cached content — the bug #448 fixes"
         );
     }
 }

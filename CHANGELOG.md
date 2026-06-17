@@ -3,6 +3,20 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **Cache-aware pruning no longer churns the cached prompt prefix (#448)** — on
+  cache-metered rails (Anthropic), the default `cache-aware` history pruner
+  rewrote already-cached history every time the prune boundary advanced a
+  `STRIDE` (~every 16 messages), invalidating the provider prompt-cache prefix
+  from the first changed message and re-billing cheap reads (0.1x) as writes
+  (1.25x). Pruning now skips the client's `cache_control`-marked prefix and only
+  ever rewrites not-yet-cached content, so a growing conversation keeps hitting
+  the cache. Per-message tool-result compression is unchanged (it is
+  content-deterministic and prefix-stable), and requests without `cache_control`
+  (e.g. OpenAI) are byte-for-byte unaffected.
+
 ## [3.8.8] — 2026-06-17
 
 ### Added
