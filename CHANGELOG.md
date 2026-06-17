@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Re-reads stop blowing up to full content (cache hit-rate regression)** — with
+  `mode` omitted (the recommended usage), a file first read in a compressed mode
+  (`map`/`signatures`) was resolved to `full` on its *second* read by the
+  `cache_hit` shortcut, even though full content had never been delivered
+  (`full_content_delivered=false`). The 2nd read therefore re-delivered the
+  *entire file* — more tokens than the first read — a compression bounce that
+  also meant stub hits only began at the 3rd read, which agents rarely reach.
+  Measured lifetime cache hit-rate had collapsed to ~5% (down from ~90%). The
+  resolver now only short-circuits to `full` once full content was actually
+  delivered; otherwise it falls through to the predictor, which reproduces the
+  cached compressed mode and serves it from the compressed-output cache as a
+  cheap, consistent hit. Explicit `mode="full"` reads (for editing) are
+  unchanged.
 - **Cache-aware pruning no longer churns the cached prompt prefix (#448)** — on
   cache-metered rails (Anthropic), the default `cache-aware` history pruner
   rewrote already-cached history every time the prune boundary advanced a
