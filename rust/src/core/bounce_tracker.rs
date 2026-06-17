@@ -3,6 +3,11 @@ use std::sync::{Mutex, OnceLock};
 
 const BOUNCE_WINDOW: u64 = 5;
 const BOUNCE_RATE_THRESHOLD: f64 = 0.30;
+/// Seq-tick window during which a full read is treated as *edit-forced* rather
+/// than a compression bounce. Must match the window `should_force_full` uses to
+/// escalate post-edit reads to `full`, so the read we forced is never blamed on
+/// the compression arm (GL #622).
+const EDIT_FORCE_WINDOW: u64 = 10;
 /// Outer-map retention: a path whose newest activity is older than this many seq ticks
 /// can no longer satisfy BOUNCE_WINDOW (5) or the edit-force window (10), so it is inert
 /// and safe to evict. Kept well above both windows to never change detection outcomes.
@@ -106,6 +111,18 @@ impl BounceTracker {
     }
 
     fn detect_bounce(&mut self, norm_path: &str, full_seq: u64) {
+        // A full re-read the system itself forced after an edit is not a
+        // compression failure (GL #622): `should_force_full` returns `full` for
+        // EDIT_FORCE_WINDOW ticks post-edit, so the agent had no choice. Counting
+        // it as a bounce would penalize the compression arm for the edit and
+        // inflate the per-extension bounce rate until `should_force_full` pins the
+        // whole extension to `full` — a self-reinforcing loss of compression.
+        if let Some(&edit_seq) = self.recently_edited.get(norm_path)
+            && full_seq.saturating_sub(edit_seq) <= EDIT_FORCE_WINDOW
+        {
+            return;
+        }
+
         let Some(events) = self.recent_reads.get(norm_path) else {
             return;
         };
@@ -182,7 +199,7 @@ impl BounceTracker {
         let norm = crate::core::pathutil::normalize_tool_path(path);
 
         if let Some(&edit_seq) = self.recently_edited.get(&norm)
-            && self.seq_counter.saturating_sub(edit_seq) <= 10
+            && self.seq_counter.saturating_sub(edit_seq) <= EDIT_FORCE_WINDOW
         {
             return true;
         }
@@ -337,6 +354,37 @@ mod tests {
         bt.record_shell_file_access("config.yml");
         assert_eq!(bt.total_bounces(), 1);
         assert_eq!(bt.total_wasted_tokens(), 30);
+    }
+
+    #[test]
+    fn edit_forced_full_read_is_not_a_bounce() {
+        // GL #622: a compressed overview read, then an edit, then the `full`
+        // re-read that `should_force_full` mandates must NOT register as a bounce
+        // — the edit forced it, the compression did not fail.
+        let mut bt = BounceTracker::new();
+        bt.seq_counter = 1;
+        bt.record_read("src/lib.rs", "map", 40, 500);
+        bt.seq_counter = 2;
+        bt.record_edit("src/lib.rs");
+        bt.seq_counter = 4;
+        bt.record_read("src/lib.rs", "full", 500, 500);
+        assert_eq!(
+            bt.total_bounces(),
+            0,
+            "edit-forced full read must not count as a compression bounce"
+        );
+    }
+
+    #[test]
+    fn full_read_without_edit_still_bounces() {
+        // The guard is scoped to edit-forced reads only: an unprompted full
+        // re-read after a compressed read is still a real bounce.
+        let mut bt = BounceTracker::new();
+        bt.seq_counter = 1;
+        bt.record_read("src/lib.rs", "map", 40, 500);
+        bt.seq_counter = 3;
+        bt.record_read("src/lib.rs", "full", 500, 500);
+        assert_eq!(bt.total_bounces(), 1);
     }
 
     #[test]
