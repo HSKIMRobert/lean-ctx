@@ -10,6 +10,8 @@ pub mod openai;
 pub mod openai_responses;
 pub mod openai_responses_ws;
 pub mod tool_kind;
+pub mod usage;
+pub mod usage_meter;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -129,6 +131,10 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs()))
         .read_timeout(std::time::Duration::from_secs(read_idle_timeout_secs()))
         .build()?;
+
+    // Seed the measured-spend meter from disk so a proxy restart never zeroes
+    // the user's cumulative real provider bill.
+    usage_meter::resume_from_disk();
 
     let cfg = Config::load();
     let anthropic_upstream = cfg.proxy.resolve_upstream(ProxyProvider::Anthropic);
@@ -279,6 +285,10 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         .and_then(|guard| guard.as_ref().map(|b| serde_json::to_value(b).ok()))
         .flatten();
 
+    // Measured spend: real model + billed tokens read from provider responses.
+    let spend = usage_meter::snapshot();
+    let spend_total: f64 = spend.iter().map(|m| m.cost_usd).sum();
+
     let body = serde_json::json!({
         "status": "running",
         "port": state.port,
@@ -290,6 +300,12 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
         "per_model": cost::snapshot(),
+        "spend": {
+            "source": "measured",
+            "total_usd": spend_total,
+            "per_model": spend,
+            "note": "Actual provider bill: real model + billed tokens (incl. cache reads/writes & reasoning) read from upstream responses for proxy-routed clients."
+        },
         "note": "Savings are request-side (tokens removed before forwarding); they do not subtract any re-reads the agent performs. Token figures are estimates; USD uses the shared model price table.",
         "introspect": {
             "total_requests_analyzed": i.total_requests.load(Relaxed),

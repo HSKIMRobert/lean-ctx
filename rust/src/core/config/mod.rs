@@ -78,6 +78,9 @@ pub struct Config {
     pub cloud: CloudConfig,
     #[serde(default)]
     pub gain: GainConfig,
+    /// Model declaration for measured-vs-estimated cost reporting (MCP-only IDEs).
+    #[serde(default)]
+    pub cost: CostConfig,
     #[serde(default)]
     pub autonomy: AutonomyConfig,
     #[serde(default)]
@@ -435,6 +438,7 @@ impl Default for Config {
             theme: serde_defaults::default_theme(),
             cloud: CloudConfig::default(),
             gain: GainConfig::default(),
+            cost: CostConfig::default(),
             autonomy: AutonomyConfig::default(),
             providers: ProvidersConfig::default(),
             proxy: ProxyConfig::default(),

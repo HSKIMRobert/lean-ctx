@@ -1126,3 +1126,68 @@ mod config_load_cache_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod cost_config_tests {
+    use super::super::*;
+
+    #[test]
+    fn default_is_empty() {
+        let cfg = CostConfig::default();
+        assert!(cfg.default_model.is_none());
+        assert!(cfg.models.is_empty());
+        assert_eq!(cfg.model_for_client("cursor"), None);
+    }
+
+    #[test]
+    fn per_client_overrides_default() {
+        let mut models = std::collections::HashMap::new();
+        models.insert("cursor".to_string(), "claude-opus-4.5".to_string());
+        let cfg = CostConfig {
+            default_model: Some("gpt-5.4".to_string()),
+            models,
+        };
+        assert_eq!(
+            cfg.model_for_client("cursor").as_deref(),
+            Some("claude-opus-4.5")
+        );
+        // No entry → global default.
+        assert_eq!(cfg.model_for_client("copilot").as_deref(), Some("gpt-5.4"));
+    }
+
+    #[test]
+    fn blank_values_are_ignored() {
+        let cfg = CostConfig {
+            default_model: Some("   ".to_string()),
+            models: std::collections::HashMap::new(),
+        };
+        assert_eq!(cfg.model_for_client("cursor"), None);
+    }
+
+    #[test]
+    fn parses_from_toml_section() {
+        let cfg: Config = toml::from_str(
+            r#"
+[cost]
+default_model = "claude-opus-4.5"
+
+[cost.models]
+cursor = "claude-opus-4.5"
+copilot = "gpt-5.4"
+"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.cost.default_model.as_deref(), Some("claude-opus-4.5"));
+        assert_eq!(
+            cfg.cost.model_for_client("copilot").as_deref(),
+            Some("gpt-5.4")
+        );
+    }
+
+    #[test]
+    fn default_config_has_empty_cost_section() {
+        let cfg = Config::default();
+        assert!(cfg.cost.default_model.is_none());
+        assert!(cfg.cost.models.is_empty());
+    }
+}

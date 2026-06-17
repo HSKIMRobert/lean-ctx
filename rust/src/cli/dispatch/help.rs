@@ -118,7 +118,9 @@ COMMANDS:
     gain --graph                   30-day savings chart
     gain --daily                   Bordered day-by-day table with USD
     gain --score                   Gain score breakdown (4 sub-scores + trend)
-    gain --cost                    Agent cost attribution report
+    gain --cost                    Agent cost attribution report (estimated)
+    spend                          Measured provider bill (real model + billed tokens)
+    spend --json                   Machine-readable measured spend
     gain --tasks                   Task breakdown by category
     gain --agents                  Top agents by tool spend
     gain --heatmap                 Top files by tokens saved

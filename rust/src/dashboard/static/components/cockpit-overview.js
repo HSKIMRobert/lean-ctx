@@ -125,6 +125,7 @@ class CockpitOverview extends HTMLElement {
       '/api/verification',
       '/api/graph/stats',
       '/api/roi',
+      '/api/spend',
     ];
 
     var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
@@ -157,7 +158,13 @@ class CockpitOverview extends HTMLElement {
       verification: ok(results[5]),
       graphStats: ok(results[6]),
       roi: ok(results[7]),
+      spend: ok(results[8]),
     };
+    // De-hardcode the estimated cost model's blended rate from the server.
+    var Fp = fmtLib();
+    if (this._data.spend && this._data.spend.pricing && Fp.applyServerPricing) {
+      Fp.applyServerPricing(this._data.spend.pricing);
+    }
 
     this._loading = false;
     this._stopAnim();
@@ -289,6 +296,8 @@ class CockpitOverview extends HTMLElement {
       '<p class="hs">estimated input cost avoided</p>' +
       '</div>' +
 
+      this._measuredSpendCard(esc, fu) +
+
       '<div class="hc">' +
       '<span class="hl">Energy saved' + tip('energy_saved') + '</span>' +
       '<div class="hv">' + esc(fe(energyWh)) + '</div>' +
@@ -320,6 +329,25 @@ class CockpitOverview extends HTMLElement {
 
       this._healthHeroCard(esc, ff) +
 
+      '</div>'
+    );
+  }
+
+  /**
+   * Measured spend hero card — the real provider bill (proxy-routed clients),
+   * shown only when the proxy has recorded usage. The *measured* counterpart to
+   * the estimated "Cost saved" card beside it. Full per-model detail lives in
+   * ROI & Plan → Measured spend.
+   */
+  _measuredSpendCard(esc, fu) {
+    var spend = this._data && this._data.spend;
+    if (!spend || !spend.available) return '';
+    return (
+      '<div class="hc">' +
+      '<span class="hl">Measured spend' +
+      '<span class="tag tg" style="margin-left:6px">measured</span></span>' +
+      '<div class="hv" style="color:var(--green)">' + esc(fu(spend.total_usd)) + '</div>' +
+      '<p class="hs">real provider bill (proxy-routed)</p>' +
       '</div>'
     );
   }

@@ -15,6 +15,12 @@ pub struct ProxyConfig {
     /// Allow a non-loopback plaintext `http://` upstream (trusted local network
     /// only). Opt-in; see [`ProxyConfig::allows_insecure_http_upstream`]. (#440)
     pub allow_insecure_http_upstream: Option<bool>,
+    /// Inject `stream_options.include_usage = true` into streamed OpenAI Chat
+    /// Completions so the final chunk reports real token usage for the measured
+    /// spend meter. Default on; set `false` for a client that mishandles the
+    /// trailing usage chunk. Anthropic/Gemini/OpenAI-Responses report usage
+    /// without any request change, so this only affects Chat Completions.
+    pub meter_openai_usage: Option<bool>,
 }
 
 /// How the proxy prunes old tool results from conversation history.
@@ -56,6 +62,13 @@ impl ProxyConfig {
             Some(s) if s.eq_ignore_ascii_case("off") => HistoryMode::Off,
             _ => HistoryMode::CacheAware,
         }
+    }
+
+    /// Whether the proxy injects `stream_options.include_usage` into streamed
+    /// OpenAI Chat Completions to meter real spend. `[proxy] meter_openai_usage`
+    /// in config.toml, default `true`.
+    pub fn meters_openai_usage(&self) -> bool {
+        self.meter_openai_usage.unwrap_or(true)
     }
 
     /// Whether a non-loopback plaintext `http://` upstream is allowed. Opt-in

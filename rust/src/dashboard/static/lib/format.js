@@ -53,7 +53,17 @@
       return '&#' + c.charCodeAt(0) + ';';
     });
   };
+  // Blended per-million input (i) / output (o) price plus the per-command token
+  // baselines (v/c) used by the *estimated* cost model. The i/o rates default to
+  // the server's `fallback-blended` tier but are de-hardcoded: applyServerPricing
+  // overwrites them from /api/spend so the price table has a single source of
+  // truth (server-side). v/c stay client-side heuristics.
   const CM = { i: 2.5, o: 10.0, v: 450, c: 120 };
+  const applyServerPricing = function (p) {
+    if (!p || typeof p !== 'object') return;
+    if (typeof p.input_per_m === 'number' && p.input_per_m > 0) CM.i = p.input_per_m;
+    if (typeof p.output_per_m === 'number' && p.output_per_m > 0) CM.o = p.output_per_m;
+  };
   const isM = function (n) {
     return String(n).startsWith('ctx_');
   };
@@ -114,6 +124,7 @@
     isM,
     sb,
     CM,
+    applyServerPricing,
     J_PER_TOKEN,
   };
 })();

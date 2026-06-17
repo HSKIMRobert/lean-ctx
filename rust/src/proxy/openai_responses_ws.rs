@@ -174,6 +174,10 @@ fn build_upstream_body(text: &str) -> Option<Value> {
 async fn stream_sse_to_ws(socket: &mut WebSocket, resp: reqwest::Response) -> ControlFlow<()> {
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
+    // Observe the relayed SSE for the real model + billed tokens (Responses
+    // reports them in the `response.completed` event). Recorded only on a clean
+    // end-of-stream, so an interrupted/aborted turn never books partial spend.
+    let mut scanner = super::usage::Scanner::new(super::usage::Provider::OpenAi, None);
     while let Some(chunk) = stream.next().await {
         let Ok(chunk) = chunk else {
             return send_error(
@@ -184,6 +188,7 @@ async fn stream_sse_to_ws(socket: &mut WebSocket, resp: reqwest::Response) -> Co
             )
             .await;
         };
+        scanner.feed(&chunk);
         buf.extend_from_slice(&chunk);
         while let Some(nl) = buf.iter().position(|&b| b == b'\n') {
             let mut line: Vec<u8> = buf.drain(..=nl).collect();
@@ -201,6 +206,9 @@ async fn stream_sse_to_ws(socket: &mut WebSocket, resp: reqwest::Response) -> Co
     // A final event may arrive without a trailing newline.
     if let Some(payload) = sse_data_payload(&buf) {
         let _ = socket.send(Message::Text(payload.into())).await;
+    }
+    if let Some(usage) = scanner.finalize() {
+        super::usage_meter::record(&usage);
     }
     ControlFlow::Continue(())
 }

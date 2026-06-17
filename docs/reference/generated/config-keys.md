@@ -116,6 +116,12 @@ Cloud feature settings
 - `auto_sync` (bool, default `false`) — Push the Personal Cloud (knowledge, commands, CEP, gotchas, buddy, feedback) silently once per day at session end (Pro; toggle: `lean-ctx cloud autosync on|off`)
 - `contribute_enabled` (bool, default `false`) — Enable contributing anonymized stats to lean-ctx cloud
 
+## `[cost]`
+
+Model declaration for measured-vs-estimated cost reporting
+
+- `default_model` (string?, default `null`) — Fallback pricing model for MCP-only IDEs whose real model lean-ctx cannot observe (Cursor, Copilot, Windsurf, …). Unset → blended heuristic. Per-IDE overrides live in [cost.models]
+
 ## `[custom_aliases]`
 
 Custom command aliases (array of {command, alias} entries). Note: field names are 'command' and 'alias' (not 'name')
@@ -282,6 +288,7 @@ Proxy upstream configuration for API routing
 - `anthropic_upstream` (string?, default `null`) — Custom upstream URL for Anthropic API proxy
 - `gemini_upstream` (string?, default `null`) — Custom upstream URL for Gemini API proxy
 - `history_mode` (enum: cache-aware | rolling | off, default `cache-aware` — env `LEAN_CTX_PROXY_HISTORY_MODE`) — History pruning strategy. cache-aware: frozen boundaries that keep provider prompt caches valid (default). rolling: legacy moving window (max raw savings, breaks prompt caching). off: never prune
+- `meter_openai_usage` (bool, default `true`) — Inject stream_options.include_usage into streamed OpenAI Chat Completions so the final chunk reports real token usage for the measured spend meter. Default true
 - `openai_upstream` (string?, default `null`) — Custom upstream URL for OpenAI API proxy
 
 ## `[search]`
