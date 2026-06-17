@@ -36,3 +36,11 @@ The workspace has the `lean-ctx` MCP server installed. You MUST prefer lean-ctx 
 - For large files, use `mcp_lean_ctx_ctx_read` with `mode: "signatures"` or `mode: "map"` first
 - For re-reading a file you already read, just call `mcp_lean_ctx_ctx_read` again (cache hit = ~13 tokens)
 - When running tests or build commands, use `mcp_lean_ctx_ctx_shell` for compressed output
+
+<!-- lean-ctx-compression -->
+OUTPUT STYLE: concise
+- Bullet points over paragraphs
+- Skip filler words and hedging ("I think", "probably", "it seems")
+- 1-sentence explanations max, then code/action
+- No repeating what the user said
+<!-- /lean-ctx-compression -->

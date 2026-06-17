@@ -21,3 +21,11 @@ Prefer lean-ctx MCP tools over native equivalents for token savings:
 Native Edit/Write/Glob stay as-is; use `ctx_edit` only when Edit needs an unavailable Read.
 Full rules: LEAN-CTX.md (open on demand — do not auto-load).
 <!-- /lean-ctx -->
+
+<!-- lean-ctx-compression -->
+OUTPUT STYLE: concise
+- Bullet points over paragraphs
+- Skip filler words and hedging ("I think", "probably", "it seems")
+- 1-sentence explanations max, then code/action
+- No repeating what the user said
+<!-- /lean-ctx-compression -->
