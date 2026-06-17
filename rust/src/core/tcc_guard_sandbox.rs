@@ -113,6 +113,50 @@ fn sandbox_exec_usable(profile: &str) -> bool {
         .is_ok_and(|o| o.status.success())
 }
 
+/// Build the `EnvironmentVariables` plist block that pins a launchd-spawned
+/// lean-ctx process to the directory layout the *installing CLI* resolves (#449).
+///
+/// A LaunchAgent inherits only launchd's minimal environment (no `HOME`, no XDG
+/// vars), so the proxy/daemon would otherwise resolve a *different* config/data
+/// dir than the CLI that installed it: it never sees the user's `config.toml`
+/// edits (the live-upstream reload reads an empty/foreign config) and derives a
+/// mismatched session token. Baking the exact resolved dirs into the plist makes
+/// the managed process always agree with the CLI, on every platform layout
+/// (legacy `~/.lean-ctx`, mixed, or split XDG).
+///
+/// Returns the full `<key>EnvironmentVariables</key><dict>…</dict>` block
+/// (4-space indented, trailing newline) or an empty string when nothing resolves.
+pub fn pinned_layout_env_xml() -> String {
+    let mut entries: Vec<(&str, String)> = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        entries.push(("HOME", home.display().to_string()));
+    }
+    for (key, dir) in [
+        ("LEAN_CTX_CONFIG_DIR", crate::core::paths::config_dir()),
+        ("LEAN_CTX_DATA_DIR", crate::core::paths::data_dir()),
+        ("LEAN_CTX_STATE_DIR", crate::core::paths::state_dir()),
+        ("LEAN_CTX_CACHE_DIR", crate::core::paths::cache_dir()),
+    ] {
+        if let Ok(p) = dir {
+            entries.push((key, p.display().to_string()));
+        }
+    }
+    if entries.is_empty() {
+        return String::new();
+    }
+    let body = entries
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                "        <key>{k}</key>\n        <string>{}</string>",
+                xml_escape(v)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("    <key>EnvironmentVariables</key>\n    <dict>\n{body}\n    </dict>\n")
+}
+
 /// Render a ProgramArguments list as XML-escaped plist `<string>` lines, each
 /// prefixed with `indent` and joined by newlines — ready to drop inside the
 /// `<array>` body of a LaunchAgent plist.
@@ -126,7 +170,7 @@ pub fn program_args_xml(args: &[String], indent: &str) -> String {
 /// Minimal XML escaping for plist `<string>` bodies: `&`, `<` and `>` must be
 /// encoded so the plist stays well-formed. Double quotes are valid in element
 /// content and are left as-is (launchd's parser hands them through verbatim).
-fn xml_escape(s: &str) -> String {
+pub fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -193,6 +237,22 @@ mod tests {
         assert!(xml.contains("&gt;"));
         // No raw ampersand may survive — that would break the plist XML.
         assert!(!xml.contains("a&b"));
+    }
+
+    #[test]
+    fn pinned_layout_env_pins_all_categories() {
+        let xml = pinned_layout_env_xml();
+        assert!(xml.starts_with("    <key>EnvironmentVariables</key>"));
+        assert!(xml.contains("<dict>"));
+        assert!(xml.trim_end().ends_with("</dict>"));
+        for key in [
+            "LEAN_CTX_CONFIG_DIR",
+            "LEAN_CTX_DATA_DIR",
+            "LEAN_CTX_STATE_DIR",
+            "LEAN_CTX_CACHE_DIR",
+        ] {
+            assert!(xml.contains(&format!("<key>{key}</key>")), "missing {key}");
+        }
     }
 
     #[test]

@@ -27,7 +27,8 @@ pub use enums::{
 };
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use proxy::{
-    HistoryMode, ProxyConfig, ProxyProvider, is_local_proxy_url, normalize_url, normalize_url_opt,
+    HistoryMode, ProxyConfig, ProxyProvider, UpstreamDrift, Upstreams, diagnose_drift,
+    env_upstream_override, is_local_proxy_url, normalize_url, normalize_url_opt,
 };
 pub use shell_activation::ShellActivation;
 
