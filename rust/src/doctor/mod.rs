@@ -200,6 +200,28 @@ pub fn run() {
         });
     }
 
+    // Layout commitment (GL #623): a pinned XDG install can no longer be
+    // hijacked by a stray ~/.lean-ctx. Surface the mode and flag a residual dir
+    // (heal reclaims it on the next start / `doctor --fix`).
+    {
+        let pinned = crate::core::layout_pin::is_xdg_pinned();
+        let residual = dirs::home_dir().is_some_and(|h| h.join(".lean-ctx").is_dir());
+        let line = if pinned && residual {
+            format!(
+                "{BOLD}layout{RST}  {GREEN}xdg-pinned{RST}  {YELLOW}residual ~/.lean-ctx present{RST}  {DIM}(auto-reclaimed on next start){RST}"
+            )
+        } else if pinned {
+            format!(
+                "{BOLD}layout{RST}  {GREEN}xdg-pinned{RST}  {DIM}(~/.lean-ctx can no longer hijack this install){RST}"
+            )
+        } else {
+            format!(
+                "{BOLD}layout{RST}  {WHITE}single-dir / legacy{RST}  {DIM}(run: lean-ctx doctor --fix to commit to XDG){RST}"
+            )
+        };
+        board.check(&Outcome { ok: true, line });
+    }
+
     // 5) config.toml (missing is OK). It lives in the CONFIG dir
     // ($XDG_CONFIG_HOME/lean-ctx after a split), not the data dir — resolve it
     // through the same path as the loader so the report matches reality

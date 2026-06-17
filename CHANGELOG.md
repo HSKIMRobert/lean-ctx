@@ -6,6 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **XDG layout no longer flips back to `~/.lean-ctx` (GL #623)** — once an install
+  resolved to the XDG four-dir layout, a single stray marker appearing in
+  `~/.lean-ctx` (a legacy residue, a restored backup, a concurrent older binary,
+  even an empty `sessions/`) silently re-collapsed config/data/state/cache onto
+  that one directory via `single_dir_override`, after which `config.toml` was no
+  longer found and the dashboard graph disappeared (data had moved to
+  `$XDG_DATA_HOME/lean-ctx/graphs`). A new **layout pin**
+  (`$XDG_CONFIG_HOME/lean-ctx/layout.toml`, `mode = "xdg"`) records the
+  commitment: the resolver reads it *before* the legacy/mixed heuristic and never
+  re-adopts `~/.lean-ctx` for a pinned install. The pin is written by `setup`, the
+  MCP server start, and `doctor --fix` (after it migrates + reclaims), which also
+  auto-drains a residual `~/.lean-ctx`. Marker detection was hardened so an empty
+  `sessions/`/`graphs/` directory (or a zero-byte `stats.json`) no longer counts
+  as data, and the Docker self-heal shell hook no longer touches `~/.lean-ctx`
+  (heal timestamp → `$XDG_STATE_HOME`, lock count → `$XDG_DATA_HOME`). `doctor`
+  now reports the active layout mode (`xdg-pinned` / `single-dir / legacy`).
 - **Re-reads stop blowing up to full content (cache hit-rate regression)** — with
   `mode` omitted (the recommended usage), a file first read in a compressed mode
   (`map`/`signatures`) was resolved to `full` on its *second* read by the

@@ -388,6 +388,10 @@ pub fn run_setup() {
     }
     crate::doctor::run_compact();
 
+    // Commit to the XDG layout (and drain any residual ~/.lean-ctx) so a stray
+    // marker can never re-collapse config/data/state/cache later (GL #623).
+    crate::core::layout_pin::heal();
+
     // Step 8: Data sharing
     terminal_ui::print_step_header(8, 12, "Help Improve lean-ctx");
     println!("  Share anonymous compression stats to make lean-ctx better.");
@@ -746,6 +750,10 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
     let binary = resolve_portable_binary();
     let home_str = home.to_string_lossy().to_string();
+
+    // Commit to the XDG layout (and drain any residual ~/.lean-ctx) so a stray
+    // marker can never re-collapse config/data/state/cache later (GL #623).
+    crate::core::layout_pin::heal();
 
     let mut steps: Vec<SetupStepReport> = Vec::new();
 

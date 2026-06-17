@@ -72,7 +72,7 @@ impl Category {
 fn categorize(name: &str) -> Category {
     match name {
         // --- config: RO-safe ---
-        "config.toml" | "env.sh" => Category::Config,
+        "config.toml" | "env.sh" | "layout.toml" => Category::Config,
         n if n.starts_with("shell-hook.") => Category::Config,
 
         // --- state: events, logs, journals, ledgers, dashboards ---
