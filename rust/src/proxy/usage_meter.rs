@@ -2,7 +2,7 @@
 //!
 //! [`record`] aggregates the real provider usage extracted by [`super::usage`]
 //! into per-model token sums, prices them with the shared
-//! [`ModelPricing`](crate::core::gain::model_pricing::ModelPricing) table, and
+//! [`ModelPricing`] table, and
 //! persists the totals to `proxy_usage.json` so the dashboard, CLI and the
 //! savings ledger (which run in *other* processes) can read the user's real
 //! provider bill.
