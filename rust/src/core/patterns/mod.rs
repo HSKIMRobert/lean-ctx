@@ -113,6 +113,18 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
         return shorter_only(filtered, output);
     }
 
+    // VCS history (git/jj/gh/glab/hg) is owned by its dedicated compressor. Its
+    // lines look log-ish (one per commit) but are NOT application logs, so the
+    // generic json/log/test fallbacks would mis-summarize them — e.g. truncating
+    // an explicit `git log --oneline -40` to "last 15" or reading a commit
+    // subject like "fix: pending_errors" as an error line. Return the dedicated
+    // compressor's result directly — even when it is not shorter, so an already
+    // compact oneline log is preserved verbatim (full history intact) instead of
+    // being reshaped by a generic heuristic.
+    if has_vcs_owner(command) {
+        return try_specific_pattern(command, clean_output).filter(|c| !c.trim().is_empty());
+    }
+
     if let Some(compressed) = try_specific_pattern(command, clean_output)
         && let Some(r) = shorter_only(compressed, output)
     {
@@ -123,16 +135,6 @@ pub fn compress_output(command: &str, output: &str) -> Option<String> {
         && let Some(r) = shorter_only(r, output)
     {
         return Some(r);
-    }
-
-    // VCS history (git/jj/gh/glab) is owned by its dedicated compressor. Its
-    // lines look log-ish (one per commit) but are NOT application logs, so the
-    // generic log/test fallbacks would mis-summarize them — e.g. truncating an
-    // explicit `git log --oneline -40` to "last 15" or flagging a commit
-    // subject as an error. When the dedicated compressor finds no gain we keep
-    // the output verbatim instead of letting a generic heuristic mangle it.
-    if has_vcs_owner(command) {
-        return None;
     }
 
     if let Some(r) = log_dedup::compress(clean_output)
