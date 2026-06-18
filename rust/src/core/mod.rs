@@ -350,6 +350,7 @@ pub mod homeostasis;
 
 pub mod agent_registry;
 pub mod compliance;
+pub mod compliance_report;
 pub mod edit_quality;
 pub mod efficacy;
 pub mod evidence_bundle;

@@ -203,3 +203,47 @@ A blocked egress returns a `[POLICY BLOCKED]` message and is audited
 writes/actions are checked, never your own manual edits.
 
 Full contract: `docs/contracts/context-policy-packs-v1.md`.
+
+## Compliance report (#677)
+
+Policy packs *do* the governance; the compliance report *proves* it. One command
+folds the engine's evidence surfaces into a single **Ed25519-signed** artifact
+for a date range — the thing a CISO or auditor actually signs off on:
+
+```bash
+lean-ctx compliance report \
+  --from 2026-01-01T00:00:00Z --to 2026-03-31T23:59:59Z \
+  --framework eu-ai-act --framework iso42001 \
+  --pack regulated-eu --format pdf --out q1-report.pdf
+# → writes q1-report.json  (signed, always — the verifiable deliverable)
+#   and     q1-report.pdf   (human rendering)
+# Without --out, the signed JSON lands in
+#   ~/.local/share/lean-ctx/compliance/report-v1_<timestamp>.json
+```
+
+The artifact bundles, for the period:
+
+- **OWASP Top-10-for-Agents alignment** — how the active controls map to the
+  agentic threat list.
+- **Framework coverage** — EU AI Act / ISO 42001 / SOC2 rows, verified *live*
+  against the resolved pack (not a static claim).
+- **Enforcement evidence** — what was **blocked** (`ToolDenied`) and **redacted**
+  (`SecretDetected`), folded from the append-only audit chain; the segment's
+  `head_hash` is bound into the signed payload.
+- **Retention posture** — the pack's `audit_retention_days` intent vs. your
+  plan entitlement.
+
+Honest by construction: a quiet quarter reports **zero** blocks rather than
+inventing activity, and a broken local audit chain is surfaced
+(`chain_valid = false`), never hidden. The signed JSON is offline-verifiable with
+no audit trail and no LeanCTX install:
+
+```bash
+lean-ctx compliance verify q1-report.json
+# → VALID — signature verifies (Ed25519, offline)
+#     Signer key: <key-id> · Period: … · Audit head: <sha-256>
+```
+
+`--format json` (default) writes only the signed artifact; `--format csv|pdf`
+additionally emits that human rendering — the PDF is a real, dependency-free
+PDF 1.7. Full contract: `docs/contracts/compliance-report-v1.md`.

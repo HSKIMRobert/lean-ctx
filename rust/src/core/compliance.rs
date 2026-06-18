@@ -137,7 +137,7 @@ pub fn get(framework: &str) -> Option<&'static FrameworkMapping> {
 // ── Report ───────────────────────────────────────────────────────────────────
 
 /// Verification status of one control row in a report.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RowStatus {
     /// Pack-rule control verified live against the resolved pack.
@@ -152,7 +152,7 @@ pub enum RowStatus {
     Gap,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportRow {
     pub id: String,
     pub clause: String,
@@ -165,7 +165,7 @@ pub struct ReportRow {
     pub test: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReportSummary {
     pub controls_total: usize,
     pub full_claimed: usize,
@@ -176,7 +176,7 @@ pub struct ReportSummary {
     pub gaps: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FrameworkReport {
     pub framework: String,
     pub title: String,

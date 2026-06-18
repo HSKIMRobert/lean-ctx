@@ -186,6 +186,10 @@ pub fn run() {
                 }
                 return;
             }
+            "compliance" => {
+                crate::cli::cmd_compliance(&rest);
+                return;
+            }
             "agent" => {
                 crate::cli::cmd_agent(&rest);
                 return;

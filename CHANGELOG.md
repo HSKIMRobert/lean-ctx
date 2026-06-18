@@ -35,6 +35,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#677 — signed CISO compliance report.** `lean-ctx compliance report --from
+  <rfc3339> --to <rfc3339> [--framework eu-ai-act|iso42001|soc2]... [--pack
+  <name|path>] [--format json|csv|pdf|text]` composes the engine's evidence
+  surfaces into one **Ed25519-signed** artifact for a date range: OWASP
+  Top-10-for-Agents alignment, framework coverage (verified live against the
+  resolved pack), what enforcement **blocked** (`ToolDenied`) and **redacted**
+  (`SecretDetected`) over the period (folded from the append-only audit chain,
+  with the segment's `head_hash` bound into the signed payload), and the
+  retention posture (pack `audit_retention_days` intent vs. plan entitlement).
+  The signed JSON is always written and is offline-verifiable with `lean-ctx
+  compliance verify <report.json>` (no audit trail, no LeanCTX needed); `--format
+  csv|pdf` additionally emits that human rendering — the PDF is a real,
+  dependency-free PDF 1.7. Honest by construction: a quiet period reports zero
+  blocks, and a broken local chain is reported (`chain_valid = false`), never
+  hidden. New `core::compliance_report` module; contract
+  `docs/contracts/compliance-report-v1.md`.
 - **#676 — egress / output DLP on agent writes & actions.** A new `[egress]`
   policy-pack section governs what the agent *emits* (the output side of the
   Great Filter), checked **before dispatch** of `ctx_edit` writes and
