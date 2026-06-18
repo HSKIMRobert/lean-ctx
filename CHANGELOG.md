@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Hermes context-engine plugin + `ctx_transcript_compact` core tool** — lean-ctx
+  can now be Hermes Agent's *active context engine*, not just an MCP server it
+  might call. The new `integrations/hermes-lean-ctx` plugin is a thin Python
+  `ContextEngine` that replaces Hermes' built-in `ContextCompressor`: it keeps the
+  system preamble + a fresh tail verbatim, replaces older turns with a recoverable
+  summary, and injects lean-ctx's recall tools (`ctx_search`, `ctx_semantic_search`,
+  `ctx_read`, `ctx_expand`, `ctx_knowledge`, `ctx_summary`) natively into the agent.
+  Compaction itself lives in a new daemon tool, `ctx_transcript_compact` (the 77th
+  MCP tool): deterministic, prompt-cache-friendly compaction of OpenAI-format
+  message arrays that never splits a `tool_call`/`tool_result` pair and offloads the
+  raw turns into session memory. The plugin prefers this core tool over `/v1` and
+  falls back to local Python compaction when the daemon is unreachable, so the agent
+  loop never breaks. Includes session-lifecycle persistence (`resume` on start,
+  `ctx_summary` + `ctx_handoff` on end), model-window presets, a runnable
+  head-to-head benchmark harness (vs. import-guarded `ContextCompressor`/`hermes-lcm`),
+  and a dedicated CI job (pytest + offline benchmark smoke). `lean-ctx init --agent
+  hermes` now also points to the engine plugin.
+
 ### Fixed
 - **High idle CPU when no session is running (#453)** — on v3.8.8 (macOS, Claude
   Code & OpenCode) a connected-but-idle agent pegged a whole CPU core in the

@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **76 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **77 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -449,6 +449,12 @@ actions: find (query → top-N relevant tools as ChoiceCards) | call (proxy a `s
 Use find to discover, then call the chosen `server::tool`. Off by default ([gateway] config).
 
 Parameters: `action`, `arguments`, `query`, `tool`
+
+## `ctx_transcript_compact`
+
+Compact an OpenAI-format message array deterministically: keep system + a fresh tail verbatim, replace older turns with a recoverable summary, and offload the raw turns into lean-ctx session memory (indexed for ctx_search/ctx_knowledge recall). Built for the Hermes context-engine plugin. Returns JSON {messages, stats}; tool_call/tool_result pairs are never split.
+
+Parameters: `focus_topic`, `fresh_tail_tokens`, `messages`*, `protect_min_messages`
 
 ## `ctx_tree`
 
