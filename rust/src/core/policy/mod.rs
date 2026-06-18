@@ -71,6 +71,10 @@ pub struct PolicyPack {
     /// it enters the model context).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub redaction: BTreeMap<String, String>,
+    /// Inbound content filters (PII / classification / prompt-injection) — the
+    /// input side of the Great Filter (GL #675).
+    #[serde(default, skip_serializing_if = "FilterRules::is_empty")]
+    pub filters: FilterRules,
 }
 
 /// The `[context]` section of a pack. All fields optional — only what a pack
@@ -96,6 +100,39 @@ pub struct ContextRules {
     pub audit_retention_days: Option<u32>,
 }
 
+/// The `[filters]` section — inbound content detectors (GL #675). Each action
+/// is one of `off` / `warn` / `redact` / `block` (absent ⇒ `off`). Compiled
+/// into a [`crate::core::input_filters::FilterConfig`] at load time and run on
+/// tool output before it reaches the agent.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FilterRules {
+    /// PII detection (Swiss AHV, IBAN, payment cards, email).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pii: Option<String>,
+    /// Data-classification marking gate (confidential/secret banners).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification: Option<String>,
+    /// Prompt-injection detection (OWASP LLM01) on inbound content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub injection: Option<String>,
+    /// Classification labels that gate; overrides the built-in default set.
+    /// Accumulates down the `extends` chain (a child may add, never drop).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_labels: Vec<String>,
+}
+
+impl FilterRules {
+    /// True when no filter is configured (all actions absent, no labels).
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.pii.is_none()
+            && self.classification.is_none()
+            && self.injection.is_none()
+            && self.blocked_labels.is_empty()
+    }
+}
+
 // ── Resolved view ────────────────────────────────────────────────────────────
 
 /// A pack with its full `extends` chain folded in — what enforcement and
@@ -114,6 +151,9 @@ pub struct ResolvedPolicy {
     pub max_context_tokens: Option<u32>,
     pub audit_retention_days: Option<u32>,
     pub redaction: BTreeMap<String, String>,
+    /// Folded inbound-filter actions + label set (GL #675).
+    #[serde(default, skip_serializing_if = "FilterRules::is_empty")]
+    pub filters: FilterRules,
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────────
@@ -133,6 +173,7 @@ pub enum PolicyError {
     UnknownParent(String),
     ExtendsCycle(Vec<String>),
     ExtendsTooDeep(usize),
+    UnknownFilterAction { field: String, value: String },
 }
 
 impl std::fmt::Display for PolicyError {
@@ -176,6 +217,10 @@ impl std::fmt::Display for PolicyError {
             PolicyError::ExtendsTooDeep(d) => write!(
                 f,
                 "extends chain deeper than {MAX_EXTENDS_DEPTH} (found {d}) — flatten the hierarchy"
+            ),
+            PolicyError::UnknownFilterAction { field, value } => write!(
+                f,
+                "filters.{field} '{value}' is not a valid action (one of: off, warn, redact, block)"
             ),
         }
     }
@@ -249,6 +294,22 @@ pub fn validate(pack: &PolicyPack) -> Result<(), PolicyError> {
             });
         }
     }
+    validate_filter_action("pii", pack.filters.pii.as_deref())?;
+    validate_filter_action("classification", pack.filters.classification.as_deref())?;
+    validate_filter_action("injection", pack.filters.injection.as_deref())?;
+    Ok(())
+}
+
+/// Reject a `[filters]` action that is not a known token.
+fn validate_filter_action(field: &str, value: Option<&str>) -> Result<(), PolicyError> {
+    if let Some(v) = value
+        && crate::core::input_filters::FilterAction::parse(v).is_none()
+    {
+        return Err(PolicyError::UnknownFilterAction {
+            field: field.to_string(),
+            value: v.to_string(),
+        });
+    }
     Ok(())
 }
 
@@ -298,6 +359,7 @@ pub fn resolve(pack: &PolicyPack) -> Result<ResolvedPolicy, PolicyError> {
         max_context_tokens: None,
         audit_retention_days: None,
         redaction: BTreeMap::new(),
+        filters: FilterRules::default(),
     };
     for layer in lineage.iter().rev() {
         if let Some(mode) = &layer.context.default_read_mode {
@@ -319,6 +381,21 @@ pub fn resolve(pack: &PolicyPack) -> Result<ResolvedPolicy, PolicyError> {
         }
         for (name, pattern) in &layer.redaction {
             resolved.redaction.insert(name.clone(), pattern.clone());
+        }
+        // Filter actions override (child wins); labels accumulate.
+        if let Some(v) = &layer.filters.pii {
+            resolved.filters.pii = Some(v.clone());
+        }
+        if let Some(v) = &layer.filters.classification {
+            resolved.filters.classification = Some(v.clone());
+        }
+        if let Some(v) = &layer.filters.injection {
+            resolved.filters.injection = Some(v.clone());
+        }
+        for label in &layer.filters.blocked_labels {
+            if !resolved.filters.blocked_labels.contains(label) {
+                resolved.filters.blocked_labels.push(label.clone());
+            }
         }
     }
 
@@ -353,6 +430,7 @@ mod tests {
             extends: extends.map(str::to_string),
             context: ContextRules::default(),
             redaction: BTreeMap::new(),
+            filters: FilterRules::default(),
         }
     }
 

@@ -54,6 +54,11 @@ max_context_tokens = 16000
 [redaction]
 employee_id = 'EMP-\d{6}'
 internal_host = '\b[a-z0-9-]+\.corp\.acme\.com\b'
+
+[filters]
+pii = "redact"            # off | warn | redact | block
+classification = "block"  # refuse files marked confidential/secret
+injection = "redact"      # mask prompt-injection lines (OWASP LLM01)
 ```
 
 Validate before committing:
@@ -133,5 +138,34 @@ Guarantees that keep this safe:
   edits.
 
 What `policy show` resolves is exactly what gets enforced.
+
+## Input filters (#675)
+
+The `[filters]` section adds net-new detectors that scan tool output **before it
+reaches the agent** — the input side of the filter regulated teams ask for. Each
+takes an action: `off`, `warn` (let through + audit), `redact` (mask matches), or
+`block` (refuse the content).
+
+```toml
+[filters]
+pii = "redact"                       # Swiss AHV, IBAN, payment cards, email
+classification = "block"             # gate confidential/secret-marked files
+injection = "block"                  # OWASP LLM01 prompt-injection
+blocked_labels = ["CONFIDENTIAL", "TS//SCI"]   # optional: your own label set
+```
+
+- **PII** is checksum-validated (Luhn for cards, mod-97 for IBAN, EAN-13 for
+  AHV), so a random 16-digit order number is not mistaken for a card.
+- **Classification** only fires on an actual *marking* — a banner line
+  (`CONFIDENTIAL` on its own line) or a `Classification:`/`Sensitivity:` field —
+  not the word used in a sentence.
+- **Injection** masks (or blocks) lines carrying known role-override /
+  token-smuggling patterns, leaving the rest of the file intact.
+
+Every decision is audit-logged **without leaking the data**: only the detector
+class and a count are recorded (e.g. `pii:iban×2`), never the matched value. A
+`block` returns a `[POLICY BLOCKED]` message in place of the content. Filters
+inherit like the rest of the pack — actions override, `blocked_labels`
+accumulate — and obey the same opt-in / fail-open / Local-Free guarantees.
 
 Full contract: `docs/contracts/context-policy-packs-v1.md`.
