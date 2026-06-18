@@ -3,6 +3,46 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **#356 — the "lean-ctx wants to access your Documents folder" prompt is now
+  closed even for `brew upgrade`-only installs.** The path guards + LaunchAgent
+  Seatbelt wrapper already made daemon/proxy boot promptless, and `lean-ctx
+  update`/`dev-install` regenerate the plists with that wrapper. The remaining
+  hole was a user who *only* runs `brew upgrade` (which bypasses lean-ctx's
+  updater), so their pre-Seatbelt plists were never regenerated. New belt-and-
+  suspenders: a launchd-standalone process (`ppid 1`) now **re-execs itself
+  under the deny-`~/Documents` Seatbelt at startup** if it is not already
+  wrapped (`reexec_under_seatbelt_if_needed`, called first thing in `main`). A
+  sentinel env var baked into the plists (`LEAN_CTX_SEATBELT`) prevents any
+  double-wrap for current-code plists; terminal/editor children (host TCC grant)
+  and non-macOS are unaffected. Verified by the existing `tcc_sandbox.sh`
+  SIGKILL-on-access boot test. This makes the daemon/proxy promptless
+  independent of code signature, so no Apple Developer ID is required.
+- **#451 — `ctx_shell` / `lean-ctx -c` no longer run agent commands in a
+  non-POSIX interactive shell.** `$SHELL` is the user's *interactive* shell; when
+  it is Nushell, Fish, Elvish, xonsh or PowerShell, an agent's bash/POSIX command
+  silently mis-executes. `detect_shell` now honors `$SHELL` only when it is
+  POSIX-compatible (bash/zsh/sh/dash/ash/ksh/mksh) and otherwise falls back to a
+  real POSIX shell. zsh/bash users are unaffected; `LEAN_CTX_SHELL` still forces a
+  specific shell regardless of the gate.
+- **Shell gotcha auto-learning now correlates fail→fix in CLI (`lean-ctx -c`)
+  mode.** `pending_errors` were `#[serde(skip)]` and cleared on load, so a fix
+  spanning two separate `lean-ctx -c` processes never correlated (only the
+  long-lived daemon could). They are now persisted (bounded by `MAX_PENDING` + a
+  15-min TTL, pruned on load), so a later process loads the pending error and
+  correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
+
+### Added
+- **#454 — `prefer_native_editor` config to opt out of lean-ctx edit operations.**
+  Set `prefer_native_editor = true` (or `LEAN_CTX_PREFER_NATIVE_EDITOR=1`) so the
+  lean-ctx edit tool (`ctx_edit`) is neither advertised in `list_tools` nor
+  dispatchable (direct *or* via `ctx_call`); the agent falls back to the host's
+  built-in editor UI. Read / search / shell / memory tools are unaffected.
+  Colorized diffs are intentionally left to host extensions rather than the MCP
+  tool output, which must stay byte-stable for prompt caching (#498).
+
 ## [3.8.9] — 2026-06-18
 
 ### Added
