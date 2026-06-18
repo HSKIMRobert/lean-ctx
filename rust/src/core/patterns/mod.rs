@@ -6,6 +6,7 @@ pub const PATTERN_ENGINE_VERSION: u32 = 1;
 pub mod pattern_trait;
 pub use pattern_trait::{CompressionPattern, CompressionResult};
 
+pub mod alembic;
 pub mod ansible;
 pub mod artisan;
 pub mod aws;
@@ -16,6 +17,7 @@ pub mod clang;
 pub mod cmake;
 pub mod composer;
 pub mod curl;
+pub mod dbt;
 pub mod deno;
 pub mod deps_cmd;
 pub mod docker;
@@ -25,6 +27,7 @@ pub mod eslint;
 pub mod fd;
 pub mod find;
 pub mod flutter;
+pub mod flyway;
 pub mod gh;
 pub mod git;
 pub mod glab;
@@ -55,6 +58,7 @@ pub mod psql;
 pub mod pytest;
 pub mod ruby;
 pub mod ruff;
+pub mod spark;
 pub mod swift;
 pub mod sysinfo;
 pub mod systemd;
@@ -386,6 +390,20 @@ pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         return cmake::compress(c, output);
     }
 
+    // --- data domain (#657) ---
+    if c == "dbt" || c.starts_with("dbt ") {
+        return dbt::compress(c, output);
+    }
+    if c == "alembic" || c.starts_with("alembic ") {
+        return alembic::compress(c, output);
+    }
+    if c == "flyway" || c.starts_with("flyway ") {
+        return flyway::compress(c, output);
+    }
+    if c.starts_with("spark-submit") || c.starts_with("spark-sql") || c.starts_with("pyspark") {
+        return spark::compress(c, output);
+    }
+
     None
 }
 
@@ -434,6 +452,22 @@ mod tests {
         let output = "===== test session starts =====\ncollected 5 items\ntest_main.py ..... [100%]\n===== 5 passed in 0.5s =====";
         assert!(compress_output("pytest", output).is_some());
         assert!(compress_output("python -m pytest tests/", output).is_some());
+    }
+
+    #[test]
+    fn routes_data_domain() {
+        let dbt =
+            "20:14:02  Found 12 models\n20:14:20  Done. PASS=11 WARN=0 ERROR=1 SKIP=0 TOTAL=12";
+        assert!(
+            compress_output("dbt run", dbt).is_some(),
+            "dbt routed+compressible"
+        );
+        let alembic = "INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.\nINFO  [alembic.runtime.migration] Running upgrade  -> a1b2c3, create users table\nINFO  [alembic.runtime.migration] Running upgrade a1b2c3 -> d4e5f6, add email index";
+        assert!(compress_output("alembic upgrade head", alembic).is_some());
+        let flyway = "Flyway Community Edition 9.22.0 by Redgate\nDatabase: jdbc:postgresql://localhost/db\nMigrating schema \"public\" to version \"5 - add orders\"\nSuccessfully applied 1 migration to schema \"public\", now at version v5";
+        assert!(compress_output("flyway migrate", flyway).is_some());
+        let spark = "23/01/01 12:00:00 INFO SparkContext: Running Spark version 3.4.0\n23/01/01 12:00:01 INFO ResourceUtils: none configured\n23/01/01 12:00:10 INFO DAGScheduler: Job 0 finished: collect, took 5.1 s\n23/01/01 12:00:15 ERROR Executor: Exception in task 0.0";
+        assert!(compress_output("spark-submit app.py", spark).is_some());
     }
 
     #[test]

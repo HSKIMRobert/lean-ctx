@@ -241,6 +241,7 @@ SHELL HOOK PATTERNS (95+):
     ruby      rubocop, bundle install/update, rake test, rails test
     tests     jest, vitest, pytest, go test, playwright, rspec, minitest
     iac       terraform, make, maven, gradle, dotnet, flutter, dart
+    data-eng  dbt, spark, alembic, flyway
     utils     curl, grep/rg, find, ls, wget, env
     data      JSON schema extraction, log deduplication
 
