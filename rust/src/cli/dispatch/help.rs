@@ -242,6 +242,7 @@ SHELL HOOK PATTERNS (95+):
     tests     jest, vitest, pytest, go test, playwright, rspec, minitest
     iac       terraform, make, maven, gradle, dotnet, flutter, dart
     data-eng  dbt, spark, alembic, flyway
+    ai        ollama, mlflow
     utils     curl, grep/rg, find, ls, wget, env
     data      JSON schema extraction, log deduplication
 

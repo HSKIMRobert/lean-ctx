@@ -42,11 +42,13 @@ pub mod ls;
 pub mod make;
 pub mod maven;
 pub mod mix;
+pub mod mlflow;
 pub mod mypy;
 pub mod mysql;
 pub mod next_build;
 pub mod ninja;
 pub mod npm;
+pub mod ollama;
 pub mod php;
 pub mod pip;
 pub mod playwright;
@@ -404,6 +406,14 @@ pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         return spark::compress(c, output);
     }
 
+    // --- ai domain (#658) ---
+    if c == "ollama" || c.starts_with("ollama ") {
+        return ollama::compress(c, output);
+    }
+    if c.starts_with("mlflow ") {
+        return mlflow::compress(c, output);
+    }
+
     None
 }
 
@@ -468,6 +478,14 @@ mod tests {
         assert!(compress_output("flyway migrate", flyway).is_some());
         let spark = "23/01/01 12:00:00 INFO SparkContext: Running Spark version 3.4.0\n23/01/01 12:00:01 INFO ResourceUtils: none configured\n23/01/01 12:00:10 INFO DAGScheduler: Job 0 finished: collect, took 5.1 s\n23/01/01 12:00:15 ERROR Executor: Exception in task 0.0";
         assert!(compress_output("spark-submit app.py", spark).is_some());
+    }
+
+    #[test]
+    fn routes_ai_domain() {
+        let ollama = "NAME              ID              SIZE      MODIFIED\nllama3.2:latest   a80c4f17acd5    2.0 GB    3 days ago\nqwen2.5-coder:7b  2b0496514337    4.7 GB    2 weeks ago";
+        assert!(compress_output("ollama list", ollama).is_some());
+        let mlflow = "2024/01/01 12:00:01 INFO mlflow.projects.backend.local: === Running command 'python train.py' ===\nCollecting numpy==1.26.0\nDownloading numpy-1.26.0.whl (18.2 MB)\n2024/01/01 12:00:30 INFO mlflow.projects: === Run (ID 'abc123def456') succeeded ===";
+        assert!(compress_output("mlflow run .", mlflow).is_some());
     }
 
     #[test]
