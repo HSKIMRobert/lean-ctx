@@ -75,6 +75,9 @@ pub struct PolicyPack {
     /// input side of the Great Filter (GL #675).
     #[serde(default, skip_serializing_if = "FilterRules::is_empty")]
     pub filters: FilterRules,
+    /// Egress/output DLP on agent writes & actions (GL #676).
+    #[serde(default, skip_serializing_if = "EgressRules::is_empty")]
+    pub egress: EgressRules,
 }
 
 /// The `[context]` section of a pack. All fields optional — only what a pack
@@ -133,6 +136,34 @@ impl FilterRules {
     }
 }
 
+/// The `[egress]` section — output/DLP enforcement on agent writes & actions
+/// (GL #676). Gates `ctx_edit` writes and `ctx_shell` actions before they
+/// execute. Compiled into a [`crate::core::egress::EgressConfig`] at load time.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EgressRules {
+    /// Regexes that block a write/action when matched (e.g. a prod-DB DSN).
+    /// Accumulates down the `extends` chain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbidden_patterns: Vec<String>,
+    /// Block writes/actions carrying detected secrets or PII.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_secrets: Option<bool>,
+    /// Rate limit: max agent write/action tool calls per 60 s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_writes_per_min: Option<u32>,
+}
+
+impl EgressRules {
+    /// True when no egress rule is configured.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.forbidden_patterns.is_empty()
+            && self.block_secrets.is_none()
+            && self.max_writes_per_min.is_none()
+    }
+}
+
 // ── Resolved view ────────────────────────────────────────────────────────────
 
 /// A pack with its full `extends` chain folded in — what enforcement and
@@ -154,6 +185,9 @@ pub struct ResolvedPolicy {
     /// Folded inbound-filter actions + label set (GL #675).
     #[serde(default, skip_serializing_if = "FilterRules::is_empty")]
     pub filters: FilterRules,
+    /// Folded egress/output DLP rules (GL #676).
+    #[serde(default, skip_serializing_if = "EgressRules::is_empty")]
+    pub egress: EgressRules,
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────────
@@ -297,6 +331,14 @@ pub fn validate(pack: &PolicyPack) -> Result<(), PolicyError> {
     validate_filter_action("pii", pack.filters.pii.as_deref())?;
     validate_filter_action("classification", pack.filters.classification.as_deref())?;
     validate_filter_action("injection", pack.filters.injection.as_deref())?;
+    for pattern in &pack.egress.forbidden_patterns {
+        if let Err(e) = regex::Regex::new(pattern) {
+            return Err(PolicyError::BadRegex {
+                pattern_name: format!("egress.forbidden_patterns: {pattern}"),
+                error: e.to_string(),
+            });
+        }
+    }
     Ok(())
 }
 
@@ -360,6 +402,7 @@ pub fn resolve(pack: &PolicyPack) -> Result<ResolvedPolicy, PolicyError> {
         audit_retention_days: None,
         redaction: BTreeMap::new(),
         filters: FilterRules::default(),
+        egress: EgressRules::default(),
     };
     for layer in lineage.iter().rev() {
         if let Some(mode) = &layer.context.default_read_mode {
@@ -397,6 +440,18 @@ pub fn resolve(pack: &PolicyPack) -> Result<ResolvedPolicy, PolicyError> {
                 resolved.filters.blocked_labels.push(label.clone());
             }
         }
+        // Egress: forbidden patterns accumulate; scalars override (child wins).
+        for pattern in &layer.egress.forbidden_patterns {
+            if !resolved.egress.forbidden_patterns.contains(pattern) {
+                resolved.egress.forbidden_patterns.push(pattern.clone());
+            }
+        }
+        if let Some(v) = layer.egress.block_secrets {
+            resolved.egress.block_secrets = Some(v);
+        }
+        if let Some(v) = layer.egress.max_writes_per_min {
+            resolved.egress.max_writes_per_min = Some(v);
+        }
     }
 
     // A resolved allowlist must not collide with accumulated denies.
@@ -431,6 +486,7 @@ mod tests {
             context: ContextRules::default(),
             redaction: BTreeMap::new(),
             filters: FilterRules::default(),
+            egress: EgressRules::default(),
         }
     }
 

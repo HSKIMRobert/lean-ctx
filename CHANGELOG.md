@@ -35,6 +35,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#676 — egress / output DLP on agent writes & actions.** A new `[egress]`
+  policy-pack section governs what the agent *emits* (the output side of the
+  Great Filter), checked **before dispatch** of `ctx_edit` writes and
+  `ctx_shell`/`ctx_execute` actions — so a blocked write never touches disk and a
+  blocked command never runs. **`forbidden_patterns`** are regexes that refuse a
+  write/action on match (e.g. a prod-DB DSN or a destructive query);
+  **`block_secrets`** refuses content carrying detected secrets (the pack's
+  `[redaction]` patterns) or PII (the #675 checksum-validated detectors);
+  **`max_writes_per_min`** is a per-process sliding-window rate limit on agent
+  writes/actions. Blocked egress returns `[POLICY BLOCKED]` and is audited
+  (`ToolDenied`) with a non-sensitive reason (`forbidden-pattern:…`, `secret`,
+  `pii:…`, `rate-limit`) — never the matched content. Egress obeys the same
+  opt-in / fail-open / Local-Free guarantees; `forbidden_patterns` accumulate and
+  the scalars override down the `extends` chain. New `core::egress` module.
 - **#675 — inbound content filters (PII / classification / prompt-injection).**
   A new `[filters]` policy-pack section adds net-new detectors that run inside the
   enforcement pipeline *before* tool output reaches the agent (the input side of

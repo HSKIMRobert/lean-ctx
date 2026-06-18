@@ -62,6 +62,44 @@ impl LeanCtxServer {
             return Ok(denied);
         }
 
+        // #676 — egress / output DLP on agent writes & actions. Inspect the
+        // payload of write/action tools BEFORE dispatch so a forbidden write
+        // never touches disk and a forbidden command never runs. Only the
+        // agent's tool-driven egress is governed here (a human's own editor
+        // writes never pass through this path). No-op unless the active pack has
+        // an `[egress]` section.
+        if let Some(active) = crate::core::policy::runtime::active()
+            && active.egress.is_active()
+        {
+            let target = match name {
+                "ctx_edit" => helpers::get_str(args, "new_string").map(|s| (s, "Write")),
+                "ctx_shell" | "ctx_execute" => {
+                    helpers::get_str(args, "command").map(|s| (s, "Action"))
+                }
+                _ => None,
+            };
+            if let Some((payload, kind)) = target {
+                if let Some(reason) = active.egress.check_content(&payload, &active.redaction) {
+                    tracing::warn!(tool = name, %reason, "agent egress blocked by policy");
+                    policy_guard::audit_egress(name, &reason);
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "[POLICY BLOCKED] {kind} blocked by context policy pack egress rule \
+                         ({reason}). Adjust .lean-ctx/policy.toml to proceed."
+                    ))]));
+                }
+                if let Some(max) = active.egress.max_writes_per_min
+                    && !crate::core::egress::check_rate(max)
+                {
+                    tracing::warn!(tool = name, max, "agent egress rate limit exceeded");
+                    policy_guard::audit_egress(name, "rate-limit");
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "[POLICY BLOCKED] {kind} rate limit exceeded ({max}/min) by context \
+                         policy pack. Slow agent writes/actions or adjust .lean-ctx/policy.toml."
+                    ))]));
+                }
+            }
+        }
+
         if name != "ctx_workflow" {
             let active = self.workflow.read().await.clone();
             if let Some(run) = active {

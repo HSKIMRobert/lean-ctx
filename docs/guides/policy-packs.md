@@ -59,6 +59,11 @@ internal_host = '\b[a-z0-9-]+\.corp\.acme\.com\b'
 pii = "redact"            # off | warn | redact | block
 classification = "block"  # refuse files marked confidential/secret
 injection = "redact"      # mask prompt-injection lines (OWASP LLM01)
+
+[egress]
+forbidden_patterns = ['\.prod\.acme\.internal']  # block writes/actions hitting prod
+block_secrets = true      # refuse writes/actions carrying secrets or PII
+max_writes_per_min = 30   # rate-limit agent writes/actions
 ```
 
 Validate before committing:
@@ -72,7 +77,8 @@ lean-ctx policy show project        # the resolved, effective policy
 
 - **Scalars** (`default_read_mode`, `max_context_tokens`,
   `audit_retention_days`): your value wins when set.
-- **`deny_tools` and `[redaction]`**: accumulate down the chain — you can add
+- **`deny_tools`, `[redaction]`, `filters.blocked_labels` and
+  `egress.forbidden_patterns`**: accumulate down the chain — you can add
   restrictions, never silently drop a parent's. A redaction entry with the
   same name re-points that pattern.
 - **`allow_tools`**: setting it replaces the parent's list (an allowlist is a
@@ -167,5 +173,33 @@ class and a count are recorded (e.g. `pii:iban×2`), never the matched value. A
 `block` returns a `[POLICY BLOCKED]` message in place of the content. Filters
 inherit like the rest of the pack — actions override, `blocked_labels`
 accumulate — and obey the same opt-in / fail-open / Local-Free guarantees.
+
+## Egress / output DLP (#676)
+
+Where `[filters]` scans what reaches the agent, `[egress]` scans what the agent
+*writes and runs* — the output side. It checks the payload of `ctx_edit` writes
+and `ctx_shell`/`ctx_execute` actions **before they execute**, so a blocked write
+never touches disk and a blocked command never runs.
+
+```toml
+[egress]
+forbidden_patterns = ['\.prod\.acme\.internal', 'DROP\s+TABLE']
+block_secrets = true        # refuse content carrying detected secrets or PII
+max_writes_per_min = 30     # sliding-window rate limit on agent writes/actions
+```
+
+- **`forbidden_patterns`** — if any regex matches the write body or command, the
+  action is refused (e.g. stop the agent editing a prod connection string or
+  running a destructive query).
+- **`block_secrets`** — reuses your `[redaction]` patterns and the #675 PII
+  detectors to stop the agent from *writing out* a secret or personal data.
+- **`max_writes_per_min`** — caps how many writes/actions the agent may perform
+  per minute; the next one inside the window is refused until it ages out.
+
+A blocked egress returns a `[POLICY BLOCKED]` message and is audited
+(`ToolDenied`) with a non-sensitive reason (`forbidden-pattern:…`, `secret`,
+`pii:…`, `rate-limit`) — never the matched content. Egress is opt-in (no
+`[egress]` section ⇒ nothing gated) and Local-Free: only the agent's tool-driven
+writes/actions are checked, never your own manual edits.
 
 Full contract: `docs/contracts/context-policy-packs-v1.md`.

@@ -6,10 +6,11 @@ mode, allowed/denied tools, redaction patterns, an audit-retention expectation
 and a context-budget cap. The reduced, solo-viable slice of #377/#403/#404.
 
 v1 ships the **format, validation, resolution, five curated built-ins and the
-`lean-ctx policy` CLI**; **runtime enforcement is wired as of #673** and
+`lean-ctx policy` CLI**; **runtime enforcement is wired as of #673**,
 **inbound content filters (PII / classification / prompt-injection) as of
-#675** (see *Enforcement*). Pack signing and central org distribution remain
-explicit follow-ups (see *Out of scope*).
+#675** and **egress/output DLP on agent writes & actions as of #676** (see
+*Enforcement*). Pack signing and central org distribution remain explicit
+follow-ups (see *Out of scope*).
 
 ## Format
 
@@ -36,6 +37,11 @@ pii = "redact"                  # Swiss AHV, IBAN, payment cards, email (checksu
 classification = "block"        # gate files marked confidential/secret
 injection = "redact"            # OWASP LLM01 prompt-injection in file content
 blocked_labels = ["TS//SCI"]    # optional: override the default confidential/secret label set
+
+[egress]                        # output DLP on agent writes & actions (GL #676)
+forbidden_patterns = ['prod\.db\.internal']  # regexes that block a write/action
+block_secrets = true            # refuse writes/actions carrying detected secrets or PII
+max_writes_per_min = 30         # sliding-window rate limit on agent writes/actions
 ```
 
 Unknown keys are **rejected** (`deny_unknown_fields`) so a typo like
@@ -54,6 +60,8 @@ rejected. Semantics are security-first and predictable:
 | `allow_tools` | child **overrides** when set (an allowlist is a posture choice, not a set union) |
 | `[filters]` actions (`pii`/`classification`/`injection`) | child **overrides** when set |
 | `filters.blocked_labels` | **accumulates** (a child may add labels, never drop them) |
+| `egress.forbidden_patterns` | **accumulates** (a child may add patterns, never drop them) |
+| `egress.block_secrets`, `egress.max_writes_per_min` | child **overrides** when set |
 
 After folding, a resolved `allow_tools` colliding with an accumulated deny is
 an error (`AllowDenyOverlap`) — a pack cannot both allow and deny a tool.
@@ -120,6 +128,7 @@ is gated and behavior is identical to a pack-less install.
 | `default_read_mode` | `ctx_read`, only when the caller omits `mode` | the pack default replaces auto/profile selection (an explicit `mode` always wins; line windows may still narrow it) |
 | `max_context_tokens` | `core::budget_tracker::check` | tightens (never loosens) the per-session token ceiling; the agent hits the normal budget warning/exhausted path |
 | `[filters]` (#675) | `call_tool_guarded`, same outbound chokepoint as `[redaction]` | each detector (`pii`/`classification`/`injection`) can `warn`/`redact`/`block`; a `block` replaces the content with a `[POLICY BLOCKED]` refusal so it never reaches the model |
+| `[egress]` (#676) | `call_tool_guarded`, **before dispatch** of `ctx_edit` writes and `ctx_shell`/`ctx_execute` actions | a forbidden pattern, a detected secret/PII (`block_secrets`) or an exceeded `max_writes_per_min` returns a `[POLICY BLOCKED]` result and is audited (`ToolDenied`) — the write never touches disk, the command never runs |
 
 ### Inbound content filters (#675)
 
@@ -140,6 +149,27 @@ agent, on the same chokepoint as `[redaction]`:
 Decisions are audited **privacy-preservingly** — only `(class, count)` pairs
 (e.g. `pii:iban×2`), never the matched values. A `block` emits a policy
 violation event (`ToolDenied`); redactions record `SecretDetected`.
+
+### Egress / output DLP (#676)
+
+Where `[filters]` governs what *reaches* the agent, `[egress]` governs what the
+agent *emits*. It runs **before dispatch** of write/action tools (`ctx_edit`,
+`ctx_shell`, `ctx_execute`), so a blocked write never touches disk and a blocked
+command never runs:
+
+- **`forbidden_patterns`** — regexes inspected against the write body / command;
+  a match blocks with reason `forbidden-pattern:<source>` (the regex source, a
+  non-sensitive label — never the matched text).
+- **`block_secrets`** — refuses content carrying detected secrets (the active
+  pack's `[redaction]` patterns, reason `secret`) or PII (the #675 checksum-
+  validated detectors, reason `pii:<class>`).
+- **`max_writes_per_min`** — a per-process sliding-window rate limit; the
+  `max+1`-th write/action within any trailing 60 s is refused (`rate-limit`).
+
+Blocked egress is audited `ToolDenied` with the privacy-preserving reason; the
+matched content is never recorded. Egress checks are **opt-in** (no `[egress]`
+section ⇒ no gating) and obey the **Local-Free Invariant** below — only the
+agent's tool-driven writes/actions are gated, never a human's manual edits.
 
 Invariants:
 
@@ -171,8 +201,9 @@ Invariants:
 |---|---|
 | Types, parse, validate, resolve | `rust/src/core/policy/mod.rs` |
 | Runtime view (load + cache active pack) | `rust/src/core/policy/runtime.rs` |
-| Server-side tool gating + redaction + filter audit | `rust/src/server/policy_guard.rs` |
+| Server-side tool gating + redaction + filter/egress audit | `rust/src/server/policy_guard.rs` |
 | Inbound content filters (PII / classification / injection) | `rust/src/core/input_filters/` |
+| Egress / output DLP (forbidden patterns, secret/PII block, rate limit) | `rust/src/core/egress.rs` |
 | CGB coverage checks | `rust/src/core/policy/coverage.rs` |
 | Built-in registry | `rust/src/core/policy/builtin.rs` |
 | Built-in pack sources | `rust/src/core/policy/builtin/*.toml` |

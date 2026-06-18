@@ -36,6 +36,9 @@ pub struct ActivePolicy {
     /// Compiled inbound content filters (GL #675), built once from the pack's
     /// `[filters]` section.
     pub filters: FilterConfig,
+    /// Compiled egress/output DLP config (GL #676), built once from the pack's
+    /// `[egress]` section.
+    pub egress: crate::core::egress::EgressConfig,
 }
 
 impl ActivePolicy {
@@ -51,10 +54,16 @@ impl ActivePolicy {
             filter_action(resolved.filters.injection.as_ref()),
             &resolved.filters.blocked_labels,
         );
+        let egress = crate::core::egress::EgressConfig::new(
+            &resolved.egress.forbidden_patterns,
+            resolved.egress.block_secrets.unwrap_or(false),
+            resolved.egress.max_writes_per_min,
+        );
         Self {
             resolved,
             redaction,
             filters,
+            egress,
         }
     }
 
@@ -179,6 +188,7 @@ mod tests {
                 .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
                 .collect::<BTreeMap<_, _>>(),
             filters: crate::core::policy::FilterRules::default(),
+            egress: crate::core::policy::EgressRules::default(),
         }
     }
 

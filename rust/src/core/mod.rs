@@ -323,6 +323,7 @@ pub mod data_consolidate;
 pub mod data_dir;
 pub mod diagnostics_store;
 pub mod editor_signal;
+pub mod egress;
 pub mod error;
 pub mod events;
 pub mod eviction_orchestrator;

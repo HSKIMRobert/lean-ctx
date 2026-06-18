@@ -151,6 +151,24 @@ pub fn audit_filter(tool: &str, audit: &[(String, usize)], blocked: bool) {
     });
 }
 
+/// Audit a blocked egress (write/action) DLP decision (GL #676).
+/// **Privacy-preserving**: records the rule/class label (`forbidden-pattern:…`,
+/// `secret`, `pii:…`, `rate-limit`) — never the matched content.
+pub fn audit_egress(tool: &str, reason: &str) {
+    let policy =
+        runtime::active().map_or_else(|| "policy".to_string(), |a| a.resolved.name.clone());
+    crate::core::events::emit_policy_violation(&policy, tool, &format!("egress blocked: {reason}"));
+    crate::core::audit_trail::record(crate::core::audit_trail::AuditEntryData {
+        agent_id: "unknown".into(),
+        tool: tool.to_string(),
+        action: None,
+        input_hash: String::new(),
+        output_tokens: 0,
+        role: policy,
+        event_type: crate::core::audit_trail::AuditEventType::ToolDenied,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +188,7 @@ mod tests {
             audit_retention_days: None,
             redaction: BTreeMap::new(),
             filters: crate::core::policy::FilterRules::default(),
+            egress: crate::core::policy::EgressRules::default(),
         })
     }
 
@@ -234,6 +253,7 @@ mod tests {
             audit_retention_days: None,
             redaction,
             filters: crate::core::policy::FilterRules::default(),
+            egress: crate::core::policy::EgressRules::default(),
         }));
 
         assert!(!check_tool_access("ctx_read").blocked);
