@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.8.9] — 2026-06-18
 
 ### Added
 - **Hermes context-engine plugin + `ctx_transcript_compact` core tool** — lean-ctx
