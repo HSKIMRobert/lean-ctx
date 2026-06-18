@@ -89,16 +89,7 @@ pub fn show_first_run_wow() {
     let yellow = "\x1b[33m";
     let dim = "\x1b[2m";
     let rst = "\x1b[0m";
-    let monthly = result.potential_usd * 30.0;
-    let saved = crate::core::wrapped::format_tokens(result.potential_tokens as u64);
 
-    println!();
-    println!("  {bold}Here's what lean-ctx just started saving you{rst}");
-    println!("  {dim}estimated from your shell history — nothing leaves your machine{rst}");
-    println!();
-    println!(
-        "  {green}~{saved} tokens{rst}{dim}/month{rst} across {total_missed} uncompressed commands {dim}(~${monthly:.0}/mo){rst}"
-    );
     let top = result
         .missed_commands
         .iter()
@@ -106,6 +97,24 @@ pub fn show_first_run_wow() {
         .map(|m| format!("{} {}x", m.prefix, m.count))
         .collect::<Vec<_>>()
         .join("   ");
+
+    println!();
+    println!("  {bold}Here's what lean-ctx is about to start saving you{rst}");
+    println!("  {dim}estimated from your shell history — nothing leaves your machine{rst}");
+    println!();
+    if result.has_measured_data {
+        // Returning user: project their own measured savings onto frequency.
+        let monthly = result.potential_usd * 30.0;
+        let saved = crate::core::wrapped::format_tokens(result.potential_tokens as u64);
+        println!(
+            "  {green}~{saved} tokens{rst}{dim}/month{rst} across {total_missed} uncompressed commands {dim}(~${monthly:.0}/mo, from your measured rate){rst}"
+        );
+    } else {
+        // Fresh install: no measurements yet — show frequency, never a fake $.
+        println!(
+            "  {green}{total_missed} commands{rst} {dim}that lean-ctx will now compress automatically{rst}"
+        );
+    }
     if !top.is_empty() {
         println!("  {dim}top: {top}{rst}");
     }
