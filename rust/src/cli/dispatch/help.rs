@@ -245,6 +245,7 @@ SHELL HOOK PATTERNS (95+):
     ai        ollama, mlflow
     security  semgrep, trivy, grype, syft, cosign, swiftlint
     vcs/tool  jj, mise, buf, gem, uv add/lock/tool
+    edge/iac  pulumi, linkerd, argocd, vercel, fly, wrangler, skaffold, supabase
     utils     curl, grep/rg, find, ls, wget, env
     data      JSON schema extraction, log deduplication
 

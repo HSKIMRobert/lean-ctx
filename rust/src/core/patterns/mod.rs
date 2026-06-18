@@ -8,6 +8,7 @@ pub use pattern_trait::{CompressionPattern, CompressionResult};
 
 pub mod alembic;
 pub mod ansible;
+pub mod argocd;
 pub mod artisan;
 pub mod aws;
 pub mod bazel;
@@ -21,6 +22,7 @@ pub mod cosign;
 pub mod curl;
 pub mod dbt;
 pub mod deno;
+pub mod deploy;
 pub mod deps_cmd;
 pub mod docker;
 pub mod dotnet;
@@ -42,6 +44,7 @@ pub mod jj;
 pub mod json_schema;
 pub mod just;
 pub mod kubectl;
+pub mod linkerd;
 pub mod log_dedup;
 pub mod ls;
 pub mod make;
@@ -63,6 +66,7 @@ pub mod poetry;
 pub mod prettier;
 pub mod prisma;
 pub mod psql;
+pub mod pulumi;
 pub mod pytest;
 pub mod ruby;
 pub mod ruff;
@@ -457,6 +461,28 @@ pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         return gem::compress(c, output);
     }
 
+    // --- edge / infra (#661) ---
+    if c == "pulumi" || c.starts_with("pulumi ") {
+        return pulumi::compress(c, output);
+    }
+    if c.starts_with("linkerd ") {
+        return linkerd::compress(c, output);
+    }
+    if c.starts_with("argocd ") {
+        return argocd::compress(c, output);
+    }
+    if c == "vercel"
+        || c.starts_with("vercel ")
+        || c == "fly"
+        || c.starts_with("fly ")
+        || c.starts_with("flyctl ")
+        || c.starts_with("wrangler ")
+        || c.starts_with("skaffold ")
+        || c.starts_with("supabase ")
+    {
+        return deploy::compress(c, output);
+    }
+
     None
 }
 
@@ -560,6 +586,20 @@ mod tests {
         assert!(compress_output("gem install rails", gem).is_some());
         let uv = "Resolved 42 packages in 120ms\nDownloading numpy (18.2MiB)\n 100%|████████| 18.2M/18.2M [00:01<00:00, 15.3MiB/s]\nDownloading pandas (12.1MiB)\n 100%|████████| 12.1M/12.1M [00:00<00:00, 14.1MiB/s]\nPrepared 5 packages in 1.2s\nInstalled 5 packages in 30ms\n + numpy==1.26.0\n + pandas==2.1.0";
         assert!(compress_output("uv add pandas", uv).is_some());
+    }
+
+    #[test]
+    fn routes_edge_infra_domain() {
+        let pulumi = "Updating (dev):\n     Type   Name   Status\n +   pulumi:pulumi:Stack proj created\n +   aws:s3:Bucket b1 created\n +   aws:s3:Bucket b2 created\n +   aws:s3:Bucket b3 created\n +   aws:lambda:Function fn created\n\nOutputs:\n    url: \"https://x.example.com\"\n\nResources:\n    + 5 created\n    10 unchanged\n\nDuration: 35s";
+        assert!(compress_output("pulumi up", pulumi).is_some());
+        let linkerd = "kubernetes-api\n--------------\n√ can initialize the client\n√ can query the Kubernetes API\n√ is running the minimum kubectl version\n\nlinkerd-existence\n-----------------\n√ 'linkerd-config' config map exists\n× control plane pods are ready\n    some pods are not ready\n\nStatus check results are ×";
+        assert!(compress_output("linkerd check", linkerd).is_some());
+        let argocd = "Name:               argocd/myapp\nProject:            default\nSync Status:        Synced\nHealth Status:      Healthy\n\nGROUP  KIND  NAMESPACE  NAME  STATUS  HEALTH  HOOK  MESSAGE\n  Service ns s1 Synced Healthy\n  Service ns s2 Synced Healthy\n  Service ns s3 Synced Healthy\napps Deployment ns d1 OutOfSync Progressing";
+        assert!(compress_output("argocd app get myapp", argocd).is_some());
+        let vercel = "Vercel CLI 33.0.0\nInstalling dependencies...\nadded 420 packages in 12s\nBuilding...\nCompiling pages\nCollecting page data\nGenerating static pages\nProduction: https://my-app.vercel.app [45s]";
+        assert!(compress_output("vercel deploy --prod", vercel).is_some());
+        let wrangler = "wrangler 3.0.0\n-------------------\nyour worker has access to the following bindings:\n- KV Namespaces:\n  - CACHE: abc123\nTotal Upload: 1.2 MiB / gzip: 0.4 MiB\nUploaded my-worker (3.5 sec)\nPublished my-worker (1.2 sec)\n  https://my-worker.example.workers.dev";
+        assert!(compress_output("wrangler deploy", wrangler).is_some());
     }
 
     #[test]
