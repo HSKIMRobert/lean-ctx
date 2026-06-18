@@ -41,6 +41,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
     `ctx_tree` now pays **zero** indexing cost (measured: idle CPU stays at 0.0%);
     graph/search tools still warm their index on first use. The eager call was an
     unrelated regression slipped in via #294.
+  - **Long-lived HTTP `serve` keeps a one-time background warm-up** — only the
+    persistent `lean-ctx serve` process (never the per-respawn stdio path) kicks
+    off a single deduped background index build at startup. Without it the first
+    heavy/search tool call on a large project root raced a cold scan against the
+    per-request timeout and, on CPU-constrained CI runners, starved the request
+    handlers into `504 request_timeout` (the SDK-conformance regression). Idle CPU
+    still settles flat once the build completes, so #453 idle hygiene is preserved.
   - **stdio transport no longer respawns on a single bad frame** — the codec
     mapped *any* decode error to the same `None` as a true EOF, so one malformed
     JSON-RPC message tore down the server (rmcp `QuitReason::Closed`), the agent
