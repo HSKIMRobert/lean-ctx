@@ -157,10 +157,6 @@ pub fn reexec_under_seatbelt_if_needed() {
     tracing::warn!("#356 seatbelt re-exec failed, continuing unwrapped: {err}");
 }
 
-/// Non-macOS platforms have no TCC and no `sandbox-exec` — nothing to do.
-#[cfg(not(target_os = "macos"))]
-pub fn reexec_under_seatbelt_if_needed() {}
-
 /// `true` if `sandbox-exec` exists and successfully runs a no-op under
 /// `profile`. Guards against both a missing binary and an SBPL syntax error,
 /// either of which would otherwise turn a `KeepAlive` LaunchAgent into a
