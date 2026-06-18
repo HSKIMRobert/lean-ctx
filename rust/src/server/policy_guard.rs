@@ -114,6 +114,43 @@ pub fn redact_result(text: &str) -> (String, usize) {
     }
 }
 
+/// Audit a content-filter decision (GL #675). **Privacy-preserving**: records
+/// only the detector classes and counts (e.g. `pii:iban×2`) — never the matched
+/// values. A `blocked` decision additionally surfaces a policy-violation event;
+/// redactions are recorded as `SecretDetected` for the compliance ledger.
+pub fn audit_filter(tool: &str, audit: &[(String, usize)], blocked: bool) {
+    if audit.is_empty() {
+        return;
+    }
+    let policy =
+        runtime::active().map_or_else(|| "policy".to_string(), |a| a.resolved.name.clone());
+    let summary = audit
+        .iter()
+        .map(|(class, n)| format!("{class}×{n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if blocked {
+        crate::core::events::emit_policy_violation(
+            &policy,
+            tool,
+            &format!("input filter blocked: {summary}"),
+        );
+    }
+    crate::core::audit_trail::record(crate::core::audit_trail::AuditEntryData {
+        agent_id: "unknown".into(),
+        tool: tool.to_string(),
+        action: None,
+        input_hash: String::new(),
+        output_tokens: 0,
+        role: policy,
+        event_type: if blocked {
+            crate::core::audit_trail::AuditEventType::ToolDenied
+        } else {
+            crate::core::audit_trail::AuditEventType::SecretDetected
+        },
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,6 +169,7 @@ mod tests {
             max_context_tokens: None,
             audit_retention_days: None,
             redaction: BTreeMap::new(),
+            filters: crate::core::policy::FilterRules::default(),
         })
     }
 
@@ -195,6 +233,7 @@ mod tests {
             max_context_tokens: Some(5_000),
             audit_retention_days: None,
             redaction,
+            filters: crate::core::policy::FilterRules::default(),
         }));
 
         assert!(!check_tool_access("ctx_read").blocked);

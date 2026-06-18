@@ -359,6 +359,7 @@ pub mod index_bundle;
 pub mod index_namespace;
 pub mod index_orchestrator;
 pub mod ingestion;
+pub mod input_filters;
 pub mod instruction_compiler;
 pub mod integrity;
 pub mod intent_engine;

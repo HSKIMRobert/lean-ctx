@@ -6,9 +6,10 @@ mode, allowed/denied tools, redaction patterns, an audit-retention expectation
 and a context-budget cap. The reduced, solo-viable slice of #377/#403/#404.
 
 v1 ships the **format, validation, resolution, five curated built-ins and the
-`lean-ctx policy` CLI**; **runtime enforcement is wired as of #673** (see
-*Enforcement*). Pack signing and central org distribution remain explicit
-follow-ups (see *Out of scope*).
+`lean-ctx policy` CLI**; **runtime enforcement is wired as of #673** and
+**inbound content filters (PII / classification / prompt-injection) as of
+#675** (see *Enforcement*). Pack signing and central org distribution remain
+explicit follow-ups (see *Out of scope*).
 
 ## Format
 
@@ -29,6 +30,12 @@ audit_retention_days = 365      # governance intent (hosted plane enforces its p
 
 [redaction]                     # name -> regex, matched before content enters context
 employee_id = 'EMP-\d{6}'
+
+[filters]                       # inbound content detectors (GL #675); action = off|warn|redact|block
+pii = "redact"                  # Swiss AHV, IBAN, payment cards, email (checksum-validated)
+classification = "block"        # gate files marked confidential/secret
+injection = "redact"            # OWASP LLM01 prompt-injection in file content
+blocked_labels = ["TS//SCI"]    # optional: override the default confidential/secret label set
 ```
 
 Unknown keys are **rejected** (`deny_unknown_fields`) so a typo like
@@ -45,6 +52,8 @@ rejected. Semantics are security-first and predictable:
 | `deny_tools` | **accumulates** (parent restrictions can never be dropped) |
 | `[redaction]` | **accumulates**; a child entry with the same name re-points that pattern |
 | `allow_tools` | child **overrides** when set (an allowlist is a posture choice, not a set union) |
+| `[filters]` actions (`pii`/`classification`/`injection`) | child **overrides** when set |
+| `filters.blocked_labels` | **accumulates** (a child may add labels, never drop them) |
 
 After folding, a resolved `allow_tools` colliding with an accumulated deny is
 an error (`AllowDenyOverlap`) — a pack cannot both allow and deny a tool.
@@ -95,7 +104,8 @@ lean-ctx policy show baseline --toml > .lean-ctx/policy.toml
 `PolicyError` names the offending field and value; the CLI prints it verbatim:
 `Toml`, `InvalidName`, `InvalidVersion`, `EmptyDescription`,
 `UnknownReadMode`, `BadRegex{pattern_name}`, `ZeroMaxTokens`,
-`AllowDenyOverlap`, `UnknownParent`, `ExtendsCycle`, `ExtendsTooDeep`.
+`AllowDenyOverlap`, `UnknownParent`, `ExtendsCycle`, `ExtendsTooDeep`,
+`UnknownFilterAction{field}`.
 
 ## Enforcement (#673)
 
@@ -109,6 +119,27 @@ is gated and behavior is identical to a pack-less install.
 | `[redaction]` | `call_tool_guarded`, before the result reaches the model and the out-of-band archive | each match becomes `[REDACTED:<name>]`, on top of the built-in secret rules |
 | `default_read_mode` | `ctx_read`, only when the caller omits `mode` | the pack default replaces auto/profile selection (an explicit `mode` always wins; line windows may still narrow it) |
 | `max_context_tokens` | `core::budget_tracker::check` | tightens (never loosens) the per-session token ceiling; the agent hits the normal budget warning/exhausted path |
+| `[filters]` (#675) | `call_tool_guarded`, same outbound chokepoint as `[redaction]` | each detector (`pii`/`classification`/`injection`) can `warn`/`redact`/`block`; a `block` replaces the content with a `[POLICY BLOCKED]` refusal so it never reaches the model |
+
+### Inbound content filters (#675)
+
+`[filters]` adds net-new detectors that run **before** tool output reaches the
+agent, on the same chokepoint as `[redaction]`:
+
+- **`pii`** — Swiss AHV (EAN-13), IBAN (mod-97), payment cards (Luhn) and email,
+  each checksum/shape-validated to keep false positives low. `redact` →
+  `[REDACTED:<class>]`; `block` → refuse.
+- **`classification`** — gates content *marked* confidential/secret (banner
+  lines or a `Classification:`/`Sensitivity:` field), not prose mentions.
+  `block` (the default-meaningful action) refuses; `warn` annotates.
+  `blocked_labels` overrides the built-in label set.
+- **`injection`** — OWASP LLM01 prompt-injection via
+  `core::output_sanitizer::detect_injection`; `redact` masks the offending
+  lines, `block` refuses.
+
+Decisions are audited **privacy-preservingly** — only `(class, count)` pairs
+(e.g. `pii:iban×2`), never the matched values. A `block` emits a policy
+violation event (`ToolDenied`); redactions record `SecretDetected`.
 
 Invariants:
 
@@ -140,7 +171,8 @@ Invariants:
 |---|---|
 | Types, parse, validate, resolve | `rust/src/core/policy/mod.rs` |
 | Runtime view (load + cache active pack) | `rust/src/core/policy/runtime.rs` |
-| Server-side tool gating + redaction | `rust/src/server/policy_guard.rs` |
+| Server-side tool gating + redaction + filter audit | `rust/src/server/policy_guard.rs` |
+| Inbound content filters (PII / classification / injection) | `rust/src/core/input_filters/` |
 | CGB coverage checks | `rust/src/core/policy/coverage.rs` |
 | Built-in registry | `rust/src/core/policy/builtin.rs` |
 | Built-in pack sources | `rust/src/core/policy/builtin/*.toml` |

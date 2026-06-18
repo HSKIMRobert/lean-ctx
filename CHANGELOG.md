@@ -35,6 +35,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#675 — inbound content filters (PII / classification / prompt-injection).**
+  A new `[filters]` policy-pack section adds net-new detectors that run inside the
+  enforcement pipeline *before* tool output reaches the agent (the input side of
+  the Great Filter). Each detector takes an action — `off` / `warn` / `redact` /
+  `block`: **`pii`** finds Swiss AHV (EAN-13), IBAN (mod-97), payment cards
+  (Luhn) and email, each checksum-validated to keep false positives low;
+  **`classification`** gates files *marked* confidential/secret (banner lines or
+  a `Classification:` field, not prose mentions; `blocked_labels` is
+  configurable); **`injection`** masks/blocks OWASP-LLM01 prompt-injection lines
+  (reusing `output_sanitizer::detect_injection`). Decisions are audit-logged
+  privacy-preservingly — only `(class, count)` pairs (e.g. `pii:iban×2`), never
+  the matched value. Filters obey the same opt-in / fail-open / Local-Free
+  guarantees as the rest of the pack; actions override and `blocked_labels`
+  accumulate down the `extends` chain. New `core::input_filters` module.
 - **#673 — context policy packs are now enforced at runtime.** A project pack
   (`.lean-ctx/policy.toml`, authored from any built-in via `lean-ctx policy show
   <name> --toml`) is applied at the MCP hot path: `deny_tools`/`allow_tools`

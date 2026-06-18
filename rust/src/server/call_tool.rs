@@ -339,6 +339,35 @@ impl LeanCtxServer {
             }
         }
 
+        // #675 — inbound content filters (PII / classification / prompt-injection).
+        // Runs at the same outbound chokepoint as redaction, before the archive /
+        // compression below. A `block` decision replaces the content with a
+        // refusal so it never reaches the model; `redact`/`warn` rewrite/annotate.
+        // No-op unless the active pack enables a `[filters]` action.
+        if let Some(active) = crate::core::policy::runtime::active()
+            && active.filters.is_active()
+        {
+            let outcome = crate::core::input_filters::apply(&result_text, &active.filters);
+            if outcome.blocked {
+                let reason = outcome.block_reason.as_deref().unwrap_or("policy");
+                tracing::warn!(tool = name, reason, "content blocked by input filter");
+                policy_guard::audit_filter(name, &outcome.audit, true);
+                result_text = format!(
+                    "[POLICY BLOCKED] Content withheld by the active context policy pack \
+                     (input filter: {reason}). Adjust .lean-ctx/policy.toml to proceed."
+                );
+            } else {
+                if !outcome.audit.is_empty() {
+                    tracing::debug!(tool = name, "input filters applied");
+                    policy_guard::audit_filter(name, &outcome.audit, false);
+                }
+                result_text = outcome.text;
+                for warning in &outcome.warnings {
+                    result_text = format!("{result_text}\n\n[FILTER] {warning}");
+                }
+            }
+        }
+
         // Out-of-band archive + optional context firewall for large tool outputs.
         // For firewallable tools (ctx_shell/ctx_execute/ctx_search/ctx_tree) whose output
         // exceeds the ephemeral threshold, the full (redacted) body is stored out-of-band

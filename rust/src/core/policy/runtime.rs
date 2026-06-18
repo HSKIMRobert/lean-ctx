@@ -19,6 +19,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use regex::Regex;
 
 use super::{ResolvedPolicy, parse_file, resolve};
+use crate::core::input_filters::{FilterAction, FilterConfig};
 
 /// Project-local pack location, relative to the working directory (matches the
 /// `lean-ctx policy` CLI's `PROJECT_PACK_PATH`).
@@ -32,6 +33,9 @@ pub struct ActivePolicy {
     /// Patterns that fail to compile are skipped (validation already rejects
     /// them on load, so this is defense-in-depth, not the primary guard).
     pub redaction: Vec<(String, Regex)>,
+    /// Compiled inbound content filters (GL #675), built once from the pack's
+    /// `[filters]` section.
+    pub filters: FilterConfig,
 }
 
 impl ActivePolicy {
@@ -41,9 +45,16 @@ impl ActivePolicy {
             .iter()
             .filter_map(|(label, pat)| Regex::new(pat).ok().map(|re| (label.clone(), re)))
             .collect();
+        let filters = FilterConfig::new(
+            filter_action(resolved.filters.pii.as_ref()),
+            filter_action(resolved.filters.classification.as_ref()),
+            filter_action(resolved.filters.injection.as_ref()),
+            &resolved.filters.blocked_labels,
+        );
         Self {
             resolved,
             redaction,
+            filters,
         }
     }
 
@@ -60,6 +71,14 @@ impl ActivePolicy {
             None => true,
         }
     }
+}
+
+/// Map a resolved `[filters]` action string to a [`FilterAction`]. Absent or
+/// (defensively) unparseable ⇒ `Off`; validation already rejects bad tokens.
+fn filter_action(opt: Option<&String>) -> FilterAction {
+    opt.map(String::as_str)
+        .and_then(FilterAction::parse)
+        .unwrap_or(FilterAction::Off)
 }
 
 struct Cache {
@@ -159,6 +178,7 @@ mod tests {
                 .iter()
                 .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
                 .collect::<BTreeMap<_, _>>(),
+            filters: crate::core::policy::FilterRules::default(),
         }
     }
 
