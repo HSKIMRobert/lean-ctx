@@ -6,6 +6,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **High idle CPU when no session is running (#453)** — on v3.8.8 (macOS, Claude
+  Code & OpenCode) a connected-but-idle agent pegged a whole CPU core in the
+  `lean-ctx` process. A `sample` of the live process showed the `leanctx-index`
+  thread burning ~100% while every other thread (tokio workers, `memory-guard`,
+  main) sat parked in `cond_wait`/`nanosleep` — a CPU-bound worker, not a busy
+  timer loop (the screenshot's "2 idle wake-ups" at 97.5% CPU confirmed it). Root
+  cause: `LeanCtxServer::new()` ran an **eager full index build** (graph + BM25 +
+  line-search) on *every* server start whenever a project root was detected. A
+  warm cache still burned ~1 core for 6–9 s per start; multiplied across two
+  agents and stdio respawns it never settled. Fixed comprehensively:
+  - **No eager startup build (primary fix)** — the startup scan is removed; the
+    server falls back to the demand-driven lazy warming it already documents
+    (#152). A session that sits idle or only uses `ctx_read`/`ctx_shell`/
+    `ctx_tree` now pays **zero** indexing cost (measured: idle CPU stays at 0.0%);
+    graph/search tools still warm their index on first use. The eager call was an
+    unrelated regression slipped in via #294.
+  - **stdio transport no longer respawns on a single bad frame** — the codec
+    mapped *any* decode error to the same `None` as a true EOF, so one malformed
+    JSON-RPC message tore down the server (rmcp `QuitReason::Closed`), the agent
+    respawned it, and the fresh process paid another index build — a CPU churn
+    loop. Malformed frames are now skipped (the bad frame is already consumed) and
+    the stream resyncs onto the next message; only a real stream end closes the
+    transport.
+  - **No duplicate daemons** — concurrent MCP servers launching at once could all
+    pass the `is_daemon_running()` check in a TOCTOU window and each spawn a
+    daemon. `start_daemon()` now serializes that critical section with an
+    exclusive, bounded-wait file lock.
+  - **Leaner proxy reload** — the #449 upstream-reload loop's default interval is
+    relaxed from 2 s to 5 s; `Config::load()`'s internal content-hash cache
+    already skips re-parsing an unchanged `config.toml`, so each idle tick is just
+    a small file read.
+  - **memory-guard idle backoff** — RSS sampling stretches from every 3 s to
+    every 15 s once memory has been stably calm, and snaps back instantly under
+    any pressure (OOM reaction time during real work is unchanged).
 - **Quick settings that "keep resetting" are now diagnosable and stable (#450)** —
   a value saved in the dashboard could be silently shadowed so it appeared to
   revert to defaults (lite/off), and `lean-ctx config validate` only said
@@ -64,7 +98,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   service-managed proxy at all (the env simply does not propagate into a running
   process). Now:
   - **Live reload** — a background task re-resolves the upstreams from
-    `config.toml` every ~2s (`LEAN_CTX_PROXY_RELOAD_SECS` to tune) and publishes
+    `config.toml` every ~5s (`LEAN_CTX_PROXY_RELOAD_SECS` to tune) and publishes
     any change through a `tokio::sync::watch` channel that every provider handler
     reads per request, so `config set` takes effect on the running proxy within
     seconds, without a restart. An invalid value keeps the last good upstream

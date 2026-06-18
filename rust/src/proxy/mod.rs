@@ -128,18 +128,23 @@ fn read_idle_timeout_secs() -> u64 {
 }
 
 /// How often (seconds) a running proxy re-reads config.toml for upstream
-/// changes. `LEAN_CTX_PROXY_RELOAD_SECS` overrides; default 2s.
+/// changes. `LEAN_CTX_PROXY_RELOAD_SECS` overrides; default 5s.
 fn upstream_reload_secs() -> u64 {
     std::env::var("LEAN_CTX_PROXY_RELOAD_SECS")
         .ok()
         .and_then(|v| v.trim().parse::<u64>().ok())
         .filter(|s| *s > 0)
-        .unwrap_or(2)
+        .unwrap_or(5)
 }
 
 /// Background task: re-resolves the provider upstreams from config.toml on an
 /// interval and publishes any change to the live request handlers (#449). Ends
 /// once every receiver (the proxy itself) has been dropped.
+///
+/// `Config::load()` already keeps an internal content-hash cache, so re-reading
+/// an unchanged `config.toml` skips the TOML parse + merge and costs only a small
+/// file read; combined with the relaxed default interval (#453) the idle steady
+/// state is negligible without needing a separate stat pre-check.
 fn spawn_upstream_refresh(tx: tokio::sync::watch::Sender<Arc<Upstreams>>, initial: Upstreams) {
     let interval = std::time::Duration::from_secs(upstream_reload_secs());
     tokio::spawn(async move {

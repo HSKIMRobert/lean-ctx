@@ -42,7 +42,42 @@ pub fn read_daemon_pid() -> Option<u32> {
     contents.trim().parse::<u32>().ok()
 }
 
+/// Exclusive, bounded-wait lock that serializes the daemon-start critical
+/// section (liveness check → spawn → PID write). Several MCP servers launching
+/// at once (Claude Code + OpenCode + Cursor) would otherwise all pass the
+/// `is_daemon_running()` check in the TOCTOU window and each spawn a daemon —
+/// the process proliferation seen in #453. The advisory flock is tied to the
+/// open fd, so it is released automatically if a holder crashes; the bounded
+/// wait keeps a wedged holder from blocking startup forever (the
+/// `is_daemon_running()` re-check remains the last line of defense).
+fn acquire_start_lock() -> Option<fs::File> {
+    use fs2::FileExt;
+    let lock_path = data_dir().join("daemon.start.lock");
+    if let Some(parent) = lock_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match file.try_lock_exclusive() {
+            Ok(()) => return Some(file),
+            Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
 pub fn start_daemon(args: &[String]) -> Result<()> {
+    // Held for the whole critical section; released when `_start_lock` drops.
+    let _start_lock = acquire_start_lock();
+
     if is_daemon_running() {
         let pid = read_daemon_pid().unwrap_or(0);
         anyhow::bail!("Daemon already running (PID {pid}). Use --stop to stop it first.");
