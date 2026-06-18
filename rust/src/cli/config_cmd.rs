@@ -538,6 +538,29 @@ pub fn cmd_benchmark(args: &[String]) {
             println!("       lean-ctx benchmark eval [path] [--json]");
             println!("       lean-ctx benchmark compare [--repo path] [--output file.md]");
             println!("       lean-ctx benchmark scorecard [--json] [--output file]");
+            println!("       lean-ctx benchmark dual-arm [--json] [--output file]");
+        }
+        "dual-arm" => {
+            let is_json = args.iter().any(|a| a == "--json");
+            let output = parse_flag_value(args, "--output");
+            match crate::core::scorecard::dual_arm::run_dual_arm() {
+                Ok(sc) => {
+                    let rendered = if is_json { sc.to_json() } else { sc.to_human() };
+                    if let Some(path) = output {
+                        if let Err(e) = std::fs::write(&path, &rendered) {
+                            eprintln!("Failed to write dual-arm scorecard to {path}: {e}");
+                            std::process::exit(1);
+                        }
+                        eprintln!("Wrote dual-arm scorecard to {path}");
+                    } else {
+                        print!("{rendered}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Dual-arm bench failed: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
         "scorecard" => {
             let is_json = args.iter().any(|a| a == "--json");
