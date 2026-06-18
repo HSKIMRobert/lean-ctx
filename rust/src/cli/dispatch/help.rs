@@ -243,6 +243,7 @@ SHELL HOOK PATTERNS (95+):
     iac       terraform, make, maven, gradle, dotnet, flutter, dart
     data-eng  dbt, spark, alembic, flyway
     ai        ollama, mlflow
+    security  semgrep, trivy, grype, syft, cosign, swiftlint
     utils     curl, grep/rg, find, ls, wget, env
     data      JSON schema extraction, log deduplication
 

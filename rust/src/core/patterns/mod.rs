@@ -16,6 +16,7 @@ pub mod cargo;
 pub mod clang;
 pub mod cmake;
 pub mod composer;
+pub mod cosign;
 pub mod curl;
 pub mod dbt;
 pub mod deno;
@@ -33,6 +34,7 @@ pub mod git;
 pub mod glab;
 pub mod golang;
 pub mod grep;
+pub mod grype;
 pub mod helm;
 pub mod json_schema;
 pub mod just;
@@ -60,12 +62,16 @@ pub mod psql;
 pub mod pytest;
 pub mod ruby;
 pub mod ruff;
+pub mod semgrep;
 pub mod spark;
 pub mod swift;
+pub mod swiftlint;
+pub mod syft;
 pub mod sysinfo;
 pub mod systemd;
 pub mod terraform;
 pub mod test;
+pub mod trivy;
 pub mod typescript;
 pub mod wget;
 pub mod zig;
@@ -414,6 +420,26 @@ pub fn try_specific_pattern(cmd: &str, output: &str) -> Option<String> {
         return mlflow::compress(c, output);
     }
 
+    // --- security / supply-chain (#659) ---
+    if c.starts_with("semgrep ") {
+        return semgrep::compress(c, output);
+    }
+    if c.starts_with("trivy ") {
+        return trivy::compress(c, output);
+    }
+    if c.starts_with("grype ") {
+        return grype::compress(c, output);
+    }
+    if c.starts_with("syft ") {
+        return syft::compress(c, output);
+    }
+    if c.starts_with("cosign ") {
+        return cosign::compress(c, output);
+    }
+    if c.starts_with("swiftlint") {
+        return swiftlint::compress(c, output);
+    }
+
     None
 }
 
@@ -486,6 +512,20 @@ mod tests {
         assert!(compress_output("ollama list", ollama).is_some());
         let mlflow = "2024/01/01 12:00:01 INFO mlflow.projects.backend.local: === Running command 'python train.py' ===\nCollecting numpy==1.26.0\nDownloading numpy-1.26.0.whl (18.2 MB)\n2024/01/01 12:00:30 INFO mlflow.projects: === Run (ID 'abc123def456') succeeded ===";
         assert!(compress_output("mlflow run .", mlflow).is_some());
+    }
+
+    #[test]
+    fn routes_security_domain() {
+        let trivy = "2024-01-01T12:00:00.000Z\tINFO\tscanning\nnginx:latest (debian 12.1)\n=====\nTotal: 45 (LOW: 20, HIGH: 8, CRITICAL: 2)";
+        assert!(compress_output("trivy image nginx", trivy).is_some());
+        let grype = "NAME       INSTALLED  FIXED-IN  TYPE  VULNERABILITY   SEVERITY\nlibssl1.1  1.1.1n     1.1.1w    deb   CVE-2023-1234   Critical\nzlib1g     1.2.11     1.2.13    deb   CVE-2022-5678   High";
+        assert!(compress_output("grype nginx", grype).is_some());
+        let syft = "NAME       VERSION    TYPE\nadduser    3.118      deb\napt        2.6.1      deb\nlodash     4.17.21    npm";
+        assert!(compress_output("syft nginx", syft).is_some());
+        let semgrep = "Scanning 120 files.\n  src/app.py\n     python.security.dangerous-subprocess-use\n        Detected subprocess.\n         42┆ subprocess.call(x)\nRan 450 rules on 120 files: 1 findings.";
+        assert!(compress_output("semgrep scan", semgrep).is_some());
+        let swiftlint = "Linting Swift files in current working directory\nLinting 'A.swift' (1/3)\nLinting 'B.swift' (2/3)\nLinting 'C.swift' (3/3)\n/path/A.swift:10:5: warning: Line Length Violation: Line should be 120 chars or less (line_length)\n/path/A.swift:22:1: warning: Trailing Whitespace Violation: no trailing whitespace (trailing_whitespace)\n/path/B.swift:5:1: error: Force Cast Violation: avoid force casts (force_cast)\n/path/C.swift:8:3: warning: Todo Violation: resolve TODOs (todo)\nDone linting! Found 4 violations, 1 serious in 3 files.";
+        assert!(compress_output("swiftlint", swiftlint).is_some());
     }
 
     #[test]
