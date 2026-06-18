@@ -33,6 +33,13 @@ const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// privacy prompt (#356).
 const TCC_PROTECTED_SUBDIRS: [&str; 3] = ["Documents", "Desktop", "Downloads"];
 
+/// Env sentinel marking that this process is already running under (or is
+/// exempt from) the deny-`~/Documents` seatbelt. Set both by the LaunchAgent
+/// plist `EnvironmentVariables` (see [`pinned_layout_env_xml`]) and by the
+/// self re-exec ([`reexec_under_seatbelt_if_needed`]), so a current-code plist
+/// never re-wraps and the re-exec can never loop.
+pub const SEATBELT_SENTINEL: &str = "LEAN_CTX_SEATBELT";
+
 /// Build the inline Seatbelt (SBPL) profile that denies all file access under
 /// the three TCC-protected home directories while allowing everything else.
 ///
@@ -99,6 +106,61 @@ fn unwrapped_args(binary: &str, args: &[&str]) -> Vec<String> {
     out
 }
 
+/// Pure decision: should a launchd-standalone process re-exec itself under the
+/// seatbelt? Only when it is its own TCC identity *and* not already marked.
+/// Factored out so the policy is unit-testable without spawning processes.
+#[cfg(target_os = "macos")]
+fn should_reexec_under_seatbelt(standalone: bool, sentinel_present: bool) -> bool {
+    standalone && !sentinel_present
+}
+
+/// Belt-and-suspenders (#356): if this is a launchd-standalone process
+/// (daemon / proxy / auto-updater — `ppid 1`, its own TCC identity) that is not
+/// already running under the seatbelt, re-exec self wrapped in `sandbox-exec`
+/// with the deny-`~/Documents` profile. This closes the one gap the plist
+/// rewrite cannot: an install whose LaunchAgent plists predate the seatbelt and
+/// is only ever upgraded via `brew upgrade` (which bypasses lean-ctx's updater,
+/// so the plists are never regenerated). Without this such a process boots
+/// unwrapped and can still trip the TCC prompt.
+///
+/// No-op unless macOS + standalone + sentinel-absent + `sandbox-exec` accepts
+/// the profile. On `exec` failure it returns and the caller continues unwrapped
+/// (the [`crate::core::pathutil`] path guards remain the safety net) rather than
+/// aborting a `KeepAlive` daemon into a crash loop.
+#[cfg(target_os = "macos")]
+pub fn reexec_under_seatbelt_if_needed() {
+    use std::os::unix::process::CommandExt;
+
+    let sentinel = std::env::var_os(SEATBELT_SENTINEL).is_some();
+    let standalone = crate::core::pathutil::process_is_tcc_standalone();
+    if !should_reexec_under_seatbelt(standalone, sentinel) {
+        return;
+    }
+    let Some(profile) = tcc_deny_profile() else {
+        return;
+    };
+    if !sandbox_exec_usable(&profile) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `exec` replaces the image; it only returns on failure.
+    let err = Command::new(SANDBOX_EXEC)
+        .arg("-p")
+        .arg(&profile)
+        .arg(&exe)
+        .args(&args)
+        .env(SEATBELT_SENTINEL, "1")
+        .exec();
+    tracing::warn!("#356 seatbelt re-exec failed, continuing unwrapped: {err}");
+}
+
+/// Non-macOS platforms have no TCC and no `sandbox-exec` — nothing to do.
+#[cfg(not(target_os = "macos"))]
+pub fn reexec_under_seatbelt_if_needed() {}
+
 /// `true` if `sandbox-exec` exists and successfully runs a no-op under
 /// `profile`. Guards against both a missing binary and an SBPL syntax error,
 /// either of which would otherwise turn a `KeepAlive` LaunchAgent into a
@@ -128,6 +190,11 @@ fn sandbox_exec_usable(profile: &str) -> bool {
 /// (4-space indented, trailing newline) or an empty string when nothing resolves.
 pub fn pinned_layout_env_xml() -> String {
     let mut entries: Vec<(&str, String)> = Vec::new();
+    // #356 sentinel: marks the spawned process as managed by current-code
+    // (it carries the seatbelt wrapper, or wrapping is impossible on this host).
+    // Its presence makes `reexec_under_seatbelt_if_needed` a no-op, so a current
+    // plist never double-wraps — only stale, pre-sentinel plists re-exec.
+    entries.push((SEATBELT_SENTINEL, "1".to_string()));
     if let Some(home) = dirs::home_dir() {
         entries.push(("HOME", home.display().to_string()));
     }
@@ -253,6 +320,26 @@ mod tests {
         ] {
             assert!(xml.contains(&format!("<key>{key}</key>")), "missing {key}");
         }
+    }
+
+    #[test]
+    fn pinned_layout_env_carries_seatbelt_sentinel() {
+        // The plist must mark current-code processes so the boot-time re-exec
+        // guard (#356) treats them as already-wrapped and never double-wraps.
+        let xml = pinned_layout_env_xml();
+        assert!(xml.contains(&format!("<key>{SEATBELT_SENTINEL}</key>")));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn reexec_policy_only_fires_for_unmarked_standalone() {
+        // Standalone + no sentinel = stale plist → must re-exec under seatbelt.
+        assert!(should_reexec_under_seatbelt(true, false));
+        // Already marked (current plist or prior re-exec) → never loop.
+        assert!(!should_reexec_under_seatbelt(true, true));
+        // Terminal/editor child (host TCC grant) → never re-exec.
+        assert!(!should_reexec_under_seatbelt(false, false));
+        assert!(!should_reexec_under_seatbelt(false, true));
     }
 
     #[test]
