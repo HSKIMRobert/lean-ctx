@@ -88,6 +88,16 @@ fn fmt_int(n: u64) -> String {
     out
 }
 
+/// Like [`fmt_int`] but for signed values — the net-after-injection figure can
+/// legitimately go negative on a short, non-cached run.
+fn fmt_signed(n: i64) -> String {
+    if n < 0 {
+        format!("-{}", fmt_int(n.unsigned_abs()))
+    } else {
+        fmt_int(n.unsigned_abs())
+    }
+}
+
 /// Short, signed-chain provenance suffix, e.g. `signed (a1b2c3…)`.
 fn provenance(report: &RoiReport) -> String {
     let chain = if report.chain_valid {
@@ -127,6 +137,15 @@ fn format_human(report: &RoiReport) -> String {
         "  Net tokens saved   {}",
         fmt_int(report.net_saved_tokens)
     );
+    if report.turns > 0 {
+        let _ = writeln!(
+            s,
+            "  After injection    {}  ({} tok/turn × {} turns)",
+            fmt_signed(report.net_after_overhead_tokens),
+            fmt_int(report.injected_overhead_tokens_per_turn),
+            fmt_int(report.turns),
+        );
+    }
     let _ = writeln!(s, "  Estimated $ saved  ${:.2}", report.saved_usd);
     let _ = writeln!(
         s,
@@ -167,6 +186,15 @@ fn format_markdown(report: &RoiReport) -> String {
         "- **Net tokens saved:** {}",
         fmt_int(report.net_saved_tokens)
     );
+    if report.turns > 0 {
+        let _ = writeln!(
+            s,
+            "- **Net after injection:** {}  ({} tok/turn × {} turns)",
+            fmt_signed(report.net_after_overhead_tokens),
+            fmt_int(report.injected_overhead_tokens_per_turn),
+            fmt_int(report.turns),
+        );
+    }
     let _ = writeln!(s, "- **Estimated $ saved:** ${:.2}", report.saved_usd);
     let _ = writeln!(s, "- **Events:** {}", fmt_int(report.total_events as u64));
     let _ = writeln!(s, "- **Period:** {}", report.period);
@@ -230,6 +258,11 @@ mod tests {
             avg_saved_usd_per_event: 0.003,
             top_models: vec![("gpt-5".to_string(), 1_000_000, 3.0)],
             top_tools: vec![("ctx_read".to_string(), 900_000)],
+            // An observed run: 1,200 tok/turn × 20 turns = 24,000 tax → 1,210,000 net.
+            injected_overhead_tokens_per_turn: 1_200,
+            turns: 20,
+            injected_overhead_total_tokens: 24_000,
+            net_after_overhead_tokens: 1_210_000,
         }
     }
 
@@ -252,6 +285,33 @@ mod tests {
     }
 
     #[test]
+    fn human_report_shows_injection_net_when_turns_observed() {
+        let out = format_human(&sample(4));
+        assert!(out.contains("After injection"), "injection line present");
+        assert!(out.contains("1,210,000"), "net after injection");
+        assert!(out.contains("1,200 tok/turn × 20 turns"), "tax breakdown");
+    }
+
+    #[test]
+    fn reports_hide_injection_line_without_observed_turns() {
+        let mut r = sample(4);
+        r.turns = 0;
+        r.injected_overhead_total_tokens = 0;
+        r.net_after_overhead_tokens = r.net_saved_tokens as i64;
+        let human = format_human(&r);
+        let md = format_markdown(&r);
+        assert!(!human.contains("After injection"), "human: {human}");
+        assert!(!md.contains("Net after injection"), "md: {md}");
+    }
+
+    #[test]
+    fn fmt_signed_handles_negative_net() {
+        assert_eq!(fmt_signed(-1_234_000), "-1,234,000");
+        assert_eq!(fmt_signed(0), "0");
+        assert_eq!(fmt_signed(2_500), "2,500");
+    }
+
+    #[test]
     fn empty_ledger_is_friendly_not_blank() {
         let out = format_human(&sample(0));
         assert!(out.contains("no verified savings recorded yet"));
@@ -264,6 +324,10 @@ mod tests {
         assert!(md.contains("| Model | Tokens saved | $ saved |"));
         assert!(md.contains("| Tool | Tokens saved |"));
         assert!(md.contains("Ed25519-signed"));
+        assert!(
+            md.contains("**Net after injection:** 1,210,000"),
+            "markdown injection line: {md}"
+        );
     }
 
     #[test]

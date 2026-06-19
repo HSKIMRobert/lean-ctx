@@ -98,6 +98,29 @@ pub fn tool_tokens(t: &rmcp::model::Tool) -> usize {
     desc + schema
 }
 
+/// Pure net-of-injection reconciliation: the total injection tax
+/// (`overhead_per_turn × turns`) and the signed net savings after subtracting
+/// it. Lives here — the home of injection accounting — so both `lean-ctx gain`
+/// and the verified savings ledger/ROI reconcile against the same math. The net
+/// is signed because on a non-caching rail a short run can legitimately go
+/// net-negative until savings outgrow the per-turn injection (#361, #685).
+#[must_use]
+pub fn net_of_injection(tokens_saved: u64, overhead_per_turn: u64, turns: u64) -> (u64, i64) {
+    let total = overhead_per_turn.saturating_mul(turns);
+    let net = tokens_saved as i64 - total as i64;
+    (total, net)
+}
+
+/// Provider turns (requests) the proxy actually observed carrying the injected
+/// prefix. The proxy is the only component that sees every provider turn, so its
+/// persisted request count is the honest multiplier for the per-turn injection
+/// tax. `0` when the proxy is not in the request path — we never guess turns we
+/// did not see, so [`net_of_injection`] then collapses to the gross savings.
+#[must_use]
+pub fn observed_turns() -> u64 {
+    crate::proxy::metrics::load_persisted().map_or(0, |m| m.requests_total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,5 +209,23 @@ mod tests {
             o.rules_block_tokens,
             MINIMAL_ARM_PREFIX_BUDGET_TOKENS,
         );
+    }
+
+    #[test]
+    fn net_of_injection_subtracts_per_turn_tax() {
+        // 1000 saved, 50/turn over 8 turns = 400 tax → net 600.
+        assert_eq!(net_of_injection(1000, 50, 8), (400, 600));
+    }
+
+    #[test]
+    fn net_of_injection_can_go_negative_on_short_runs() {
+        // The honest case the report must not hide: gross < injection tax.
+        assert_eq!(net_of_injection(100, 50, 8), (400, -300));
+    }
+
+    #[test]
+    fn net_of_injection_collapses_to_gross_without_proxy_turns() {
+        // No proxy in the path → no counted turns → net == gross.
+        assert_eq!(net_of_injection(1234, 3000, 0), (0, 1234));
     }
 }

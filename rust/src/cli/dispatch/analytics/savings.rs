@@ -104,6 +104,15 @@ fn cmd_savings_roi(args: &[String]) {
         "  Saved tokens:  {} gross / {} net",
         report.saved_tokens, report.net_saved_tokens
     );
+    if report.turns > 0 {
+        println!(
+            "  After inject.: {} net  (−{} tax = {} tok/turn × {} turns)",
+            report.net_after_overhead_tokens,
+            report.injected_overhead_total_tokens,
+            report.injected_overhead_tokens_per_turn,
+            report.turns,
+        );
+    }
     println!("  Saved USD:     ${:.4}", report.saved_usd);
     println!(
         "  Avg / event:   {:.1} tok, ${:.6}",
@@ -491,6 +500,27 @@ fn format_savings_summary() -> String {
             "  {bold}USD{rst}         {sc}{bold}${:.2}{rst}",
             s.saved_usd
         )));
+    }
+    // Honest net-of-injection (#361, #685): subtract lean-ctx's own fixed per-turn
+    // context tax (overhead × observed proxy turns) from the bounce-adjusted net.
+    // Only shown when the proxy actually saw turns — we never guess unseen turns.
+    {
+        let per_turn = core::context_overhead::ContextOverhead::cached().total_tokens() as u64;
+        let turns = core::context_overhead::observed_turns();
+        if turns > 0 {
+            let (inj_total, inj_net) =
+                core::context_overhead::net_of_injection(s.net_saved_tokens(), per_turn, turns);
+            let net_str = if inj_net < 0 {
+                format!("-{}", format_tokens(inj_net.unsigned_abs()))
+            } else {
+                format_tokens(inj_net.unsigned_abs())
+            };
+            out.push(sl(&format!(
+                "  {bold}After inj.{rst}  {sc}{bold}{net_str}{rst}  {dim}(−{} tax · {} turns){rst}",
+                format_tokens(inj_total),
+                turns
+            )));
+        }
     }
     {
         let energy = core::energy::format_for_tokens(energy_tokens);

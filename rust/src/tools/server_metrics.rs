@@ -84,18 +84,12 @@ impl LeanCtxServer {
 
         let output_tokens = original.saturating_sub(saved);
         crate::core::stats::record(tool, original, output_tokens);
-        // Shell output compression is measured (observed bytes in vs out), so it
-        // belongs in the verified ledger. Reads are ledgered via the heatmap
-        // chokepoint and ctx_search ledgers itself — only shell is added here
-        // to avoid double counting.
-        if tool == "ctx_shell" {
-            crate::core::savings_ledger::record_tool_event("ctx_shell", original, saved);
-        }
-
         // MCP shell savings are measured (raw vs compressed output), so they are
-        // ledger-grade (GL #479 D2). ctx_search is intentionally NOT recorded
-        // here: its `original` carries the 2.5x counterfactual estimate — the
-        // search tool itself appends a raw-baseline ledger event instead.
+        // ledger-grade (GL #479 D2). Reads are ledgered by the ctx_read /
+        // ctx_multi_read callers (#685, decoupled from the heatmap) and ctx_search
+        // records itself — only shell is recorded here, exactly once. `actual_tokens`
+        // is the *sent* output; a prior duplicate block passed `saved` and so both
+        // double-counted shell events and stored the wrong saving (#685).
         if tool == "ctx_shell" {
             crate::core::savings_ledger::record_tool_event(tool, original, output_tokens);
         }

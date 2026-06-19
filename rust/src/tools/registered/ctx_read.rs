@@ -496,11 +496,42 @@ impl CtxReadTool {
             let resolved_mode_bg = resolved_mode.clone();
             let project_root_bg = project_root_snapshot.clone();
             let (turns, hits) = cache_stats;
+            // #685: model-correct verified-ledger inputs, computed off the hot path.
+            // The default O200kBase model reuses the o200k `original`/`saved` below
+            // (byte-identical, no clone). Only a resolved Claude/Gemini/Llama model
+            // carries the cache handle + output so the bg thread can re-tokenize the
+            // raw source and the sent output in the family the provider actually bills.
+            let ledger_cache = (crate::core::savings_ledger::ledger_family()
+                != crate::core::tokens::TokenizerFamily::O200kBase)
+                .then(|| cache_lock.clone());
+            let ledger_output = ledger_cache.as_ref().map(|_| output.clone());
             std::thread::spawn(move || {
                 // A panic in telemetry must not poison locks or leave a zombie thread;
                 // it never affects the already-returned read response.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                     crate::core::heatmap::record_file_access(&path_bg, original, saved);
+
+                    // #685: verified savings ledger, decoupled from the heatmap so it
+                    // can denominate in the active model's tokenizer family. O200kBase
+                    // reuses the o200k counts; other families re-tokenize raw (cache)
+                    // + output. A cache miss falls back to o200k (conservative).
+                    {
+                        use crate::core::savings_ledger as ledger;
+                        let (lbase, lsaved) = match (&ledger_cache, &ledger_output) {
+                            (Some(cl), Some(out)) => match cl.try_read().ok().and_then(|c| {
+                                c.get(&path_bg)
+                                    .and_then(crate::core::cache::CacheEntry::content)
+                            }) {
+                                Some(raw) => {
+                                    let lo = ledger::count_for_ledger(&raw);
+                                    (lo, lo.saturating_sub(ledger::count_for_ledger(out)))
+                                }
+                                None => (original, saved),
+                            },
+                            _ => (original, saved),
+                        };
+                        ledger::record_read_event(lbase, lsaved);
+                    }
 
                     // Traversal/co-access edge: this read fired together with the
                     // recent working set captured under the session lock (#289).

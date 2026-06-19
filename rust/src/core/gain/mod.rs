@@ -82,20 +82,6 @@ pub struct FileGainRow {
     pub compression_pct: f32,
 }
 
-/// Pure net-of-injection reconciliation: the total injection tax
-/// (`overhead_per_turn × turns`) and the signed net savings after subtracting
-/// it. Extracted so the bill-reconciliation math is unit-testable without the
-/// global proxy/stats state that [`GainEngine::summary`] reads.
-pub(crate) fn net_of_injection(
-    tokens_saved: u64,
-    overhead_per_turn: u64,
-    turns: u64,
-) -> (u64, i64) {
-    let total = overhead_per_turn.saturating_mul(turns);
-    let net = tokens_saved as i64 - total as i64;
-    (total, net)
-}
-
 impl GainEngine {
     pub fn load() -> Self {
         Self {
@@ -142,10 +128,15 @@ impl GainEngine {
             crate::core::context_overhead::ContextOverhead::cached().total_tokens() as u64;
         // Reconcile to the real bill: the proxy is the only component that sees
         // every provider turn, so its persisted request count is the honest
-        // multiplier for the per-turn injection tax (GitHub #361).
-        let turns = crate::proxy::metrics::load_persisted().map_or(0, |m| m.requests_total);
+        // multiplier for the per-turn injection tax (GitHub #361). The math is
+        // shared with the verified savings ledger/ROI (#685).
+        let turns = crate::core::context_overhead::observed_turns();
         let (injected_overhead_total_tokens, net_tokens_saved) =
-            net_of_injection(tokens_saved, injected_overhead_tokens_per_turn, turns);
+            crate::core::context_overhead::net_of_injection(
+                tokens_saved,
+                injected_overhead_tokens_per_turn,
+                turns,
+            );
         GainSummary {
             model: quote,
             total_commands: self.stats.total_commands,
@@ -220,28 +211,5 @@ impl GainEngine {
                 compression_pct: e.avg_compression_ratio * 100.0,
             })
             .collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::net_of_injection;
-
-    #[test]
-    fn net_of_injection_subtracts_per_turn_tax() {
-        // 1000 saved, 50/turn over 8 turns = 400 tax → net 600.
-        assert_eq!(net_of_injection(1000, 50, 8), (400, 600));
-    }
-
-    #[test]
-    fn net_of_injection_can_go_negative_on_short_runs() {
-        // The honest case the report must not hide: gross < injection tax.
-        assert_eq!(net_of_injection(100, 50, 8), (400, -300));
-    }
-
-    #[test]
-    fn net_of_injection_collapses_to_gross_without_proxy_turns() {
-        // No proxy in the path → no counted turns → net == gross.
-        assert_eq!(net_of_injection(1234, 3000, 0), (0, 1234));
     }
 }

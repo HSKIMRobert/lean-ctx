@@ -331,6 +331,23 @@ mod tests {
     }
 
     #[test]
+    fn detect_tokenizer_ledger_model_keys() {
+        // #685: the savings ledger derives its counting family from the resolved
+        // model key. The blended fallback (no model resolved) maps to the exact
+        // o200k baseline, so the model-correct path is a byte-identical no-op for
+        // OpenAI/Cursor/unknown; real provider keys map to their own family.
+        assert_eq!(
+            detect_tokenizer("fallback-blended"),
+            TokenizerFamily::O200kBase
+        );
+        assert_eq!(
+            detect_tokenizer("claude-sonnet-4.5"),
+            TokenizerFamily::Cl100k
+        );
+        assert_eq!(detect_tokenizer("gemini-2.5-pro"), TokenizerFamily::Gemini);
+    }
+
+    #[test]
     fn count_tokens_for_all_families_nonzero() {
         let _lock = token_test_lock();
         reset_cache();
