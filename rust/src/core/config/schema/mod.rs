@@ -104,6 +104,12 @@ impl ConfigSchema {
     }
 
     /// All known TOML keys (dot-separated) for validation.
+    ///
+    /// Combines the hand-written schema (which carries descriptions, types and
+    /// help text) with the keys derived from the live `Config` struct. The
+    /// struct is the source of truth for *what is valid*, so a field added to
+    /// `Config` is recognised by `config apply` / `config validate` immediately,
+    /// without anyone remembering to mirror it into `sections_*.rs` (#456).
     pub fn known_keys(&self) -> Vec<String> {
         let mut keys = Vec::new();
         for (section, schema) in &self.sections {
@@ -120,6 +126,91 @@ impl ConfigSchema {
                 }
             }
         }
+        keys.extend(config_derived_keys());
+        keys.sort();
+        keys.dedup();
         keys
+    }
+}
+
+/// Every TOML key the `Config` struct serialises to, in dot-separated form
+/// (e.g. `proxy_require_token`, `memory`, `memory.episodic`). Derived from
+/// `Config::default()` so validation tracks the struct automatically (#456).
+///
+/// Option fields that default to `None` are omitted by serde and therefore not
+/// listed here; those keys still come from the hand-written schema. Emitting the
+/// bare section name (e.g. `memory`) lets the `starts_with("section.")` rule in
+/// the validators accept the whole section, matching how empty schema sections
+/// already behave.
+fn config_derived_keys() -> Vec<String> {
+    fn walk(table: &toml::value::Table, prefix: &str, out: &mut Vec<String>) {
+        for (k, v) in table {
+            let full = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{prefix}.{k}")
+            };
+            if let toml::Value::Table(sub) = v {
+                out.push(full.clone());
+                walk(sub, &full, out);
+            } else {
+                out.push(full);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    if let Ok(toml::Value::Table(table)) =
+        toml::Value::try_from(crate::core::config::Config::default())
+    {
+        walk(&table, "", &mut out);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mirrors the acceptance rule used by `config validate` / `config apply`:
+    /// a key is valid if it is listed verbatim or sits under a known section.
+    fn accepted(known: &[String], key: &str) -> bool {
+        known.iter().any(|k| k == key) || known.iter().any(|k| key.starts_with(&format!("{k}.")))
+    }
+
+    /// #456: every field the `Config` struct actually serialises must be
+    /// accepted by validation. Before the fix, 38 real keys/sections
+    /// (`proxy_require_token`, `memory.*`, `providers.*`, `proxy`, …) were
+    /// flagged "unknown" because the hand-written schema had drifted.
+    #[test]
+    fn known_keys_cover_every_config_struct_field() {
+        let known = ConfigSchema::generate().known_keys();
+        let missing: Vec<_> = config_derived_keys()
+            .into_iter()
+            .filter(|k| !accepted(&known, k))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "config struct fields not recognised by validation (schema drift): {missing:?}"
+        );
+    }
+
+    /// Spot-check the concrete keys from the #456 report so a future schema/struct
+    /// refactor that reintroduces the drift fails loudly.
+    #[test]
+    fn known_keys_recognise_reported_456_keys() {
+        let known = ConfigSchema::generate().known_keys();
+        for key in [
+            "proxy_require_token",
+            "allow_ide_config_dirs",
+            "memory.episodic",
+            "providers.github",
+            "proxy",
+        ] {
+            assert!(
+                accepted(&known, key),
+                "validation must recognise '{key}' (#456)"
+            );
+        }
     }
 }
