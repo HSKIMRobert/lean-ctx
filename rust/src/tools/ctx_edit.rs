@@ -239,12 +239,53 @@ fn write_atomic_bytes_with_permissions(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid path (no parent directory)".to_string())?;
+    match try_atomic_write(path, bytes, permissions) {
+        Ok(()) => Ok(()),
+        // Read-only *directory* holding a writable *file* inode — common in
+        // sandboxes/containers that bind-mount individual files rw on top of a
+        // read-only directory subvolume (e.g. ~/.config/opencode ro,
+        // opencode.jsonc rw). The same-dir tempfile + rename dance needs
+        // directory write permission, which the ro mount denies, but the
+        // existing inode is writable, so overwrite it in place. Not
+        // crash-atomic, yet ctx_edit's preimage guard (size/mtime/hash) already
+        // gates the write, so a torn write is caught on the next read instead of
+        // being silently accepted. (GH #459)
+        Err(e) if is_readonly_dir_error(&e) && path.is_file() => {
+            in_place_overwrite(path, bytes, permissions).map_err(|fallback_err| {
+                format!(
+                    "ERROR: atomic write failed ({e}); in-place fallback also failed: {fallback_err} ({})",
+                    path.display()
+                )
+            })
+        }
+        Err(e) => Err(format!("ERROR: atomic write failed: {e} ({})", path.display())),
+    }
+}
+
+/// Durable, crash-atomic write: a temp file in the **same directory** followed by
+/// `rename` over the target. Requires write permission on the *parent
+/// directory*; the caller handles the read-only-directory fallback.
+fn try_atomic_write(
+    path: &Path,
+    bytes: &[u8],
+    permissions: Option<&std::fs::Permissions>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid path (no parent directory)",
+        )
+    })?;
     let filename = path
         .file_name()
-        .ok_or_else(|| "invalid path (no filename)".to_string())?
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid path (no filename)",
+            )
+        })?
         .to_string_lossy();
 
     let pid = std::process::id();
@@ -254,14 +295,11 @@ fn write_atomic_bytes_with_permissions(
     let tmp = parent.join(format!(".{filename}.lean-ctx.tmp.{pid}.{nanos}"));
 
     {
-        use std::io::Write;
         let mut f = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&tmp)
-            .map_err(|e| format!("ERROR: cannot write {}: {e}", tmp.display()))?;
-        f.write_all(bytes)
-            .map_err(|e| format!("ERROR: cannot write {}: {e}", tmp.display()))?;
+            .open(&tmp)?;
+        f.write_all(bytes)?;
         let _ = f.flush();
         let _ = f.sync_all();
     }
@@ -277,15 +315,64 @@ fn write_atomic_bytes_with_permissions(
         }
     }
 
-    std::fs::rename(&tmp, path).map_err(|e| {
-        format!(
-            "ERROR: atomic write failed: {} (tmp: {})",
-            e,
-            tmp.to_string_lossy()
-        )
-    })?;
-
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // Don't leave a half-written temp behind before the caller decides
+        // whether to fall back.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     Ok(())
+}
+
+/// In-place overwrite of an existing file inode (`O_WRONLY|O_TRUNC`). Works when
+/// the parent directory is read-only but the file itself is writable. Not
+/// crash-atomic — used only as a fallback when the atomic path is impossible.
+fn in_place_overwrite(
+    path: &Path,
+    bytes: &[u8],
+    permissions: Option<&std::fs::Permissions>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NOFOLLOW: a symlink swapped in after reject_symlink must never be
+        // followed (mirrors the read-side O_NOFOLLOW boundary).
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+
+    let mut f = opts.open(path)?;
+    f.write_all(bytes)?;
+    let _ = f.flush();
+    let _ = f.sync_all();
+
+    if let Some(perms) = permissions {
+        let _ = std::fs::set_permissions(path, perms.clone());
+    }
+    Ok(())
+}
+
+/// True for errors that mean "this directory won't accept create/rename" even
+/// though the target file may be writable: `EROFS` (read-only fs) plus
+/// `EACCES`/`EPERM` (directory write denied).
+fn is_readonly_dir_error(e: &std::io::Error) -> bool {
+    if e.kind() == std::io::ErrorKind::PermissionDenied {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        matches!(
+            e.raw_os_error(),
+            Some(libc::EROFS | libc::EACCES | libc::EPERM)
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 fn build_diff_evidence(old: &str, new: &str, label: &str, max_lines: usize) -> String {
@@ -935,6 +1022,103 @@ mod tests {
         assert!(result.contains("created new_file.txt"));
         assert!(result.contains("3 lines"));
         assert!(path.exists());
+    }
+
+    #[test]
+    fn readonly_dir_error_classification() {
+        assert!(is_readonly_dir_error(&std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied
+        )));
+        assert!(!is_readonly_dir_error(&std::io::Error::from(
+            std::io::ErrorKind::NotFound
+        )));
+        #[cfg(unix)]
+        {
+            assert!(is_readonly_dir_error(&std::io::Error::from_raw_os_error(
+                libc::EROFS
+            )));
+            assert!(is_readonly_dir_error(&std::io::Error::from_raw_os_error(
+                libc::EACCES
+            )));
+            assert!(is_readonly_dir_error(&std::io::Error::from_raw_os_error(
+                libc::EPERM
+            )));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn in_place_overwrite_truncates_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.jsonc");
+        std::fs::write(&path, b"longer original content").unwrap();
+        in_place_overwrite(&path, b"short", None).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"short");
+    }
+
+    // GH #459: parent dir read-only, file inode writable (the bind-mount
+    // sandbox shape). The atomic tempfile + rename needs *directory* write
+    // permission and fails; the in-place fallback overwrites the existing inode
+    // and succeeds. Skipped under root, which bypasses the directory permission
+    // check (the atomic path would then succeed and the fallback never runs —
+    // the write still lands correctly either way).
+    #[cfg(unix)]
+    #[test]
+    fn write_falls_back_on_readonly_parent_dir() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // SAFETY: geteuid() takes no arguments and only reads the caller's uid.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.jsonc");
+        std::fs::write(&path, b"hello").unwrap();
+
+        // r-x parent: create_new tempfile + rename fail with EACCES, but the
+        // existing file mode (0o644) still allows O_WRONLY|O_TRUNC.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let res = write_atomic_bytes_with_permissions(&path, b"world", None);
+
+        // Restore so tempdir cleanup can remove the directory.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(res.is_ok(), "in-place fallback should succeed: {res:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"world");
+    }
+
+    // GH #459 end-to-end: the full ctx_edit flow (read -> preimage -> write)
+    // must succeed when the parent dir is read-only but the file is writable.
+    #[cfg(unix)]
+    #[test]
+    fn handle_edit_succeeds_on_readonly_parent_dir() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // SAFETY: geteuid() takes no arguments and only reads the caller's uid.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opencode.jsonc");
+        std::fs::write(&path, "hello world\n").unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let mut cache = SessionCache::new();
+        let result = handle(
+            &mut cache,
+            &mk_params(&path, "hello", "goodbye", false, false),
+        );
+
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(
+            result.contains('✓'),
+            "edit should succeed via in-place fallback: {result}"
+        );
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "goodbye world\n");
     }
 
     #[test]
