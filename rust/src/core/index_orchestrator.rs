@@ -238,7 +238,8 @@ pub fn ensure_all_background(project_root: &str) {
             let _ = idx.save();
             // #682.2: mirror the freshly scanned index into the property graph in
             // the same reliable worker, so PG inherits the JSON index's build
-            // reliability. Backend-gated: legacy (default) never builds PG.
+            // reliability. Backend-gated: `auto` (default since #682.4) and
+            // `property-graph` mirror here; only `legacy` opts out.
             if crate::core::config::GraphBackend::effective(&crate::core::config::Config::load())
                 != crate::core::config::GraphBackend::Legacy
             {

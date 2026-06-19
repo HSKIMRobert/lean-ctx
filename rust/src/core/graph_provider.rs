@@ -307,10 +307,11 @@ impl GraphProvider {
 pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
     let t0 = std::time::Instant::now();
 
-    // Backend selection (#682): `legacy` (the default) never consults the
-    // property graph, so building/completing PG can never flip production onto an
-    // unverified engine. `auto`/`property-graph` fall through to the best-effort
-    // logic below. The flip happens only after shadow-mode parity is proven.
+    // Backend selection (#682): `legacy` never consults the property graph —
+    // the escape hatch if a PG regression surfaces. `auto` (the default since
+    // #682.4, parity proven lossless in #682.3) and `property-graph` fall
+    // through to the best-effort logic below, which still falls back to
+    // graph_index whenever PG is not yet populated.
     let backend =
         crate::core::config::GraphBackend::effective(&crate::core::config::Config::load());
     if backend == crate::core::config::GraphBackend::Legacy {

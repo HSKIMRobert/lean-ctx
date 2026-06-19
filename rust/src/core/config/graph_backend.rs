@@ -1,11 +1,12 @@
 //! Graph backend selection — which graph engine the provider facade uses.
 //!
 //! lean-ctx historically carried two graph engines: the mature in-memory
-//! `graph_index` (JSON-backed, fully populated in production) and the newer
-//! SQLite-backed `PropertyGraph` (scalable, but not yet production-complete —
-//! see #682). This flag makes the choice explicit and, crucially, keeps the
-//! default on the proven engine so completing the PropertyGraph can never
-//! silently flip production onto an unverified backend.
+//! `graph_index` (JSON-backed) and the newer SQLite-backed `PropertyGraph`
+//! (scalable). This flag makes the choice explicit. The default is now `Auto`
+//! (#682.4): the PropertyGraph is built from the proven `graph_index` extractor
+//! (so PG ⊇ graph_index), shadow-mode parity is proven lossless (#682.3), and
+//! `Auto` still falls back to `graph_index` whenever PG is not yet populated —
+//! so the flip cannot lose data and `legacy` remains a one-flag escape hatch.
 
 use serde::{Deserialize, Serialize};
 
@@ -13,11 +14,13 @@ use super::Config;
 
 /// Which graph engine [`crate::core::graph_provider::open_best_effort`] selects.
 ///
-/// - `Legacy`: (Default) Always use the in-memory `graph_index`. The
-///   PropertyGraph is never consulted — the safe choice while it is being
-///   completed and proven equivalent (#682.1–#682.3).
-/// - `Auto`: Best-effort — prefer the PropertyGraph when it is fully populated
-///   (nodes + edges + file catalog), otherwise fall back to `graph_index`.
+/// - `Legacy`: Always use the in-memory `graph_index`; the PropertyGraph is
+///   never consulted. The escape hatch if a PropertyGraph regression ever
+///   surfaces (`config set graph_backend legacy`).
+/// - `Auto`: (Default) Best-effort — prefer the PropertyGraph when it is fully
+///   populated (nodes + edges + file catalog), otherwise fall back to
+///   `graph_index` and trigger a mirror. Safe by construction: the mirror
+///   sources PG from the proven extractor, so PG ⊇ graph_index (#682.1–#682.3).
 /// - `PropertyGraph`: Prefer the PropertyGraph; `graph_index` only as a safety
 ///   fallback when the PropertyGraph is unavailable.
 ///
@@ -25,8 +28,8 @@ use super::Config;
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum GraphBackend {
-    #[default]
     Legacy,
+    #[default]
     Auto,
     PropertyGraph,
 }
@@ -58,8 +61,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_is_legacy() {
-        assert_eq!(GraphBackend::default(), GraphBackend::Legacy);
+    fn default_is_auto() {
+        assert_eq!(GraphBackend::default(), GraphBackend::Auto);
     }
 
     #[test]
