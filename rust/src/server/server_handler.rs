@@ -87,7 +87,7 @@ impl ServerHandler for LeanCtxServer {
             tracing::info!("Client supports MCP roots/list — will resolve on first tool call");
         }
 
-        let env_root = roots::root_from_env();
+        let env_root = roots::root_from_env().or_else(roots::root_from_workspace_env);
         let derived_root = derive_project_root_from_cwd();
         let effective_root = env_root.or(derived_root);
 
@@ -103,6 +103,14 @@ impl ServerHandler for LeanCtxServer {
             if let Some(ref root) = effective_root {
                 session.project_root = Some(root.clone());
                 tracing::info!("Project root set to: {root}");
+                // Cursor multi-root: register sibling workspace folders as extra
+                // trusted roots so explicit cross-folder paths are not rejected
+                // by the path jail (#699).
+                for other in roots::workspace_roots_from_env() {
+                    if &other != root && !session.extra_roots.contains(&other) {
+                        session.extra_roots.push(other);
+                    }
+                }
             } else if let Some(ref root) = session.project_root {
                 // A previously persisted session may carry a contaminated root
                 // (e.g. HOME from an older build or a client that reported HOME

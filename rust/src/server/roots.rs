@@ -92,9 +92,19 @@ pub(super) fn has_project_marker(dir: &Path) -> bool {
 /// accepts a broad/unsafe root (HOME, filesystem root, agent sandbox dirs),
 /// which would otherwise contaminate sessions across projects.
 pub fn best_root_from_uris(uris: &[String]) -> Option<String> {
-    let paths: Vec<String> = uris
-        .iter()
-        .filter_map(|u| uri_to_path(u))
+    best_root_from_paths(uris.iter().filter_map(|u| uri_to_path(u)).collect())
+}
+
+/// Pick the best project root from a list of candidate directory paths.
+///
+/// Prefers a path with a project marker (`.git`, `Cargo.toml`, …); otherwise
+/// falls back to the first *safe* directory. A caller that reports its workspace
+/// root as HOME (some do) must not turn HOME into the project root — that is the
+/// root cause of cross-project session contamination — so a broad/unsafe root is
+/// never accepted as a marker-less fallback.
+fn best_root_from_paths(paths: Vec<String>) -> Option<String> {
+    let paths: Vec<String> = paths
+        .into_iter()
         .filter(|p| Path::new(p).is_dir())
         .collect();
 
@@ -108,9 +118,6 @@ pub fn best_root_from_uris(uris: &[String]) -> Option<String> {
         }
     }
 
-    // No markers: fall back to the first *safe* directory. A client that reports
-    // its workspace root as HOME (some do) must not turn HOME into the project
-    // root — that is the root cause of cross-project session contamination.
     paths
         .into_iter()
         .find(|p| !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(p)))
@@ -139,6 +146,52 @@ pub fn root_from_env() -> Option<String> {
         }
     }
     None
+}
+
+/// Split a `WORKSPACE_FOLDER_PATHS` value into individual paths.
+///
+/// Cursor separates entries with `,` (observed). We also tolerate the OS
+/// path-list delimiter for robustness — `;` on Windows (never `:`, which is part
+/// of `C:` drive specs) and `:` on Unix (never part of a POSIX path).
+fn split_workspace_paths(raw: &str) -> Vec<String> {
+    let delims: &[char] = if cfg!(windows) {
+        &[',', ';']
+    } else {
+        &[',', ':']
+    };
+    raw.split(delims)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Best project root from the IDE-injected `WORKSPACE_FOLDER_PATHS` env var.
+///
+/// Cursor declares the MCP `roots` capability but does NOT implement
+/// `roots/list` (it answers `-32601 Method not found`) and launches stdio MCP
+/// servers with `cwd = /`. Without this signal the project root falls back to an
+/// unsafe directory and relative tool paths resolve against the wrong tree
+/// (#699). This variable is the Cursor-sanctioned way to learn the active
+/// workspace folder(s). The same broad/unsafe-root guards as MCP roots apply.
+pub fn root_from_workspace_env() -> Option<String> {
+    let raw = std::env::var("WORKSPACE_FOLDER_PATHS").ok()?;
+    best_root_from_paths(split_workspace_paths(&raw))
+}
+
+/// All valid, safe workspace directories from `WORKSPACE_FOLDER_PATHS`.
+///
+/// Used to register the sibling folders of a multi-root workspace as extra
+/// trusted roots, so explicit paths into them are not rejected by the path jail.
+pub fn workspace_roots_from_env() -> Vec<String> {
+    let Ok(raw) = std::env::var("WORKSPACE_FOLDER_PATHS") else {
+        return Vec::new();
+    };
+    split_workspace_paths(&raw)
+        .into_iter()
+        .filter(|p| Path::new(p).is_dir())
+        .filter(|p| !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(p)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -353,5 +406,88 @@ mod tests {
 
         let best = best_root_from_uris(&uris).unwrap();
         assert!(best.contains("project_a"));
+    }
+
+    #[test]
+    fn split_workspace_paths_comma_separated() {
+        assert_eq!(
+            split_workspace_paths("/home/u/proj-a,/home/u/proj-b"),
+            vec!["/home/u/proj-a".to_string(), "/home/u/proj-b".to_string()]
+        );
+    }
+
+    #[test]
+    fn split_workspace_paths_trims_and_drops_empty() {
+        assert_eq!(
+            split_workspace_paths(" /a , , /b ,"),
+            vec!["/a".to_string(), "/b".to_string()]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn split_workspace_paths_unix_colon_delimiter() {
+        // Unix path-list delimiter is ':'; POSIX paths never contain it.
+        assert_eq!(
+            split_workspace_paths("/a:/b"),
+            vec!["/a".to_string(), "/b".to_string()]
+        );
+    }
+
+    #[test]
+    fn best_root_from_paths_prefers_marker_over_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let plain = tmp.path().join("plain");
+        let marked = tmp.path().join("marked");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::create_dir_all(&marked).unwrap();
+        std::fs::create_dir(marked.join(".git")).unwrap();
+        let got = best_root_from_paths(vec![
+            plain.to_string_lossy().to_string(),
+            marked.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+        assert!(got.contains("marked"), "marker dir must win: {got}");
+    }
+
+    #[test]
+    fn best_root_from_paths_filters_nonexistent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let safe = tmp.path().join("real_proj");
+        std::fs::create_dir_all(&safe).unwrap();
+        let got = best_root_from_paths(vec![
+            "/nonexistent_xyz_987".to_string(),
+            safe.to_string_lossy().to_string(),
+        ])
+        .unwrap();
+        assert!(got.contains("real_proj"));
+    }
+
+    #[test]
+    fn best_root_from_paths_empty_returns_none() {
+        assert!(best_root_from_paths(vec![]).is_none());
+        assert!(best_root_from_paths(vec!["/nonexistent_abc".to_string()]).is_none());
+    }
+
+    #[test]
+    fn workspace_env_value_picks_marker_root() {
+        // Mirrors Cursor's `WORKSPACE_FOLDER_PATHS` (comma-separated multi-root):
+        // the folder carrying a project marker must win over a sibling.
+        let tmp = tempfile::tempdir().unwrap();
+        let a = tmp.path().join("ws_a");
+        let b = tmp.path().join("ws_b");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("Cargo.toml"), "[package]").unwrap();
+        let raw = format!("{},{}", a.display(), b.display());
+        let got = best_root_from_paths(split_workspace_paths(&raw)).unwrap();
+        assert!(got.contains("ws_b"), "marker workspace must win: {got}");
+    }
+
+    #[test]
+    fn workspace_env_readers_do_not_panic() {
+        // Smoke test: both env readers tolerate the variable being set or unset.
+        let _ = root_from_workspace_env();
+        let _ = workspace_roots_from_env();
     }
 }
