@@ -12,6 +12,19 @@ pub fn uri_to_path(uri: &str) -> Option<String> {
     if decoded.is_empty() || decoded.contains('\0') {
         return None;
     }
+    // Windows `file:///C:/path` URIs strip to `/C:/path`, which is NOT an
+    // absolute Windows path (no drive prefix at the start) and would be rejected
+    // below — so on Windows+Cursor every workspace root failed to parse and the
+    // session fell back to the home dir as project root (GL discussion #273:
+    // "MCP root misconfigured (resolves to C:/Users/<user>)"). Drop the single
+    // leading slash before the drive letter so it parses as `C:/path`. POSIX
+    // paths keep their leading slash (on Unix `/C:/x` is a legitimate path).
+    #[cfg(windows)]
+    let decoded = if has_leading_slash_drive(&decoded) {
+        decoded[1..].to_string()
+    } else {
+        decoded
+    };
     let path = Path::new(&decoded);
     if !path.is_absolute() {
         return None;
@@ -54,6 +67,18 @@ fn hex_val(b: u8) -> Option<u8> {
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
     }
+}
+
+/// True for a `file://` URI path of the form `/C:/…` — a leading slash, an ASCII
+/// drive letter, then a colon. This shape comes from a Windows
+/// `file:///C:/path` URI and is not an absolute Windows path until the leading
+/// slash is removed. Pure predicate so the logic is unit-tested on every
+/// platform, even though it is only wired into [`uri_to_path`] on Windows
+/// (`allow(dead_code)` elsewhere keeps `-D warnings` clean).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn has_leading_slash_drive(p: &str) -> bool {
+    let b = p.as_bytes();
+    b.len() >= 3 && b[0] == b'/' && b[1].is_ascii_alphabetic() && b[2] == b':'
 }
 
 pub(super) fn has_project_marker(dir: &Path) -> bool {
@@ -151,6 +176,51 @@ mod tests {
     fn parse_non_file_uri_returns_none() {
         assert!(uri_to_path("https://example.com").is_none());
         assert!(uri_to_path("").is_none());
+    }
+
+    #[test]
+    fn detects_leading_slash_windows_drive() {
+        // GL #273: the `/C:/…` shape (from a Windows `file:///C:/…` URI) must be
+        // recognised so the leading slash can be stripped. Runs on every
+        // platform so Linux CI guards the logic the Windows-only wiring uses.
+        assert!(has_leading_slash_drive("/C:/Users/dev"));
+        assert!(has_leading_slash_drive("/c:/proj"));
+        assert!(has_leading_slash_drive("/Z:"));
+        // POSIX paths, already-stripped drives, UNC shares and root stay intact.
+        assert!(!has_leading_slash_drive("/home/user/proj"));
+        assert!(!has_leading_slash_drive("C:/already"));
+        assert!(!has_leading_slash_drive("//server/share"));
+        assert!(!has_leading_slash_drive("/"));
+        assert!(!has_leading_slash_drive("/1:/x"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parse_file_uri_windows_drive_strips_leading_slash() {
+        // GL #273: Cursor on Windows reports roots as `file:///C:/…`; these must
+        // parse to an absolute `C:/` path instead of being rejected (which left
+        // the session falling back to the home dir as project root).
+        let got = uri_to_path("file:///C:/Users/dev/project").expect("windows drive uri");
+        assert!(
+            !got.starts_with('/'),
+            "leading slash must be stripped: {got}"
+        );
+        assert!(
+            got.to_ascii_lowercase().starts_with("c:"),
+            "drive prefix must survive: {got}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn parse_file_uri_windows_percent_encoded_colon() {
+        // Some clients percent-encode the drive colon (`C%3A`).
+        let got = uri_to_path("file:///C%3A/Users/dev/project").expect("encoded colon uri");
+        assert!(
+            !got.starts_with('/'),
+            "leading slash must be stripped: {got}"
+        );
+        assert!(got.to_ascii_lowercase().starts_with("c:"), "got: {got}");
     }
 
     #[test]
