@@ -20,6 +20,11 @@ mod tests;
 
 const INDEX_VERSION: u32 = 6;
 
+// Path-key utilities moved to `core::index_paths` (#682); re-exported so existing
+// `graph_index::…` call sites keep compiling during the migration.
+use crate::core::index_paths::normalize_absolute_path;
+pub use crate::core::index_paths::{graph_match_key, graph_relative_key, normalize_project_root};
+
 pub fn is_safe_scan_root_public(path: &str) -> bool {
     is_safe_scan_root(path)
 }
@@ -1114,52 +1119,6 @@ fn copy_dir_fallible(src: &std::path::Path, dst: &std::path::Path) -> Result<(),
         }
     }
     Ok(())
-}
-
-fn normalize_absolute_path(path: &str) -> String {
-    if let Ok(canon) = crate::core::pathutil::safe_canonicalize(std::path::Path::new(path)) {
-        return canon.to_string_lossy().to_string();
-    }
-
-    let mut normalized = path.to_string();
-    while normalized.ends_with("\\.") || normalized.ends_with("/.") {
-        normalized.truncate(normalized.len() - 2);
-    }
-    while normalized.len() > 1
-        && (normalized.ends_with('\\') || normalized.ends_with('/'))
-        && !normalized.ends_with(":\\")
-        && !normalized.ends_with(":/")
-        && normalized != "\\"
-        && normalized != "/"
-    {
-        normalized.pop();
-    }
-    normalized
-}
-
-pub fn normalize_project_root(path: &str) -> String {
-    normalize_absolute_path(path)
-}
-
-pub fn graph_match_key(path: &str) -> String {
-    let stripped =
-        crate::core::pathutil::strip_verbatim_str(path).unwrap_or_else(|| path.replace('\\', "/"));
-    stripped.trim_start_matches('/').to_string()
-}
-
-pub fn graph_relative_key(path: &str, root: &str) -> String {
-    let root_norm = normalize_project_root(root);
-    let path_norm = normalize_absolute_path(path);
-    let root_path = Path::new(&root_norm);
-    let path_path = Path::new(&path_norm);
-
-    if let Ok(rel) = path_path.strip_prefix(root_path) {
-        let rel = rel.to_string_lossy().to_string();
-        return rel.trim_start_matches(['/', '\\']).to_string();
-    }
-
-    path.trim_start_matches(['/', '\\'])
-        .replace('/', std::path::MAIN_SEPARATOR_STR)
 }
 
 fn make_relative(path: &str, root: &str) -> String {
