@@ -376,7 +376,14 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
     }
 
     let intelligence_block = build_intelligence_block();
-    let terse_block = build_terse_agent_block_for_client(&crp_mode, client_name);
+    // Cross-channel dedup (#684): a client that already auto-loads the
+    // compression/output-style block from its own rule file does not need a
+    // second copy in the per-session MCP instructions — the file copy governs.
+    let terse_block = if client_loads_compression_from_file(client_name) {
+        String::new()
+    } else {
+        build_terse_agent_block_for_client(&crp_mode, client_name)
+    };
 
     // The guidance suffix (CRP-mode rules + compression/output-style + the
     // intelligence block) is the operational contract for the agent and must
@@ -595,6 +602,16 @@ pub fn claude_code_instructions() -> String {
     build_claude_code_instructions()
 }
 
+/// #684: true when `client_name` already auto-loads the compression block from
+/// its own canonical rule file, so the MCP instructions can drop the redundant
+/// copy. Live-only (reads disk) — the deterministic compiler/test builders keep
+/// the block so their output stays machine-independent.
+fn client_loads_compression_from_file(client_name: &str) -> bool {
+    crate::core::home::resolve_home_dir().is_some_and(|home| {
+        crate::core::rules_channel::client_autoloads_compression(client_name, &home)
+    })
+}
+
 fn build_terse_agent_block_for_client(_crp_mode: &CrpMode, client_name: &str) -> String {
     use crate::core::config::{CompressionLevel, Config};
     let cfg = Config::load();
@@ -666,6 +683,16 @@ mod tests {
             out.len() < base.len(),
             "oversized base must have been truncated"
         );
+    }
+
+    #[test]
+    fn empty_client_never_dedups_compression() {
+        // #684: cross-channel dedup is gated on a known client that auto-loads a
+        // rule file. The anonymous/default client (no `clientInfo.name`) must
+        // always receive the full instructions, so generic MCP clients are never
+        // shortchanged. Deterministic regardless of the test machine's HOME.
+        assert!(!client_loads_compression_from_file(""));
+        assert!(!client_loads_compression_from_file("totally-unknown-agent"));
     }
 
     #[test]

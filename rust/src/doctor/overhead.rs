@@ -28,6 +28,11 @@ pub(super) struct RulesFileCost {
     pub file_tokens: usize,
     /// Tokens inside lean-ctx marker blocks (our share of the file).
     pub lean_ctx_tokens: usize,
+    /// True when the file carries a *full* lean-ctx payload (canonical rules or
+    /// the compression block), as opposed to only the lightweight
+    /// `<!-- lean-ctx -->` pointer. Pointer-only files cross-reference the
+    /// canonical source and do not duplicate guidance (#684).
+    pub carries_full: bool,
     /// Clients that auto-load this file.
     pub clients: Vec<&'static str>,
 }
@@ -97,6 +102,7 @@ fn push_rules_file(out: &mut Vec<RulesFileCost>, path: &Path, clients: Vec<&'sta
         path: path.to_string_lossy().to_string(),
         file_tokens: count_tokens(&content),
         lean_ctx_tokens: lean_ctx_block_tokens(&content),
+        carries_full: crate::core::rules_channel::carries_full_rules(&content),
         clients,
     });
 }
@@ -164,13 +170,17 @@ pub(crate) fn collect_rules_files(home: &Path, project: &Path) -> Vec<RulesFileC
     out
 }
 
-/// Clients that auto-load more than one file containing lean-ctx blocks —
-/// the same guidance billed multiple times per session (#578 fixes this).
+/// Clients that auto-load more than one file carrying a *full* lean-ctx
+/// payload — the same guidance billed multiple times per session (#578/#684).
+///
+/// Pointer-only files (a thinned `AGENTS.md` / `.cursorrules` that merely
+/// cross-references the canonical source) are not counted: they exist precisely
+/// to avoid duplication and cost only a handful of tokens (#684).
 pub(crate) fn duplicate_clients(files: &[RulesFileCost]) -> Vec<(String, usize)> {
     let mut counts: std::collections::BTreeMap<&'static str, usize> =
         std::collections::BTreeMap::new();
     for f in files {
-        if f.lean_ctx_tokens == 0 {
+        if f.lean_ctx_tokens == 0 || !f.carries_full {
             continue;
         }
         for c in &f.clients {
@@ -261,10 +271,12 @@ pub(super) fn run_overhead(json: bool) -> i32 {
         report.rules_files.len()
     );
     for f in &report.rules_files {
-        let ours = if f.lean_ctx_tokens > 0 {
+        let ours = if f.lean_ctx_tokens == 0 {
+            String::new()
+        } else if f.carries_full {
             format!(", {} tok lean-ctx", f.lean_ctx_tokens)
         } else {
-            String::new()
+            format!(", {} tok pointer", f.lean_ctx_tokens)
         };
         println!(
             "    {DIM}{:<58}{RST} {:>6} tok  {DIM}[{}{}]{RST}",
@@ -358,18 +370,21 @@ more user stuff that is not ours
                 path: "a/.cursorrules".into(),
                 file_tokens: 100,
                 lean_ctx_tokens: 50,
+                carries_full: true,
                 clients: vec!["cursor"],
             },
             RulesFileCost {
                 path: "a/.cursor/rules/lean-ctx.mdc".into(),
                 file_tokens: 200,
                 lean_ctx_tokens: 200,
+                carries_full: true,
                 clients: vec!["cursor"],
             },
             RulesFileCost {
                 path: "a/CLAUDE.md".into(),
                 file_tokens: 80,
                 lean_ctx_tokens: 40,
+                carries_full: true,
                 clients: vec!["claude"],
             },
         ];
@@ -384,16 +399,45 @@ more user stuff that is not ours
                 path: "a/.cursorrules".into(),
                 file_tokens: 100,
                 lean_ctx_tokens: 0,
+                carries_full: false,
                 clients: vec!["cursor"],
             },
             RulesFileCost {
                 path: "a/.cursor/rules/user.mdc".into(),
                 file_tokens: 200,
                 lean_ctx_tokens: 0,
+                carries_full: false,
                 clients: vec!["cursor"],
             },
         ];
         assert!(duplicate_clients(&files).is_empty());
+    }
+
+    #[test]
+    fn duplicates_ignore_pointer_only_files() {
+        // #684: a thinned AGENTS.md keeps the `<!-- lean-ctx -->` pointer (so
+        // lean_ctx_tokens > 0) but is not a second full source — Cursor's only
+        // full carrier is the global mdc, so there is no duplication.
+        let files = vec![
+            RulesFileCost {
+                path: "a/.cursor/rules/lean-ctx.mdc".into(),
+                file_tokens: 200,
+                lean_ctx_tokens: 200,
+                carries_full: true,
+                clients: vec!["cursor"],
+            },
+            RulesFileCost {
+                path: "a/AGENTS.md".into(),
+                file_tokens: 120,
+                lean_ctx_tokens: 60,
+                carries_full: false,
+                clients: vec!["cursor", "codex"],
+            },
+        ];
+        assert!(
+            duplicate_clients(&files).is_empty(),
+            "pointer-only AGENTS.md must not count as a duplicate source"
+        );
     }
 
     #[test]
@@ -427,10 +471,13 @@ more user stuff that is not ours
             "project mdc + parent mdc + AGENTS.md: {files:?}"
         );
 
+        // The two mdc files are full carriers; the AGENTS.md here holds only the
+        // `<!-- lean-ctx -->` pointer, so it is NOT counted as a third source
+        // (#684 — pointers cross-reference, they do not duplicate).
         let dups = duplicate_clients(&files);
         assert!(
-            dups.iter().any(|(c, n)| c == "cursor" && *n == 3),
-            "cursor loads 3 lean-ctx sources: {dups:?}"
+            dups.iter().any(|(c, n)| c == "cursor" && *n == 2),
+            "cursor loads 2 full lean-ctx sources (pointer AGENTS.md excluded): {dups:?}"
         );
     }
 
