@@ -66,13 +66,27 @@ pub(crate) fn cmd_index(args: &[String]) {
                 eprintln!("  BM25 error: {err}");
             }
 
-            eprint!("rebuilding property graph");
-            let result =
-                crate::tools::ctx_impact::handle("build", None, &project_root, None, Some("text"));
-            if result.contains("ERROR") {
-                eprintln!(" {result}");
+            // Legacy builds PG via the deep_queries engine here; non-legacy
+            // already mirrored graph_index into PG inside ensure_all_background
+            // above (#682.2), so a second build would clobber the mirror.
+            let backend =
+                crate::core::config::GraphBackend::effective(&crate::core::config::Config::load());
+            if backend == crate::core::config::GraphBackend::Legacy {
+                eprint!("rebuilding property graph");
+                let result = crate::tools::ctx_impact::handle(
+                    "build",
+                    None,
+                    &project_root,
+                    None,
+                    Some("text"),
+                );
+                if result.contains("ERROR") {
+                    eprintln!(" {result}");
+                } else {
+                    eprintln!(" done");
+                }
             } else {
-                eprintln!(" done");
+                eprintln!("property graph mirrored from graph_index during index build");
             }
 
             // build-full is an explicit "make everything fresh". Drop the in-process

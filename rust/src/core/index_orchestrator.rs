@@ -236,6 +236,14 @@ pub fn ensure_all_background(project_root: &str) {
             // direct ProjectIndex consumers. Will be removed when all consumers
             // are migrated to GraphProvider/PropertyGraph. (OPT-14/15 Phase 6)
             let _ = idx.save();
+            // #682.2: mirror the freshly scanned index into the property graph in
+            // the same reliable worker, so PG inherits the JSON index's build
+            // reliability. Backend-gated: legacy (default) never builds PG.
+            if crate::core::config::GraphBackend::effective(&crate::core::config::Config::load())
+                != crate::core::config::GraphBackend::Legacy
+            {
+                let _ = crate::core::property_graph::mirror_index(&root, &idx);
+            }
             (idx, content_cache)
         });
         let content_cache = if let Ok((_idx, cache)) = graph_result {

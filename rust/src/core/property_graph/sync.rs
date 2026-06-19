@@ -11,8 +11,13 @@
 //! catalog are cleared first, then rebuilt from the index, so re-running it is
 //! idempotent. Provider `cross_source_edges` are deliberately preserved.
 
-use super::{CodeGraph, Edge, EdgeKind, FileCatalogEntry, Node, NodeKind};
+use super::{
+    CodeGraph, Edge, EdgeKind, FileCatalogEntry, GRAPH_ENGINE_VERSION, Node, NodeKind,
+    PropertyGraphMetaV1, write_meta,
+};
 use crate::core::graph_index::ProjectIndex;
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// Map a graph_index edge-kind string onto a property-graph [`EdgeKind`].
 ///
@@ -102,6 +107,61 @@ pub fn populate_from_project_index(graph: &CodeGraph, index: &ProjectIndex) -> a
 
     tx.commit()?;
     Ok(())
+}
+
+/// Reliable, reusable PG build entry (#682.2): open the project's graph store,
+/// [`populate_from_project_index`] from `index`, and stamp `graph.meta.json`.
+///
+/// Used by both the index orchestrator (with the index it just scanned) and the
+/// `graph_provider` builder (after a load-or-scan), so the property graph is
+/// built by the same worker that builds the JSON index — no dedicated
+/// fire-and-forget thread that dies in short-lived processes.
+pub fn mirror_index(project_root: &str, index: &ProjectIndex) -> anyhow::Result<()> {
+    let t0 = Instant::now();
+    let graph = CodeGraph::open(project_root)?;
+    populate_from_project_index(&graph, index)?;
+
+    let root_path = Path::new(project_root);
+    let _ = write_meta(
+        project_root,
+        &PropertyGraphMetaV1 {
+            schema_version: 1,
+            engine_version: GRAPH_ENGINE_VERSION,
+            built_with: env!("CARGO_PKG_VERSION").to_string(),
+            built_at: chrono::Utc::now().to_rfc3339(),
+            git_head: git_short_head(root_path),
+            git_dirty: Some(git_is_dirty(root_path)),
+            nodes: graph.node_count().ok(),
+            edges: graph.edge_count().ok(),
+            files_indexed: Some(index.files.len()),
+            build_time_ms: Some(t0.elapsed().as_millis() as u64),
+        },
+    );
+    Ok(())
+}
+
+fn git_short_head(root: &Path) -> Option<String> {
+    crate::core::git::run_git(
+        &["rev-parse", "--short", "HEAD"],
+        root,
+        Duration::from_secs(5),
+        &[],
+    )
+    .ok()
+    .and_then(|o| o.ok_stdout().ok())
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+}
+
+fn git_is_dirty(root: &Path) -> bool {
+    crate::core::git::run_git(
+        &["status", "--porcelain"],
+        root,
+        Duration::from_secs(5),
+        &[],
+    )
+    .ok()
+    .is_some_and(|o| !o.stdout.trim().is_empty())
 }
 
 #[cfg(test)]

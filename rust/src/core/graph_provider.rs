@@ -413,10 +413,10 @@ fn trigger_lazy_graph_build(project_root: &str) {
     if !is_project {
         return;
     }
-    let root_owned = project_root.to_string();
-    std::thread::spawn(move || {
-        let _ = build_property_graph(&root_owned);
-    });
+    // #682.2: build via the same reliable worker that builds the JSON index
+    // (which now mirrors into PG, backend-gated), instead of a dedicated
+    // fire-and-forget thread that silently died in short-lived processes.
+    super::index_orchestrator::ensure_all_background(project_root);
 }
 
 /// Build the property graph from the proven graph_index extractor (#682.1).
@@ -430,55 +430,10 @@ fn trigger_lazy_graph_build(project_root: &str) {
 /// Synchronous and self-contained in `core` (no `tools` dependency), so callers
 /// can build reliably without the fire-and-forget caveat of the lazy trigger.
 pub fn build_property_graph(project_root: &str) -> anyhow::Result<()> {
-    let t0 = std::time::Instant::now();
     let index = super::index_orchestrator::try_load_graph_index(project_root)
         .filter(|i| !i.files.is_empty())
         .unwrap_or_else(|| graph_index::scan_with_content_cache(project_root).0);
-
-    let graph = CodeGraph::open(project_root)?;
-    super::property_graph::populate_from_project_index(&graph, &index)?;
-
-    let root_path = Path::new(project_root);
-    let _ = super::property_graph::write_meta(
-        project_root,
-        &super::property_graph::PropertyGraphMetaV1 {
-            schema_version: 1,
-            engine_version: super::property_graph::GRAPH_ENGINE_VERSION,
-            built_with: env!("CARGO_PKG_VERSION").to_string(),
-            built_at: chrono::Utc::now().to_rfc3339(),
-            git_head: git_short_head(root_path),
-            git_dirty: Some(git_is_dirty(root_path)),
-            nodes: graph.node_count().ok(),
-            edges: graph.edge_count().ok(),
-            files_indexed: Some(index.files.len()),
-            build_time_ms: Some(t0.elapsed().as_millis() as u64),
-        },
-    );
-    Ok(())
-}
-
-fn git_short_head(root: &Path) -> Option<String> {
-    crate::core::git::run_git(
-        &["rev-parse", "--short", "HEAD"],
-        root,
-        std::time::Duration::from_secs(5),
-        &[],
-    )
-    .ok()
-    .and_then(|o| o.ok_stdout().ok())
-    .map(|s| s.trim().to_string())
-    .filter(|s| !s.is_empty())
-}
-
-fn git_is_dirty(root: &Path) -> bool {
-    crate::core::git::run_git(
-        &["status", "--porcelain"],
-        root,
-        std::time::Duration::from_secs(5),
-        &[],
-    )
-    .ok()
-    .is_some_and(|o| !o.stdout.trim().is_empty())
+    super::property_graph::mirror_index(project_root, &index)
 }
 
 pub fn open_or_build(project_root: &str) -> Option<OpenGraphProvider> {
