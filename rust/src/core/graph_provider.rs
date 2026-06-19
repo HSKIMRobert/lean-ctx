@@ -179,11 +179,15 @@ impl GraphProvider {
     pub fn get_symbol(&self, key: &str) -> Option<SymbolInfo> {
         match self {
             GraphProvider::PropertyGraph(g) => {
-                let parts: Vec<&str> = key.rsplitn(2, "::").collect();
+                // Keys are `rel_path::sym_name` (graph_index, see `mod.rs`). A
+                // file path never contains `::`, but a symbol name does for trait
+                // impls (`std::fmt::Display for T`). Split on the FIRST `::` so
+                // those names round-trip — `rsplitn` mangled them (#682.3).
+                let parts: Vec<&str> = key.splitn(2, "::").collect();
                 if parts.len() != 2 {
                     return None;
                 }
-                let (sym_name, file_path) = (parts[0], parts[1]);
+                let (file_path, sym_name) = (parts[0], parts[1]);
                 g.get_node_by_symbol(sym_name, file_path)
                     .ok()
                     .flatten()

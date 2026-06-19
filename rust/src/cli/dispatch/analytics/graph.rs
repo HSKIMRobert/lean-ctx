@@ -132,6 +132,15 @@ pub(in crate::cli::dispatch) fn cmd_graph(rest: &[String]) {
                 )
             );
         }
+        "parity" => {
+            // #682.3: shadow-mode proof that the PropertyGraph reproduces
+            // graph_index before the backend flip relies on it.
+            let root = resolve_graph_root(rest.get(1));
+            println!(
+                "{}",
+                tools::ctx_impact::handle("parity", None, &root, None, fmt)
+            );
+        }
         "path" => {
             let from = rest.get(1).map(String::as_str);
             let to = rest.get(2).map(String::as_str);

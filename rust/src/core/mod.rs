@@ -81,6 +81,7 @@ pub mod graph_enricher;
 pub mod graph_export;
 pub mod graph_features;
 pub mod graph_index;
+pub mod graph_parity;
 pub mod graph_provider;
 pub mod pagerank;
 pub mod property_graph;

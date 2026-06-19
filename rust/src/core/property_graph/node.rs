@@ -291,8 +291,12 @@ pub(super) fn symbol_count(conn: &Connection) -> anyhow::Result<usize> {
 pub(super) fn all_edges_flat(
     conn: &Connection,
 ) -> anyhow::Result<Vec<(String, String, String, f64)>> {
+    // The `edges` table carries no weight column — impact scoring derives the
+    // weight from the edge kind (see `queries::edge_weight`). Selecting a
+    // non-existent `e.weight` made this query error out, so PG `edges()` always
+    // returned empty (#682.3). Compute the weight from the kind instead.
     let mut stmt = conn.prepare(
-        "SELECT n1.file_path, n2.file_path, e.kind, e.weight
+        "SELECT n1.file_path, n2.file_path, e.kind
          FROM edges e
          JOIN nodes n1 ON e.source_id = n1.id
          JOIN nodes n2 ON e.target_id = n2.id
@@ -303,12 +307,13 @@ pub(super) fn all_edges_flat(
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, f64>(3)?,
         ))
     })?;
     let mut result = Vec::new();
     for r in rows {
-        result.push(r?);
+        let (from, to, kind) = r?;
+        let weight = super::queries::edge_weight(&kind);
+        result.push((from, to, kind, weight));
     }
     Ok(result)
 }
