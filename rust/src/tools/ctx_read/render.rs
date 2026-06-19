@@ -4,6 +4,40 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use crate::core::aggressiveness::AggressivenessProfile;
+
+/// Per-read tuning threaded into the per-mode renderers. `Default` reproduces
+/// the behaviour from before the aggressiveness knob existed (no override), so
+/// every existing caller and test keeps its exact byte output (#498).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ReadTuning {
+    /// Resolved 0.0–1.0 compression intensity, or `None` to use each mode's
+    /// built-in default. Already resolved via `aggressiveness::effective` at the
+    /// read boundary, so the renderer treats it as authoritative.
+    pub aggressiveness: Option<f64>,
+}
+
+impl ReadTuning {
+    /// Resolves the effective tuning from an explicit per-call aggressiveness,
+    /// falling back to the `LEAN_CTX_AGGRESSIVENESS` env var / config field.
+    pub(crate) fn resolve(explicit_aggressiveness: Option<f64>) -> Self {
+        Self {
+            aggressiveness: crate::core::aggressiveness::effective(explicit_aggressiveness),
+        }
+    }
+
+    /// For an `auto` read, the `density:` mode an aggressiveness setting maps to
+    /// (so one knob drives whole-file intensity via the proven density path).
+    pub(crate) fn auto_density_mode(self) -> Option<String> {
+        self.aggressiveness.map(|a| {
+            format!(
+                "density:{:.2}",
+                AggressivenessProfile::from_level(a).density_target
+            )
+        })
+    }
+}
+
 pub(crate) fn format_full_output(
     file_ref: &str,
     short: &str,
@@ -73,6 +107,36 @@ pub(crate) fn process_mode(
     file_path: &str,
     task: Option<&str>,
 ) -> (String, usize) {
+    process_mode_tuned(
+        content,
+        mode,
+        file_ref,
+        short,
+        ext,
+        original_tokens,
+        crp_mode,
+        file_path,
+        task,
+        ReadTuning::default(),
+    )
+}
+
+/// Renders `content` for `mode`, honouring the aggressiveness knob carried in
+/// `tuning`. `process_mode` is the unchanged-behaviour wrapper (`ReadTuning::
+/// default()`); the real read path threads a resolved `tuning` through here.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn process_mode_tuned(
+    content: &str,
+    mode: &str,
+    file_ref: &str,
+    short: &str,
+    ext: &str,
+    original_tokens: usize,
+    crp_mode: CrpMode,
+    file_path: &str,
+    task: Option<&str>,
+    tuning: ReadTuning,
+) -> (String, usize) {
     let _mode_guard = crate::core::savings_footer::ModeGuard::new(mode);
     let line_count = content.lines().count();
 
@@ -82,8 +146,13 @@ pub(crate) fn process_mode(
             (content.to_string(), sent)
         }
         "auto" => {
-            let chosen = resolve_auto_mode(file_path, original_tokens, task);
-            process_mode(
+            // The aggressiveness knob routes `auto` through the density path so a
+            // single number drives whole-file intensity; otherwise the learned
+            // auto-resolver picks the mode.
+            let chosen = tuning
+                .auto_density_mode()
+                .unwrap_or_else(|| resolve_auto_mode(file_path, original_tokens, task));
+            process_mode_tuned(
                 content,
                 &chosen,
                 file_ref,
@@ -93,6 +162,7 @@ pub(crate) fn process_mode(
                 crp_mode,
                 file_path,
                 task,
+                tuning,
             )
         }
         "full" => format_full_output(
@@ -340,10 +410,19 @@ pub(crate) fn process_mode(
                     (!kws.is_empty()).then_some(kws)
                 })
                 .unwrap_or_default();
-            let result = if task_kws.is_empty() {
-                entropy::entropy_compress_adaptive(content, file_path)
-            } else {
-                entropy::entropy_compress_task_conditioned(content, file_path, &task_kws)
+            let result = match (task_kws.is_empty(), tuning.aggressiveness) {
+                // Aggressiveness overrides the learned BPE-entropy threshold for
+                // the plain (no task keywords) path; task-conditioned entropy
+                // keeps its own relevance-aware thresholds.
+                (true, Some(a)) => entropy::entropy_compress_with_threshold(
+                    content,
+                    file_path,
+                    AggressivenessProfile::from_level(a).bpe_entropy,
+                ),
+                (true, None) => entropy::entropy_compress_adaptive(content, file_path),
+                (false, _) => {
+                    entropy::entropy_compress_task_conditioned(content, file_path, &task_kws)
+                }
             };
             let avg_h = entropy::analyze_entropy(content).avg_entropy;
             let header = build_header(file_ref, short, ext, content, line_count, false);
@@ -382,8 +461,14 @@ pub(crate) fn process_mode(
                 let sent = count_tokens(&out);
                 return (out, sent);
             }
-            let filtered =
-                crate::core::task_relevance::information_bottleneck_filter(content, &keywords, 0.3);
+            // Aggressiveness tightens the IB keep-budget; default 0.3 preserved
+            // when the knob is unset.
+            let ib_budget = tuning.aggressiveness.map_or(0.3, |a| {
+                AggressivenessProfile::from_level(a).ib_budget_ratio
+            });
+            let filtered = crate::core::task_relevance::information_bottleneck_filter(
+                content, &keywords, ib_budget,
+            );
             let filtered_lines = filtered.lines().count();
             let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
                 format!(
@@ -443,8 +528,12 @@ pub(crate) fn process_mode(
         }
         mode if mode.starts_with("density:") => {
             // SDE target-density mode: compress to a token budget instead of
-            // maximum compression. `density:0.4` ≈ 40% of original tokens.
-            let target: f64 = mode[8..].parse().unwrap_or(0.5);
+            // maximum compression. `density:0.4` ≈ 40% of original tokens. A bare
+            // `density:` falls back to the aggressiveness target (else 0.5).
+            let aggr_target = tuning
+                .aggressiveness
+                .map(|a| AggressivenessProfile::from_level(a).density_target);
+            let target: f64 = mode[8..].parse().ok().or(aggr_target).unwrap_or(0.5);
             let result = entropy::entropy_compress_to_density(content, target);
             let actual = if result.original_tokens > 0 {
                 result.compressed_tokens as f64 / result.original_tokens as f64

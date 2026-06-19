@@ -345,15 +345,85 @@ fn map_mode_inlines_task_relevant_body() {
 
 #[test]
 fn compressed_cache_key_distinguishes_task() {
-    let no_task = compressed_cache_key("map", CrpMode::Off, None);
-    let tdd_no_task = compressed_cache_key("map", CrpMode::Tdd, None);
-    let with_task = compressed_cache_key("map", CrpMode::Off, Some("fix login"));
-    let other_task = compressed_cache_key("map", CrpMode::Off, Some("refactor db"));
+    let no_task = compressed_cache_key("map", CrpMode::Off, None, None);
+    let tdd_no_task = compressed_cache_key("map", CrpMode::Tdd, None, None);
+    let with_task = compressed_cache_key("map", CrpMode::Off, Some("fix login"), None);
+    let other_task = compressed_cache_key("map", CrpMode::Off, Some("refactor db"), None);
     // Versioned so stale pre-line-range entries cannot be served.
     assert_eq!(no_task, "map:v2");
     assert_eq!(tdd_no_task, "map:v2:tdd");
     assert_ne!(with_task, no_task);
     assert_ne!(with_task, other_task);
+}
+
+#[test]
+fn compressed_cache_key_distinguishes_aggressiveness() {
+    // None → byte-identical to today's keys (#714 must not shift existing cache).
+    let base = compressed_cache_key("map", CrpMode::Off, None, None);
+    assert_eq!(base, "map:v2");
+    // Same aggressiveness → same key (determinism, #498).
+    let a = compressed_cache_key("map", CrpMode::Off, None, Some(0.7));
+    assert_eq!(
+        a,
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.7))
+    );
+    // Distinct buckets → distinct keys; jitter inside a 0.05 bucket collapses.
+    assert_ne!(a, base);
+    assert_ne!(
+        a,
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.2))
+    );
+    assert_eq!(
+        a,
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.701))
+    );
+}
+
+#[test]
+fn aggressiveness_is_deterministic_and_monotonic() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    // Suppress the savings footer: it carries session-cumulative counters by
+    // design (state-triggered suffix), so we compare the pure compressed body.
+    crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
+
+    // Prose-y fixture with redundant low-information lines the density pass can
+    // shed; enough lines that compression is meaningful.
+    let mut content = String::new();
+    for i in 0..60 {
+        content.push_str(&format!(
+            "line {i}: the quick brown fox jumps over the lazy dog\n"
+        ));
+    }
+    let render_at = |a: f64| -> String {
+        // Bare `density:` exercises the aggressiveness-target fallback (#714).
+        let (out, _) = process_mode_tuned(
+            &content,
+            "density:",
+            "F1",
+            "f.txt",
+            "txt",
+            count_tokens(&content),
+            CrpMode::Off,
+            "/tmp/f.txt",
+            None,
+            ReadTuning {
+                aggressiveness: Some(a),
+            },
+        );
+        out
+    };
+    // Determinism (#498): same aggressiveness → byte-identical output. Guards the
+    // canonical-order entropy summation fix in `token_entropy_from_ids`.
+    assert_eq!(render_at(0.7), render_at(0.7));
+    // Monotonic: more aggressive keeps no more tokens than less aggressive.
+    let low = count_tokens(&render_at(0.2));
+    let high = count_tokens(&render_at(0.9));
+    assert!(
+        high <= low,
+        "aggressiveness 0.9 ({high} tok) must not exceed 0.2 ({low} tok)"
+    );
+
+    crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
 }
 
 #[test]

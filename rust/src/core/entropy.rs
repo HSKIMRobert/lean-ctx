@@ -57,7 +57,13 @@ pub fn token_entropy_from_ids(tokens: &[u32]) -> f64 {
     for &t in tokens {
         *freq.entry(t).or_default() += 1;
     }
-    freq.values().fold(0.0_f64, |acc, &count| {
+    // Sum in a canonical (sorted-by-count) order: f64 addition is not
+    // associative, so folding over HashMap iteration order — random per instance
+    // — would make the entropy, and thus `density`/`entropy` mode output,
+    // non-deterministic across processes and defeat prompt caching (#498).
+    let mut counts: Vec<usize> = freq.into_values().collect();
+    counts.sort_unstable();
+    counts.iter().fold(0.0_f64, |acc, &count| {
         let p = count as f64 / total as f64;
         acc - p * p.log2()
     })
@@ -84,7 +90,10 @@ pub fn normalized_token_entropy_from_ids(tokens: &[u32]) -> f64 {
     if n_unique <= 1 {
         return 0.0;
     }
-    let h = freq.values().fold(0.0_f64, |acc, &count| {
+    // Canonical summation order for determinism (#498); see `token_entropy_from_ids`.
+    let mut counts: Vec<usize> = freq.into_values().collect();
+    counts.sort_unstable();
+    let h = counts.iter().fold(0.0_f64, |acc, &count| {
         let p = count as f64 / total as f64;
         acc - p * p.log2()
     });
@@ -259,6 +268,19 @@ pub fn entropy_compress_adaptive(content: &str, path: &str) -> EntropyResult {
     }
 
     result
+}
+
+/// Like [`entropy_compress_adaptive`] but overrides the learned BPE-entropy
+/// threshold (e.g. from the aggressiveness knob) while keeping the file-adaptive
+/// jaccard. Pure function of its inputs (#498). Higher `bpe_entropy` drops more
+/// low-information lines.
+pub fn entropy_compress_with_threshold(
+    content: &str,
+    path: &str,
+    bpe_entropy: f64,
+) -> EntropyResult {
+    let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
+    entropy_compress_with_thresholds(content, bpe_entropy, thresholds.jaccard)
 }
 
 /// Task-conditioned entropy compression: lines that would normally be dropped

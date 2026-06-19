@@ -6,7 +6,7 @@ use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
-    McpTool, ToolContext, ToolOutput, get_bool, get_int, get_str, require_resolved_path,
+    McpTool, ToolContext, ToolOutput, get_bool, get_f64, get_int, get_str, require_resolved_path,
 };
 use crate::tool_defs::tool_def;
 
@@ -49,7 +49,8 @@ impl McpTool for CtxReadTool {
                     "start_line": { "type": "integer", "description": "First line, 1-based (alias: offset)" },
                     "offset": { "type": "integer", "description": "Alias for start_line" },
                     "limit": { "type": "integer", "description": "Max lines to read" },
-                    "fresh": { "type": "boolean", "description": "Bypass cache, force disk re-read" }
+                    "fresh": { "type": "boolean", "description": "Bypass cache, force disk re-read" },
+                    "aggressiveness": { "type": "number", "description": "Compression intensity 0.0 (lossless)–1.0 (max). With no explicit mode, routes through the density path at the mapped target; also tunes entropy/task. Omit for per-mode defaults" }
                 },
                 "required": ["path"]
             }),
@@ -156,6 +157,18 @@ impl CtxReadTool {
         let cache_policy = crate::server::compaction_sync::effective_cache_policy();
         if cache_policy == "off" {
             fresh = true;
+        }
+        // #714 aggressiveness knob: per-call arg > LEAN_CTX_AGGRESSIVENESS > config.
+        let aggressiveness =
+            crate::core::aggressiveness::effective(get_f64(args, "aggressiveness"));
+        // One-knob UX: when the caller sets aggressiveness without pinning a mode,
+        // route through the proven density path at the mapped target. An explicit
+        // mode (incl. entropy/task) instead has the knob tune it via ReadTuning.
+        if !explicit_mode && let Some(a) = aggressiveness {
+            mode = format!(
+                "density:{:.2}",
+                crate::core::aggressiveness::AggressivenessProfile::from_level(a).density_target
+            );
         }
         // `start_line` (and its `offset`/`limit` aliases) can pin a line window.
         // The resolution lives in `apply_line_window`/`resolve_line_window` so
@@ -275,12 +288,22 @@ impl CtxReadTool {
                     break 'fast None;
                 };
                 let read_output = if fresh {
-                    crate::tools::ctx_read::handle_fresh_with_task_resolved(
-                        &mut cache, path, &mode, crp_mode, task_ref,
+                    crate::tools::ctx_read::handle_fresh_with_task_resolved_tuned(
+                        &mut cache,
+                        path,
+                        &mode,
+                        crp_mode,
+                        task_ref,
+                        aggressiveness,
                     )
                 } else {
-                    crate::tools::ctx_read::handle_with_task_resolved(
-                        &mut cache, path, &mode, crp_mode, task_ref,
+                    crate::tools::ctx_read::handle_with_task_resolved_tuned(
+                        &mut cache,
+                        path,
+                        &mode,
+                        crp_mode,
+                        task_ref,
+                        aggressiveness,
                     )
                 };
                 let content = read_output.content;
@@ -372,20 +395,22 @@ impl CtxReadTool {
 
                     let task_ref = task_owned.as_deref();
                     let read_output = if fresh {
-                        crate::tools::ctx_read::handle_fresh_with_task_resolved(
+                        crate::tools::ctx_read::handle_fresh_with_task_resolved_tuned(
                             &mut cache,
                             &path_owned,
                             &mode,
                             crp_mode,
                             task_ref,
+                            aggressiveness,
                         )
                     } else {
-                        crate::tools::ctx_read::handle_with_task_resolved(
+                        crate::tools::ctx_read::handle_with_task_resolved_tuned(
                             &mut cache,
                             &path_owned,
                             &mode,
                             crp_mode,
                             task_ref,
+                            aggressiveness,
                         )
                     };
                     let content = read_output.content;

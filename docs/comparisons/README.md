@@ -41,6 +41,9 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 ### "I need cross-session memory for my AI agents"
 **Use [Mem0](vs-mem0.md) for general-purpose AI memory** (chatbots, assistants, customer support). Use [lean-ctx](vs-mem0.md) for code-specific memory with compression and structural intelligence.
 
+### "I want to compress free-form prose / chat history / RAG context"
+**Use [The Token Company](vs-token-company.md) for cloud ML prose compression.** Use [lean-ctx](vs-token-company.md) when the content is code or tool output, you need 100% local operation, or you need deterministic, prompt-cache-preserving output.
+
 ### "I want all of the above in one tool"
 **Use lean-ctx.** It's the only tool that combines compression, memory, code intelligence, semantic search, repo-maps, and observability in a single binary.
 
@@ -53,6 +56,7 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 | [**lean-ctx vs claude-context**](vs-claude-context.md) | 100% local vs cloud-dependent — 77 tools vs 3 | [Full comparison →](vs-claude-context.md) |
 | [**lean-ctx vs Aider repo-map**](vs-aider-repomap.md) | MCP-available vs CLI-locked — PageRank for 28 agents | [Full comparison →](vs-aider-repomap.md) |
 | [**lean-ctx vs Mem0**](vs-mem0.md) | Code-specific vs general-purpose — local vs cloud | [Full comparison →](vs-mem0.md) |
+| [**lean-ctx vs The Token Company**](vs-token-company.md) | Local deterministic code compression vs cloud ML prose compression | [Full comparison →](vs-token-company.md) |
 
 ## What Makes lean-ctx Different
 

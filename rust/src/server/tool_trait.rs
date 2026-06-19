@@ -278,6 +278,10 @@ pub fn get_bool(args: &Map<String, Value>, key: &str) -> Option<bool> {
     args.get(key).and_then(serde_json::Value::as_bool)
 }
 
+pub fn get_f64(args: &Map<String, Value>, key: &str) -> Option<f64> {
+    args.get(key).and_then(serde_json::Value::as_f64)
+}
+
 pub fn get_str_array(args: &Map<String, Value>, key: &str) -> Option<Vec<String>> {
     args.get(key).and_then(|v| v.as_array()).map(|arr| {
         arr.iter()

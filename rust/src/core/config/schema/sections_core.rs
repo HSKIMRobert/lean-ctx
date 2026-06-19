@@ -212,6 +212,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             ),
         );
     root.insert(
+        "compression_aggressiveness".into(),
+        key_with_env(
+            "f64",
+            serde_json::json!(cfg.compression_aggressiveness),
+            "Global compression intensity 0.0 (lossless) – 1.0 (max), mapped onto read modes/entropy/IB. Empty = per-mode defaults",
+            "LEAN_CTX_AGGRESSIVENESS",
+        ),
+    );
+    root.insert(
         "allow_paths".into(),
         key_with_env(
             "string[]",

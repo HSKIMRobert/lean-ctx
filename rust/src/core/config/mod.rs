@@ -210,6 +210,12 @@ pub struct Config {
     /// Override via LEAN_CTX_COMPRESSION env var.
     #[serde(default)]
     pub compression_level: CompressionLevel,
+    /// Global compression intensity 0.0 (lossless) – 1.0 (max), mapped onto the
+    /// read modes / entropy / IB stages (see `core::aggressiveness`). `None`
+    /// (default) keeps each mode's built-in default. Override via the
+    /// `LEAN_CTX_AGGRESSIVENESS` env var or the `ctx_read` `aggressiveness` arg.
+    #[serde(default)]
+    pub compression_aggressiveness: Option<f64>,
     /// Archive configuration for zero-loss compression.
     #[serde(default)]
     pub archive: ArchiveConfig,
@@ -511,6 +517,7 @@ impl Default for Config {
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
             compression_level: CompressionLevel::default(),
+            compression_aggressiveness: None,
             archive: ArchiveConfig::default(),
             memory: MemoryPolicy::default(),
             allow_paths: Vec::new(),
@@ -1214,6 +1221,9 @@ impl Config {
         }
         if local_toml.contains("compression_level") {
             self.compression_level = local.compression_level;
+        }
+        if local_toml.contains("compression_aggressiveness") {
+            self.compression_aggressiveness = local.compression_aggressiveness;
         }
         if local_toml.contains("terse_agent") {
             self.terse_agent = local.terse_agent;

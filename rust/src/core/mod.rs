@@ -2,6 +2,7 @@
 // Domain: Compression
 // ---------------------------------------------------------------------------
 pub mod adaptive_chunking;
+pub mod aggressiveness;
 pub mod attention_context;
 pub mod auto_capture;
 pub mod auto_findings;

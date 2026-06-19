@@ -19,6 +19,7 @@ Top-level configuration keys
 - `buddy_enabled` (bool, default `true`) — Enable the buddy system for multi-agent coordination
 - `cache_policy` (enum(aggressive|safe|off), default `aggressive` — env `LEAN_CTX_CACHE_POLICY`) — Cache policy for ctx_read: aggressive (13-tok stubs), safe (map on hit), off (always disk)
 - `checkpoint_interval` (u32, default `15`) — Session checkpoint interval in minutes
+- `compression_aggressiveness` (f64, default `null` — env `LEAN_CTX_AGGRESSIVENESS`) — Global compression intensity 0.0 (lossless) – 1.0 (max), mapped onto read modes/entropy/IB. Empty = per-mode defaults
 - `compression_level` (enum: off | lite | standard | max, default `lite` — env `LEAN_CTX_COMPRESSION`) — Unified output-style level for the model's prose (not tool-output compression). lite=plain concise (default), standard/max=denser symbolic 'power modes'
 - `content_defined_chunking` (bool, default `false`) — Enable Rabin-Karp chunking for cache-optimal output ordering
 - `custom_aliases` (array, default `[]`) — Custom command aliases (array of {command, alias} entries)
