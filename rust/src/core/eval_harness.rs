@@ -129,6 +129,27 @@ pub fn run_eval(
     }
 }
 
+/// Which retrieval pipeline an eval arm exercises (#686 default-flip decision).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchArm {
+    /// Full default pipeline: BM25 + dense embeddings + SPLADE + RRF + rerank.
+    Hybrid,
+    /// Pure lexical BM25 — the **conservative lower bound** of the lean
+    /// (`dense_enabled = false`) path, which additionally keeps graph proximity,
+    /// reranking and SPLADE on top. If pure BM25 already matches hybrid, the real
+    /// lean path is ≥ that, so flipping the default cannot regress quality.
+    Bm25Only,
+}
+
+impl SearchArm {
+    fn label(self) -> &'static str {
+        match self {
+            SearchArm::Hybrid => "hybrid (dense on)",
+            SearchArm::Bm25Only => "bm25-only (lean lower bound)",
+        }
+    }
+}
+
 /// Full hybrid search for eval: BM25 + dense embeddings + SPLADE + RRF.
 /// Falls back to BM25-only when embeddings are unavailable.
 fn hybrid_eval_search(
@@ -137,13 +158,33 @@ fn hybrid_eval_search(
     index: &BM25Index,
     config: &HybridConfig,
 ) -> Vec<String> {
-    #[cfg(feature = "embeddings")]
-    {
-        if let Ok(results) = try_hybrid_search(project_root, query, index, config) {
-            return results;
+    search_arm(project_root, query, index, config, SearchArm::Hybrid).0
+}
+
+/// Runs one retrieval arm. Returns the ranked repo-relative file paths **and**
+/// whether the dense pipeline actually contributed — so an A/B run can flag an
+/// environment without working embeddings instead of silently comparing BM25 to
+/// itself and reporting a misleading "flip is safe".
+fn search_arm(
+    project_root: &Path,
+    query: &str,
+    index: &BM25Index,
+    config: &HybridConfig,
+    arm: SearchArm,
+) -> (Vec<String>, bool) {
+    if arm == SearchArm::Hybrid {
+        #[cfg(feature = "embeddings")]
+        {
+            if let Ok(results) = try_hybrid_search(project_root, query, index, config) {
+                return (results, true);
+            }
         }
     }
     let _ = project_root;
+    (bm25_only_search(index, query, config), false)
+}
+
+fn bm25_only_search(index: &BM25Index, query: &str, config: &HybridConfig) -> Vec<String> {
     index
         .search(query, config.bm25_candidates)
         .iter()
@@ -236,6 +277,222 @@ pub fn generate_self_eval(index: &BM25Index, max_queries: usize) -> Vec<EvalQuer
     }
 
     queries
+}
+
+// ── A/B retrieval comparison (#686): dense default vs lean lower bound ────────
+
+/// Recall slack (absolute, 0–1) within which the lean arm counts as "matching"
+/// the dense default. 0.02 ≈ two percentage points of recall@5.
+const AB_MARGIN: f64 = 0.02;
+
+/// Verdict of a dense-vs-lean retrieval A/B.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AbVerdict {
+    /// Pure BM25 already matches hybrid within `AB_MARGIN` on both recall@5 and
+    /// MRR. The richer lean path is ≥ pure BM25, so flipping the default to
+    /// dense-off cannot regress retrieval quality.
+    FlipSafe,
+    /// Dense adds recall beyond the margin. Evaluate the full lean path
+    /// (BM25+graph+rerank+SPLADE) before flipping; keep hybrid as the default.
+    KeepHybrid,
+    /// The dense pipeline never actually ran (no working embeddings in this
+    /// environment), so the two arms are identical and the run proves nothing.
+    Inconclusive,
+}
+
+impl AbVerdict {
+    pub fn label(self) -> &'static str {
+        match self {
+            AbVerdict::FlipSafe => "FLIP-SAFE",
+            AbVerdict::KeepHybrid => "KEEP-HYBRID",
+            AbVerdict::Inconclusive => "INCONCLUSIVE",
+        }
+    }
+}
+
+/// Pure verdict decision, split out so it is unit-testable without embeddings.
+fn decide_verdict(
+    delta_recall_at_5: f64,
+    delta_mrr: f64,
+    dense_active_queries: usize,
+) -> AbVerdict {
+    if dense_active_queries == 0 {
+        AbVerdict::Inconclusive
+    } else if delta_recall_at_5 >= -AB_MARGIN && delta_mrr >= -AB_MARGIN {
+        AbVerdict::FlipSafe
+    } else {
+        AbVerdict::KeepHybrid
+    }
+}
+
+/// Aggregate score for one retrieval arm.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ArmScore {
+    pub arm: String,
+    pub avg_recall_at_5: f64,
+    pub avg_recall_at_10: f64,
+    pub avg_mrr: f64,
+    pub avg_latency_us: u64,
+    /// Number of queries (of `total_queries`) where the dense pipeline actually
+    /// contributed. Always 0 for the BM25 arm.
+    pub dense_active_queries: usize,
+}
+
+/// Full dense-vs-lean A/B scorecard for the default-flip decision (#686).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AbReport {
+    pub project: String,
+    pub total_queries: usize,
+    pub hybrid: ArmScore,
+    pub bm25: ArmScore,
+    /// bm25 − hybrid. Negative ⇒ the lean lower bound trails the dense default.
+    pub delta_recall_at_5: f64,
+    pub delta_mrr: f64,
+    pub verdict: AbVerdict,
+}
+
+fn run_arm(
+    project_root: &Path,
+    queries: &[EvalQuery],
+    index: &BM25Index,
+    config: &HybridConfig,
+    arm: SearchArm,
+) -> ArmScore {
+    let (mut r5, mut r10, mut mrr) = (0.0, 0.0, 0.0);
+    let mut latency = 0u64;
+    let mut dense_active = 0usize;
+    for q in queries {
+        let start = Instant::now();
+        let (retrieved, dense) = search_arm(project_root, &q.query, index, config, arm);
+        latency += start.elapsed().as_micros() as u64;
+        r5 += recall_at_k(&retrieved, &q.expected_files, 5);
+        r10 += recall_at_k(&retrieved, &q.expected_files, 10);
+        mrr += mean_reciprocal_rank(&retrieved, &q.expected_files);
+        if dense {
+            dense_active += 1;
+        }
+    }
+    let n = queries.len().max(1) as f64;
+    ArmScore {
+        arm: arm.label().to_string(),
+        avg_recall_at_5: r5 / n,
+        avg_recall_at_10: r10 / n,
+        avg_mrr: mrr / n,
+        avg_latency_us: latency / queries.len().max(1) as u64,
+        dense_active_queries: dense_active,
+    }
+}
+
+/// Run the dense-vs-lean retrieval A/B over `queries` and decide whether the
+/// default search path can be flipped to dense-off without losing quality.
+pub fn run_ab(
+    project_root: &Path,
+    queries: &[EvalQuery],
+    index: &BM25Index,
+    config: &HybridConfig,
+) -> AbReport {
+    // Canonicalize first so a relative root like "." still yields a real label.
+    let label = project_root
+        .canonicalize()
+        .ok()
+        .as_deref()
+        .or(Some(project_root))
+        .and_then(|p| p.file_name().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "unknown".to_string());
+    let hybrid = run_arm(project_root, queries, index, config, SearchArm::Hybrid);
+    let bm25 = run_arm(project_root, queries, index, config, SearchArm::Bm25Only);
+    let delta_recall_at_5 = bm25.avg_recall_at_5 - hybrid.avg_recall_at_5;
+    let delta_mrr = bm25.avg_mrr - hybrid.avg_mrr;
+    let verdict = decide_verdict(delta_recall_at_5, delta_mrr, hybrid.dense_active_queries);
+    AbReport {
+        project: label,
+        total_queries: queries.len(),
+        hybrid,
+        bm25,
+        delta_recall_at_5,
+        delta_mrr,
+        verdict,
+    }
+}
+
+/// Loads a curated eval suite: one JSON [`EvalQuery`] per line; blank lines and
+/// `#` comments are ignored. Real labelled queries — no generation, no mocks.
+pub fn load_suite(path: &Path) -> std::io::Result<Vec<EvalQuery>> {
+    let text = std::fs::read_to_string(path)?;
+    let mut out = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let q: EvalQuery = serde_json::from_str(t).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{}:{}: {e}", path.display(), i + 1),
+            )
+        })?;
+        out.push(q);
+    }
+    Ok(out)
+}
+
+impl AbReport {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+impl std::fmt::Display for AbReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "Retrieval A/B: {} ({} queries) — #686 default-flip decision",
+            self.project, self.total_queries
+        )?;
+        writeln!(
+            f,
+            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs  dense:{}/{}",
+            self.hybrid.arm,
+            self.hybrid.avg_recall_at_5 * 100.0,
+            self.hybrid.avg_recall_at_10 * 100.0,
+            self.hybrid.avg_mrr,
+            self.hybrid.avg_latency_us,
+            self.hybrid.dense_active_queries,
+            self.total_queries,
+        )?;
+        writeln!(
+            f,
+            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs",
+            self.bm25.arm,
+            self.bm25.avg_recall_at_5 * 100.0,
+            self.bm25.avg_recall_at_10 * 100.0,
+            self.bm25.avg_mrr,
+            self.bm25.avg_latency_us,
+        )?;
+        writeln!(
+            f,
+            "  Δ(bm25−hybrid): R@5={:+.1}pp  MRR={:+.3}",
+            self.delta_recall_at_5 * 100.0,
+            self.delta_mrr,
+        )?;
+        writeln!(f, "  Verdict: {}", self.verdict.label())?;
+        let note = match self.verdict {
+            AbVerdict::FlipSafe => {
+                "pure BM25 matches hybrid within margin; the richer lean path is ≥ this \
+                 → flipping the default to dense-off is safe."
+            }
+            AbVerdict::KeepHybrid => {
+                "dense adds recall beyond the margin → evaluate the full lean path before \
+                 flipping; keep hybrid default."
+            }
+            AbVerdict::Inconclusive => {
+                "dense pipeline did not run (no embeddings here) → both arms identical; \
+                 re-run where embeddings are built."
+            }
+        };
+        writeln!(f, "  {note}")
+    }
 }
 
 /// Normalizes path separators so comparisons are platform-independent (the
@@ -372,5 +629,98 @@ mod tests {
         let s = format!("{sc}");
         assert!(s.contains("80.0%"));
         assert!(s.contains("0.750"));
+    }
+
+    #[test]
+    fn verdict_flip_safe_when_lean_matches() {
+        // Lean equal to hybrid, within margin, and even ahead → all flip-safe.
+        assert_eq!(decide_verdict(0.0, 0.0, 5), AbVerdict::FlipSafe);
+        assert_eq!(decide_verdict(-0.01, -0.005, 5), AbVerdict::FlipSafe);
+        assert_eq!(decide_verdict(0.05, 0.03, 5), AbVerdict::FlipSafe);
+    }
+
+    #[test]
+    fn verdict_keep_hybrid_when_dense_helps() {
+        // Dense ahead beyond the margin on either metric → keep hybrid.
+        assert_eq!(decide_verdict(-0.10, 0.0, 5), AbVerdict::KeepHybrid);
+        assert_eq!(decide_verdict(0.0, -0.10, 3), AbVerdict::KeepHybrid);
+    }
+
+    #[test]
+    fn verdict_inconclusive_without_dense() {
+        // No dense-active query ⇒ arms are identical regardless of the deltas.
+        assert_eq!(decide_verdict(-0.5, -0.5, 0), AbVerdict::Inconclusive);
+        assert_eq!(decide_verdict(0.0, 0.0, 0), AbVerdict::Inconclusive);
+    }
+
+    #[test]
+    fn load_suite_parses_and_skips_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.ndjson");
+        std::fs::write(
+            &p,
+            "# header comment\n\n\
+             {\"query\":\"reciprocal rank fusion\",\"expected_files\":[\"core/hybrid_search.rs\"]}\n",
+        )
+        .unwrap();
+        let q = load_suite(&p).unwrap();
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0].query, "reciprocal rank fusion");
+        assert_eq!(
+            q[0].expected_files,
+            vec!["core/hybrid_search.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn load_suite_rejects_bad_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("bad.ndjson");
+        std::fs::write(&p, "{not valid json}\n").unwrap();
+        assert!(load_suite(&p).is_err());
+    }
+
+    #[test]
+    fn run_ab_plumbing_on_synthetic_index() {
+        use crate::core::bm25_index::{BM25Index, ChunkKind, CodeChunk, tokenize};
+
+        let index = BM25Index::from_chunks_for_test(vec![CodeChunk {
+            file_path: "core/hybrid_search.rs".into(),
+            symbol_name: "reciprocal_rank_fusion".into(),
+            kind: ChunkKind::Function,
+            start_line: 1,
+            end_line: 20,
+            // Natural-language body so the query tokens match (the indexer keeps
+            // `snake_case` identifiers as single tokens, so a bare symbol name
+            // would not match the space-separated query).
+            content: "Combine two ranked result lists using reciprocal rank fusion scoring.".into(),
+            tokens: tokenize("combine two ranked result lists reciprocal rank fusion scoring"),
+            token_count: 0,
+        }]);
+        let queries = vec![EvalQuery {
+            query: "reciprocal rank fusion".into(),
+            expected_files: vec!["core/hybrid_search.rs".into()],
+            category: "test".into(),
+        }];
+
+        // Isolate any embedding side effects to a throwaway root.
+        let dir = tempfile::tempdir().unwrap();
+        let report = run_ab(dir.path(), &queries, &index, &HybridConfig::default());
+
+        assert_eq!(report.total_queries, 1);
+        // The BM25 arm must find the lexical match and never reports dense activity.
+        assert!(report.bm25.avg_recall_at_5 > 0.0);
+        assert_eq!(report.bm25.dense_active_queries, 0);
+        // The verdict follows the (separately unit-tested) contract for whatever
+        // dense availability this environment happens to have.
+        let expected = decide_verdict(
+            report.delta_recall_at_5,
+            report.delta_mrr,
+            report.hybrid.dense_active_queries,
+        );
+        assert_eq!(report.verdict, expected);
+        // Serialization stays valid JSON.
+        let v: serde_json::Value = serde_json::from_str(&report.to_json()).unwrap();
+        assert_eq!(v["total_queries"], 1);
     }
 }

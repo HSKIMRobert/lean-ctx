@@ -536,6 +536,7 @@ pub fn cmd_benchmark(args: &[String]) {
             println!("Usage: lean-ctx benchmark run [path] [--json]");
             println!("       lean-ctx benchmark report [path]");
             println!("       lean-ctx benchmark eval [path] [--json]");
+            println!("       lean-ctx benchmark eval-ab [path] [--suite file.ndjson] [--json]");
             println!("       lean-ctx benchmark compare [--repo path] [--output file.md]");
             println!("       lean-ctx benchmark scorecard [--json] [--output file]");
             println!("       lean-ctx benchmark dual-arm [--json] [--output file]");
@@ -607,6 +608,46 @@ pub fn cmd_benchmark(args: &[String]) {
                 print!("{scorecard}");
             }
         }
+        "eval-ab" => {
+            let path = args
+                .get(1)
+                .filter(|a| !a.starts_with("--"))
+                .map_or(".", std::string::String::as_str);
+            let is_json = args.iter().any(|a| a == "--json");
+            let root = std::path::Path::new(path);
+            if !root.exists() {
+                eprintln!("Path does not exist: {path}");
+                std::process::exit(1);
+            }
+
+            let index = crate::core::bm25_index::BM25Index::build_from_directory(root);
+            let cfg = crate::core::hybrid_search::HybridConfig::from_config();
+
+            let queries = match parse_flag_value(args, "--suite") {
+                Some(suite) => {
+                    match crate::core::eval_harness::load_suite(std::path::Path::new(&suite)) {
+                        Ok(q) => q,
+                        Err(e) => {
+                            eprintln!("Failed to load suite {suite}: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                None => crate::core::eval_harness::generate_self_eval(&index, 50),
+            };
+
+            if queries.is_empty() {
+                eprintln!("No eval queries (empty suite / no symbols indexed).");
+                std::process::exit(1);
+            }
+
+            let report = crate::core::eval_harness::run_ab(root, &queries, &index, &cfg);
+            if is_json {
+                println!("{}", report.to_json());
+            } else {
+                print!("{report}");
+            }
+        }
         "run" => {
             let path = args.get(1).map_or(".", std::string::String::as_str);
             let is_json = args.iter().any(|a| a == "--json");
@@ -649,6 +690,9 @@ pub fn cmd_benchmark(args: &[String]) {
                 eprintln!("Usage: lean-ctx benchmark run [path] [--json]");
                 eprintln!("       lean-ctx benchmark report [path]");
                 eprintln!("       lean-ctx benchmark eval [path] [--json]");
+                eprintln!(
+                    "       lean-ctx benchmark eval-ab [path] [--suite file.ndjson] [--json]"
+                );
                 eprintln!("       lean-ctx benchmark compare [--repo path] [--output file.md]");
                 eprintln!("       lean-ctx benchmark scorecard [--json] [--output file]");
                 std::process::exit(1);
