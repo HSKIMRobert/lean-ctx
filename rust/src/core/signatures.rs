@@ -252,7 +252,14 @@ pub fn signature_backend_stats() -> (u64, u64) {
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
     #[cfg(feature = "tree-sitter")]
     {
-        if let Some(sigs) = super::signatures_ts::extract_signatures_ts(content, file_ext) {
+        // A successful parse that yields no signatures (`Some(vec![])`) means the
+        // tree-sitter query set has a gap for this file's constructs. Fall through
+        // to the regex extractors instead of returning the empty result, which
+        // would otherwise suppress signatures the regex fallback can still
+        // recover (e.g. constructs the query does not capture).
+        if let Some(sigs) = super::signatures_ts::extract_signatures_ts(content, file_ext)
+            && !sigs.is_empty()
+        {
             TREE_SITTER_HITS.fetch_add(1, Ordering::Relaxed);
             return sigs;
         }
