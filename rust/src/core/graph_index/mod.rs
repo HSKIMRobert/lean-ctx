@@ -1,8 +1,9 @@
 // DEPRECATED: This module is being replaced by PropertyGraph (core/property_graph/).
 // New code should use GraphProvider (core/graph_provider.rs) instead of accessing
-// ProjectIndex directly. Remaining direct consumers: call_graph, graph_enricher,
-// ctx_callgraph, ctx_graph_diagram, ctx_routes, autonomy, dashboard/callgraph.
-// See OPT-14/15 plan for the full migration path.
+// ProjectIndex directly. The dashboard now resolves graphs through
+// `graph_coordinator` (PropertyGraph-first); the remaining direct consumers are
+// the build pipeline (index_orchestrator) and the extractor itself.
+// See OPT-14/15 (#696) plan for the full migration path.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,8 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::import_resolver;
 use crate::core::signatures;
-mod coordinator;
-pub use coordinator::{IndexBuildProgress, get_or_start_build};
 mod edges;
 pub(crate) use edges::*;
 #[cfg(test)]

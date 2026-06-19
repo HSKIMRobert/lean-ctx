@@ -98,16 +98,6 @@ impl GraphProvider {
         }
     }
 
-    /// The underlying [`ProjectIndex`] when this provider is index-backed; `None`
-    /// for the property-graph backend. Lets callers compute index-derived
-    /// analyses (e.g. realized per-language coverage) without re-opening it.
-    pub fn as_graph_index(&self) -> Option<&ProjectIndex> {
-        match self {
-            GraphProvider::GraphIndex(i) => Some(i),
-            GraphProvider::PropertyGraph(_) => None,
-        }
-    }
-
     pub fn dependencies(&self, file_path: &str) -> Vec<String> {
         match self {
             GraphProvider::PropertyGraph(g) => g.dependencies(file_path).unwrap_or_default(),

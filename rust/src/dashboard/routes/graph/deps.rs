@@ -170,12 +170,9 @@ fn graph() -> (&'static str, &'static str, String) {
         None
     };
 
-    // Realized per-language coverage when the provider is index-backed (real
-    // symbol/import counts); fall back to capability-only flags otherwise.
-    let language_matrix = match gp.as_graph_index() {
-        Some(index) => super::capability_matrix::realized_from_index(index, None),
-        None => crate::core::language_capabilities::language_capability_matrix(gp.file_paths()),
-    };
+    // Realized per-language coverage (real symbol/import counts) — works for
+    // either backend now that the facade surfaces symbols + edges (#696 phase C).
+    let language_matrix = super::capability_matrix::realized_from_provider(gp, None);
 
     let val = serde_json::json!({
         "project_root": super::project_basename(&root),
