@@ -53,6 +53,7 @@ fn compressed_cache_key(
     crp_mode: CrpMode,
     task: Option<&str>,
     aggressiveness: Option<f64>,
+    protect: &[String],
 ) -> String {
     // Bump when the rendered map/signatures body changes shape so stale
     // pre-line-range entries are not served from an older session cache.
@@ -77,14 +78,19 @@ fn compressed_cache_key(
         }
         None => base,
     };
-    // Aggressiveness changes lossy output, so it must change the key (#498).
-    // `None` → empty fragment keeps pre-knob keys byte-identical.
-    let frag = crate::core::aggressiveness::cache_fragment(aggressiveness);
-    if frag.is_empty() {
-        keyed
-    } else {
-        format!("{keyed}:{frag}")
+    // Aggressiveness and the explicit protect list both change lossy output, so
+    // both must change the key (#498). Empty fragments keep pre-feature keys
+    // byte-identical, so unmodified reads still hit their existing cache entries.
+    let mut key = keyed;
+    let aggr_frag = crate::core::aggressiveness::cache_fragment(aggressiveness);
+    if !aggr_frag.is_empty() {
+        key = format!("{key}:{aggr_frag}");
     }
+    let protect_frag = crate::core::protect::protect_fragment(protect);
+    if !protect_frag.is_empty() {
+        key = format!("{key}:{protect_frag}");
+    }
+    key
 }
 
 fn append_compressed_hint(output: &str, file_path: &str) -> String {
@@ -244,7 +250,7 @@ pub fn handle_with_task_resolved(
         false,
         crp_mode,
         task,
-        ReadTuning::resolve(None),
+        ReadTuning::resolve(None, &[]),
     )
 }
 
@@ -258,6 +264,7 @@ pub fn handle_with_task_resolved_tuned(
     crp_mode: CrpMode,
     task: Option<&str>,
     aggressiveness: Option<f64>,
+    protect: &[String],
 ) -> ReadOutput {
     handle_with_options_resolved(
         cache,
@@ -266,7 +273,7 @@ pub fn handle_with_task_resolved_tuned(
         false,
         crp_mode,
         task,
-        ReadTuning::resolve(aggressiveness),
+        ReadTuning::resolve(aggressiveness, protect),
     )
 }
 
@@ -296,7 +303,7 @@ pub fn handle_fresh_with_task_resolved(
         true,
         crp_mode,
         task,
-        ReadTuning::resolve(None),
+        ReadTuning::resolve(None, &[]),
     )
 }
 
@@ -308,6 +315,7 @@ pub fn handle_fresh_with_task_resolved_tuned(
     crp_mode: CrpMode,
     task: Option<&str>,
     aggressiveness: Option<f64>,
+    protect: &[String],
 ) -> ReadOutput {
     handle_with_options_resolved(
         cache,
@@ -316,7 +324,7 @@ pub fn handle_fresh_with_task_resolved_tuned(
         true,
         crp_mode,
         task,
-        ReadTuning::resolve(aggressiveness),
+        ReadTuning::resolve(aggressiveness, protect),
     )
 }
 
@@ -335,7 +343,7 @@ fn handle_with_options(
         fresh,
         crp_mode,
         task,
-        ReadTuning::resolve(None),
+        ReadTuning::resolve(None, &[]),
     )
     .content
 }
@@ -359,7 +367,7 @@ fn handle_with_options_resolved(
     fresh: bool,
     crp_mode: CrpMode,
     task: Option<&str>,
-    tuning: ReadTuning,
+    tuning: ReadTuning<'_>,
 ) -> ReadOutput {
     let effective_fresh = fresh || is_subagent_context();
 
@@ -515,7 +523,7 @@ fn handle_with_options_inner(
     fresh: bool,
     crp_mode: CrpMode,
     task: Option<&str>,
-    tuning: ReadTuning,
+    tuning: ReadTuning<'_>,
 ) -> ReadOutput {
     let file_ref = cache.get_file_ref(path);
     let short = protocol::shorten_path(path);
@@ -596,8 +604,13 @@ fn handle_with_options_inner(
         };
 
         if is_cacheable_mode(&resolved_mode) {
-            let cache_key =
-                compressed_cache_key(&resolved_mode, crp_mode, task, tuning.aggressiveness);
+            let cache_key = compressed_cache_key(
+                &resolved_mode,
+                crp_mode,
+                task,
+                tuning.aggressiveness,
+                tuning.protect,
+            );
             let compressed_hit = cache.get_compressed(path, &cache_key).cloned();
             if let Some(cached_output) = compressed_hit {
                 cache.record_cache_hit(path);
@@ -636,8 +649,13 @@ fn handle_with_options_inner(
                 out
             };
             if is_cacheable_mode(&resolved_mode) {
-                let cache_key =
-                    compressed_cache_key(&resolved_mode, crp_mode, task, tuning.aggressiveness);
+                let cache_key = compressed_cache_key(
+                    &resolved_mode,
+                    crp_mode,
+                    task,
+                    tuning.aggressiveness,
+                    tuning.protect,
+                );
                 cache.set_compressed(path, &cache_key, out.clone());
             }
             let out = crate::core::redaction::redact_text_if_enabled(&out);
@@ -752,7 +770,13 @@ fn handle_with_options_inner(
         output
     };
     if is_cacheable_mode(&resolved_mode) {
-        let cache_key = compressed_cache_key(&resolved_mode, crp_mode, task, tuning.aggressiveness);
+        let cache_key = compressed_cache_key(
+            &resolved_mode,
+            crp_mode,
+            task,
+            tuning.aggressiveness,
+            tuning.protect,
+        );
         cache.set_compressed(path, &cache_key, output.clone());
     }
     if let Some(hint) = &graph_hint {

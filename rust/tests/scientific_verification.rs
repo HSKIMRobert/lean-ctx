@@ -412,7 +412,7 @@ fn ib_filter_preserves_task_relevant_lines() {
         }
     }
     let content = lines.join("\n");
-    let result = information_bottleneck_filter(&content, &["validate_token".to_string()], 0.3);
+    let result = information_bottleneck_filter(&content, &["validate_token".to_string()], 0.3, &[]);
 
     assert!(
         result.contains("validate_token"),
@@ -445,8 +445,8 @@ fn ib_filter_reduces_more_for_repetitive_content() {
     );
 
     let kw = vec!["compute".to_string()];
-    let filtered_rep = information_bottleneck_filter(&repetitive, &kw, 0.3);
-    let filtered_div = information_bottleneck_filter(&diverse, &kw, 0.3);
+    let filtered_rep = information_bottleneck_filter(&repetitive, &kw, 0.3, &[]);
+    let filtered_div = information_bottleneck_filter(&diverse, &kw, 0.3, &[]);
 
     eprintln!(
         "[IB adaptive] repetitive: {}→{} lines, diverse: {}→{} lines",

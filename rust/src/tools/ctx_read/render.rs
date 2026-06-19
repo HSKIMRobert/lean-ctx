@@ -10,19 +10,26 @@ use crate::core::aggressiveness::AggressivenessProfile;
 /// the behaviour from before the aggressiveness knob existed (no override), so
 /// every existing caller and test keeps its exact byte output (#498).
 #[derive(Clone, Copy, Default)]
-pub(crate) struct ReadTuning {
+pub(crate) struct ReadTuning<'a> {
     /// Resolved 0.0–1.0 compression intensity, or `None` to use each mode's
     /// built-in default. Already resolved via `aggressiveness::effective` at the
     /// read boundary, so the renderer treats it as authoritative.
     pub aggressiveness: Option<f64>,
+    /// Explicit `protect` tokens (#709): every line containing one of these
+    /// survives the line-based lossy filters (entropy / information-bottleneck)
+    /// verbatim. Empty slice reproduces the pre-protect byte output (#498).
+    /// Borrowed from the read boundary for the duration of the render call.
+    pub protect: &'a [String],
 }
 
-impl ReadTuning {
-    /// Resolves the effective tuning from an explicit per-call aggressiveness,
-    /// falling back to the `LEAN_CTX_AGGRESSIVENESS` env var / config field.
-    pub(crate) fn resolve(explicit_aggressiveness: Option<f64>) -> Self {
+impl<'a> ReadTuning<'a> {
+    /// Resolves the effective tuning from an explicit per-call aggressiveness
+    /// (falling back to the `LEAN_CTX_AGGRESSIVENESS` env var / config field) and
+    /// the explicit `protect` token list.
+    pub(crate) fn resolve(explicit_aggressiveness: Option<f64>, protect: &'a [String]) -> Self {
         Self {
             aggressiveness: crate::core::aggressiveness::effective(explicit_aggressiveness),
+            protect,
         }
     }
 
@@ -135,7 +142,7 @@ pub(crate) fn process_mode_tuned(
     crp_mode: CrpMode,
     file_path: &str,
     task: Option<&str>,
-    tuning: ReadTuning,
+    tuning: ReadTuning<'_>,
 ) -> (String, usize) {
     let _mode_guard = crate::core::savings_footer::ModeGuard::new(mode);
     let line_count = content.lines().count();
@@ -418,11 +425,17 @@ pub(crate) fn process_mode_tuned(
                     content,
                     file_path,
                     AggressivenessProfile::from_level(a).bpe_entropy,
+                    tuning.protect,
                 ),
-                (true, None) => entropy::entropy_compress_adaptive(content, file_path),
-                (false, _) => {
-                    entropy::entropy_compress_task_conditioned(content, file_path, &task_kws)
+                (true, None) => {
+                    entropy::entropy_compress_adaptive(content, file_path, tuning.protect)
                 }
+                (false, _) => entropy::entropy_compress_task_conditioned(
+                    content,
+                    file_path,
+                    &task_kws,
+                    tuning.protect,
+                ),
             };
             let avg_h = entropy::analyze_entropy(content).avg_entropy;
             let header = build_header(file_ref, short, ext, content, line_count, false);
@@ -467,7 +480,10 @@ pub(crate) fn process_mode_tuned(
                 AggressivenessProfile::from_level(a).ib_budget_ratio
             });
             let filtered = crate::core::task_relevance::information_bottleneck_filter(
-                content, &keywords, ib_budget,
+                content,
+                &keywords,
+                ib_budget,
+                tuning.protect,
             );
             let filtered_lines = filtered.lines().count();
             let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {

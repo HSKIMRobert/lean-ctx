@@ -304,6 +304,7 @@ pub fn task_aware_compress(
                 &intent.keywords,
                 budget_ratio,
                 Some(intent.task_type),
+                &[],
             );
             safeguard_ratio(content, &filtered)
         }
@@ -314,6 +315,7 @@ pub fn task_aware_compress(
                 &intent.keywords,
                 budget_ratio.max(0.5),
                 Some(intent.task_type),
+                &[],
             );
             safeguard_ratio(content, &filtered)
         }

@@ -21,6 +21,15 @@ pub fn compress_tool_result(content: &str, tool_name: Option<&str>) -> String {
         return content.to_string();
     }
 
+    // #709: honour explicit <lc_safe>…</lc_safe> spans on the proxy path too.
+    // Protected spans pass through verbatim; each unprotected segment flows back
+    // through the normal funnel (markers are stripped, so this never recurses).
+    if crate::core::protect::has_markers(content) {
+        return crate::core::protect::compress_preserving(content, |seg| {
+            compress_tool_result(seg, tool_name)
+        });
+    }
+
     if is_cited_research_output(content) {
         return content.to_string();
     }

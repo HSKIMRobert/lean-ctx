@@ -6,7 +6,8 @@ use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
-    McpTool, ToolContext, ToolOutput, get_bool, get_f64, get_int, get_str, require_resolved_path,
+    McpTool, ToolContext, ToolOutput, get_bool, get_f64, get_int, get_str, get_str_array,
+    require_resolved_path,
 };
 use crate::tool_defs::tool_def;
 
@@ -50,7 +51,8 @@ impl McpTool for CtxReadTool {
                     "offset": { "type": "integer", "description": "Alias for start_line" },
                     "limit": { "type": "integer", "description": "Max lines to read" },
                     "fresh": { "type": "boolean", "description": "Bypass cache, force disk re-read" },
-                    "aggressiveness": { "type": "number", "description": "Compression intensity 0.0 (lossless)–1.0 (max). With no explicit mode, routes through the density path at the mapped target; also tunes entropy/task. Omit for per-mode defaults" }
+                    "aggressiveness": { "type": "number", "description": "Compression intensity 0.0 (lossless)–1.0 (max). With no explicit mode, routes through the density path at the mapped target; also tunes entropy/task. Omit for per-mode defaults" },
+                    "protect": { "type": "array", "items": { "type": "string" }, "description": "Symbols/strings whose lines must never be compressed away — force-kept verbatim in entropy/task modes" }
                 },
                 "required": ["path"]
             }),
@@ -161,6 +163,9 @@ impl CtxReadTool {
         // #714 aggressiveness knob: per-call arg > LEAN_CTX_AGGRESSIVENESS > config.
         let aggressiveness =
             crate::core::aggressiveness::effective(get_f64(args, "aggressiveness"));
+        // #720 protect list: lines containing any of these survive the lossy
+        // line filters (entropy/task) verbatim; threaded into ReadTuning.protect.
+        let protect = get_str_array(args, "protect").unwrap_or_default();
         // One-knob UX: when the caller sets aggressiveness without pinning a mode,
         // route through the proven density path at the mapped target. An explicit
         // mode (incl. entropy/task) instead has the knob tune it via ReadTuning.
@@ -295,6 +300,7 @@ impl CtxReadTool {
                         crp_mode,
                         task_ref,
                         aggressiveness,
+                        &protect,
                     )
                 } else {
                     crate::tools::ctx_read::handle_with_task_resolved_tuned(
@@ -304,6 +310,7 @@ impl CtxReadTool {
                         crp_mode,
                         task_ref,
                         aggressiveness,
+                        &protect,
                     )
                 };
                 let content = read_output.content;
@@ -325,6 +332,7 @@ impl CtxReadTool {
                 let cache_lock = cache_lock.clone();
                 let mode = mode.clone();
                 let task_owned = current_task.clone();
+                let protect_owned = protect.clone();
                 let path_owned = path.to_string();
                 let cancel_flag = cancelled.clone();
                 let (tx, rx) = std::sync::mpsc::sync_channel(1);
@@ -402,6 +410,7 @@ impl CtxReadTool {
                             crp_mode,
                             task_ref,
                             aggressiveness,
+                            &protect_owned,
                         )
                     } else {
                         crate::tools::ctx_read::handle_with_task_resolved_tuned(
@@ -411,6 +420,7 @@ impl CtxReadTool {
                             crp_mode,
                             task_ref,
                             aggressiveness,
+                            &protect_owned,
                         )
                     };
                     let content = read_output.content;

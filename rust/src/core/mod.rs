@@ -25,6 +25,7 @@ pub mod predictive_prefetch;
 pub mod preservation;
 pub mod process_guard;
 pub mod progressive_compression;
+pub mod protect;
 pub mod rabin_karp;
 pub mod rules_canonical;
 pub mod rules_channel;

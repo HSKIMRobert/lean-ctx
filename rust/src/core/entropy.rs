@@ -236,7 +236,7 @@ pub fn compressibility_class(content: &str) -> CompressibilityClass {
 
 /// Compresses content by removing low-entropy lines and deduplicating patterns.
 pub fn entropy_compress(content: &str) -> EntropyResult {
-    entropy_compress_with_thresholds(content, BPE_ENTROPY_THRESHOLD, 0.7)
+    entropy_compress_with_thresholds(content, BPE_ENTROPY_THRESHOLD, 0.7, &[])
 }
 
 /// Entropy compression with the opportunistic semantic redundancy filter
@@ -245,15 +245,25 @@ pub fn entropy_compress(content: &str) -> EntropyResult {
 /// Benchmarks and the scorecard (#211) need run-to-run and machine-to-machine
 /// reproducibility, so they must go through this entry point.
 pub fn entropy_compress_deterministic(content: &str) -> EntropyResult {
-    entropy_compress_inner(content, BPE_ENTROPY_THRESHOLD, 0.7, &[], false)
+    entropy_compress_inner(content, BPE_ENTROPY_THRESHOLD, 0.7, &[], false, &[])
 }
 
 /// Entropy compression with file-type-adaptive thresholds and event emission.
-pub fn entropy_compress_adaptive(content: &str, path: &str) -> EntropyResult {
+/// `force_keep` lines (explicit `protect` tokens, #709) survive verbatim; pass
+/// `&[]` to keep the pre-protect behaviour byte-identical (#498).
+pub fn entropy_compress_adaptive(
+    content: &str,
+    path: &str,
+    force_keep: &[String],
+) -> EntropyResult {
     let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
     let before_lines = content.lines().count() as u32;
-    let result =
-        entropy_compress_with_thresholds(content, thresholds.bpe_entropy, thresholds.jaccard);
+    let result = entropy_compress_with_thresholds(
+        content,
+        thresholds.bpe_entropy,
+        thresholds.jaccard,
+        force_keep,
+    );
     let after_lines = result.output.lines().count() as u32;
 
     if before_lines != after_lines {
@@ -278,9 +288,10 @@ pub fn entropy_compress_with_threshold(
     content: &str,
     path: &str,
     bpe_entropy: f64,
+    force_keep: &[String],
 ) -> EntropyResult {
     let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
-    entropy_compress_with_thresholds(content, bpe_entropy, thresholds.jaccard)
+    entropy_compress_with_thresholds(content, bpe_entropy, thresholds.jaccard, force_keep)
 }
 
 /// Task-conditioned entropy compression: lines that would normally be dropped
@@ -292,6 +303,7 @@ pub fn entropy_compress_task_conditioned(
     content: &str,
     path: &str,
     task_keywords: &[String],
+    force_keep: &[String],
 ) -> EntropyResult {
     let thresholds = super::adaptive_thresholds::adaptive_thresholds(path, content);
     let before_lines = content.lines().count() as u32;
@@ -300,6 +312,7 @@ pub fn entropy_compress_task_conditioned(
         thresholds.bpe_entropy,
         thresholds.jaccard,
         task_keywords,
+        force_keep,
     );
     let after_lines = result.output.lines().count() as u32;
     if before_lines != after_lines {
@@ -371,6 +384,7 @@ fn entropy_compress_with_task(
     entropy_threshold: f64,
     jaccard_threshold: f64,
     task_keywords: &[String],
+    force_keep: &[String],
 ) -> EntropyResult {
     entropy_compress_inner(
         content,
@@ -378,6 +392,7 @@ fn entropy_compress_with_task(
         jaccard_threshold,
         task_keywords,
         true,
+        force_keep,
     )
 }
 
@@ -387,6 +402,7 @@ fn entropy_compress_inner(
     jaccard_threshold: f64,
     task_keywords: &[String],
     semantic: bool,
+    force_keep: &[String],
 ) -> EntropyResult {
     let original_tokens = count_tokens(content);
     let mut lines: Vec<&str> = content.lines().collect();
@@ -405,6 +421,11 @@ fn entropy_compress_inner(
     let mut scoring_ctx = super::surprise::ScoringCtx::new();
     lines.retain(|line| {
         let trimmed = line.trim();
+        // Explicit protect tokens (#709) win over every lossy heuristic: a line
+        // containing one is force-kept verbatim before any threshold is applied.
+        if super::protect::line_is_protected(line, force_keep) {
+            return true;
+        }
         if super::surprise::should_keep_line_semantic(
             trimmed,
             entropy_threshold,
@@ -449,7 +470,11 @@ fn entropy_compress_inner(
     for group in &groups {
         if group.len() > 1 {
             for &idx in &group[1..] {
-                skip_indices.insert(idx);
+                // Protected lines (#709) are a hard keep: never dedup them away,
+                // not just exempt them from the entropy threshold above.
+                if !super::protect::line_is_protected(lines[idx], force_keep) {
+                    skip_indices.insert(idx);
+                }
             }
         }
     }
@@ -501,8 +526,15 @@ fn entropy_compress_with_thresholds(
     content: &str,
     entropy_threshold: f64,
     jaccard_threshold: f64,
+    force_keep: &[String],
 ) -> EntropyResult {
-    entropy_compress_with_task(content, entropy_threshold, jaccard_threshold, &[])
+    entropy_compress_with_task(
+        content,
+        entropy_threshold,
+        jaccard_threshold,
+        &[],
+        force_keep,
+    )
 }
 
 /// Budget-based compression to a target density (SDE principle: aim for a
@@ -706,6 +738,48 @@ fn find_pattern_groups(blocks: &[Block], threshold: f64) -> Vec<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protect_force_keeps_lines_in_entropy() {
+        // A block of identical low-information lines that entropy + dedup would
+        // normally collapse to a single survivor (or drop entirely).
+        let mut content = String::new();
+        for _ in 0..15 {
+            content.push_str("boilerplate noise line\n");
+        }
+        let baseline =
+            entropy_compress_inner(&content, BPE_ENTROPY_THRESHOLD, 0.7, &[], false, &[]);
+        let protected = entropy_compress_inner(
+            &content,
+            BPE_ENTROPY_THRESHOLD,
+            0.7,
+            &[],
+            false,
+            &["boilerplate".to_string()],
+        );
+        let baseline_hits = baseline.output.matches("boilerplate").count();
+        let protected_hits = protected.output.matches("boilerplate").count();
+        // Every protected line survives verbatim — a hard keep over both the
+        // entropy threshold and the dedup pass.
+        assert_eq!(
+            protected_hits, 15,
+            "all protected lines must survive: {}",
+            protected.output
+        );
+        assert!(
+            protected_hits >= baseline_hits,
+            "protect must keep at least as many lines as the baseline"
+        );
+    }
+
+    #[test]
+    fn empty_force_keep_is_byte_identical() {
+        // The protect feature must not perturb the unprotected path (#498).
+        let content = "fn a() {}\n// note\nlet x = 1;\nlet x = 1;\n// note\n";
+        let a = entropy_compress_inner(content, BPE_ENTROPY_THRESHOLD, 0.7, &[], false, &[]);
+        let b = entropy_compress_deterministic(content);
+        assert_eq!(a.output, b.output);
+    }
 
     #[test]
     fn shannon_entropy_empty_is_zero() {

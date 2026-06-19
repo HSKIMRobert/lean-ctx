@@ -471,16 +471,20 @@ pub fn information_bottleneck_filter(
     content: &str,
     task_keywords: &[String],
     budget_ratio: f64,
+    force_keep: &[String],
 ) -> String {
-    information_bottleneck_filter_typed(content, task_keywords, budget_ratio, None)
+    information_bottleneck_filter_typed(content, task_keywords, budget_ratio, None, force_keep)
 }
 
 /// Task-type-aware IB filter. Uses `TaskType` to adjust structural weights.
+/// `force_keep` lines (explicit `protect` tokens, #709) are kept verbatim on top
+/// of the budget; `&[]` reproduces the pre-protect output byte-for-byte (#498).
 pub fn information_bottleneck_filter_typed(
     content: &str,
     task_keywords: &[String],
     budget_ratio: f64,
     task_type: Option<super::intent_engine::TaskType>,
+    force_keep: &[String],
 ) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
@@ -585,11 +589,26 @@ pub fn information_bottleneck_filter_typed(
                 * (information * 0.25 + 0.05)
                 * (attn_weight * 0.15 + 0.05);
 
+            // Explicit protect tokens (#709) force the line to the top of the
+            // ranking; INF survives the MMR lambda penalty so it is always kept.
+            let score = if super::protect::line_is_protected(line, force_keep) {
+                f64::INFINITY
+            } else {
+                score
+            };
+
             (i, *line, score)
         })
         .collect();
 
-    let budget = ((n as f64) * effective_ratio).ceil() as usize;
+    // Protected lines (#709) are kept on top of the ranked budget, so widen the
+    // budget to hold them without displacing other selected content. With an
+    // empty `force_keep` this adds zero and the budget is byte-identical (#498).
+    let protected_count = lines
+        .iter()
+        .filter(|l| super::protect::line_is_protected(l, force_keep))
+        .count();
+    let budget = (((n as f64) * effective_ratio).ceil() as usize) + protected_count;
 
     scored_lines.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -807,15 +826,40 @@ mod tests {
     #[test]
     fn info_bottleneck_preserves_definitions() {
         let content = "fn main() {\n    let x = 42;\n    // boring comment\n    println!(x);\n}\n";
-        let result = information_bottleneck_filter(content, &["main".to_string()], 0.6);
+        let result = information_bottleneck_filter(content, &["main".to_string()], 0.6, &[]);
         assert!(result.contains("fn main"), "definitions must be preserved");
         assert!(result.contains("[task: main]"), "should have task summary");
     }
 
     #[test]
+    fn protect_force_keeps_line_in_ib() {
+        let content = "fn main() {\n    let x = 1;\n    let unimportant = 2;\n    let y = 3;\n    let z = 4;\n}\n";
+        // Tiny budget → the 'unimportant' line is normally filtered out.
+        let kept = information_bottleneck_filter(
+            content,
+            &["main".to_string()],
+            0.1,
+            &["unimportant".to_string()],
+        );
+        assert!(
+            kept.contains("let unimportant = 2;"),
+            "protected line must survive the IB budget: {kept}"
+        );
+    }
+
+    #[test]
+    fn ib_empty_force_keep_is_byte_identical() {
+        // Protect must not change the unprotected IB output (#498).
+        let content = "fn main() {\n    let x = 1;\n    return Err(\"e\");\n    let y = 2;\n}\n";
+        let a = information_bottleneck_filter(content, &["main".to_string()], 0.5, &[]);
+        let b = information_bottleneck_filter_typed(content, &["main".to_string()], 0.5, None, &[]);
+        assert_eq!(a, b);
+    }
+
+    #[test]
     fn info_bottleneck_error_handling_priority() {
         let content = "fn validate() {\n    let data = parse()?;\n    return Err(\"invalid\");\n    let x = 1;\n    let y = 2;\n}\n";
-        let result = information_bottleneck_filter(content, &["validate".to_string()], 0.5);
+        let result = information_bottleneck_filter(content, &["validate".to_string()], 0.5, &[]);
         assert!(
             result.contains("return Err"),
             "error handling should survive filtering"
@@ -825,7 +869,7 @@ mod tests {
     #[test]
     fn info_bottleneck_score_sorted() {
         let content = "fn important() {\n    let x = 1;\n    let y = 2;\n    let z = 3;\n}\n}\n";
-        let result = information_bottleneck_filter(content, &[], 0.6);
+        let result = information_bottleneck_filter(content, &[], 0.6, &[]);
         let lines: Vec<&str> = result.lines().collect();
         let def_pos = lines.iter().position(|l| l.contains("fn important"));
         let brace_pos = lines.iter().position(|l| l.trim() == "}");

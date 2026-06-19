@@ -345,10 +345,10 @@ fn map_mode_inlines_task_relevant_body() {
 
 #[test]
 fn compressed_cache_key_distinguishes_task() {
-    let no_task = compressed_cache_key("map", CrpMode::Off, None, None);
-    let tdd_no_task = compressed_cache_key("map", CrpMode::Tdd, None, None);
-    let with_task = compressed_cache_key("map", CrpMode::Off, Some("fix login"), None);
-    let other_task = compressed_cache_key("map", CrpMode::Off, Some("refactor db"), None);
+    let no_task = compressed_cache_key("map", CrpMode::Off, None, None, &[]);
+    let tdd_no_task = compressed_cache_key("map", CrpMode::Tdd, None, None, &[]);
+    let with_task = compressed_cache_key("map", CrpMode::Off, Some("fix login"), None, &[]);
+    let other_task = compressed_cache_key("map", CrpMode::Off, Some("refactor db"), None, &[]);
     // Versioned so stale pre-line-range entries cannot be served.
     assert_eq!(no_task, "map:v2");
     assert_eq!(tdd_no_task, "map:v2:tdd");
@@ -359,24 +359,55 @@ fn compressed_cache_key_distinguishes_task() {
 #[test]
 fn compressed_cache_key_distinguishes_aggressiveness() {
     // None → byte-identical to today's keys (#714 must not shift existing cache).
-    let base = compressed_cache_key("map", CrpMode::Off, None, None);
+    let base = compressed_cache_key("map", CrpMode::Off, None, None, &[]);
     assert_eq!(base, "map:v2");
     // Same aggressiveness → same key (determinism, #498).
-    let a = compressed_cache_key("map", CrpMode::Off, None, Some(0.7));
+    let a = compressed_cache_key("map", CrpMode::Off, None, Some(0.7), &[]);
     assert_eq!(
         a,
-        compressed_cache_key("map", CrpMode::Off, None, Some(0.7))
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.7), &[])
     );
     // Distinct buckets → distinct keys; jitter inside a 0.05 bucket collapses.
     assert_ne!(a, base);
     assert_ne!(
         a,
-        compressed_cache_key("map", CrpMode::Off, None, Some(0.2))
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.2), &[])
     );
     assert_eq!(
         a,
-        compressed_cache_key("map", CrpMode::Off, None, Some(0.701))
+        compressed_cache_key("map", CrpMode::Off, None, Some(0.701), &[])
     );
+}
+
+#[test]
+fn compressed_cache_key_distinguishes_protect() {
+    // Empty protect → byte-identical to today's keys (#720 must not shift cache).
+    let base = compressed_cache_key("entropy", CrpMode::Off, None, None, &[]);
+    assert_eq!(base, "entropy");
+    // A non-empty protect list changes the key (lossy output differs, #498)…
+    let p = compressed_cache_key("entropy", CrpMode::Off, None, None, &["TODO".to_string()]);
+    assert_ne!(p, base);
+    // …deterministically, and independent of token order / duplicates.
+    assert_eq!(
+        p,
+        compressed_cache_key("entropy", CrpMode::Off, None, None, &["TODO".to_string()])
+    );
+    let multi_a = compressed_cache_key(
+        "entropy",
+        CrpMode::Off,
+        None,
+        None,
+        &["a".to_string(), "b".to_string()],
+    );
+    let multi_b = compressed_cache_key(
+        "entropy",
+        CrpMode::Off,
+        None,
+        None,
+        &["b".to_string(), "a".to_string(), "a".to_string()],
+    );
+    assert_eq!(multi_a, multi_b);
+    assert_ne!(multi_a, p);
 }
 
 #[test]
@@ -408,6 +439,7 @@ fn aggressiveness_is_deterministic_and_monotonic() {
             None,
             ReadTuning {
                 aggressiveness: Some(a),
+                protect: &[],
             },
         );
         out

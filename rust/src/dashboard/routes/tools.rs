@@ -234,7 +234,7 @@ fn compression_demo_modes_json(
         .collect::<Vec<_>>()
         .join("\n");
     let aggressive_out = crate::core::filters::aggressive_filter(content);
-    let entropy_out = crate::core::entropy::entropy_compress_adaptive(content, path).output;
+    let entropy_out = crate::core::entropy::entropy_compress_adaptive(content, path, &[]).output;
 
     let mut cache = crate::core::cache::SessionCache::new();
     let reference_out =

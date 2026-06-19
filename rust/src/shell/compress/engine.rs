@@ -39,6 +39,25 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
         return String::new();
     }
 
+    // #709: honour explicit <lc_safe>…</lc_safe> spans. Secret redaction has
+    // already run upstream (ctx_shell::handle → redact_shell_output_secrets), so
+    // the pipeline order is redact → protect → compress and a marker can never
+    // smuggle a secret past redaction. Protected spans pass through verbatim;
+    // each unprotected segment flows through the normal pipeline (footer stripped),
+    // and a single savings footer is recomputed over the spliced result.
+    if crate::core::protect::has_markers(output) {
+        let original_tokens = count_tokens(output);
+        let spliced = crate::core::protect::compress_preserving(output, |seg| {
+            strip_shell_footer(&compress_if_beneficial(command, seg)).to_string()
+        });
+        let spliced_tokens = count_tokens(&spliced);
+        return if spliced_tokens < original_tokens {
+            shell_savings_footer(&spliced, original_tokens, spliced_tokens)
+        } else {
+            spliced
+        };
+    }
+
     // CRITICAL: Never compress error output from build/check/lint tools.
     // Compiler errors, type errors, lint findings etc. must be preserved verbatim
     // so the agent can see file paths, line numbers, and full diagnostics.
@@ -173,6 +192,15 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     }
 
     output.to_string()
+}
+
+/// Strip a trailing `\n[lean-ctx: …]` savings footer so per-segment results can
+/// be spliced (protect spans, #709) before a single footer is recomputed.
+fn strip_shell_footer(s: &str) -> &str {
+    match s.rfind("\n[lean-ctx: ") {
+        Some(pos) => &s[..pos],
+        None => s,
+    }
 }
 
 /// Detects whether the output contains error diagnostics from a build/check/lint tool.
