@@ -247,6 +247,11 @@ impl GraphProvider {
 
     pub fn edges(&self) -> Vec<EdgeInfo> {
         match self {
+            // Normalize the raw property-graph edge-kind vocabulary back to the
+            // graph_index vocabulary every consumer speaks (notably `imports` →
+            // `import`, queried by impact/overview via `edges_by_kind("import")`).
+            // Without this the facade leaks `EdgeKind::as_str()` plurals and PG
+            // vs legacy backends would answer the same query differently (#696).
             GraphProvider::PropertyGraph(g) => g
                 .all_edges_flat()
                 .unwrap_or_default()
@@ -254,7 +259,7 @@ impl GraphProvider {
                 .map(|(from, to, kind, weight)| EdgeInfo {
                     from,
                     to,
-                    kind,
+                    kind: index_edge_kind(&kind),
                     weight,
                 })
                 .collect(),
@@ -347,6 +352,18 @@ impl GraphProvider {
             return i.clone();
         }
         let mut idx = ProjectIndex::new(project_root);
+        // Stamp `last_scan` from the graph's build time (graph.meta.json) so the
+        // TTL staleness check reflects the real build age, not this
+        // materialization moment (#696 C4). Content-based staleness still keys
+        // off the meta file's mtime independently.
+        if let Some(meta) = super::property_graph::load_meta(project_root)
+            && let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&meta.built_at)
+        {
+            idx.last_scan = dt
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string();
+        }
         for f in self.file_entries() {
             idx.files.insert(
                 f.path.clone(),
@@ -376,10 +393,12 @@ impl GraphProvider {
             );
         }
         for e in self.edges() {
+            // `edges()` already normalizes PG kinds to the graph_index
+            // vocabulary, so `e.kind` is ready to store verbatim.
             idx.edges.push(graph_index::IndexEdge {
                 from: e.from,
                 to: e.to,
-                kind: index_edge_kind(&e.kind),
+                kind: e.kind,
                 weight: e.weight as f32,
             });
         }
