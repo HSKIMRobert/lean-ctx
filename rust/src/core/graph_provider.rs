@@ -244,6 +244,32 @@ impl GraphProvider {
             .collect()
     }
 
+    /// Every catalogued file as [`FileInfo`]. Backend-agnostic equivalent of
+    /// iterating `ProjectIndex::files` — used by stats/bootstrap consumers that
+    /// need per-file language + token counts, not just paths.
+    pub fn file_entries(&self) -> Vec<FileInfo> {
+        match self {
+            GraphProvider::PropertyGraph(_) => self
+                .file_paths()
+                .into_iter()
+                .filter_map(|p| self.get_file_entry(&p))
+                .collect(),
+            GraphProvider::GraphIndex(i) => i
+                .files
+                .values()
+                .map(|e| FileInfo {
+                    path: e.path.clone(),
+                    hash: e.hash.clone(),
+                    language: e.language.clone(),
+                    line_count: e.line_count,
+                    token_count: e.token_count,
+                    exports: e.exports.clone(),
+                    summary: e.summary.clone(),
+                })
+                .collect(),
+        }
+    }
+
     pub fn get_file_entry(&self, path: &str) -> Option<FileInfo> {
         match self {
             GraphProvider::PropertyGraph(g) => {
