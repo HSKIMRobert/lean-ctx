@@ -35,6 +35,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#668 — FinOps showback: readable project names.** The savings ledger stores
+  only a truncated repo hash (never a path), so the `finops export` `project`
+  column was opaque. An opt-in `<config_dir>/finops-aliases.toml` (`[projects]`
+  `<repo_hash> = "Team"`, also `--aliases=FILE` / `$LEAN_CTX_FINOPS_ALIASES`) now
+  maps hashes to human-readable names **at export time only** — the ledger, the
+  signed batch and the hash chain are never touched, so privacy guarantees and
+  signatures stay intact. Unmapped hashes fall back to the hash, so an incomplete
+  map never drops rows. New `core/finops_export/aliases.rs`; applies to all
+  targets (FOCUS / CBF / Vantage).
 - **#667 — self-hosted Enterprise license with offline entitlement validation.**
   `lean-ctx license issue --customer <id> --plan enterprise [--days N]` mints an
   **Ed25519-signed** license file; on an air-gapped self-host `lean-ctx license

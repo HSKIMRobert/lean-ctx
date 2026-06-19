@@ -42,8 +42,32 @@ lean-ctx finops export --target=vantage --out=leanctx_vantage.csv --upload
   `unit_price_per_m_usd` at recording time. Provider price changes never
   rewrite history — the export is reproducible forever.
 - **Privacy**: `project` is the truncated repo hash from the ledger (paths
-  never leave the machine). Keep a small mapping table on your side if you
-  want readable names in dashboards.
+  never leave the machine). For readable dashboards, add an opt-in showback
+  mapping (see below) — applied at export time only, so the ledger and signed
+  batch stay privacy-preserving.
+
+## Showback project names (`--aliases`, #668)
+
+The ledger stores only a truncated repo hash, never a path. To show readable
+team/project names in chargeback dashboards, drop a mapping file and it is
+applied **at export time only** — the ledger, the signed batch and the hash
+chain are never touched.
+
+```toml
+# <config_dir>/finops-aliases.toml   (or point --aliases=FILE / $LEAN_CTX_FINOPS_ALIASES)
+[projects]
+# <repo_hash> = "<display name>"
+a1b2c3d4e5 = "Payments"
+deadbeef00 = "Platform / SRE"
+```
+
+```bash
+lean-ctx finops export --target=focus --out=leanctx_focus.csv          # uses the default file
+lean-ctx finops export --target=focus --aliases=team-map.toml          # explicit mapping
+```
+
+Unmapped hashes fall back to the hash, so an incomplete map never drops rows.
+Find the hashes to map in the `project` column of a plain (unmapped) export.
 
 ## CloudZero (AnyCost)
 

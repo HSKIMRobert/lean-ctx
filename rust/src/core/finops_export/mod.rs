@@ -13,6 +13,7 @@
 //!   `BilledCost` — FOCUS's category for granted reductions; keeps Usage
 //!   spend clean for budgeting while savings stay drillable.
 
+pub mod aliases;
 pub mod cbf;
 pub mod focus;
 pub mod vantage;
