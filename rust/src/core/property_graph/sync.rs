@@ -44,6 +44,29 @@ fn symbol_metadata(kind: &str, is_exported: bool) -> String {
     )
 }
 
+/// Inverse of [`symbol_metadata`]: recover the source `kind` and `exported`
+/// flag from a symbol node's metadata JSON. The property-graph `Node` only
+/// models a coarse `NodeKind`, so the precise graph_index kind (`function`,
+/// `struct`, …) and export flag live in this metadata blob — the provider
+/// facade must read them back to surface a lossless symbol (#696 C1). Returns
+/// `(None, None)` for absent/malformed metadata so callers can fall back.
+pub fn parse_symbol_metadata(meta: Option<&str>) -> (Option<String>, Option<bool>) {
+    let Some(raw) = meta else {
+        return (None, None);
+    };
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(v) => {
+            let kind = v
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            let exported = v.get("exported").and_then(serde_json::Value::as_bool);
+            (kind, exported)
+        }
+        Err(_) => (None, None),
+    }
+}
+
 /// Minimal JSON string escaper for the two metadata fields (avoids pulling a
 /// serializer into this hot path; kinds are simple identifiers in practice).
 fn json_str(s: &str) -> String {

@@ -22,7 +22,7 @@ pub use node::{Node, NodeKind};
 pub use queries::{
     DependencyChain, GraphQuery, ImpactResult, edge_weight, file_connectivity, related_files,
 };
-pub use sync::{mirror_index, populate_from_project_index};
+pub use sync::{mirror_index, parse_symbol_metadata, populate_from_project_index};
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
