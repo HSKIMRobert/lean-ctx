@@ -55,7 +55,6 @@ pub(super) fn handle(
                 crate::cloud_client::PlanSource::Cached => "cached",
                 crate::cloud_client::PlanSource::Expired => "expired",
                 crate::cloud_client::PlanSource::None => "none",
-                crate::cloud_client::PlanSource::License => "license",
             };
             let payload = serde_json::json!({
                 "plan": eff.plan.as_str(),

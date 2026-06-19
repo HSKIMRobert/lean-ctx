@@ -222,11 +222,10 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             1,
             Experimental,
         ),
-        // Enterprise license, org policy & compliance surfaces (#667/#668):
-        // newly added under docs/contracts/, still evolving with the Enterprise
-        // plane — Experimental until it stabilises. Commercial billing surfaces
-        // (success-fee invoicing, #669) live in the private cloud plane, not here.
-        doc("license", "license-v1.md", 1, Experimental),
+        // Org policy & compliance surfaces, still evolving with the Enterprise
+        // plane — Experimental until they stabilise. Commercial Enterprise
+        // licensing (#667) and success-fee billing (#669) live in the private
+        // cloud plane, not in the open engine (oss-plane-separation-v1).
         doc("org-policy", "org-policy-v1.md", 1, Experimental),
         doc(
             "compliance-report",

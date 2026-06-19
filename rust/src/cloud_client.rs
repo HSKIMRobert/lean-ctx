@@ -588,9 +588,6 @@ pub enum PlanSource {
     Expired,
     /// No cached plan at all (never logged in / never synced) → Free.
     None,
-    /// Granted by an installed, vendor-signed offline license (GL #667) — a
-    /// self-hosted/air-gapped Enterprise unlock with no network round-trip.
-    License,
 }
 
 /// A resolved plan plus its provenance. The plan here is only ever used for
@@ -612,43 +609,16 @@ pub fn plan_within_grace(verified_at: i64, now: i64, grace_days: i64) -> (bool, 
     (age_days <= grace_days, age_days)
 }
 
-/// Elevate `base` to an installed offline Enterprise license when one is active
-/// and grants a **higher** plan (GL #667). Self-hosted / air-gapped installs
-/// unlock Enterprise governance with no network round-trip; the cloud/cached
-/// plan still wins when it is higher, so a hosted Enterprise account is never
-/// downgraded by a lesser license. Local features are never affected either way.
-#[must_use]
-pub fn elevate_with_license(base: EffectivePlan) -> EffectivePlan {
-    let Some(lic) = crate::core::license::active() else {
-        return base;
-    };
-    if lic.plan.rank() <= base.plan.rank() {
-        return base;
-    }
-    let verified_at = chrono::DateTime::parse_from_rfc3339(&lic.issued_at)
-        .ok()
-        .map(|d| d.timestamp());
-    EffectivePlan {
-        plan: lic.plan,
-        source: PlanSource::License,
-        verified_at,
-        grace_days: crate::core::license::LICENSE_GRACE_DAYS,
-    }
-}
-
-/// Resolve the effective plan from the **local cache only** (no network), applying
-/// the offline-grace policy and then an installed offline license (GL #667). Use
-/// this on hot paths (dashboard requests); use [`refresh_effective_plan`] when a
-/// live confirmation is acceptable.
+/// Resolve the effective plan from the **local cache only** (no network),
+/// applying the offline-grace policy. Use this on hot paths (dashboard
+/// requests); use [`refresh_effective_plan`] when a live confirmation is
+/// acceptable.
+///
+/// Commercial entitlements (incl. any self-hosted offline Enterprise license)
+/// are resolved by the control-plane and reach this client as the cached/live
+/// plan — the open engine carries no licensing logic (oss-plane-separation-v1).
 #[must_use]
 pub fn resolve_effective_plan_cached() -> EffectivePlan {
-    elevate_with_license(resolve_cloud_plan_cached())
-}
-
-/// The cloud/cached plan alone (no license overlay) — the historical behaviour,
-/// kept as a building block for [`resolve_effective_plan_cached`].
-#[must_use]
-fn resolve_cloud_plan_cached() -> EffectivePlan {
     let grace_days = PLAN_GRACE_DAYS;
     let Some(cache) = cached_plan() else {
         return EffectivePlan {
@@ -687,15 +657,12 @@ pub fn refresh_effective_plan() -> EffectivePlan {
         && let Ok(plan_str) = fetch_plan()
     {
         let _ = save_plan(&plan_str);
-        let live = EffectivePlan {
+        return EffectivePlan {
             plan: crate::core::billing::Plan::parse(&plan_str),
             source: PlanSource::Live,
             verified_at: Some(now_unix()),
             grace_days: PLAN_GRACE_DAYS,
         };
-        // An offline license still elevates a logged-in account that the backend
-        // reports as a lesser plan (e.g. self-host where the hosted plan is Free).
-        return elevate_with_license(live);
     }
     resolve_effective_plan_cached()
 }
@@ -1114,8 +1081,8 @@ mod tests {
 
     #[test]
     fn cached_resolve_grants_within_grace_then_expires_to_free() {
-        // Isolate all dirs (config too) so no installed license (GL #667) can
-        // elevate the effective plan and mask the cloud-cache behaviour under test.
+        // Isolate all dirs (config + cache) so the resolver reads only the cache
+        // this test writes, not a developer's real plan cache.
         let _iso = crate::core::data_dir::isolated_data_dir();
 
         // A fresh save is served from cache, within grace, at full plan.

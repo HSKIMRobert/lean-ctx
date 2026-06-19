@@ -71,6 +71,5 @@ fn plan_source_label(source: crate::cloud_client::PlanSource) -> &'static str {
         PlanSource::Cached => "cached",
         PlanSource::Expired => "expired",
         PlanSource::None => "none",
-        PlanSource::License => "license",
     }
 }

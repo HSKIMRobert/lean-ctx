@@ -190,10 +190,6 @@ pub fn run() {
                 crate::cli::cmd_compliance(&rest);
                 return;
             }
-            "license" => {
-                crate::cli::cmd_license(&rest);
-                return;
-            }
             "agent" => {
                 crate::cli::cmd_agent(&rest);
                 return;
