@@ -264,6 +264,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "auto_mode_learning".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(false),
+            "Opt-in: let adaptive learning signals (predictor, bandit, heatmap, adaptive policy, bounce/path memory) influence `auto` mode. Off by default for a deterministic, I/O-light cascade (capability guards + size/task heuristic only) that keeps output byte-stable for prompt caching. Override via LEAN_CTX_AUTO_MODE_LEARNING",
+            "LEAN_CTX_AUTO_MODE_LEARNING",
+        ),
+    );
+    root.insert(
         "journal_enabled".into(),
         key(
             "bool",

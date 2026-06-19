@@ -255,6 +255,15 @@ pub struct Config {
     /// Override via the LEAN_CTX_STRUCTURE_FIRST env var.
     #[serde(default)]
     pub structure_first: bool,
+    /// Opt-in: let the adaptive *learning* signals (predictor, bandit, heatmap,
+    /// adaptive policy, bounce/path memory) participate in `auto` mode
+    /// resolution. Off by default (#683): the default cascade is a deterministic
+    /// function of (file, task) — only capability guards and the size/task
+    /// heuristic decide — which keeps output byte-stable for provider prompt
+    /// caching (#498) and avoids per-read disk I/O from the learning stores.
+    /// Override via the LEAN_CTX_AUTO_MODE_LEARNING env var.
+    #[serde(default)]
+    pub auto_mode_learning: bool,
     /// Team server URL for opt-in savings roll-up.
     /// Set via `lean-ctx config set team_url https://...` or `[team] url` in config.toml.
     /// Override via LEAN_CTX_TEAM_URL env var.
@@ -511,6 +520,7 @@ impl Default for Config {
             minimal_overhead: true,
             symbol_map_auto: false,
             structure_first: false,
+            auto_mode_learning: false,
             team_url: None,
             team_token: None,
             team_auto_push: false,
@@ -697,6 +707,20 @@ impl Config {
                 "1" | "true" | "yes" | "on"
             ),
             Err(_) => self.structure_first,
+        }
+    }
+
+    /// Returns `true` when the adaptive learning signals may participate in
+    /// `auto` mode resolution (#683). Off by default for a deterministic,
+    /// I/O-light cascade; the `LEAN_CTX_AUTO_MODE_LEARNING` env var wins over the
+    /// config field and accepts the usual truthy/falsy spellings.
+    pub fn auto_mode_learning_effective(&self) -> bool {
+        match std::env::var("LEAN_CTX_AUTO_MODE_LEARNING") {
+            Ok(raw) => matches!(
+                raw.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.auto_mode_learning,
         }
     }
 

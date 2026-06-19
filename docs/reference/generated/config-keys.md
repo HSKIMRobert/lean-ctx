@@ -14,6 +14,7 @@ Top-level configuration keys
 - `allow_auto_reroot` (bool, default `false` — env `LEAN_CTX_ALLOW_REROOT`) — Allow automatic project-root re-rooting when absolute paths outside the jail are seen
 - `allow_paths` (string[], default `[]` — env `LEAN_CTX_ALLOW_PATH`) — Additional paths allowed by PathJail (absolute)
 - `auto_capture` (bool, default `true`) — Automatic knowledge capture from tool findings
+- `auto_mode_learning` (bool, default `false` — env `LEAN_CTX_AUTO_MODE_LEARNING`) — Opt-in: let adaptive learning signals (predictor, bandit, heatmap, adaptive policy, bounce/path memory) influence `auto` mode. Off by default for a deterministic, I/O-light cascade (capability guards + size/task heuristic only) that keeps output byte-stable for prompt caching. Override via LEAN_CTX_AUTO_MODE_LEARNING
 - `bm25_max_cache_mb` (u64, default `128` — env `LEAN_CTX_BM25_MAX_CACHE_MB`) — Maximum BM25 cache file size in MB
 - `buddy_enabled` (bool, default `true`) — Enable the buddy system for multi-agent coordination
 - `cache_policy` (enum(aggressive|safe|off), default `aggressive` — env `LEAN_CTX_CACHE_POLICY`) — Cache policy for ctx_read: aggressive (13-tok stubs), safe (map on hit), off (always disk)

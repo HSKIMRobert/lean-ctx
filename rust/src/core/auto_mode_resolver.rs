@@ -160,19 +160,6 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return resolved("full", "config_data");
     }
 
-    if let Ok(bt) = crate::core::bounce_tracker::global().lock()
-        && bt.should_force_full(ctx.path)
-    {
-        return resolved("full", "bounce_tracker");
-    }
-
-    // Per-path long-term memory (#496): a file that historically bounced in
-    // the majority of its reads will bounce again — compression is a proven
-    // net loss for it, across process restarts.
-    if crate::core::path_mode_memory::should_force_full(ctx.path) {
-        return resolved("full", "path_bounce_memory");
-    }
-
     // Active compiler error (#499): the agent reads this file to fix the
     // build — compressed modes would hide the error region.
     if crate::core::diagnostics_store::has_error(ctx.path) {
@@ -189,6 +176,51 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
 
     if let Some(mode) = intent_recommended_mode(ctx.task) {
         return resolved(&mode, "intent");
+    }
+
+    // Adaptive learning signals (predictor, bandit, heatmap, adaptive policy,
+    // bounce/path memory) are opt-in (#683). Off by default, the capability
+    // guards above plus the deterministic heuristic below make `auto` a pure
+    // function of (file, task) — byte-stable for provider prompt caching (#498)
+    // and free of the per-read disk I/O these stores incur.
+    if crate::core::config::Config::load().auto_mode_learning_effective()
+        && let Some(r) = resolve_adaptive(ctx)
+    {
+        return r;
+    }
+
+    // Deterministic cold-read fallback. Every read that reaches here missed the
+    // session cache (a warm hit returns `full`/`diff` above). `structure_first`
+    // lets a phase-isolated host opt into a lower `map` floor for medium code
+    // files; all capability guards (diagnostic / edit-fail / intent) already ran
+    // above, and the anti-inflation guarantee keeps `map` break-even at worst.
+    let structure_first = crate::core::config::Config::load().structure_first_effective();
+    let heuristic = heuristic_mode(ext, ctx.token_count, structure_first);
+    let source = if structure_first && heuristic == "map" && ctx.token_count <= 6000 {
+        "structure_first"
+    } else {
+        "heuristic"
+    };
+    resolved(&heuristic, source)
+}
+
+/// The opt-in adaptive block (#683): bounce/path memory plus the predictor /
+/// bandit / heatmap / adaptive-policy learning loop. Returns `Some` when a
+/// learning signal decides the mode, `None` to fall through to the deterministic
+/// heuristic. Only invoked when `auto_mode_learning` is enabled, so its disk I/O
+/// and non-determinism never touch the default cascade.
+fn resolve_adaptive(ctx: &AutoModeContext) -> Option<ResolvedMode> {
+    if let Ok(bt) = crate::core::bounce_tracker::global().lock()
+        && bt.should_force_full(ctx.path)
+    {
+        return Some(resolved("full", "bounce_tracker"));
+    }
+
+    // Per-path long-term memory (#496): a file that historically bounced in
+    // the majority of its reads will bounce again — compression is a proven
+    // net loss for it, across process restarts.
+    if crate::core::path_mode_memory::should_force_full(ctx.path) {
+        return Some(resolved("full", "path_bounce_memory"));
     }
 
     let sig = FileSignature::from_path(ctx.path, ctx.token_count);
@@ -220,7 +252,7 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
             other => other.to_string(),
         };
         if conservative != predicted {
-            return resolved(&conservative, "heatmap_conservative");
+            return Some(resolved(&conservative, "heatmap_conservative"));
         }
     }
 
@@ -232,35 +264,22 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
             && chosen != "map"
             && chosen != "signatures"
         {
-            return resolved(&predicted, "predictor_guard");
+            return Some(resolved(&predicted, "predictor_guard"));
         }
         if chosen == "full" && predicted != "full" {
-            return resolved(&predicted, "predictor_override");
+            return Some(resolved(&predicted, "predictor_override"));
         }
     }
 
     if chosen != predicted {
-        return resolved(&chosen, "adaptive_policy");
+        return Some(resolved(&chosen, "adaptive_policy"));
     }
 
     if predicted != "full" {
-        return resolved(&predicted, "predictor");
+        return Some(resolved(&predicted, "predictor"));
     }
 
-    // Cold-read fallback. Every read that reaches here missed the session cache
-    // (a warm hit returns `full`/`diff` above), so on a phase-isolated harness
-    // there is no warm re-read to amortize a `full` cold read. `structure_first`
-    // lets such a host opt into a lower `map` floor for medium code files; all
-    // capability guards (diagnostic / edit-fail / bounce / intent) already ran
-    // above, and the anti-inflation guarantee keeps `map` break-even at worst.
-    let structure_first = crate::core::config::Config::load().structure_first_effective();
-    let heuristic = heuristic_mode(ext, ctx.token_count, structure_first);
-    let source = if structure_first && heuristic == "map" && ctx.token_count <= 6000 {
-        "structure_first"
-    } else {
-        "heuristic"
-    };
-    resolved(&heuristic, source)
+    None
 }
 
 /// Unified pressure downgrade table.
@@ -582,9 +601,15 @@ mod tests {
         // re-deliver the entire file on the 2nd read — a compression bounce that
         // costs more tokens than the first read and defeats the cache. The
         // resolver must fall through so the cached compressed mode is reused.
+        //
+        // Sized > 6000 tokens so the deterministic default heuristic itself
+        // picks a compressed mode (`map` for large code) — making the
+        // compressed-only premise real even with learning off (#683); the
+        // invariant under test is that the `cache_hit` shortcut never fires for
+        // an entry whose full body was not delivered.
         let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("medium.rs");
-        let body = "fn placeholder() { let _ = 1; }\n".repeat(400);
+        let file = dir.path().join("large.rs");
+        let body = "fn placeholder() { let _ = 1; }\n".repeat(900);
         std::fs::write(&file, &body).unwrap();
         let path = file.to_str().unwrap();
 
@@ -594,7 +619,7 @@ mod tests {
 
         let ctx = AutoModeContext {
             path,
-            token_count: 3000,
+            token_count: 7000,
             task: None,
             cache: Some(&cache),
         };
@@ -780,5 +805,45 @@ mod tests {
         crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #683: with learning off (the default), a medium code file with no task
+    /// resolves through the deterministic size heuristic — never a learning
+    /// source — and is byte-stable across repeated calls.
+    #[test]
+    fn learning_off_by_default_is_deterministic() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-amr-det-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::remove_var("LEAN_CTX_AUTO_MODE_LEARNING");
+        crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+
+        let ctx = AutoModeContext {
+            path: "src/widget.rs",
+            token_count: 1500,
+            task: None,
+            cache: None,
+        };
+        let a = resolve(&ctx);
+        let b = resolve(&ctx);
+        assert_eq!(a.mode, "full");
+        assert_eq!(a.source, "heuristic");
+        assert_eq!((a.mode, a.source), (b.mode, b.source));
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #683: the `LEAN_CTX_AUTO_MODE_LEARNING` env var gates the adaptive block
+    /// and wins over the (default-off) config field.
+    #[test]
+    fn auto_mode_learning_env_opt_in_is_honored() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_AUTO_MODE_LEARNING", "1");
+        assert!(crate::core::config::Config::default().auto_mode_learning_effective());
+        crate::test_env::set_var("LEAN_CTX_AUTO_MODE_LEARNING", "0");
+        assert!(!crate::core::config::Config::default().auto_mode_learning_effective());
+        crate::test_env::remove_var("LEAN_CTX_AUTO_MODE_LEARNING");
     }
 }
