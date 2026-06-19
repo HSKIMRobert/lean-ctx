@@ -302,6 +302,31 @@ impl GraphProvider {
 
 pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
     let t0 = std::time::Instant::now();
+
+    // Backend selection (#682): `legacy` (the default) never consults the
+    // property graph, so building/completing PG can never flip production onto an
+    // unverified engine. `auto`/`property-graph` fall through to the best-effort
+    // logic below. The flip happens only after shadow-mode parity is proven.
+    let backend =
+        crate::core::config::GraphBackend::effective(&crate::core::config::Config::load());
+    if backend == crate::core::config::GraphBackend::Legacy {
+        if let Some(idx) = super::index_orchestrator::try_load_graph_index(project_root)
+            && (!idx.edges.is_empty() || !idx.files.is_empty())
+        {
+            log_source_selection(
+                GraphProviderSource::GraphIndex,
+                idx.files.len(),
+                idx.edges.len(),
+                t0,
+            );
+            return Some(OpenGraphProvider {
+                source: GraphProviderSource::GraphIndex,
+                provider: GraphProvider::GraphIndex(idx),
+            });
+        }
+        return None;
+    }
+
     let mut pg_provider = None;
     let mut pg_populated = false;
     if let Ok(pg) = CodeGraph::open(project_root) {
