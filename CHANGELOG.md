@@ -35,6 +35,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#674 — central, signed org policy distribution + admin.** `lean-ctx policy
+  org sign <pack.toml> --org <name>` wraps a policy pack in an **Ed25519-signed**
+  artifact; endpoints `policy org trust <pubkey>` (pin once, out-of-band) and
+  `policy org install <artifact>`, after which the runtime folds the org pack in
+  as an **un-bypassable floor** beneath the local `.lean-ctx/policy.toml`. The
+  local pack can only ever *tighten* it: `deny_tools` union, `allow_tools`
+  intersect, `redaction` union (org patterns win clashes), the stricter filter
+  action, the tighter egress/`max_context_tokens` caps, the longer
+  `audit_retention_days`. Two independent checks gate enforcement — the signature
+  must verify **and** the signer key must be pinned — so a forged or untrusted
+  artifact is ignored, never enforced, and never bricks the agent (fail-open);
+  with no key pinned nothing is enforced (opt-in). `--advisory` distributes a
+  policy for preview without enforcing it; `policy org status` shows the
+  effective floor and `policy org verify` checks an artifact offline. Pluggable
+  source (`LEANCTX_ORG_POLICY` / `LEANCTX_ORG_TRUST_KEY` for MDM). New
+  `core::policy::org` + `core::policy::floor`; contract
+  `docs/contracts/org-policy-v1.md`.
 - **#677 — signed CISO compliance report.** `lean-ctx compliance report --from
   <rfc3339> --to <rfc3339> [--framework eu-ai-act|iso42001|soc2]... [--pack
   <name|path>] [--format json|csv|pdf|text]` composes the engine's evidence

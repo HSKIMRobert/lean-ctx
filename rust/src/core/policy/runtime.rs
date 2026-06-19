@@ -1,8 +1,9 @@
 //! Runtime view of the active context policy pack (GL #673 / #489 enforcement).
 //!
 //! [`active`] loads and resolves the project policy pack
-//! (`.lean-ctx/policy.toml`) once, then caches the [`ResolvedPolicy`] together
-//! with its precompiled redaction regexes so the MCP hot path
+//! (`.lean-ctx/policy.toml`) once, folds in a trusted central org policy as a
+//! floor when one is installed (GL #674), then caches the [`ResolvedPolicy`]
+//! together with its precompiled redaction regexes so the MCP hot path
 //! ([`crate::server::policy_guard`] and the `call_tool` redaction step) can
 //! consult it cheaply.
 //!
@@ -106,17 +107,31 @@ fn cache() -> &'static RwLock<Cache> {
 }
 
 fn load_from_disk() -> Option<Arc<ActivePolicy>> {
+    let local = load_local_pack();
+    // A central org policy (GL #674), when present + signed + trusted, is folded
+    // in as an un-bypassable floor *beneath* the local pack: the local pack can
+    // only ever tighten it. Untrusted/invalid org policies are ignored here
+    // (fail-open) — `org::active_resolved` already logged why.
+    let effective = match crate::core::policy::org::active_resolved() {
+        Some(org) => crate::core::policy::floor::merge_floor(&org, local.as_ref()),
+        None => local?,
+    };
+    Some(Arc::new(ActivePolicy::from_resolved(effective)))
+}
+
+/// The project-local pack (`.lean-ctx/policy.toml`), resolved. `None` when the
+/// file is absent or invalid — a malformed local pack must never brick the
+/// agent (fail-open); `lean-ctx policy validate` surfaces the same error.
+fn load_local_pack() -> Option<ResolvedPolicy> {
     let path = PathBuf::from(PROJECT_PACK_PATH);
     if !path.exists() {
         return None;
     }
     match parse_file(&path).and_then(|p| resolve(&p)) {
-        Ok(resolved) => Some(Arc::new(ActivePolicy::from_resolved(resolved))),
+        Ok(resolved) => Some(resolved),
         Err(e) => {
-            // Fail-open for the user: a malformed local pack must never brick the
-            // agent. The `lean-ctx policy validate` CLI surfaces the same error.
             tracing::warn!(
-                "policy: ignoring invalid {} ({e}); no policy enforced",
+                "policy: ignoring invalid {} ({e}); no local policy enforced",
                 path.display()
             );
             None

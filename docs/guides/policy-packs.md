@@ -247,3 +247,50 @@ lean-ctx compliance verify q1-report.json
 `--format json` (default) writes only the signed artifact; `--format csv|pdf`
 additionally emits that human rendering — the PDF is a real, dependency-free
 PDF 1.7. Full contract: `docs/contracts/compliance-report-v1.md`.
+
+## Central org policy (#674)
+
+Everything above is *project-local*: one machine, one `.lean-ctx/policy.toml`.
+`policy org` makes one policy **central and un-bypassable** across a fleet. An
+admin signs a pack into a distributable artifact; each endpoint pins the org's
+public key once, then installs artifacts that the runtime folds in as a **floor**
+beneath the local pack — the local pack can only *tighten* it, never weaken it.
+
+**Admin — sign and distribute:**
+
+```bash
+lean-ctx policy org key --org acme            # show/create the org key + its public key
+lean-ctx policy org sign acme-floor.toml --org acme -o acme.signed.json
+# → distribute acme.signed.json AND the printed public key
+```
+
+**Endpoint — pin once, then install:**
+
+```bash
+lean-ctx policy org trust <pubkey-hex> --org acme   # pin the org key (out-of-band)
+lean-ctx policy org install acme.signed.json        # verify + install; enforced on next call
+lean-ctx policy org status                          # see the effective floor ⊕ local pack
+```
+
+How the floor merges with the local pack — always toward the **stricter** side:
+
+- `deny_tools` union; `allow_tools` intersect (an allowlist can only narrow);
+- `redaction` union with **org patterns winning** a name clash;
+- `filters` keep the stronger action (`block` > `redact` > `warn` > `off`);
+- `egress` patterns union, `block_secrets` true wins, the tighter rate limit wins;
+- the smaller `max_context_tokens`, the longer `audit_retention_days`.
+
+So a user editing `.lean-ctx/policy.toml` cannot drop an org deny, replace an org
+redaction pattern, or raise a cap above the org limit. Two independent checks gate
+application: the artifact's **Ed25519 signature** must verify *and* its signer key
+must be **pinned** here — a forged or untrusted artifact is ignored, never
+enforced, and never bricks the agent (fail-open). With no key pinned, nothing is
+enforced (opt-in). Sign with `--advisory` to distribute a policy for preview
+(`policy org show`) without enforcing it yet. Verify any artifact offline:
+
+```bash
+lean-ctx policy org verify acme.signed.json
+# → VALID — signature verifies (Ed25519, offline) · trust: TRUSTED
+```
+
+Full contract: `docs/contracts/org-policy-v1.md`.

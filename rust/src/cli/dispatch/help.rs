@@ -220,7 +220,7 @@ COMMANDS:
                                    Manage lean-ctx plugins
     rules sync|diff|lint|status|init
                                    ContextOps: cross-agent rules governance
-    policy list|show|validate|coverage  Context policy packs (governance presets as code)
+    policy list|show|validate|coverage|org  Context policy packs (+ signed org-policy floor)
     compliance report|verify       Signed CISO compliance report (OWASP + frameworks + enforcement)
     uninstall [--keep-config] [--keep-binary] [--dry-run]
                                    Full clean removal: stops all processes, removes hooks,

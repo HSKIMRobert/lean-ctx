@@ -21,6 +21,7 @@ pub(crate) fn cmd_policy(args: &[String]) {
         Some("show") => cmd_show(&args[1..]),
         Some("validate") => cmd_validate(&args[1..]),
         Some("coverage") => cmd_coverage(&args[1..]),
+        Some("org") => crate::cli::policy_org_cmd::cmd_policy_org(&args[1..]),
         Some("-h" | "--help") | None => print_help(),
         Some(other) => {
             eprintln!("policy: unknown subcommand '{other}'\n");
@@ -44,7 +45,10 @@ USAGE:\n\
   lean-ctx policy coverage --framework <eu-ai-act|iso42001|soc2> [pack]\n\
                                        Framework coverage report: mapping\n\
                                        matrix + live pack verification\n\
-                                       (defaults to the reference pack)\n\n\
+                                       (defaults to the reference pack)\n\
+  lean-ctx policy org <key|sign|verify|trust|install|status>\n\
+                                       Central, signed org policy distribution\n\
+                                       (un-bypassable floor); see `policy org -h`\n\n\
 A pack pins governance expectations — default read mode, allowed/denied\n\
 tools, redaction patterns, audit retention, context budget — in reviewable\n\
 TOML with single inheritance (extends). Start from a built-in:\n\

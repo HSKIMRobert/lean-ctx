@@ -48,6 +48,32 @@ impl FilterAction {
     pub fn is_off(self) -> bool {
         matches!(self, Self::Off)
     }
+
+    /// Strictness rank — higher is stricter (`off` < `warn` < `redact` <
+    /// `block`). Used by org-floor merging (GL #674) to keep the stricter of
+    /// two actions when a central policy and a local pack both set a detector.
+    #[must_use]
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Off => 0,
+            Self::Warn => 1,
+            Self::Redact => 2,
+            Self::Block => 3,
+        }
+    }
+
+    /// Canonical lowercase token (`"off"`/`"warn"`/`"redact"`/`"block"`) — the
+    /// inverse of [`parse`](Self::parse), used when writing a merged action back
+    /// into a [`crate::core::policy::FilterRules`].
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Warn => "warn",
+            Self::Redact => "redact",
+            Self::Block => "block",
+        }
+    }
 }
 
 /// Resolved, ready-to-run filter configuration. Built once when a policy loads
