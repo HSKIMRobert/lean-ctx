@@ -12,6 +12,9 @@
 //!     Cursor mdc exists (Cursor auto-loads both; pointer lives in AGENTS.md).
 //!  3. Stale compression blocks in `.cursorrules` → removed under the same
 //!     condition (the global mdc carries the block).
+//!  4. Compression block in a shared `AGENTS.md` (#684) → removed (pointer
+//!     kept) once every AGENTS.md reader is covered by its own canonical
+//!     carrier; otherwise reported and left as the carrier.
 //!
 //! Only lean-ctx-owned files and lean-ctx-marked blocks are ever touched.
 //! Unmarked user content is reported, never modified. Default is a dry-run
@@ -31,6 +34,10 @@ pub(crate) enum Action {
     DeleteFile { path: PathBuf, reason: String },
     /// Strip lean-ctx-marked blocks from a shared file (keeps user content).
     StripBlocks { path: PathBuf, reason: String },
+    /// Strip only the compression block from a shared file, keeping the
+    /// `<!-- lean-ctx -->` pointer and all user content (#684 — thins a shared
+    /// AGENTS.md whose readers are all covered by their own canonical carrier).
+    StripCompression { path: PathBuf, reason: String },
     /// Informational only — lean-ctx guidance in user-maintained content.
     Report { path: PathBuf, note: String },
 }
@@ -72,6 +79,22 @@ pub(crate) fn strip_lean_ctx_blocks(content: &str) -> String {
         out = next;
     }
     let trimmed = out.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}\n")
+    }
+}
+
+/// Strips only the compression block, keeping the `<!-- lean-ctx -->` pointer
+/// and every line of user content. Used to thin a shared AGENTS.md once each
+/// reader is covered by its own canonical carrier (#684).
+pub(crate) fn strip_compression_block(content: &str) -> String {
+    if !(content.contains(COMPRESSION_START) && content.contains(COMPRESSION_END)) {
+        return content.to_string();
+    }
+    let stripped = crate::marked_block::remove_content(content, COMPRESSION_START, COMPRESSION_END);
+    let trimmed = stripped.trim_end();
     if trimmed.is_empty() {
         String::new()
     } else {
@@ -147,6 +170,29 @@ pub(crate) fn plan(home: &Path, project: &Path) -> Vec<Action> {
         }
     }
 
+    // 4. Shared project AGENTS.md (#684): Cursor, Codex and other agents all
+    // auto-load it, so a compression block here duplicates each reader's own
+    // canonical carrier. Strip only the compression block (the pointer stays)
+    // once every reader present on this machine is covered elsewhere.
+    let agents_md = project.join("AGENTS.md");
+    if let Ok(content) = std::fs::read_to_string(&agents_md) {
+        let has_compression =
+            content.contains(COMPRESSION_START) && content.contains(COMPRESSION_END);
+        if has_compression {
+            if crate::core::rules_channel::agents_md_can_thin(home) {
+                actions.push(Action::StripCompression {
+                    path: agents_md,
+                    reason: "every AGENTS.md reader already loads the compression block from its own canonical file".into(),
+                });
+            } else {
+                actions.push(Action::Report {
+                    path: agents_md,
+                    note: "an AGENTS.md reader has no other compression source — AGENTS.md stays the carrier".into(),
+                });
+            }
+        }
+    }
+
     actions
 }
 
@@ -183,6 +229,23 @@ fn apply(action: &Action) -> String {
                     Ok(()) => format!("stripped  {} (backup: {})", path.display(), bak.display()),
                     Err(e) => format!("FAILED    {} ({e})", path.display()),
                 }
+            }
+        }
+        Action::StripCompression { path, .. } => {
+            let Ok(content) = std::fs::read_to_string(path) else {
+                return format!("FAILED    {} (unreadable)", path.display());
+            };
+            let stripped = strip_compression_block(&content);
+            if stripped == content {
+                return format!("unchanged {}", path.display());
+            }
+            let bak = path.with_extension("bak");
+            if let Err(e) = std::fs::write(&bak, &content) {
+                return format!("FAILED    {} (backup: {e})", path.display());
+            }
+            match std::fs::write(path, &stripped) {
+                Ok(()) => format!("thinned   {} (backup: {})", path.display(), bak.display()),
+                Err(e) => format!("FAILED    {} ({e})", path.display()),
             }
         }
         Action::Report { path, note } => format!("info      {} — {note}", path.display()),
@@ -230,6 +293,14 @@ pub fn run(apply_changes: bool) -> i32 {
                     println!("  {}", apply(action));
                 } else {
                     println!("  strip     {}\n            ({reason})", path.display());
+                }
+            }
+            Action::StripCompression { path, reason } => {
+                fixable += 1;
+                if apply_changes {
+                    println!("  {}", apply(action));
+                } else {
+                    println!("  thin      {}\n            ({reason})", path.display());
                 }
             }
             Action::Report { .. } => println!("  {}", apply(action)),
@@ -378,6 +449,118 @@ mod tests {
         assert_eq!(after, "my custom rule\n");
         let bak = std::fs::read_to_string(path.with_extension("bak")).unwrap();
         assert!(bak.contains("ours"));
+    }
+
+    #[test]
+    fn strip_compression_keeps_pointer_and_user_content() {
+        let content = "# Agent Instructions\n\n<!-- lean-ctx -->\npointer\n<!-- /lean-ctx -->\n\n<!-- lean-ctx-compression -->\nOUTPUT STYLE\n<!-- /lean-ctx-compression -->\n";
+        let out = strip_compression_block(content);
+        assert!(out.contains("# Agent Instructions"));
+        assert!(out.contains("<!-- lean-ctx -->"));
+        assert!(out.contains("pointer"));
+        assert!(!out.contains("lean-ctx-compression"));
+        assert!(!out.contains("OUTPUT STYLE"));
+    }
+
+    #[test]
+    fn plan_thins_agents_md_when_cursor_covered_and_no_codex() {
+        let _guard = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let project = home.join("app");
+        std::fs::create_dir_all(&project).unwrap();
+        // Isolate codex resolution to this empty home (no codex present).
+        crate::test_env::set_var("CODEX_HOME", home.join(".codex"));
+
+        // Canonical global mdc carries the compression block → cursor covered.
+        std::fs::create_dir_all(home.join(".cursor/rules")).unwrap();
+        std::fs::write(
+            home.join(".cursor/rules/lean-ctx.mdc"),
+            format!(
+                "{}\n<!-- lean-ctx-rules-v12 -->\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n",
+                crate::rules_inject::RULES_MARKER
+            ),
+        )
+        .unwrap();
+
+        // Project AGENTS.md still carries pointer + compression.
+        std::fs::write(
+            project.join("AGENTS.md"),
+            format!(
+                "# Agent Instructions\n\n{BLOCK_START}\npointer\n{BLOCK_END}\n\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n"
+            ),
+        )
+        .unwrap();
+
+        let actions = plan(home, &project);
+        assert!(
+            actions.iter().any(|a| matches!(
+                a,
+                Action::StripCompression { path, .. } if path.ends_with("AGENTS.md")
+            )),
+            "{actions:?}"
+        );
+        crate::test_env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn plan_keeps_agents_md_carrier_when_cursor_uncovered() {
+        let _guard = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let project = home.join("app");
+        std::fs::create_dir_all(&project).unwrap();
+        crate::test_env::set_var("CODEX_HOME", home.join(".codex"));
+
+        // No global mdc → cursor not covered → AGENTS.md must stay the carrier.
+        std::fs::write(
+            project.join("AGENTS.md"),
+            format!(
+                "# Agent Instructions\n\n{BLOCK_START}\npointer\n{BLOCK_END}\n\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n"
+            ),
+        )
+        .unwrap();
+
+        let actions = plan(home, &project);
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::StripCompression { .. })),
+            "{actions:?}"
+        );
+        // Reported instead, so the user understands why it was left alone.
+        assert!(
+            actions.iter().any(|a| matches!(
+                a,
+                Action::Report { path, .. } if path.ends_with("AGENTS.md")
+            )),
+            "{actions:?}"
+        );
+        crate::test_env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn apply_strip_compression_thins_and_backs_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("AGENTS.md");
+        std::fs::write(
+            &path,
+            format!(
+                "# Agent Instructions\n\n{BLOCK_START}\npointer\n{BLOCK_END}\n\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n"
+            ),
+        )
+        .unwrap();
+
+        let msg = apply(&Action::StripCompression {
+            path: path.clone(),
+            reason: String::new(),
+        });
+        assert!(msg.starts_with("thinned"), "{msg}");
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(after.contains("<!-- lean-ctx -->"));
+        assert!(!after.contains("lean-ctx-compression"));
+        let bak = std::fs::read_to_string(path.with_extension("bak")).unwrap();
+        assert!(bak.contains("lean-ctx-compression"));
     }
 
     #[test]

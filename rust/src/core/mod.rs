@@ -26,6 +26,7 @@ pub mod process_guard;
 pub mod progressive_compression;
 pub mod rabin_karp;
 pub mod rules_canonical;
+pub mod rules_channel;
 pub mod structural_tokenizer;
 pub mod structured_read;
 
