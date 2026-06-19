@@ -316,8 +316,11 @@ mod tests {
     #[test]
     fn rejects_path_outside_root() {
         // Hermetic config (empty data dir => jail on) so a parallel test that
-        // flips `path_jail` cannot leak into this enforcement check.
+        // flips `path_jail` cannot leak into this enforcement check. Also hold the
+        // allow-path env lock: a parallel test setting `LEAN_CTX_ALLOW_PATH` (e.g.
+        // "/") would otherwise turn this escape into an accepted path.
         let _iso = crate::core::data_dir::isolated_data_dir();
+        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -461,7 +464,10 @@ mod tests {
     #[cfg(not(feature = "no-jail"))]
     #[test]
     fn error_message_contains_escape_info() {
+        // Hold the allow-path env lock: a parallel test setting
+        // `LEAN_CTX_ALLOW_PATH="/"` would otherwise make this escape resolve to Ok.
         let _iso = crate::core::data_dir::isolated_data_dir();
+        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -555,7 +561,10 @@ mod tests {
     fn rejects_symlink_escape_on_unix() {
         use std::os::unix::fs::symlink;
 
+        // Hold the allow-path env lock: a parallel test setting
+        // `LEAN_CTX_ALLOW_PATH="/"` would otherwise let the symlink escape resolve.
         let _iso = crate::core::data_dir::isolated_data_dir();
+        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
