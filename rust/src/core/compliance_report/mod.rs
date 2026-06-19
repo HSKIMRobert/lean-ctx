@@ -195,6 +195,7 @@ fn plan_source_label(s: crate::cloud_client::PlanSource) -> &'static str {
         PlanSource::Cached => "cached",
         PlanSource::Expired => "expired",
         PlanSource::None => "unverified",
+        PlanSource::License => "license",
     }
 }
 

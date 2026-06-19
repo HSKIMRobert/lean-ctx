@@ -588,6 +588,9 @@ pub enum PlanSource {
     Expired,
     /// No cached plan at all (never logged in / never synced) → Free.
     None,
+    /// Granted by an installed, vendor-signed offline license (GL #667) — a
+    /// self-hosted/air-gapped Enterprise unlock with no network round-trip.
+    License,
 }
 
 /// A resolved plan plus its provenance. The plan here is only ever used for
@@ -609,11 +612,43 @@ pub fn plan_within_grace(verified_at: i64, now: i64, grace_days: i64) -> (bool, 
     (age_days <= grace_days, age_days)
 }
 
+/// Elevate `base` to an installed offline Enterprise license when one is active
+/// and grants a **higher** plan (GL #667). Self-hosted / air-gapped installs
+/// unlock Enterprise governance with no network round-trip; the cloud/cached
+/// plan still wins when it is higher, so a hosted Enterprise account is never
+/// downgraded by a lesser license. Local features are never affected either way.
+#[must_use]
+pub fn elevate_with_license(base: EffectivePlan) -> EffectivePlan {
+    let Some(lic) = crate::core::license::active() else {
+        return base;
+    };
+    if lic.plan.rank() <= base.plan.rank() {
+        return base;
+    }
+    let verified_at = chrono::DateTime::parse_from_rfc3339(&lic.issued_at)
+        .ok()
+        .map(|d| d.timestamp());
+    EffectivePlan {
+        plan: lic.plan,
+        source: PlanSource::License,
+        verified_at,
+        grace_days: crate::core::license::LICENSE_GRACE_DAYS,
+    }
+}
+
 /// Resolve the effective plan from the **local cache only** (no network), applying
-/// the offline-grace policy. Use this on hot paths (dashboard requests); use
-/// [`refresh_effective_plan`] when a live confirmation is acceptable.
+/// the offline-grace policy and then an installed offline license (GL #667). Use
+/// this on hot paths (dashboard requests); use [`refresh_effective_plan`] when a
+/// live confirmation is acceptable.
 #[must_use]
 pub fn resolve_effective_plan_cached() -> EffectivePlan {
+    elevate_with_license(resolve_cloud_plan_cached())
+}
+
+/// The cloud/cached plan alone (no license overlay) — the historical behaviour,
+/// kept as a building block for [`resolve_effective_plan_cached`].
+#[must_use]
+fn resolve_cloud_plan_cached() -> EffectivePlan {
     let grace_days = PLAN_GRACE_DAYS;
     let Some(cache) = cached_plan() else {
         return EffectivePlan {
@@ -652,12 +687,15 @@ pub fn refresh_effective_plan() -> EffectivePlan {
         && let Ok(plan_str) = fetch_plan()
     {
         let _ = save_plan(&plan_str);
-        return EffectivePlan {
+        let live = EffectivePlan {
             plan: crate::core::billing::Plan::parse(&plan_str),
             source: PlanSource::Live,
             verified_at: Some(now_unix()),
             grace_days: PLAN_GRACE_DAYS,
         };
+        // An offline license still elevates a logged-in account that the backend
+        // reports as a lesser plan (e.g. self-host where the hosted plan is Free).
+        return elevate_with_license(live);
     }
     resolve_effective_plan_cached()
 }
@@ -1044,6 +1082,10 @@ pub fn index_bundle_status() -> Result<serde_json::Value, String> {
 mod tests {
     use super::*;
     use crate::core::billing::Plan;
+    // Only the `#[cfg(unix)]` credential-permission tests still take the env lock
+    // directly; the plan-resolver tests use `isolated_data_dir()` (which locks
+    // internally). Gating the import keeps the Windows cross-compile warning-free.
+    #[cfg(unix)]
     use crate::core::data_dir::test_env_lock;
 
     #[test]
@@ -1072,9 +1114,9 @@ mod tests {
 
     #[test]
     fn cached_resolve_grants_within_grace_then_expires_to_free() {
-        let _env = test_env_lock();
-        let tmp = tempfile::tempdir().unwrap();
-        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        // Isolate all dirs (config too) so no installed license (GL #667) can
+        // elevate the effective plan and mask the cloud-cache behaviour under test.
+        let _iso = crate::core::data_dir::isolated_data_dir();
 
         // A fresh save is served from cache, within grace, at full plan.
         save_plan("pro").unwrap();
@@ -1091,19 +1133,14 @@ mod tests {
         let eff = resolve_effective_plan_cached();
         assert_eq!(eff.plan, Plan::Free);
         assert_eq!(eff.source, PlanSource::Expired);
-
-        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     #[test]
     fn no_cache_resolves_to_free_none() {
-        let _env = test_env_lock();
-        let tmp = tempfile::tempdir().unwrap();
-        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let eff = resolve_effective_plan_cached();
         assert_eq!(eff.plan, Plan::Free);
         assert_eq!(eff.source, PlanSource::None);
-        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
     // P0-2 (#414): credentials must be owner-only on disk.
@@ -1170,9 +1207,7 @@ mod tests {
 
     #[test]
     fn legacy_plan_txt_is_migrated_but_treated_as_stale() {
-        let _env = test_env_lock();
-        let tmp = tempfile::tempdir().unwrap();
-        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
+        let _iso = crate::core::data_dir::isolated_data_dir();
         // Only the legacy flat file exists (no timestamp) → past grace until refresh.
         std::fs::create_dir_all(config_dir()).unwrap();
         std::fs::write(config_dir().join("plan.txt"), "team").unwrap();
@@ -1180,6 +1215,5 @@ mod tests {
         assert_eq!(cache.plan, "team");
         assert_eq!(cache.verified_at, 0);
         assert_eq!(resolve_effective_plan_cached().source, PlanSource::Expired);
-        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }

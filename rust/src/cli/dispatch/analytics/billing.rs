@@ -95,6 +95,9 @@ fn cmd_billing_status(json: bool) {
         PlanSource::Expired => {
             println!("  ! Cached plan expired — reconnect: lean-ctx login, then lean-ctx sync");
         }
+        PlanSource::License => {
+            println!("  Source:       offline Enterprise license — lean-ctx license status");
+        }
         PlanSource::None if !logged_in => {
             println!(
                 "  Upgrade:      lean-ctx cloud upgrade   (Pro: hosted sync · Team: shared ROI rollup)"
@@ -112,6 +115,7 @@ fn plan_source_label(source: crate::cloud_client::PlanSource) -> &'static str {
         PlanSource::Cached => "cached",
         PlanSource::Expired => "expired",
         PlanSource::None => "none",
+        PlanSource::License => "license",
     }
 }
 
@@ -131,6 +135,7 @@ fn plan_source_detail(eff: &crate::cloud_client::EffectivePlan) -> String {
         },
         PlanSource::Expired => "cached plan expired".to_string(),
         PlanSource::None => "no account".to_string(),
+        PlanSource::License => "offline license".to_string(),
     }
 }
 

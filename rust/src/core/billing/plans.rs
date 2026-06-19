@@ -58,6 +58,14 @@ impl Plan {
         ]
     }
 
+    /// Ordinal rank in the ascending [`Plan::all`] order (Free = 0 …
+    /// Enterprise = 5). Lets callers pick the *higher* of two plans — e.g. the
+    /// effective-plan resolver elevating to an offline license's grant.
+    #[must_use]
+    pub fn rank(self) -> usize {
+        Plan::all().iter().position(|&p| p == self).unwrap_or(0)
+    }
+
     /// Stable wire identifier.
     #[must_use]
     pub fn as_str(self) -> &'static str {

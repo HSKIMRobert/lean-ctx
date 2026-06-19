@@ -35,6 +35,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   correlates the fix — the gotcha loop now works in the hybrid CLI-shell setup.
 
 ### Added
+- **#667 — self-hosted Enterprise license with offline entitlement validation.**
+  `lean-ctx license issue --customer <id> --plan enterprise [--days N]` mints an
+  **Ed25519-signed** license file; on an air-gapped self-host `lean-ctx license
+  install <file>` verifies it (signature **and** trusted vendor anchor **and**
+  expiry) and the effective-plan resolver elevates to the granted plan offline —
+  no control-plane round-trip — so `sso_oidc`/`sso_scim`/`audit_retention` unlock
+  for data-residency customers. `billing status` then shows
+  `source = license`. A generous 30-day post-expiry grace never hard-cuts a
+  paying customer, and the resolver is **fail-open**: any invalid/expired/missing
+  license is ignored and the machine falls back to the cloud/cached plan, never
+  erroring. **Local-Free** is preserved — a license only ever unlocks
+  commercial/hosted entitlements, guarded by the existing invariant conformance
+  test. Vendor side: `license keygen` bootstraps a signing key, `license verify`
+  checks any artifact offline. New module `core/license/` (model/store/mod) +
+  `cli/license_cmd.rs`; resolver gains `PlanSource::License`. Contract:
+  [`docs/contracts/license-v1.md`](docs/contracts/license-v1.md).
 - **#674 — central, signed org policy distribution + admin.** `lean-ctx policy
   org sign <pack.toml> --org <name>` wraps a policy pack in an **Ed25519-signed**
   artifact; endpoints `policy org trust <pubkey>` (pin once, out-of-band) and
