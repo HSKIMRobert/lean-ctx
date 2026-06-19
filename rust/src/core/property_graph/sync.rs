@@ -44,7 +44,7 @@ fn symbol_metadata(kind: &str, is_exported: bool) -> String {
     )
 }
 
-/// Inverse of [`symbol_metadata`]: recover the source `kind` and `exported`
+/// Inverse of `symbol_metadata`: recover the source `kind` and `exported`
 /// flag from a symbol node's metadata JSON. The property-graph `Node` only
 /// models a coarse `NodeKind`, so the precise graph_index kind (`function`,
 /// `struct`, …) and export flag live in this metadata blob — the provider

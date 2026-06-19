@@ -342,7 +342,9 @@ impl GraphProvider {
     }
 
     /// Reconstruct a full [`ProjectIndex`] from this provider — the inverse of
-    /// the graph_index→PG mirror ([`populate_from_project_index`]). Lets the
+    /// the graph_index→PG mirror
+    /// ([`populate_from_project_index`](super::property_graph::populate_from_project_index)).
+    /// Lets the
     /// remaining legacy `ProjectIndex` consumers be sourced from the
     /// PropertyGraph (parity-proven lossless, #682.3) so the redundant JSON
     /// store can be retired (#696 phase C). For the GraphIndex backend it clones

@@ -68,7 +68,8 @@ impl CallGraphInputs {
         }
     }
 
-    /// Bridge for callers that already hold a freshly-scanned [`ProjectIndex`]
+    /// Bridge for callers that already hold a freshly-scanned
+    /// [`ProjectIndex`](super::graph_index::ProjectIndex)
     /// (repomap, dashboard coordinator) and want call-graph inputs consistent
     /// with *that* scan rather than a possibly-lagging PropertyGraph. Removed in
     /// #696 Phase D once those callers move to the facade/extractor wholesale.
