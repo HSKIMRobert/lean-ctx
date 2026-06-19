@@ -175,7 +175,6 @@ pub(crate) fn detect_symbol(line: &str) -> Option<(String, ChunkKind)> {
         ("interface ", ChunkKind::Struct),
         ("def ", ChunkKind::Function),
         ("async def ", ChunkKind::Function),
-        ("class ", ChunkKind::Class),
         ("func ", ChunkKind::Function),
     ];
 
