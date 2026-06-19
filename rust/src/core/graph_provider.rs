@@ -176,6 +176,39 @@ impl GraphProvider {
         }
     }
 
+    /// Every symbol with its file + line span (unfiltered). Backend-agnostic
+    /// equivalent of iterating `ProjectIndex::symbols` — used by the call-graph
+    /// builder to attribute call sites to their enclosing symbol.
+    pub fn all_symbols(&self) -> Vec<SymbolInfo> {
+        match self {
+            GraphProvider::PropertyGraph(g) => g
+                .all_symbols()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|n| SymbolInfo {
+                    name: n.name,
+                    file: n.file_path,
+                    kind: n.kind.as_str().to_string(),
+                    start_line: n.line_start.unwrap_or(0),
+                    end_line: n.line_end.unwrap_or(0),
+                    is_exported: true,
+                })
+                .collect(),
+            GraphProvider::GraphIndex(i) => i
+                .symbols
+                .values()
+                .map(|s| SymbolInfo {
+                    name: s.name.clone(),
+                    file: s.file.clone(),
+                    kind: s.kind.clone(),
+                    start_line: s.start_line,
+                    end_line: s.end_line,
+                    is_exported: s.is_exported,
+                })
+                .collect(),
+        }
+    }
+
     pub fn get_symbol(&self, key: &str) -> Option<SymbolInfo> {
         match self {
             GraphProvider::PropertyGraph(g) => {

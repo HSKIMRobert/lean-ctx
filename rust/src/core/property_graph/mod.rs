@@ -257,6 +257,12 @@ impl CodeGraph {
         node::symbol_count(&self.conn)
     }
 
+    /// Every symbol node with its line span (unfiltered). Backend for the
+    /// call-graph symbol table after the `graph_index` teardown (#696).
+    pub fn all_symbols(&self) -> anyhow::Result<Vec<Node>> {
+        node::all_symbols(&self.conn)
+    }
+
     pub fn all_edges_flat(&self) -> anyhow::Result<Vec<(String, String, String, f64)>> {
         node::all_edges_flat(&self.conn)
     }

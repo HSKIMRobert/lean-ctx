@@ -18,7 +18,9 @@ fn call_graph() -> (&'static str, &'static str, String) {
         Ok(index) => index,
         Err(progress) => return super::building_response(&progress),
     };
-    match crate::core::call_graph::CallGraph::get_or_start_build(&root, index.clone()) {
+    let cg_inputs =
+        std::sync::Arc::new(crate::core::call_graph::CallGraphInputs::from_project_index(&index));
+    match crate::core::call_graph::CallGraph::get_or_start_build(&root, cg_inputs.clone()) {
         Ok(graph) => {
             // file_path → community_id, shared with the deps tab for a consistent
             // colour palette across both graph views.
@@ -40,7 +42,7 @@ fn call_graph() -> (&'static str, &'static str, String) {
                 "language_matrix":
                     super::capability_matrix::realized_from_index(&index, Some(graph.edges.as_slice())),
                 "communities": communities,
-                "symbol_files": crate::core::call_graph::resolve_callee_files(&index, &graph.edges),
+                "symbol_files": crate::core::call_graph::resolve_callee_files(&cg_inputs, &graph.edges),
             });
             let json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize call graph\"}".to_string());
