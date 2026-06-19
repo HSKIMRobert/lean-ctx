@@ -47,11 +47,11 @@ proves it never changed the answer.
 | Unstructured prose / chat / RAG | Information-bottleneck + dedup | **Trained model (strongest)** |
 | Cached re-reads | ~13 tokens | — |
 | **Control** | | |
-| Intensity dial | `density:0.X` today → unified 0–1 knob (roadmap) | **Single `aggressiveness` float** |
-| Per-role control (system/user/assistant) | Roadmap (proxy) | **Yes** |
-| Protect spans | Roadmap (`<lc_safe>` / `protect`) | **`<ttc_safe>` / `protect()`** |
+| Intensity dial | **Single 0–1 `aggressiveness` knob** (#708) | **Single `aggressiveness` float** |
+| Per-role control (system / user) | **Yes** — proxy, cache-safe (#710) | **Yes** |
+| Protect spans | **`<lc_safe>` / `protect`** (#709) | **`<ttc_safe>` / `protect()`** |
 | **Determinism** | Pure function, no drift (#498) | Per (model version, setting) |
-| Prompt-cache preserving | **Cache-aware, prefix-stable pruning** | Assistant passthrough |
+| Prompt-cache preserving | **Cache-aware pruning + `cache_preservation_ratio`** (#732) | Assistant passthrough |
 | **Code intelligence** | | |
 | Tree-sitter AST | 18–21 languages | — |
 | Call graph / impact / repo-map | Yes | — |
@@ -78,15 +78,20 @@ proves it never changed the answer.
 ### Unstructured-prose compression
 A trained classifier beats hand-written rules on free-form natural language —
 chat transcripts, retrieved RAG chunks, long system prompts. This is TTC's real
-moat and the area where lean-ctx's code-tuned heuristics are weakest today (see
-the lean-ctx roadmap: query-conditioned IB for prose, and an optional *local*
-delete-only model).
+moat. lean-ctx has narrowed the gap with query-conditioned information-bottleneck
+compression for prose (task-conditioned entropy mode) and cache-safe prose
+squeezing in the proxy — but a trained model still leads on pure free-form prose.
+A *local* delete-only model was evaluated and deliberately deferred: it cannot yet
+meet lean-ctx's determinism + single-local-binary bar (see the prose-model spike).
 
-### Accuracy evidence
+### Public accuracy arena
 TTC leads with blind evaluation (they report CoQA rising from 93.3 to 95.3 with
 compression on) and a large public preference arena (they report 268K+ votes).
-That "compressed is as good as or better than raw" story, backed by public
-numbers, is strong marketing lean-ctx should match with its own published suite.
+lean-ctx now ships its **own** deterministic accuracy proof — a curated needle /
+long-context-QA / code-edit suite behind a CI gate (`eval ab --gate --margin`),
+with a model-free test that the compressed context still contains the answer
+(#712). What TTC still has and lean-ctx does not is that *public, at-scale* vote
+count — a marketing asset, not a capability gap.
 
 ### Turn-key per-role UX
 One `aggressiveness` float and per-role settings out of the box is a clean,
@@ -135,9 +140,9 @@ ROI batches — verifiable cost evidence, not a dashboard number.
 **Takeaway:** TTC achieves *settable* determinism and manages drift via model
 versioning. lean-ctx achieves *absolute* determinism because there is no model
 in the path. Both are valid; lean-ctx's is the stronger guarantee for audit and
-caching, at the cost of weaker free-form-prose compression — which the roadmap
-addresses with a local IB prose path (and an optional, version-pinned local
-model).
+caching, at the cost of weaker free-form-prose compression — now narrowed by a
+query-conditioned IB prose path (shipped), with a local trained model evaluated
+and deferred to keep the no-model guarantee intact.
 
 ## Which Tool Should I Use?
 
@@ -158,9 +163,10 @@ no-egress requirement.
 a signed savings ledger.
 
 ### "I want both code compression and best-in-class prose compression"
-Run **lean-ctx locally** for code and tool output; the lean-ctx roadmap adds a
-local prose path so prose compression no longer requires sending data to a cloud
-service.
+Run **lean-ctx locally** for code and tool output; its query-conditioned IB now
+compresses prose locally too, so most prose no longer has to leave the machine.
+For the last mile on pure free-form prose, TTC's trained model still leads — pair
+them if a cloud prose pass is acceptable for your data-governance rules.
 
 ---
 
