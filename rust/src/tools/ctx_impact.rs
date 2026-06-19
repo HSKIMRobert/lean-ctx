@@ -451,10 +451,10 @@ fn format_chain(chain: &DependencyChain, root: &str, fmt: OutputFormat) -> Strin
 }
 
 fn graph_target_key(path: &str, root: &str) -> String {
-    let rel = crate::core::graph_index::graph_relative_key(path, root);
-    let rel_key = crate::core::graph_index::graph_match_key(&rel);
+    let rel = crate::core::index_paths::graph_relative_key(path, root);
+    let rel_key = crate::core::index_paths::graph_match_key(&rel);
     if rel_key.is_empty() {
-        crate::core::graph_index::graph_match_key(path)
+        crate::core::index_paths::graph_match_key(path)
     } else {
         rel_key
     }
