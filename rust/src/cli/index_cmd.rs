@@ -85,10 +85,33 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
         }
         Some("build-graph") => {
-            let root_str = project_root.clone();
-            let result =
-                crate::tools::ctx_impact::handle("build", None, &root_str, None, Some("text"));
-            println!("{result}");
+            let backend =
+                crate::core::config::GraphBackend::effective(&crate::core::config::Config::load());
+            if backend == crate::core::config::GraphBackend::Legacy {
+                let result = crate::tools::ctx_impact::handle(
+                    "build",
+                    None,
+                    &project_root,
+                    None,
+                    Some("text"),
+                );
+                println!("{result}");
+            } else {
+                // #682.1: mirror the proven graph_index extractor into the
+                // property graph (complete symbols + file_catalog).
+                match crate::core::graph_provider::build_property_graph(&project_root) {
+                    Ok(()) => match crate::core::property_graph::CodeGraph::open(&project_root) {
+                        Ok(g) => println!(
+                            "property graph built from graph_index: {} nodes, {} edges, {} files",
+                            g.node_count().unwrap_or(0),
+                            g.edge_count().unwrap_or(0),
+                            g.file_catalog_count().unwrap_or(0),
+                        ),
+                        Err(_) => println!("property graph built from graph_index"),
+                    },
+                    Err(e) => eprintln!("property graph build failed: {e}"),
+                }
+            }
         }
         Some("watch") => run_watcher(root),
         _ => {

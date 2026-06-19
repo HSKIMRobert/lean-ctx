@@ -13,6 +13,7 @@ mod node;
 mod queries;
 mod schema;
 pub mod snapshot;
+mod sync;
 
 pub use edge::{Edge, EdgeKind};
 pub use file_catalog::FileCatalogEntry;
@@ -21,6 +22,7 @@ pub use node::{Node, NodeKind};
 pub use queries::{
     DependencyChain, GraphQuery, ImpactResult, edge_weight, file_connectivity, related_files,
 };
+pub use sync::populate_from_project_index;
 
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
@@ -213,6 +215,16 @@ impl CodeGraph {
             "DELETE FROM edges; DELETE FROM nodes; DELETE FROM file_catalog; \
              DELETE FROM cross_source_edges;",
         )?;
+        Ok(())
+    }
+
+    /// Clear only the code graph (nodes, edges, file catalog), preserving
+    /// provider `cross_source_edges`. Used by the graph_index→PG mirror (#682.1)
+    /// so rebuilding the code graph never drops lateral provider hints, which
+    /// live in their own table and are repopulated on a separate ingest cycle.
+    pub fn clear_code_graph(&self) -> anyhow::Result<()> {
+        self.conn
+            .execute_batch("DELETE FROM edges; DELETE FROM nodes; DELETE FROM file_catalog;")?;
         Ok(())
     }
 
