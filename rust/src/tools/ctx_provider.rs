@@ -569,8 +569,26 @@ pub fn apply_artifacts_to_stores(
         }
     }
 
-    // Graph: load existing index, merge cross-source edges, save
+    // Cross-source edges → PropertyGraph (#682): authoritative store for the
+    // `ctx_read` cross-source hints. The legacy JSON graph is still written below
+    // until the graph_index removal phase so other JSON consumers keep working.
     if !artifacts.edges.is_empty() {
+        match crate::core::property_graph::CodeGraph::open(project_root) {
+            Ok(pg) => {
+                let mut added = 0usize;
+                for edge in &artifacts.edges {
+                    if pg
+                        .upsert_cross_source_edge(&edge.from, &edge.to, &edge.kind, edge.weight)
+                        .is_ok()
+                    {
+                        added += 1;
+                    }
+                }
+                tracing::info!("[ctx_provider] wrote {added} cross-source edges to property graph");
+            }
+            Err(e) => tracing::warn!("[ctx_provider] property graph open failed: {e}"),
+        }
+
         let mut graph = crate::core::graph_index::load_or_build(project_root);
         let added =
             crate::core::cross_source_edges::merge_edges(&mut graph.edges, artifacts.edges.clone());

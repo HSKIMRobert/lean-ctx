@@ -605,23 +605,29 @@ impl CtxReadTool {
             crate::core::agent_budget::record_consumption(aid, output_tokens);
         }
 
-        // Cross-source hints: if a graph index exists and has cross-source edges
+        // Cross-source hints: if the property graph has cross-source edges
         // pointing to this file, append compact hints so the agent knows about
-        // related issues/PRs/schemas without a separate tool call.
+        // related issues/PRs/schemas without a separate tool call (#682). Only
+        // touch the DB when it already exists — never create graph.db on a read.
         let hints_suffix = {
-            if let Some(index) = crate::core::graph_index::ProjectIndex::load(&ctx.project_root) {
+            let graph_db =
+                crate::core::property_graph::graph_dir(&ctx.project_root).join("graph.db");
+            let edges = if graph_db.exists() {
+                crate::core::property_graph::CodeGraph::open(&ctx.project_root)
+                    .map(|g| g.all_cross_source_edges())
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            if edges.is_empty() {
+                String::new()
+            } else {
                 let hints = crate::core::cross_source_hints::hints_for_file(
                     path,
-                    &index.edges,
+                    &edges,
                     &ctx.project_root,
                 );
-                if hints.is_empty() {
-                    String::new()
-                } else {
-                    crate::core::cross_source_hints::format_hints(&hints)
-                }
-            } else {
-                String::new()
+                crate::core::cross_source_hints::format_hints(&hints)
             }
         };
 

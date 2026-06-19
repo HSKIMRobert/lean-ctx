@@ -143,16 +143,10 @@ pub fn apply_artifacts_with_pg(
 }
 
 fn write_edges_to_property_graph(pg: &crate::core::property_graph::CodeGraph, edges: &[IndexEdge]) {
-    use crate::core::property_graph::{Edge, EdgeKind, Node};
+    // Cross-source edges live in their own table (#682) so external URIs never
+    // pollute the File-node catalog and the exact relation kind + weight survive.
     for edge in edges {
-        let Ok(src_id) = pg.upsert_node(&Node::file(&edge.from)) else {
-            continue;
-        };
-        let Ok(tgt_id) = pg.upsert_node(&Node::file(&edge.to)) else {
-            continue;
-        };
-        let kind = EdgeKind::parse(&edge.kind);
-        let _ = pg.upsert_edge(&Edge::new(src_id, tgt_id, kind));
+        let _ = pg.upsert_cross_source_edge(&edge.from, &edge.to, &edge.kind, edge.weight);
     }
 }
 
@@ -295,5 +289,28 @@ mod tests {
         assert!(result.edges_created > 0);
         assert!(result.facts_extracted > 0);
         assert!(result.cache_entries_stored > 0);
+    }
+
+    #[test]
+    fn apply_artifacts_persists_cross_source_to_property_graph_for_hints() {
+        // End-to-end (#682): provider chunks → consolidate → PropertyGraph, then
+        // the cross_source_hints consumer resolves a hint for the referenced file.
+        let chunks = sample_chunks(); // github issue + PR, both reference src/auth.rs
+        let artifacts = consolidate(&chunks);
+
+        let pg = crate::core::property_graph::CodeGraph::open_in_memory().unwrap();
+        apply_artifacts_with_pg(&artifacts, None, None, None, Some(&pg));
+
+        let edges = pg.all_cross_source_edges();
+        assert!(
+            !edges.is_empty(),
+            "cross-source edges land in the property graph"
+        );
+
+        let hints = crate::core::cross_source_hints::hints_for_file("src/auth.rs", &edges, "/proj");
+        assert!(
+            hints.iter().any(|h| h.source_uri.contains("github://")),
+            "issue/PR hint resolves from PG-backed edges, got {hints:?}"
+        );
     }
 }
