@@ -39,11 +39,10 @@ impl OutputPolicy {
 
 /// Classify a command into an `OutputPolicy`.
 ///
-/// `user_excluded` comes from `Config::excluded_commands`.
-/// This function consolidates:
-///   - `is_excluded_command` (compress.rs BUILTIN_PASSTHROUGH)
-///   - `is_verbatim_output` (compress.rs 22+ is_* helpers)
-///   - `is_passthrough_command` (patterns/mod.rs)
+/// `user_excluded` comes from `Config::excluded_commands`. Precedence:
+///   1. `is_passthrough` (BUILTIN_PASSTHROUGH + dev-script runners + user excludes)
+///   2. `compress::is_verbatim_output` (HTTP clients, file viewers, data formats …)
+///   3. otherwise `Compressible`
 pub fn classify(command: &str, user_excluded: &[String]) -> OutputPolicy {
     if is_passthrough(command, user_excluded) {
         return OutputPolicy::Passthrough;

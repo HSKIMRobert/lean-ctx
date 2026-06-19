@@ -3,9 +3,6 @@
 /// can embed this version to detect pattern-breaking updates.
 pub const PATTERN_ENGINE_VERSION: u32 = 1;
 
-pub mod pattern_trait;
-pub use pattern_trait::{CompressionPattern, CompressionResult};
-
 pub mod alembic;
 pub mod ansible;
 pub mod argocd;
