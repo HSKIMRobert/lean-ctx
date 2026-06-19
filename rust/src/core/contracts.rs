@@ -222,6 +222,23 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             1,
             Experimental,
         ),
+        // Enterprise license, org policy, compliance & billing surfaces
+        // (#667/#668/#669): newly added under docs/contracts/, still evolving
+        // with the billing / Enterprise plane — Experimental until it stabilises.
+        doc("license", "license-v1.md", 1, Experimental),
+        doc("org-policy", "org-policy-v1.md", 1, Experimental),
+        doc(
+            "compliance-report",
+            "compliance-report-v1.md",
+            1,
+            Experimental,
+        ),
+        doc(
+            "success-fee-invoice",
+            "success-fee-invoice-v1.md",
+            1,
+            Experimental,
+        ),
     ]
 }
 
