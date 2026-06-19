@@ -113,8 +113,7 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if let Some(mut compressed) = patterns::compress_output(command, output)
         && !compressed.trim().is_empty()
     {
-        let config = crate::core::config::Config::load();
-        let level = crate::core::config::CompressionLevel::effective(&config);
+        let level = crate::core::config::CompressionLevel::effective(&cfg);
         if level.is_active() {
             let terse_result =
                 crate::core::terse::pipeline::compress(output, &level, Some(&compressed));
@@ -138,8 +137,7 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     }
 
     {
-        let config = crate::core::config::Config::load();
-        let level = crate::core::config::CompressionLevel::effective(&config);
+        let level = crate::core::config::CompressionLevel::effective(&cfg);
         if level.is_active() {
             let terse_result = crate::core::terse::pipeline::compress(output, &level, None);
             if terse_result.quality_passed && terse_result.savings_pct >= 3.0 {
