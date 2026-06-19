@@ -72,10 +72,35 @@ fn agent_id() -> &'static str {
     crate::core::agent_identity::current_agent_id()
 }
 
-/// The tokenizer family that produced the token counts we record (G2). Resolved once.
+/// The tokenizer family the **ledger** denominates savings in: the active
+/// model's own family, so recorded tokens (and the USD derived from them) match
+/// the units the provider actually bills (#685). Resolved once per process from
+/// the same model `model_and_price` resolves — for the default O200kBase model
+/// (OpenAI/Cursor/unknown) this is `o200k_base`, so the common path is unchanged.
+pub(crate) fn ledger_family() -> crate::core::tokens::TokenizerFamily {
+    static CACHE: OnceLock<crate::core::tokens::TokenizerFamily> = OnceLock::new();
+    *CACHE.get_or_init(|| crate::core::tokens::detect_tokenizer(&model_and_price().0))
+}
+
+/// Count `text` in the ledger's tokenizer family (the active model's own) so
+/// recorded savings are model-correct (#685). For the default O200kBase model
+/// this is byte-identical to [`crate::core::tokens::count_tokens`] — same BPE,
+/// same cache key — so the common path keeps its exact o200k numbers at zero
+/// extra cost; only a resolved Claude/Gemini/Llama model triggers re-tokenizing.
+///
+/// NOTE: this is for the **internal ledger only**. Tool-output framing/footers
+/// must stay on `count_tokens` (o200k) to keep outputs byte-stable for provider
+/// prompt caching (#498) — do not route those through here.
+pub fn count_for_ledger(text: &str) -> usize {
+    crate::core::tokens::count_tokens_for(text, ledger_family())
+}
+
+/// The tokenizer family that produced the token counts we record (G2). Resolved
+/// once — now the active model's family (see [`ledger_family`]), so the ledger no
+/// longer claims `o200k_base` for a Claude/Gemini run it measured differently.
 fn tokenizer() -> &'static str {
     static CACHE: OnceLock<String> = OnceLock::new();
-    CACHE.get_or_init(crate::core::tokens::counting_family_label)
+    CACHE.get_or_init(|| ledger_family().to_string())
 }
 
 /// Shared event skeleton with the per-process attribution + pricing context filled in.
@@ -218,6 +243,28 @@ mod tests {
         let h = repo_hash();
         assert_eq!(h.len(), 16);
         assert!(h.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    /// #685: ledger counts are model-correct via a *real* BPE for the resolved
+    /// family — never a fabricated scalar. Robust regardless of which model this
+    /// process resolved to (the count always matches `count_tokens_for`).
+    #[test]
+    fn count_for_ledger_is_a_real_bpe_count_for_resolved_family() {
+        let text = "fn honest_accounting(n: u64) -> u64 { n }";
+        assert_eq!(
+            count_for_ledger(text),
+            crate::core::tokens::count_tokens_for(text, ledger_family())
+        );
+        assert!(count_for_ledger(text) > 0);
+        assert_eq!(count_for_ledger(""), 0);
+    }
+
+    /// The honest tokenizer label the ledger stamps on every event matches the
+    /// family its counts are denominated in — no more hardcoded `o200k_base` for
+    /// a Claude/Gemini run (#685).
+    #[test]
+    fn tokenizer_label_matches_ledger_family() {
+        assert_eq!(tokenizer(), ledger_family().to_string());
     }
 
     /// GL #479 D2: tool events must never panic and must skip the degenerate

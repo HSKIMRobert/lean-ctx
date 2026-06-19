@@ -42,6 +42,28 @@ pub struct RoiReport {
     pub top_models: Vec<(String, u64, f64)>,
     /// `(tool, saved_tokens)`, top rows.
     pub top_tools: Vec<(String, u64)>,
+
+    // --- honest net-of-injection (#361, #685) ---
+    // lean-ctx injects a fixed per-turn context prefix (tool schemas + server
+    // instructions + rules block). On a rail WITHOUT prompt caching that prefix
+    // is re-billed every turn, so the *honest* net is the ledger savings minus
+    // `overhead_per_turn × turns`. These are runtime annotations (current tool
+    // surface + observed proxy turns), filled by [`RoiReport::with_observed_overhead`]
+    // — they are deliberately NOT part of the signed batch, which must stay
+    // byte-reproducible from the event chain alone.
+    /// Fixed per-turn context lean-ctx injects, in tokens.
+    #[serde(default)]
+    pub injected_overhead_tokens_per_turn: u64,
+    /// Provider turns the proxy observed (`0` ⇒ proxy not in path ⇒ net == gross).
+    #[serde(default)]
+    pub turns: u64,
+    /// `injected_overhead_tokens_per_turn × turns` — total fixed tax over the run.
+    #[serde(default)]
+    pub injected_overhead_total_tokens: u64,
+    /// Honest net: `net_saved_tokens − injected_overhead_total_tokens`. Signed,
+    /// because a short run can go net-negative until savings outgrow the injection.
+    #[serde(default)]
+    pub net_after_overhead_tokens: i64,
 }
 
 impl RoiReport {
@@ -71,20 +93,56 @@ impl RoiReport {
             avg_saved_usd_per_event: t.saved_usd / denom,
             top_models: t.by_model.clone(),
             top_tools: t.by_tool.clone(),
+            // Injection overhead is runtime context; `from_signed_batch` stays a
+            // pure function of the batch. Until `with_observed_overhead` runs, the
+            // honest net equals the gross net (no turns observed yet).
+            injected_overhead_tokens_per_turn: 0,
+            turns: 0,
+            injected_overhead_total_tokens: 0,
+            net_after_overhead_tokens: t.net_saved_tokens as i64,
         }
     }
 
-    /// Compact one-line ROI headline.
+    /// Annotate the report with lean-ctx's own per-turn context overhead and the
+    /// honest net after subtracting it (`overhead × observed turns`). This is
+    /// runtime data (the current tool surface plus the proxy's observed turn
+    /// count), so it lives on the report rather than the signed batch — the
+    /// signed artifact must stay reproducible from the event chain alone (#685).
+    #[must_use]
+    pub fn with_observed_overhead(mut self) -> Self {
+        let per_turn =
+            crate::core::context_overhead::ContextOverhead::cached().total_tokens() as u64;
+        let turns = crate::core::context_overhead::observed_turns();
+        let (total, net) =
+            crate::core::context_overhead::net_of_injection(self.net_saved_tokens, per_turn, turns);
+        self.injected_overhead_tokens_per_turn = per_turn;
+        self.turns = turns;
+        self.injected_overhead_total_tokens = total;
+        self.net_after_overhead_tokens = net;
+        self
+    }
+
+    /// Compact one-line ROI headline. Appends the honest net-after-injection only
+    /// when the proxy actually observed turns (otherwise it equals the gross net).
     #[must_use]
     pub fn headline(&self) -> String {
-        format!(
+        let mut s = format!(
             "ROI: {} events, {} net tokens saved, ${:.4} (chain {}, {})",
             self.total_events,
             self.net_saved_tokens,
             self.saved_usd,
             if self.chain_valid { "valid" } else { "BROKEN" },
             if self.signed { "signed" } else { "unsigned" },
-        )
+        );
+        if self.turns > 0 {
+            use std::fmt::Write as _;
+            let _ = write!(
+                s,
+                " · {} net after injection ({} tok/turn × {} turns)",
+                self.net_after_overhead_tokens, self.injected_overhead_tokens_per_turn, self.turns,
+            );
+        }
+        s
     }
 }
 
@@ -97,7 +155,7 @@ pub fn roi_report(agent_id: &str) -> RoiReport {
     // Best-effort signing so the ROI surface derives from a *signed* artifact
     // whenever the machine identity is available.
     let _ = batch.sign(agent_id);
-    RoiReport::from_signed_batch(&batch)
+    RoiReport::from_signed_batch(&batch).with_observed_overhead()
 }
 
 #[cfg(test)]
@@ -142,6 +200,35 @@ mod tests {
         assert!(report.signed);
         assert!(report.chain_valid);
         assert_eq!(report.last_entry_hash, "deadbeef");
+        // `from_signed_batch` is pure: no turns observed yet, so the honest net
+        // equals the gross net and the injection annotations are zero.
+        assert_eq!(report.turns, 0);
+        assert_eq!(report.injected_overhead_total_tokens, 0);
+        assert_eq!(report.net_after_overhead_tokens, 4000);
+    }
+
+    #[test]
+    fn headline_omits_injection_line_without_turns() {
+        let report = RoiReport::from_signed_batch(&batch(4, 4000, 0.08, true));
+        let h = report.headline();
+        assert!(h.contains("4000 net tokens saved"));
+        assert!(
+            !h.contains("after injection"),
+            "no proxy turns ⇒ no injection annotation: {h}"
+        );
+    }
+
+    #[test]
+    fn headline_includes_injection_line_with_turns() {
+        // Simulate an observed run: 50 tok/turn × 8 turns = 400 tax → 3600 net.
+        let mut report = RoiReport::from_signed_batch(&batch(4, 4000, 0.08, true));
+        report.injected_overhead_tokens_per_turn = 50;
+        report.turns = 8;
+        report.injected_overhead_total_tokens = 400;
+        report.net_after_overhead_tokens = 3600;
+        let h = report.headline();
+        assert!(h.contains("3600 net after injection"), "headline: {h}");
+        assert!(h.contains("50 tok/turn × 8 turns"), "headline: {h}");
     }
 
     #[test]

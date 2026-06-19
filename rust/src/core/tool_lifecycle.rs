@@ -53,6 +53,12 @@ pub fn record_file_read(
 
     stats::record(&tool_key, original_tokens, output_tokens);
     heatmap::record_file_access(path, original_tokens, saved);
+    // Verified ledger (#685): recorded explicitly now that the heatmap chokepoint
+    // no longer bundles it. This direct-CLI path (daemon off) only has o200k
+    // counts; the model-correct re-tokenization happens on the MCP read path,
+    // which holds the source text. For the default O200kBase model these are
+    // identical anyway.
+    crate::core::savings_ledger::record_read_event(original_tokens, saved);
 
     if let Some(mut session) = SessionState::load_latest() {
         session.touch_file(path, None, mode, original_tokens);

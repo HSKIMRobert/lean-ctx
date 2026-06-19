@@ -220,10 +220,12 @@ pub fn record_file_access_with_agent(
     saved_tokens: usize,
     agent_id: Option<&str>,
 ) {
-    // Universal per-read chokepoint (CLI via tool_lifecycle, MCP via ctx_read/ctx_multi_read):
-    // also append one auditable savings event. Best-effort; never blocks/breaks the read.
-    crate::core::savings_ledger::record_read_event(original_tokens, saved_tokens);
-
+    // NOTE (#685): the verified savings ledger is recorded by the *callers*
+    // (ctx_read / ctx_multi_read / tool_lifecycle), NOT here. The heatmap counts
+    // in o200k for its file-pressure view, but the ledger must denominate in the
+    // active model's tokenizer family — and only the callers hold the source text
+    // needed to re-tokenize. Recording here would force one shared (o200k) count
+    // onto both, defeating model-correct savings.
     let file_path = std::fs::canonicalize(file_path).map_or_else(
         |_| file_path.to_string(),
         |p| p.to_string_lossy().into_owned(),
