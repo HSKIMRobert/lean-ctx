@@ -16,13 +16,8 @@ impl McpTool for CtxCallTool {
         tool_def(
             "ctx_call",
             "Invoke any non-core lean-ctx tool by name.\n\
-             arch: ctx_architecture, ctx_impact, ctx_callgraph, ctx_refactor, ctx_symbol, ctx_routes, ctx_smells\n\
-             debug: ctx_benchmark, ctx_verify, ctx_analyze, ctx_profile, ctx_review\n\
-             memory: ctx_semantic_search, ctx_artifacts\n\
-             batch: ctx_fill, ctx_execute, ctx_pack, ctx_plan, ctx_compile\n\
-             agent: ctx_agent, ctx_share, ctx_task, ctx_handoff, ctx_workflow\n\
-             util: ctx_compress, ctx_cache, ctx_metrics, ctx_dedup, ctx_cost, ctx_heatmap, ctx_preload\n\
-             Discover more: name=ctx_discover_tools, arguments={query}.",
+             Categories: arch, debug, memory, batch, agent, util. Find exact names \
+             with ctx_discover_tools (query=keyword; empty query lists all).",
             json!({
                 "type": "object",
                 "properties": {

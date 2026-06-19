@@ -56,13 +56,26 @@ fn terse_description(desc: &str) -> String {
 }
 
 fn lazy_description(name: &str, desc: &str) -> String {
-    let first_line = desc.lines().next().unwrap_or(name);
-    let summary = if first_line.len() > 80 {
+    let mut lines = desc.lines();
+    let first_line = lines.next().unwrap_or(name);
+    let has_more_lines = lines.next().is_some();
+    let truncated = first_line.len() > 80;
+    let summary = if truncated {
         format!("{}…", &first_line[..first_line.floor_char_boundary(77)])
     } else {
         first_line.to_string()
     };
-    format!("{summary} (use ctx_discover_tools for full docs)")
+    // The "full docs" pointer only earns its tokens when there is actually more
+    // to fetch: a truncated first line or additional lines. For a description
+    // that already fits on one line, the summary IS the full text (and
+    // `ctx_discover_tools` would return the very same first line), so the
+    // suffix is pure per-tool overhead and is omitted (#680). With 14 lazy-core
+    // tools this trims the fixed default prefix every session pays.
+    if truncated || has_more_lines {
+        format!("{summary} (use ctx_discover_tools for full docs)")
+    } else {
+        summary
+    }
 }
 
 /// Estimates token savings from compressing all tool descriptions.
@@ -113,6 +126,32 @@ mod tests {
             "lazy should reference ctx_discover_tools"
         );
         assert!(result.lines().count() == 1, "lazy should be 1 line");
+    }
+
+    #[test]
+    fn lazy_mode_single_line_omits_docs_suffix() {
+        // A description that already fits on one line has no hidden docs to
+        // fetch, so the "(use ctx_discover_tools…)" pointer is pure overhead and
+        // must be dropped — the summary IS the full text (#680).
+        let desc = "Directory tree (replaces ls/find). Compact maps.";
+        let result = compress_description("ctx_tree", desc, DescriptionMode::Lazy);
+        assert_eq!(result, desc, "single-line lazy desc must be verbatim");
+        assert!(
+            !result.contains("ctx_discover_tools"),
+            "single-line lazy desc must not append the docs suffix: {result}"
+        );
+    }
+
+    #[test]
+    fn lazy_mode_truncated_single_line_keeps_suffix() {
+        // A first line longer than 80 chars IS truncated, so the pointer to the
+        // full docs still earns its place even without a second line.
+        let desc = "This is a deliberately long single-line tool description that exceeds eighty characters to force truncation.";
+        let result = compress_description("ctx_x", desc, DescriptionMode::Lazy);
+        assert!(
+            result.contains('…') && result.contains("ctx_discover_tools"),
+            "truncated lazy desc keeps the docs suffix: {result}"
+        );
     }
 
     #[test]

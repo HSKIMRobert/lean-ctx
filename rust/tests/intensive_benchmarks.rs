@@ -136,12 +136,10 @@ fn bench_tool_descriptions_token_count() {
     );
 
     for (name, desc) in &descriptions {
-        // ctx_call is the universal invoker: its description intentionally lists
-        // the full non-core tool catalog so lazy-mode clients can discover what
-        // is callable. Every other tool stays within a tight per-tool budget.
-        if name == "ctx_call" {
-            continue;
-        }
+        // Every tool — including the ctx_call invoker — stays within a tight
+        // per-tool description budget. ctx_call no longer embeds the full
+        // non-core catalog; agents discover callable tools via ctx_discover_tools
+        // (#680), so no tool is exempt from this ceiling.
         let t = count_tokens(desc);
         assert!(
             t < 160,
