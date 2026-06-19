@@ -14,7 +14,7 @@
 #      against the customer's real provider bill)
 #
 # The private control-plane (lean-ctx-cloud) turns step 4's verified total into
-# the Stripe success-fee invoice — see lean-ctx-cloud/docs/outcome-pricing-e2e.md.
+# the Stripe success-fee invoice — see lean-ctx-cloud/docs/success-fee-v1.md.
 #
 # Usage:
 #   scripts/demo-outcome-pricing.sh            # build (if needed) + run
