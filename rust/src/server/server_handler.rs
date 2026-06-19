@@ -7,14 +7,46 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
 
-impl ServerHandler for LeanCtxServer {
-    fn get_info(&self) -> ServerInfo {
-        let capabilities = ServerCapabilities::builder()
+/// Builds the advertised MCP server capabilities.
+///
+/// `tools` is always enabled **and** always declares `listChanged`: lean-ctx
+/// emits `notifications/tools/list_changed` whenever a tool call mutates the
+/// dynamic tool set (see `dispatch::send_tools_list_changed`). The MCP spec only
+/// permits sending that notification when the matching capability was advertised
+/// — otherwise a strict client (e.g. Claude Code) treats it as a protocol
+/// violation and drops the entire tool set ("connected, but no tools"). The
+/// `resources`/`prompts` surfaces stay client-gated so we never advertise a
+/// surface the connected client cannot use.
+fn server_capabilities(resources: bool, prompts: bool) -> ServerCapabilities {
+    match (resources, prompts) {
+        (true, true) => ServerCapabilities::builder()
             .enable_tools()
+            .enable_tool_list_changed()
             .enable_resources()
             .enable_resources_subscribe()
             .enable_prompts()
-            .build();
+            .build(),
+        (true, false) => ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tool_list_changed()
+            .enable_resources()
+            .enable_resources_subscribe()
+            .build(),
+        (false, true) => ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tool_list_changed()
+            .enable_prompts()
+            .build(),
+        (false, false) => ServerCapabilities::builder()
+            .enable_tools()
+            .enable_tool_list_changed()
+            .build(),
+    }
+}
+
+impl ServerHandler for LeanCtxServer {
+    fn get_info(&self) -> ServerInfo {
+        let capabilities = server_capabilities(true, true);
 
         let config = crate::core::config::Config::load();
         let level = crate::core::config::CompressionLevel::effective(&config);
@@ -207,24 +239,7 @@ impl ServerHandler for LeanCtxServer {
         let instructions =
             crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);
 
-        let capabilities = match (client_caps.resources, client_caps.prompts) {
-            (true, true) => ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .enable_resources_subscribe()
-                .enable_prompts()
-                .build(),
-            (true, false) => ServerCapabilities::builder()
-                .enable_tools()
-                .enable_resources()
-                .enable_resources_subscribe()
-                .build(),
-            (false, true) => ServerCapabilities::builder()
-                .enable_tools()
-                .enable_prompts()
-                .build(),
-            (false, false) => ServerCapabilities::builder().enable_tools().build(),
-        };
+        let capabilities = server_capabilities(client_caps.resources, client_caps.prompts);
 
         Ok(InitializeResult::new(capabilities)
             .with_server_info(Implementation::new("lean-ctx", env!("CARGO_PKG_VERSION")))
@@ -422,10 +437,18 @@ impl ServerHandler for LeanCtxServer {
         .catch_unwind()
         .await;
         computed.unwrap_or_else(|_| {
+            // A panic here must NOT leave the agent tool-less — that is
+            // indistinguishable from "MCP totally failed" and gives the user no
+            // recovery path. Fall back to the static lazy-core defs (a pure,
+            // panic-free function) so ctx_read/ctx_shell/ctx_call stay available
+            // even if the dynamic/registry path blew up.
             tracing::error!(
-                "list_tools panicked; returning an empty tool list to keep the MCP server alive"
+                "list_tools panicked; serving the static lazy-core tool set as a fallback"
             );
-            Ok(ListToolsResult::default())
+            Ok(ListToolsResult {
+                tools: crate::tool_defs::lazy_tool_defs(),
+                ..Default::default()
+            })
         })
     }
 
@@ -550,5 +573,44 @@ impl ServerHandler for LeanCtxServer {
         tracing::info!("Received roots/list_changed — will re-resolve on next tool call");
         self.roots_resolved
             .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// lean-ctx emits `notifications/tools/list_changed` whenever a tool call
+    /// mutates the dynamic tool set. The capability MUST be advertised on every
+    /// client surface (resources/prompts on or off) — otherwise a strict client
+    /// such as Claude Code rejects the undeclared notification and drops the whole
+    /// tool set ("connected, but tools not registered"). Regression guard for #688.
+    #[test]
+    fn server_capabilities_always_declare_tool_list_changed() {
+        for (resources, prompts) in [(true, true), (true, false), (false, true), (false, false)] {
+            let caps = server_capabilities(resources, prompts);
+            let tools = caps.tools.expect("tools capability must be advertised");
+            assert_eq!(
+                tools.list_changed,
+                Some(true),
+                "listChanged must be Some(true) for (resources={resources}, prompts={prompts})"
+            );
+        }
+    }
+
+    /// The `list_tools` panic guard serves `lazy_tool_defs()`; it must contain the
+    /// essentials so an internal panic never leaves the agent tool-less (which is
+    /// indistinguishable from "MCP totally failed"). Regression guard for #688.
+    #[test]
+    fn lazy_core_fallback_is_never_empty() {
+        let _guard = crate::core::data_dir::isolated_data_dir();
+        let defs = crate::tool_defs::lazy_tool_defs();
+        assert!(!defs.is_empty(), "lazy-core fallback must not be empty");
+        for essential in ["ctx_read", "ctx_shell", "ctx_call"] {
+            assert!(
+                defs.iter().any(|t| t.name.as_ref() == essential),
+                "lazy-core fallback must include {essential}"
+            );
+        }
     }
 }
