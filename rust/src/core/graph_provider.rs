@@ -304,14 +304,15 @@ impl GraphProvider {
     }
 }
 
-pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
+/// Open whichever graph is already populated on disk, **without** triggering any
+/// build, plus a flag telling the caller the property graph still wants a
+/// (re)build. Backend selection (#682): `legacy` never consults the property
+/// graph — the escape hatch if a PG regression surfaces. `auto` (the default
+/// since #682.4, parity proven lossless in #682.3) and `property-graph` prefer a
+/// populated PG and fall back to the graph index when PG is not yet populated.
+fn open_existing(project_root: &str) -> (Option<OpenGraphProvider>, bool) {
     let t0 = std::time::Instant::now();
 
-    // Backend selection (#682): `legacy` never consults the property graph —
-    // the escape hatch if a PG regression surfaces. `auto` (the default since
-    // #682.4, parity proven lossless in #682.3) and `property-graph` fall
-    // through to the best-effort logic below, which still falls back to
-    // graph_index whenever PG is not yet populated.
     let backend =
         crate::core::config::GraphBackend::effective(&crate::core::config::Config::load());
     if backend == crate::core::config::GraphBackend::Legacy {
@@ -324,12 +325,16 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
                 idx.edges.len(),
                 t0,
             );
-            return Some(OpenGraphProvider {
-                source: GraphProviderSource::GraphIndex,
-                provider: GraphProvider::GraphIndex(idx),
-            });
+            return (
+                Some(OpenGraphProvider {
+                    source: GraphProviderSource::GraphIndex,
+                    provider: GraphProvider::GraphIndex(idx),
+                }),
+                false,
+            );
         }
-        return None;
+        // Legacy never builds the property graph.
+        return (None, false);
     }
 
     let mut pg_provider = None;
@@ -341,42 +346,63 @@ pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
         pg_populated = nodes > 0 && edges > 0 && file_cat > 0;
         if pg_populated {
             log_source_selection(GraphProviderSource::PropertyGraph, nodes, edges, t0);
-            return Some(OpenGraphProvider {
-                source: GraphProviderSource::PropertyGraph,
-                provider: GraphProvider::PropertyGraph(pg),
-            });
+            return (
+                Some(OpenGraphProvider {
+                    source: GraphProviderSource::PropertyGraph,
+                    provider: GraphProvider::PropertyGraph(pg),
+                }),
+                false,
+            );
         }
         if nodes > 0 && file_cat > 0 {
             pg_provider = Some(pg);
         }
     }
 
-    if !pg_populated {
-        trigger_lazy_graph_build(project_root);
-    }
+    // PG is not fully populated: a (re)build would help the next call.
+    let needs_build = !pg_populated;
 
     if let Some(idx) = super::index_orchestrator::try_load_graph_index(project_root) {
         let files = idx.files.len();
         let edges = idx.edges.len();
         if !idx.edges.is_empty() || !idx.files.is_empty() {
             log_source_selection(GraphProviderSource::GraphIndex, files, edges, t0);
-            return Some(OpenGraphProvider {
-                source: GraphProviderSource::GraphIndex,
-                provider: GraphProvider::GraphIndex(idx),
-            });
+            return (
+                Some(OpenGraphProvider {
+                    source: GraphProviderSource::GraphIndex,
+                    provider: GraphProvider::GraphIndex(idx),
+                }),
+                needs_build,
+            );
         }
     }
 
     if let Some(pg) = pg_provider {
         let nodes = pg.node_count().unwrap_or(0);
         log_source_selection(GraphProviderSource::PropertyGraph, nodes, 0, t0);
-        return Some(OpenGraphProvider {
-            source: GraphProviderSource::PropertyGraph,
-            provider: GraphProvider::PropertyGraph(pg),
-        });
+        return (
+            Some(OpenGraphProvider {
+                source: GraphProviderSource::PropertyGraph,
+                provider: GraphProvider::PropertyGraph(pg),
+            }),
+            needs_build,
+        );
     }
 
-    None
+    (None, needs_build)
+}
+
+/// Open an already-built graph, kicking off a one-shot background build when the
+/// property graph is not fully populated so the *next* call is fast. Returns
+/// `None` on this call when nothing is ready yet. Best-effort callers
+/// (dashboards, context gate, stats, `ctx_graph`) use this; callers that need a
+/// graph *right now* use [`open_or_build`], which builds synchronously instead.
+pub fn open_best_effort(project_root: &str) -> Option<OpenGraphProvider> {
+    let (existing, needs_build) = open_existing(project_root);
+    if needs_build {
+        trigger_lazy_graph_build(project_root);
+    }
+    existing
 }
 
 fn log_source_selection(
@@ -442,7 +468,12 @@ pub fn build_property_graph(project_root: &str) -> anyhow::Result<()> {
 }
 
 pub fn open_or_build(project_root: &str) -> Option<OpenGraphProvider> {
-    if let Some(p) = open_best_effort(project_root) {
+    // Open via `open_existing` (not `open_best_effort`): we build synchronously
+    // below, so we must NOT spawn the background indexer. Its worker holds the
+    // graph-index file lock, which would starve the synchronous scan into
+    // returning an empty index — the "No graph available" first-call regression
+    // after the PropertyGraph default flip (#695/#682.2).
+    if let (Some(p), _) = open_existing(project_root) {
         return Some(p);
     }
     let idx = super::graph_index::load_or_build(project_root);
