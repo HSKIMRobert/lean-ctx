@@ -52,8 +52,8 @@ finish() {
       else
         echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $rc && source $rc"
         # macOS (and any bash login shell) reads ~/.bash_profile, not ~/.bashrc — so a PATH
-        # line in ~/.bashrc never loads in Terminal.app/IDE login shells. 'lean-ctx setup'
-        # fixes this automatically; this is the manual one-liner if you skip setup.
+        # line in ~/.bashrc never loads in Terminal.app/IDE login shells. 'lean-ctx onboard'
+        # fixes this automatically; this is the manual one-liner if you skip onboarding.
         if [ "$shell_name" = "bash" ] && [ "$(uname -s)" = "Darwin" ]; then
           echo "  # then make login shells load ~/.bashrc (macOS bash):"
           echo "  grep -qs '.bashrc' \"\$HOME/.bash_profile\" 2>/dev/null || printf '\\n[ -f ~/.bashrc ] && . ~/.bashrc\\n' >> \"\$HOME/.bash_profile\""
@@ -64,8 +64,9 @@ finish() {
   echo ""
   echo "Done! Verify with: lean-ctx --version"
   echo ""
-  echo "Next step: Run 'lean-ctx setup' to configure your IDE integration."
-  echo "  This sets up MCP tools, shell hooks, and editor rules."
+  echo "Next step: Run 'lean-ctx onboard' to connect your AI tools (zero questions)."
+  echo "  Sets up MCP tools, shell hooks, and editor rules with sensible defaults."
+  echo "  Want to choose every option yourself? Run 'lean-ctx setup' instead."
 }
 
 detect_target() {

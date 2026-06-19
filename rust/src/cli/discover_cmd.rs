@@ -238,7 +238,7 @@ pub fn cmd_ghost(args: &[String]) {
     println!();
     if discover.already_optimized == 0 {
         println!(
-            "  {yellow}Run '{bold}lean-ctx setup{rst}{yellow}' to eliminate ghost tokens.{rst}"
+            "  {yellow}Run '{bold}lean-ctx onboard{rst}{yellow}' to eliminate ghost tokens.{rst}"
         );
     } else {
         println!(

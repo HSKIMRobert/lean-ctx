@@ -3,7 +3,7 @@
 
 /// Short, friendly orientation shown when a human runs bare `lean-ctx` in a
 /// terminal (where the silent stdio MCP server would otherwise just hang). One
-/// obvious next step (`setup`), not the full 150-line command reference.
+/// obvious next step (`onboard`), not the full 150-line command reference.
 pub(super) fn quickstart_text() -> String {
     format!(
         "lean-ctx {version} — Context Runtime for AI Agents
@@ -94,7 +94,7 @@ pub(super) fn print_help() {
 
 GETTING STARTED:
     lean-ctx onboard               Connect your AI tools with one command (recommended)
-    lean-ctx setup                 Guided setup with full control (start here for options)
+    lean-ctx setup                 Guided setup with full control over every option
     lean-ctx doctor                Check that everything is wired up correctly
     lean-ctx gain                  See how many tokens you have saved
     (everything below is reference — run `lean-ctx help` for the short version)
@@ -300,7 +300,7 @@ EXAMPLES:
     lean-ctx sessions show         Show latest session state
     lean-ctx discover              Find missed savings in shell history
     lean-ctx discover --card       Shareable 'before' SVG -> lean-ctx-before.svg
-    lean-ctx setup                 One-command setup (shell + editors + verify)
+    lean-ctx onboard               One-command setup (shell + editors + verify)
     lean-ctx install --repair      Premium repair path (non-interactive, merge-based)
     lean-ctx bootstrap             Non-interactive setup + fix (zero-config)
     lean-ctx bootstrap --json      Machine-readable bootstrap report
