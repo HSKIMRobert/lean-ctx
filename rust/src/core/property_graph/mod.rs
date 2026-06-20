@@ -253,8 +253,20 @@ impl CodeGraph {
         node::find_symbols(&self.conn, name, file_filter, kind_filter)
     }
 
+    /// Files that define a symbol named exactly `name` (GH #398 symbol-name
+    /// `ctx_impact analyze` fallback). Backed by `node::resolve_symbol_def_files`.
+    pub fn resolve_symbol_def_files(&self, name: &str) -> anyhow::Result<Vec<String>> {
+        node::resolve_symbol_def_files(&self.conn, name)
+    }
+
     pub fn symbol_count(&self) -> anyhow::Result<usize> {
         node::symbol_count(&self.conn)
+    }
+
+    /// Count of `file` nodes (accurate on both builder paths). Backed by
+    /// `node::file_count`.
+    pub fn file_node_count(&self) -> anyhow::Result<usize> {
+        node::file_count(&self.conn)
     }
 
     /// Every symbol node with its line span (unfiltered). Backend for the

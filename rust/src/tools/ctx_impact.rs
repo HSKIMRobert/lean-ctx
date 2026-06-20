@@ -137,18 +137,179 @@ fn handle_analyze(path: Option<&str>, root: &str, max_depth: usize, fmt: OutputF
         Err(e) => return e,
     };
 
-    let rel_target = graph_target_key(target, root);
-
     if graph.node_count().unwrap_or(0) == 0 {
         return "Graph is empty after auto-build. No supported source files found.".to_string();
     }
 
-    let impact = match graph.impact_analysis(&rel_target, max_depth) {
-        Ok(r) => r,
-        Err(e) => return format!("Impact analysis failed: {e}"),
-    };
+    let rel_target = graph_target_key(target, root);
 
-    format_impact(&impact, &rel_target, root, fmt)
+    // 1) Direct file-node match — the documented contract (a file path).
+    if graph.get_node_by_path(&rel_target).ok().flatten().is_some() {
+        let impact = match graph.impact_analysis(&rel_target, max_depth) {
+            Ok(r) => r,
+            Err(e) => return format!("Impact analysis failed: {e}"),
+        };
+        return format_impact(&impact, &rel_target, root, fmt);
+    }
+
+    // 2) Symbol-name fallback (GH #398): callers — and LLMs — routinely ask for
+    //    the impact of a *class/type* by name (`ctx_impact analyze ArcPoint`)
+    //    rather than its file path. Resolve the bare name to the file(s) that
+    //    define it and report their combined blast radius, instead of the
+    //    misleading "leaf node" answer a non-file target produced before.
+    let symbol = symbol_query_name(target);
+    if !symbol.is_empty()
+        && let Ok(def_files) = graph.resolve_symbol_def_files(&symbol)
+        && !def_files.is_empty()
+    {
+        return analyze_symbol(&graph, &symbol, &def_files, root, max_depth, fmt);
+    }
+
+    // 3) Neither a file nor a known symbol: an actionable diagnostic beats a
+    //    false "no impact".
+    analyze_unresolved(&graph, target, &rel_target, root, fmt)
+}
+
+/// Reduce a user-supplied target to a bare symbol name for the #398 fallback:
+/// drop any directory prefix and a single trailing source extension, so
+/// `Models/ArcPoint.cs`, `ArcPoint.cs` and `ArcPoint` all query `ArcPoint`.
+/// Returns an empty string for inputs that cannot name a single symbol
+/// (namespace separators, generics, globs, whitespace) — those would only
+/// produce bogus matches.
+fn symbol_query_name(target: &str) -> String {
+    let base = target.rsplit(['/', '\\']).next().unwrap_or(target).trim();
+    let stem = base
+        .rsplit_once('.')
+        .filter(|(_, ext)| GRAPH_SOURCE_EXTS.contains(ext))
+        .map_or(base, |(s, _)| s);
+    if stem.is_empty()
+        || stem.contains(|c: char| {
+            c.is_whitespace() || matches!(c, '.' | ':' | '*' | '<' | '>' | '(' | ')' | '/' | '\\')
+        })
+    {
+        return String::new();
+    }
+    stem.to_string()
+}
+
+/// Combined blast radius of every file that defines `symbol` (GH #398
+/// symbol-name fallback). The defining files are what changes, so they are
+/// excluded from the affected set; the resolved files are surfaced so the
+/// answer stays transparent. Output is sorted + capped for determinism (#498).
+fn analyze_symbol(
+    graph: &CodeGraph,
+    symbol: &str,
+    def_files: &[String],
+    root: &str,
+    max_depth: usize,
+    fmt: OutputFormat,
+) -> String {
+    let mut affected: BTreeSet<String> = BTreeSet::new();
+    let mut max_depth_reached = 0usize;
+    let mut edges_traversed = 0usize;
+    for f in def_files {
+        if let Ok(r) = graph.impact_analysis(f, max_depth) {
+            max_depth_reached = max_depth_reached.max(r.max_depth_reached);
+            edges_traversed += r.edges_traversed;
+            affected.extend(r.affected_files);
+        }
+    }
+    // The definers are the thing being changed, not impacted by it.
+    for f in def_files {
+        affected.remove(f);
+    }
+
+    let mut sorted: Vec<String> = affected.into_iter().collect();
+    let total = sorted.len();
+    let limit = crate::core::budgets::IMPACT_AFFECTED_FILES_LIMIT.max(1);
+    let truncated = total > limit;
+    if truncated {
+        sorted.truncate(limit);
+    }
+
+    match fmt {
+        OutputFormat::Json => {
+            let v = json!({
+                "schema_version": crate::core::contracts::GRAPH_REPRODUCIBILITY_V1_SCHEMA_VERSION,
+                "tool": "ctx_impact",
+                "action": "analyze",
+                "project": project_meta(root),
+                "graph": graph_summary(root),
+                "graph_meta": crate::core::property_graph::load_meta(root),
+                "target": symbol,
+                "resolved_from": "symbol",
+                "defined_in": def_files,
+                "max_depth_reached": max_depth_reached,
+                "edges_traversed": edges_traversed,
+                "affected_files_total": total,
+                "affected_files": sorted,
+                "truncated": truncated
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let defined = def_files.join(", ");
+            if total == 0 {
+                let result = format!(
+                    "No files depend on {symbol} (defined in {defined}); it is a leaf in the dependency graph."
+                );
+                let tokens = count_tokens(&result);
+                return format!("{result}\n[ctx_impact: {tokens} tok]");
+            }
+            let mut result = format!(
+                "Impact of changing {symbol} (defined in {defined}): {total} affected files \
+                 (depth: {max_depth_reached}, edges traversed: {edges_traversed})\n"
+            );
+            for file in &sorted {
+                result.push_str(&format!("  {file}\n"));
+            }
+            if truncated {
+                result.push_str(&format!("  ... +{} more\n", total - limit));
+            }
+            let tokens = count_tokens(&result);
+            format!("{result}[ctx_impact: {tokens} tok]")
+        }
+    }
+}
+
+/// Diagnostic for an `analyze` target that matched neither a file node nor a
+/// symbol. Replaces the old silent "leaf node" answer — indistinguishable from
+/// a real leaf — with the indexed counts and a concrete next step (GH #398).
+fn analyze_unresolved(
+    graph: &CodeGraph,
+    target: &str,
+    rel_target: &str,
+    root: &str,
+    fmt: OutputFormat,
+) -> String {
+    let files = graph.file_node_count().unwrap_or(0);
+    let symbols = graph.symbol_count().unwrap_or(0);
+    match fmt {
+        OutputFormat::Json => {
+            let v = json!({
+                "tool": "ctx_impact",
+                "action": "analyze",
+                "project": project_meta(root),
+                "graph": graph_summary(root),
+                "target": target,
+                "resolved": false,
+                "indexed_files": files,
+                "indexed_symbols": symbols,
+                "hint": "Target is neither an indexed file path nor a known symbol. Pass a path relative to the project root, or rebuild with action='build'."
+            });
+            serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+        }
+        OutputFormat::Text => {
+            let result = format!(
+                "'{target}' is not a known file or symbol in the graph \
+                 ({files} files, {symbols} symbols indexed).\n  \
+                 - As a file: pass a path relative to the project root (looked up '{rel_target}').\n  \
+                 - As a class/type: check the spelling, or run ctx_impact action='build' to (re)index."
+            );
+            let tokens = count_tokens(&result);
+            format!("{result}\n[ctx_impact: {tokens} tok]")
+        }
+    }
 }
 
 fn format_impact(impact: &ImpactResult, target: &str, root: &str, fmt: OutputFormat) -> String {
@@ -2179,6 +2340,162 @@ mod tests {
             !affected("N1/Widget.cs").contains(&"Foo/Dashboard.cs".to_string()),
             "out-of-namespace homonym must NOT be linked; got: {:?}",
             affected("N1/Widget.cs")
+        );
+    }
+
+    /// GH #398 (real-world cross-namespace DI): every existing e2e test keeps
+    /// consumer and definer in the *same* namespace. Real C# services live in
+    /// their own namespace and reach a model/contract through a `using`
+    /// directive, injected by interface (never `new`-ed). This exercises the
+    /// full `handle("analyze")` text path — exactly what the MCP tool runs —
+    /// for the interface contract changing:
+    ///   * the concrete implementor (reached via the base list), and
+    ///   * the cross-namespace DI consumer (reached via `using` + ctor param).
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn csharp_cross_namespace_using_di_blast_radius() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("Models")).unwrap();
+        std::fs::create_dir_all(root.join("Services")).unwrap();
+
+        // Contract interface in the Models namespace.
+        std::fs::write(
+            root.join("Models/IEngine.cs"),
+            "namespace MyApp.Models;\n\npublic interface IEngine\n{\n    int Power { get; }\n}\n",
+        )
+        .unwrap();
+        // Concrete class implementing the interface (base_list -> IEngine).
+        std::fs::write(
+            root.join("Models/Engine.cs"),
+            "namespace MyApp.Models;\n\n\
+             public class Engine : IEngine\n{\n    public int Power => 1;\n}\n",
+        )
+        .unwrap();
+        // Service in a DIFFERENT namespace, reaching the contract via `using`,
+        // injected by interface — never `new Engine()`.
+        std::fs::write(
+            root.join("Services/Motor.cs"),
+            "using MyApp.Models;\n\nnamespace MyApp.Services;\n\n\
+             public class Motor\n{\n    private readonly IEngine _engine;\n\n\
+             \x20   public Motor(IEngine engine)\n    {\n        _engine = engine;\n    }\n}\n",
+        )
+        .unwrap();
+        // Unrelated control: must NOT appear in the blast radius (non-vacuous).
+        std::fs::write(
+            root.join("Services/Logger.cs"),
+            "namespace MyApp.Services;\n\n\
+             public class Logger\n{\n    public void Log(string m) { }\n}\n",
+        )
+        .unwrap();
+
+        let root_str = root.to_string_lossy().to_string();
+
+        // Full MCP path: build then analyze (text), exactly like the tool runs.
+        let build = handle("build", None, &root_str, None, Some("text"));
+        assert!(!build.contains("ERROR"), "graph build failed: {build}");
+
+        let iface = handle(
+            "analyze",
+            Some("Models/IEngine.cs"),
+            &root_str,
+            None,
+            Some("text"),
+        );
+        assert!(
+            iface.contains("Models/Engine.cs"),
+            "implementor (base list) must be impacted by IEngine.cs; got: {iface}"
+        );
+        assert!(
+            iface.contains("Services/Motor.cs"),
+            "cross-namespace DI consumer (using + interface ctor param) must be \
+             impacted by IEngine.cs; got: {iface}"
+        );
+        assert!(
+            !iface.contains("Services/Logger.cs"),
+            "unrelated file must NOT be impacted; got: {iface}"
+        );
+    }
+
+    /// GH #398 (root cause of the persistent reports): `ctx_impact analyze` is
+    /// asked for the impact of a *class name* — `ctx_impact analyze ArcPoint` —
+    /// not a file path. Before the symbol-name fallback the bare name matched no
+    /// file node, so impact returned a misleading "leaf node / no impact". The
+    /// fallback must resolve the class to its defining file and surface the real
+    /// consumers, while a genuinely unknown target gets an actionable
+    /// diagnostic rather than a false "no impact". Exercises the full
+    /// `handle("analyze")` path on both builder paths (gated on `tree-sitter`).
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn csharp_analyze_by_class_name_resolves_to_file() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("Models")).unwrap();
+        std::fs::create_dir_all(root.join("Services")).unwrap();
+
+        std::fs::write(
+            root.join("Models/Engine.cs"),
+            "namespace App.Core;\n\n\
+             public class Engine\n{\n    public int Power { get; set; }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Services/Motor.cs"),
+            "namespace App.Core;\n\n\
+             public class Motor\n{\n    private readonly Engine _engine;\n\n\
+             \x20   public Motor(Engine engine)\n    {\n        _engine = engine;\n    }\n}\n",
+        )
+        .unwrap();
+
+        let root_str = root.to_string_lossy().to_string();
+        let build = handle("build", None, &root_str, None, Some("text"));
+        assert!(!build.contains("ERROR"), "graph build failed: {build}");
+
+        // The actual user/LLM call: a bare class name, NOT a file path.
+        let by_name = handle("analyze", Some("Engine"), &root_str, None, Some("text"));
+        assert!(
+            by_name.contains("Services/Motor.cs"),
+            "class-name analyze must resolve 'Engine' to its file and surface the \
+             DI consumer; got: {by_name}"
+        );
+        assert!(
+            by_name.contains("defined in") && by_name.contains("Models/Engine.cs"),
+            "class-name analyze must disclose the resolved definer file; got: {by_name}"
+        );
+
+        // A file path must still work unchanged (regression guard).
+        let by_path = handle(
+            "analyze",
+            Some("Models/Engine.cs"),
+            &root_str,
+            None,
+            Some("text"),
+        );
+        assert!(
+            by_path.contains("Services/Motor.cs"),
+            "file-path analyze must keep working; got: {by_path}"
+        );
+
+        // An unknown target gets a diagnostic, not a false "leaf node".
+        let unknown = handle(
+            "analyze",
+            Some("NoSuchThing"),
+            &root_str,
+            None,
+            Some("text"),
+        );
+        assert!(
+            unknown.contains("not a known file or symbol"),
+            "unknown target must produce the actionable diagnostic; got: {unknown}"
+        );
+
+        // JSON shape carries the resolution provenance for programmatic callers.
+        let json = handle("analyze", Some("Engine"), &root_str, None, Some("json"));
+        assert!(
+            json.contains("\"resolved_from\": \"symbol\""),
+            "json must mark symbol-resolved analyses; got: {json}"
         );
     }
 }
