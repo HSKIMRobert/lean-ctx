@@ -172,7 +172,7 @@ pub fn print_command_box() {
         "  {dim}│{rst}  {cmd}{bold}lean-ctx update{rst}      {m}Self-update to latest{rst}           {dim}│{rst}"
     );
     println!(
-        "  {dim}│{rst}  {cmd}{bold}lean-ctx off{rst} / {cmd}{bold}on{rst}    {m}Toggle compression{rst}              {dim}│{rst}"
+        "  {dim}│{rst}  {cmd}{bold}LEAN_CTX_DISABLED=1{rst}  {m}Disable compression{rst}             {dim}│{rst}"
     );
     println!(
         "  {dim}│{rst}  {cmd}{bold}lean-ctx report-issue{rst} {m}Report a bug (auto-diagnostics){rst} {dim}│{rst}"
