@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.8.11] — 2026-06-20
+
+### Fixed
+- **#478 — JetBrains plugin now writes its backend port file to `XDG_DATA_HOME`,
+  matching the Rust `data_dir`.** After the #408 path refactor, `LeanCtxPaths`
+  treated `config.toml` as a data marker and fell back to `XDG_CONFIG_HOME`, so
+  the plugin wrote the port file under `~/.config/lean-ctx` while the Rust reader
+  looks under `~/.local/share/lean-ctx`. The file was never found
+  (`BACKEND_REQUIRED`), disabling every IDE-side `ctx_*` action. Data-dir
+  resolution now mirrors the Rust implementation (single-dir override, layout
+  pin, data-only markers with `config.toml` excluded), with regression tests for
+  fresh installs, mixed configs and XDG pins. Thanks @dasTholo.
+- **`lean-ctx uninstall` now also removes the auto-update agent and every XDG
+  data directory.** A full uninstall left the 6-hourly self-update LaunchAgent
+  (`com.leanctx.autoupdate`) running and never deleted the real runtime dirs
+  (`~/.local/share`, `~/.local/state`, `~/.cache` — >150 MB), because
+  `remove_data_dir` resolved through `dirs::data_dir()`, which collapses onto
+  `~/Library/Application Support` on macOS. Uninstall now calls
+  `update_scheduler::remove_schedule()` and resolves every XDG category through
+  `core::paths` (honoring `LEAN_CTX_*_DIR` / `XDG_*`), with a regression test that
+  asserts every canonical directory is covered exactly once.
+- **Onboarding command box now shows `LEAN_CTX_DISABLED=1` instead of the
+  non-existent `lean-ctx off` / `on` toggle.** The box advertised subcommands
+  that don't exist (they fail with "unknown command"); the real global switch is
+  the `LEAN_CTX_DISABLED=1` environment variable.
+
 ## [3.8.10] — 2026-06-20
 
 ### Fixed
