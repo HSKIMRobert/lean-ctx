@@ -7,12 +7,24 @@ mod fix;
 mod integrations;
 mod migrate;
 mod overhead;
+mod report;
 mod workspace_scope;
 
 #[allow(clippy::wildcard_imports)]
 use checks::*;
 #[allow(clippy::wildcard_imports)]
 use common::*;
+
+pub use report::{HealthCheck, HealthLevel, HealthReport, health_report};
+
+/// Run `doctor --fix` and return the structured `SetupReport` without printing
+/// anything — the in-process entry point for the dashboard fix route (#466).
+///
+/// # Errors
+/// Propagates any repair-step failure (e.g. an unwritable data directory).
+pub fn run_fix_report() -> Result<crate::core::setup_report::SetupReport, String> {
+    fix::fix_report()
+}
 
 pub(super) const GREEN: &str = "\x1b[32m";
 
