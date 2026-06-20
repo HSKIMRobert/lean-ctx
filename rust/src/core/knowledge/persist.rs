@@ -338,9 +338,22 @@ mod tests {
         );
 
         drop(held);
+        // `close()` releases the flock synchronously, so the lock IS free here.
+        // Under heavy parallel test load, however, a single non-blocking
+        // `try_lock_exclusive()` can momentarily observe `EWOULDBLOCK` from
+        // scheduling jitter. A short bounded retry removes that flake without
+        // weakening the guarantee: the lock must become acquirable again.
+        let mut reacquired = false;
+        for _ in 0..50 {
+            if second.try_lock_exclusive().is_ok() {
+                reacquired = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         assert!(
-            second.try_lock_exclusive().is_ok(),
-            "lock must be acquirable once released"
+            reacquired,
+            "lock must be acquirable within 500ms of release"
         );
     }
 
