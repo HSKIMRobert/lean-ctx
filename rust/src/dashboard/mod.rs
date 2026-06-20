@@ -12,6 +12,7 @@ const COCKPIT_LIB_FORMAT_JS: &str = include_str!("static/lib/format.js");
 const COCKPIT_LIB_ROUTER_JS: &str = include_str!("static/lib/router.js");
 const COCKPIT_LIB_CHARTS_JS: &str = include_str!("static/lib/charts.js");
 const COCKPIT_LIB_SHARED_JS: &str = include_str!("static/lib/shared.js");
+const COCKPIT_LIB_DOCTOR_JS: &str = include_str!("static/lib/doctor.js");
 const COCKPIT_COMPONENT_NAV_JS: &str = include_str!("static/components/cockpit-nav.js");
 const COCKPIT_COMPONENT_CONTEXT_JS: &str = include_str!("static/components/cockpit-context.js");
 const COCKPIT_COMPONENT_OVERVIEW_JS: &str = include_str!("static/components/cockpit-overview.js");

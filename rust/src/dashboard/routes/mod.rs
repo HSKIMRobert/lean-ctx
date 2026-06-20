@@ -2,6 +2,7 @@
 
 mod agents;
 mod context;
+mod doctor;
 mod graph;
 pub mod helpers;
 mod knowledge;
@@ -112,6 +113,13 @@ pub fn route_response(
             super::COCKPIT_LIB_SHARED_JS.to_string(),
         );
     }
+    if path == "/static/lib/doctor.js" {
+        return (
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            super::COCKPIT_LIB_DOCTOR_JS.to_string(),
+        );
+    }
     if let Some(content) = match_component_path(path) {
         return ("200 OK", "application/javascript; charset=utf-8", content);
     }
@@ -159,6 +167,7 @@ pub fn route_response(
         .or_else(|| agents::handle(path, query_str, method, body))
         .or_else(|| tools::handle(path, query_str, method, body))
         .or_else(|| settings::handle(path, query_str, method, body))
+        .or_else(|| doctor::handle(path, query_str, method, body))
         .or_else(|| system::handle(path, query_str, method, body))
         .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
 }
