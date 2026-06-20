@@ -186,9 +186,23 @@ pub fn run(dry_run: bool, keep_config: bool, keep_binary: bool) {
     if dry_run {
         println!("  Would remove proxy autostart (LaunchAgent/systemd)");
         println!("  Would remove daemon autostart (LaunchAgent/systemd)");
+        println!("  Would remove auto-update schedule (LaunchAgent/systemd/Task)");
     } else {
         crate::proxy_autostart::uninstall(true);
         crate::daemon_autostart::uninstall(true);
+        // The 6-hourly self-update agent (com.leanctx.autoupdate) is a *separate*
+        // autostart entry from daemon/proxy. Without this it survives uninstall and
+        // keeps relaunching the now-deleted binary every 6h. remove_schedule() is the
+        // same idempotent routine used elsewhere (macOS/Linux/Windows aware).
+        let had_schedule = crate::core::update_scheduler::schedule_status().enabled;
+        match crate::core::update_scheduler::remove_schedule() {
+            Ok(()) if had_schedule => {
+                println!("  ✓ Auto-update schedule removed");
+                removed_any = true;
+            }
+            Ok(()) => {}
+            Err(e) => tracing::warn!("Failed to remove auto-update schedule: {e}"),
+        }
     }
 
     if !dry_run {
@@ -314,23 +328,54 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
 // Data directory
 // ---------------------------------------------------------------------------
 
-fn remove_data_dir(home: &Path, dry_run: bool) -> bool {
-    let mut removed = false;
+/// Every lean-ctx directory an uninstall must delete, de-duplicated and
+/// order-preserving.
+///
+/// Historically this used `dirs::data_dir()` / `dirs::data_local_dir()`, which on
+/// macOS both resolve to `~/Library/Application Support` — so the *real* runtime
+/// dirs (`~/.local/share`, `~/.local/state`, `~/.cache`) were never removed and a
+/// "full" uninstall left >150 MB of data + cache behind. We now resolve through the
+/// exact same [`core::paths`](crate::core::paths) functions the daemon/proxy use,
+/// so every XDG category (config/data/state/cache, honoring `LEAN_CTX_*_DIR` and
+/// `XDG_*` overrides) is covered, plus the legacy single-dir and macOS
+/// Application Support locations for older installs.
+fn data_dirs_to_remove(home: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![home.join(".lean-ctx"), home.join(".config/lean-ctx")];
 
-    let mut dirs_to_remove = vec![home.join(".lean-ctx"), home.join(".config/lean-ctx")];
+    let push = |dirs: &mut Vec<PathBuf>, p: PathBuf| {
+        if !dirs.contains(&p) {
+            dirs.push(p);
+        }
+    };
 
-    // Platform data dirs hold daemon logs + PID files (macOS:
-    // ~/Library/Application Support/lean-ctx, Windows: %LOCALAPPDATA%\lean-ctx,
-    // Linux: ~/.local/share/lean-ctx) — see daemon.rs `data_dir()`.
+    // Canonical XDG categories actually written at runtime.
+    for resolved in [
+        crate::core::paths::config_dir(),
+        crate::core::paths::data_dir(),
+        crate::core::paths::state_dir(),
+        crate::core::paths::cache_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        push(&mut dirs, resolved);
+    }
+
+    // Older installs (and Windows %LOCALAPPDATA%) may have used the platform dir.
     for platform_dir in [dirs::data_local_dir(), dirs::data_dir()]
         .into_iter()
         .flatten()
     {
-        let p = platform_dir.join("lean-ctx");
-        if !dirs_to_remove.contains(&p) {
-            dirs_to_remove.push(p);
-        }
+        push(&mut dirs, platform_dir.join("lean-ctx"));
     }
+
+    dirs
+}
+
+fn remove_data_dir(home: &Path, dry_run: bool) -> bool {
+    let mut removed = false;
+
+    let dirs_to_remove = data_dirs_to_remove(home);
 
     for data_dir in &dirs_to_remove {
         if !data_dir.exists() {
@@ -600,5 +645,48 @@ fn sweep_empty_installer_dirs(home: &Path) {
     }
     if swept > 0 {
         println!("  ✓ Removed {swept} empty installer director(y/ies)");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn data_dirs_to_remove_covers_canonical_xdg_categories() {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/home/tester"));
+        let dirs = data_dirs_to_remove(&home);
+
+        // Legacy single-dir + pre-split config dir are always targeted.
+        assert!(dirs.contains(&home.join(".lean-ctx")));
+        assert!(dirs.contains(&home.join(".config/lean-ctx")));
+
+        // Regression guard for the macOS data/state/cache leak (#uninstall-completeness):
+        // the set MUST include whatever core::paths actually resolves for every XDG
+        // category. The old dirs::data_dir()-based code missed these — on macOS they
+        // collapse onto Application Support — leaving the real ~/.local/share +
+        // ~/.local/state + ~/.cache (>150 MB) behind after a "full" uninstall.
+        for resolved in [
+            crate::core::paths::config_dir(),
+            crate::core::paths::data_dir(),
+            crate::core::paths::state_dir(),
+            crate::core::paths::cache_dir(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(
+                dirs.contains(&resolved),
+                "uninstall would NOT remove canonical dir: {}",
+                resolved.display()
+            );
+        }
+
+        // Each directory is listed exactly once (removed once, no churn).
+        let mut seen = HashSet::new();
+        for d in &dirs {
+            assert!(seen.insert(d.clone()), "duplicate dir: {}", d.display());
+        }
     }
 }
