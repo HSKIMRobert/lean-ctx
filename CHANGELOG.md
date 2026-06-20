@@ -5,7 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.8.10] — 2026-06-20
+
 ### Fixed
+- **#462 / #474 — restricted shell mode no longer rejects `for`/`while`/`if`
+  loops, `case` blocks and subshells.** The allowlist checker now expands a
+  compound command down to its leaf command segments and validates each segment
+  against the allowlist, so legitimate constructs (`for f in *.rs; do cat $f;
+  done`, `if test -f x; then ls; fi`, `( ls && pwd )`) run under restricted mode
+  while injection attempts smuggled through the same constructs stay blocked.
+- **#476 / #477 — `lean-ctx uninstall --help` no longer performs a real
+  uninstall.** The `--help`/`-h` flag fell through to the uninstaller, which
+  removed the installation instead of printing usage. The CLI now short-circuits
+  `uninstall --help`/`-h` to print the usage text and exit without touching
+  processes, configs, data or the binary.
 - **#356 — the "lean-ctx wants to access your Documents folder" prompt is now
   closed even for `brew upgrade`-only installs.** The path guards + LaunchAgent
   Seatbelt wrapper already made daemon/proxy boot promptless, and `lean-ctx
@@ -2293,8 +2306,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Shell-command injection in the Node SDK** (CodeQL `js/shell-command-constructed-from-input`): switched to `execFileSync` — no shell interpretation.
 - **XSS in VS Code sidebar webview** (CodeQL `js/xss`, 3× high): all dynamic values escaped.
 - **Missing origin check on webview message handler** (CodeQL `js/missing-origin-check`): rejects untrusted origins.
-
-## [Unreleased]
 
 ## [3.6.26] — 2026-05-30
 
