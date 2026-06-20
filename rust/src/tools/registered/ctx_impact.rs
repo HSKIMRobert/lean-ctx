@@ -26,7 +26,7 @@ impl McpTool for CtxImpactTool {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Target file path (required for analyze). For chain: from->to spec."
+                        "description": "Target for analyze (required): a file path OR a class/type name (e.g. 'ArcPoint' resolves to its defining file). For chain: from->to spec."
                     },
                     "root": {
                         "type": "string",

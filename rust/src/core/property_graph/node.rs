@@ -279,6 +279,32 @@ pub(super) fn find_symbols(
     Ok(results)
 }
 
+/// Distinct files that define a symbol whose name matches `name` exactly
+/// (case-sensitive). Every symbol node carries the file that *defines* it as
+/// its `file_path` (definitions, call-sites and `type_ref` targets all stamp
+/// the definer), so this maps a bare type/class name to its source file(s).
+///
+/// Powers the `ctx_impact analyze` symbol-name fallback (GH #398): a user who
+/// asks for the impact of a *class* (`ctx_impact analyze ArcPoint`) instead of
+/// a file path is resolved to the file(s) that define it. Results are sorted
+/// for output determinism (#498).
+pub(super) fn resolve_symbol_def_files(
+    conn: &Connection,
+    name: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT file_path FROM nodes
+         WHERE kind = 'symbol' AND name = ?1 AND file_path != ''
+         ORDER BY file_path",
+    )?;
+    let rows = stmt.query_map(params![name], |row| row.get::<_, String>(0))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 /// Every symbol node (`kind != 'file'`) with its line span — the unfiltered
 /// counterpart of [`find_symbols`]. Powers the backend-agnostic symbol table
 /// that the call-graph builder needs (replacing `ProjectIndex::symbols`).
@@ -309,6 +335,18 @@ pub(super) fn all_symbols(conn: &Connection) -> anyhow::Result<Vec<Node>> {
 pub(super) fn symbol_count(conn: &Connection) -> anyhow::Result<usize> {
     let c: i64 = conn.query_row(
         "SELECT COUNT(*) FROM nodes WHERE kind != 'file'",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(c as usize)
+}
+
+/// Number of `file` nodes — accurate on both builder paths (the `file_catalog`
+/// table is only populated by the minimal/non-embeddings builder, so it cannot
+/// back a count). Used by the `ctx_impact analyze` diagnostic (GH #398).
+pub(super) fn file_count(conn: &Connection) -> anyhow::Result<usize> {
+    let c: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM nodes WHERE kind = 'file'",
         [],
         |row| row.get(0),
     )?;
