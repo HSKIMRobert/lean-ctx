@@ -125,6 +125,96 @@ pub(crate) fn has_leaderboard_entry() -> bool {
     PublishedStore::load().cards.iter().any(|c| c.leaderboard)
 }
 
+// ─── Dashboard surface (#466) ─────────────────────────────────────────────────
+//
+// The dashboard's leaderboard card needs to (a) show the current submission
+// state, (b) submit on demand, and (c) flip auto-submit — all without the CLI's
+// stdout/`process::exit` side effects. These thin wrappers reuse the exact same
+// signed `publish_report` core so a dashboard submit is byte-for-byte the same
+// privacy-safe payload as `gain --publish --leaderboard`.
+
+/// Current leaderboard/publish state for the dashboard card.
+#[derive(Serialize)]
+pub(crate) struct LeaderboardStatus {
+    /// Whether this machine has ever published any Wrapped card.
+    pub published: bool,
+    /// Whether any published card is opted into the public leaderboard.
+    pub on_leaderboard: bool,
+    /// Whether `[gain] auto_publish` is on (the auto-submit toggle).
+    pub auto_submit: bool,
+    /// The chosen public handle, if any (else the board shows "anonymous").
+    pub display_name: Option<String>,
+    /// Permalink of the representative (all-time) card, if published.
+    pub url: Option<String>,
+    /// RFC3339 timestamp of that card's last publish, if any.
+    pub last_published_at: Option<String>,
+}
+
+/// Read the current submission state for the dashboard (pure, read-only).
+pub(crate) fn leaderboard_status() -> LeaderboardStatus {
+    let cfg = crate::core::config::Config::load_global();
+    let store = PublishedStore::load();
+    // The public board aggregates the all-time per-publisher card; prefer it,
+    // falling back to the most recent card for the permalink/timestamp shown.
+    let entry = store
+        .cards
+        .iter()
+        .find(|c| c.period == "all")
+        .or_else(|| store.cards.last());
+    LeaderboardStatus {
+        published: !store.cards.is_empty(),
+        on_leaderboard: store.cards.iter().any(|c| c.leaderboard),
+        auto_submit: cfg.gain.auto_publish,
+        display_name: cfg.gain.display_name.clone(),
+        url: entry.map(|c| c.url.clone()),
+        last_published_at: entry.map(|c| c.published_at.clone()),
+    }
+}
+
+/// Submit this machine's all-time recap to the public leaderboard on demand.
+///
+/// Mirrors the `gain --publish --leaderboard` path but returns a `Result` and
+/// never prints or exits, so a dashboard route can render success/failure as
+/// JSON. A chosen `name` is persisted (so future/auto submits reuse it); when
+/// `None`, a previously saved handle is reused.
+pub(crate) fn submit_leaderboard(
+    name: Option<&str>,
+) -> Result<cloud_client::PublishedCard, String> {
+    let period = "all";
+    let report = WrappedReport::generate(period);
+    if report.tokens_saved == 0 {
+        return Err("Nothing to publish yet — use lean-ctx for a bit, then try again.".to_string());
+    }
+
+    let mut cfg = crate::core::config::Config::load_global();
+    if let Some(n) = name.map(str::trim).filter(|n| !n.is_empty())
+        && cfg.gain.display_name.as_deref() != Some(n)
+    {
+        cfg.gain.display_name = Some(n.to_string());
+        if let Err(e) = cfg.save() {
+            tracing::warn!("Could not save display name: {e}");
+        }
+    }
+    let effective_name = name
+        .map(str::to_string)
+        .or_else(|| cfg.gain.display_name.clone());
+
+    publish_report(&report, period, effective_name.as_deref(), true, false)
+}
+
+/// Flip the auto-submit toggle (`[gain] auto_publish`). Enabling it also opts in
+/// to the leaderboard so the next automatic publish actually reaches the board.
+pub(crate) fn set_auto_submit(on: bool) -> Result<(), String> {
+    crate::core::config::Config::update_global(|c| {
+        c.gain.auto_publish = on;
+        if on {
+            c.gain.leaderboard = true;
+        }
+    })
+    .map(|_| ())
+    .map_err(|e| format!("could not save config: {e}"))
+}
+
 impl PublishedStore {
     fn load() -> Self {
         store_path()
