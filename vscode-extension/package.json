@@ -152,5 +152,8 @@
     "eslint": "^9.0.0",
     "ovsx": "^0.10.0",
     "typescript": "^5.5.0"
+  },
+  "overrides": {
+    "undici": "^7.28.0"
   }
 }
