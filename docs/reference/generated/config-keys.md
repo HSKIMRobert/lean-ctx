@@ -292,6 +292,7 @@ Proxy upstream configuration for API routing
 
 - `allow_insecure_http_upstream` (bool, default `false` — env `LEAN_CTX_ALLOW_INSECURE_HTTP_UPSTREAM`) — Allow a non-loopback plaintext http:// upstream (trusted local network only, e.g. http://host.docker.internal:2455 in front of codex-lb). Opt-in; default false
 - `anthropic_upstream` (string?, default `null`) — Custom upstream URL for Anthropic API proxy
+- `cold_prefix_repack` (bool, default `false` — env `LEAN_CTX_PROXY_COLD_PREFIX_REPACK`) — Opt-in big-gap cold-prefix repack (#480): on a session-resume request the proxy may predict (from idle time vs the provider cache TTL) that the client-cached prefix has already expired, then prune that now-cold prefix once to re-seed a leaner cache. A wrong guess re-bills cache reads as writes (~12x), so default false
 - `gemini_upstream` (string?, default `null`) — Custom upstream URL for Gemini API proxy
 - `history_mode` (enum: cache-aware | rolling | off, default `cache-aware` — env `LEAN_CTX_PROXY_HISTORY_MODE`) — History pruning strategy. cache-aware: frozen boundaries that keep provider prompt caches valid (default). rolling: legacy moving window (max raw savings, breaks prompt caching). off: never prune
 - `meter_openai_usage` (bool, default `true`) — Inject stream_options.include_usage into streamed OpenAI Chat Completions so the final chunk reports real token usage for the measured spend meter. Default true
