@@ -132,17 +132,13 @@ pub fn compress(output: &str) -> Option<String> {
             .collect();
 
         if !has_multiple_blocks && formatted.len() > 30 {
-            let tail = &formatted[formatted.len() - 15..];
-            parts.push(format!("last 15 unique lines:\n{}", tail.join("\n")));
+            // Single oversized block: keep head + tail with an explicit omission
+            // marker. The previous "last 15 unique lines" tail-only cut dropped
+            // the leading lines *silently* (#479) — indistinguishable from real
+            // output — so the model never knew context was lost.
+            push_bounded(&mut parts, &formatted, 5, 10);
         } else if has_multiple_blocks && formatted.len() > 20 {
-            for line in formatted.iter().take(5) {
-                parts.push(line.clone());
-            }
-            let omitted = formatted.len() - 10;
-            parts.push(format!("[{omitted} lines omitted]"));
-            for line in formatted.iter().skip(formatted.len() - 5) {
-                parts.push(line.clone());
-            }
+            push_bounded(&mut parts, &formatted, 5, 5);
         } else {
             for line in &formatted {
                 parts.push(line.clone());
@@ -151,6 +147,20 @@ pub fn compress(output: &str) -> Option<String> {
     }
 
     Some(parts.join("\n"))
+}
+
+/// Append a bounded `head` + `[N lines omitted]` marker + `tail` slice of
+/// `formatted` to `parts`. Shared by the single- and multi-block truncation
+/// paths so neither can drop lines silently (#479): the omission is always
+/// stated explicitly. Outputs verbatim when nothing needs omitting.
+fn push_bounded(parts: &mut Vec<String>, formatted: &[String], head: usize, tail: usize) {
+    if formatted.len() <= head + tail {
+        parts.extend(formatted.iter().cloned());
+        return;
+    }
+    parts.extend(formatted.iter().take(head).cloned());
+    parts.push(format!("[{} lines omitted]", formatted.len() - head - tail));
+    parts.extend(formatted.iter().skip(formatted.len() - tail).cloned());
 }
 
 #[cfg(test)]
@@ -172,6 +182,32 @@ mod tests {
         assert!(
             result.contains("15 lines"),
             "must show total lines: {result}"
+        );
+    }
+
+    #[test]
+    fn single_block_truncation_is_not_silent() {
+        // One oversized block (no separators) of distinct lines. The old path
+        // kept only the last 15 lines with no marker (#479) — the leading lines
+        // vanished silently. The omission must now be explicit, with head + tail
+        // context preserved.
+        let output = (1..=120)
+            .map(|i| format!("Line {i:04} distinct content here"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = compress(&output).unwrap();
+        assert!(
+            result.contains("lines omitted]"),
+            "omission must be explicit, not silent: {result}"
+        );
+        assert!(
+            result.contains("Line 0001"),
+            "head context must be kept: {result}"
+        );
+        assert!(result.contains("Line 0120"), "tail must be kept: {result}");
+        assert!(
+            !result.contains("last 15 unique lines"),
+            "old silent tail-only format must be gone: {result}"
         );
     }
 
