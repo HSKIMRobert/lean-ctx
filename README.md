@@ -45,7 +45,7 @@ receipt, not the product. Zero config required. Local-first.
 </p>
 
 <p>
-  <a href="https://leanctx.com">Website</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://leanctx.com/docs/getting-started">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#get-started-60-seconds">Install</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#real-world-scenarios">Scenarios</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#demo">Demo</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#benchmarks">Benchmarks</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="cookbook/README.md">Cookbook</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="SECURITY.md">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CHANGELOG.md">Changelog</a>
+  <a href="https://leanctx.com">Website</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://leanctx.com/docs/getting-started">Docs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#get-started-60-seconds">Install</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#use-it-from-your-own-code-sdks">SDKs</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#real-world-scenarios">Scenarios</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#demo">Demo</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="#benchmarks">Benchmarks</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="cookbook/README.md">Cookbook</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="SECURITY.md">Security</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="CHANGELOG.md">Changelog</a>
 </p>
 
 </div>
@@ -216,6 +216,36 @@ After onboarding, restart your shell and your editor/AI tool once so the MCP + h
 - Diagnose (shareable): `lean-ctx doctor --json`
 
 </details>
+
+## Use it from your own code (SDKs)
+
+Beyond the CLI, lean-ctx ships published libraries so you can call it directly from your app.
+
+**Drop-in prompt compression — [`lean-ctx-sdk`](https://pypi.org/project/lean-ctx-sdk/) ([npm](https://www.npmjs.com/package/lean-ctx-sdk)).** Compress a chat-style `messages` array before it reaches any model — deterministic and prompt-cache friendly; images, tool-calls and ids pass through untouched.
+
+```python
+# pip install lean-ctx-sdk
+from lean_ctx import compress
+messages = compress(messages, model="claude-sonnet-4")
+```
+
+```ts
+// npm install lean-ctx-sdk
+import { compress } from "lean-ctx-sdk";
+messages = await compress(messages, { model: "gpt-4o" });
+```
+
+Framework adapters included (LiteLLM, LangChain, Vercel AI SDK). → **[compress() cookbook](docs/guides/compress-sdk.md)**
+
+**Thin `/v1` contract clients — [`lean-ctx-client`](https://pypi.org/project/lean-ctx-client/) ([npm](https://www.npmjs.com/package/lean-ctx-client) · [crates.io](https://crates.io/crates/lean-ctx-client)).** Wrap the full `/v1` tool, event and session API over the process boundary — never links the engine, so it stays stable as lean-ctx evolves.
+
+```bash
+pip install lean-ctx-client     # Python (imports as `leanctx`)
+npm install lean-ctx-client     # TypeScript / Node
+cargo add lean-ctx-client       # Rust
+```
+
+Start the server with `lean-ctx serve`, then point a client at it. → **[API reference](https://leanctx.com/docs/api-reference/)**
 
 ## Real-world scenarios
 
