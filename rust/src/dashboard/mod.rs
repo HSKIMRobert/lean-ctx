@@ -371,8 +371,15 @@ fn open_dashboard_url(url: &str, mode: DashboardOpen) {
         DashboardOpen::Browser => open_browser(url),
         DashboardOpen::None => {}
         DashboardOpen::Vscode => {
+            // Prefer the extension's native webview tab (#466 item 3): with the
+            // lean-ctx VS Code extension installed, one command opens the
+            // dashboard as a real editor tab — no URL copy/paste. Keep the
+            // Simple Browser path as the no-extension fallback.
             println!(
-                "  \x1b[2mOpen in VS Code: ⇧⌘P → \"Simple Browser: Show\" → paste the URL above\x1b[0m"
+                "  \x1b[2mNative tab: run ⇧⌘P → \"lean-ctx: Open Web Dashboard\" (needs the lean-ctx VS Code extension)\x1b[0m"
+            );
+            println!(
+                "  \x1b[2mNo extension? ⇧⌘P → \"Simple Browser: Show\" → paste the URL above\x1b[0m"
             );
         }
     }
