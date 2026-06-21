@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`/v1` contract clients published under one name — `lean-ctx-client`.** The thin,
+  engine-independent clients now ship on every registry under a single consistent
+  name: [PyPI](https://pypi.org/project/lean-ctx-client/) (import module stays
+  `leanctx`), [npm](https://www.npmjs.com/package/lean-ctx-client), and
+  [crates.io](https://crates.io/crates/lean-ctx-client). Replaces docs that pointed
+  at an unrelated third-party `leanctx` / unpublished `@leanctx/sdk` (GL #783). A
+  dedicated, idempotent `publish-clients.yml` workflow ships the family independently
+  of the engine.
 - **Cognition v2 — science-grounded context engineering, deterministic by default,
   provably active.** Ten neuroscience/physics-motivated mechanisms are wired to
   real hot-path call sites and made inspectable via `lean-ctx introspect cognition`
