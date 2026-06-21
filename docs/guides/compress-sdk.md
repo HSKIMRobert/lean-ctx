@@ -12,8 +12,8 @@ own `ctx_*` tool results are left verbatim (they are already compressed).
 ## Install
 
 ```bash
-pip install lean-ctx        # Python ≥ 3.9
-npm install lean-ctx        # Node ≥ 18
+pip install lean-ctx-sdk    # Python ≥ 3.9
+npm install lean-ctx-sdk    # Node ≥ 18
 ```
 
 Both SDKs talk to a running daemon — start it once with `lean-ctx proxy enable`.
@@ -34,7 +34,7 @@ messages = compress(messages, model="claude-sonnet-4")
 
 ```ts
 // TypeScript
-import { compress } from "lean-ctx";
+import { compress } from "lean-ctx-sdk";
 
 let messages = [
   { role: "system", content: "You are a helpful assistant." },
@@ -56,7 +56,7 @@ messages = result.messages
 ```
 
 ```ts
-import { ProxyClient } from "lean-ctx";
+import { ProxyClient } from "lean-ctx-sdk";
 
 const result = await new ProxyClient().compress(messages, "gpt-4o");
 console.log(result.stats.saved_tokens, result.stats.saved_pct);
@@ -70,7 +70,7 @@ Compress every prompt automatically — no per-call changes:
 ```ts
 import { wrapLanguageModel } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { leanCtxMiddleware } from "lean-ctx";
+import { leanCtxMiddleware } from "lean-ctx-sdk";
 
 const model = wrapLanguageModel({
   model: openai("gpt-4o"),
@@ -125,7 +125,7 @@ original = ProxyClient().resolve_reference("ref_abc123")
 ```
 
 ```ts
-import { ProxyClient } from "lean-ctx";
+import { ProxyClient } from "lean-ctx-sdk";
 
 const original = await new ProxyClient().resolveReference("ref_abc123");
 ```

@@ -4,7 +4,7 @@ Context compression for AI agents — a thin, dependency-free client for the loc
 [lean-ctx](https://leanctx.com) daemon.
 
 ```bash
-npm install lean-ctx
+npm install lean-ctx-sdk
 ```
 
 ## Drop-in `compress(messages, { model })`
@@ -15,7 +15,7 @@ tool-call blocks and ids pass through untouched, and the output is byte-stable s
 it stays friendly to provider prompt caching.
 
 ```ts
-import { compress } from "lean-ctx";
+import { compress } from "lean-ctx-sdk";
 
 let messages = [
   { role: "system", content: "You are a helpful assistant." },
@@ -32,7 +32,7 @@ Works with both OpenAI-style (`content: "string"`) and Anthropic-style
 ### Token-savings stats
 
 ```ts
-import { ProxyClient } from "lean-ctx";
+import { ProxyClient } from "lean-ctx-sdk";
 
 const result = await new ProxyClient().compress(messages, "gpt-4o");
 console.log(result.stats.saved_tokens, result.stats.saved_pct);
@@ -67,7 +67,7 @@ Compress every prompt automatically with language-model middleware:
 ```ts
 import { wrapLanguageModel } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { leanCtxMiddleware } from "lean-ctx";
+import { leanCtxMiddleware } from "lean-ctx-sdk";
 
 const model = wrapLanguageModel({
   model: openai("gpt-4o"),

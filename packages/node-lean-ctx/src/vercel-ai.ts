@@ -8,7 +8,7 @@ import { ProxyClient, type CompressOptions, type Message } from "./proxy";
  *
  * ```ts
  * import { generateText } from 'ai';
- * import { createLeanCtxTool } from 'lean-ctx';
+ * import { createLeanCtxTool } from 'lean-ctx-sdk';
  *
  * const result = await generateText({
  *   model: myModel,
@@ -59,7 +59,7 @@ export interface LeanCtxLanguageModelMiddleware {
  *
  * ```ts
  * import { wrapLanguageModel } from "ai";
- * import { leanCtxMiddleware } from "lean-ctx";
+ * import { leanCtxMiddleware } from "lean-ctx-sdk";
  *
  * const model = wrapLanguageModel({
  *   model: openai("gpt-4o"),
@@ -95,7 +95,7 @@ export function leanCtxMiddleware(options: CompressOptions = {}): LeanCtxLanguag
  * if you'd rather not rely on `require("ai")`.
  *
  * ```ts
- * import { withLeanCtx } from "lean-ctx";
+ * import { withLeanCtx } from "lean-ctx-sdk";
  * const model = withLeanCtx(openai("gpt-4o"), { model: "gpt-4o" });
  * ```
  */

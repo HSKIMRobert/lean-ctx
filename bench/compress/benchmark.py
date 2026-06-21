@@ -158,7 +158,7 @@ def main() -> int:
     report["lean_ctx"] = (
         measure("lean-ctx", lc, messages, count)
         if lc
-        else {"available": False, "install": "pip install lean-ctx (and run the daemon)"}
+        else {"available": False, "install": "pip install lean-ctx-sdk (and run the daemon)"}
     )
 
     hr = headroom_compressor(args.model)

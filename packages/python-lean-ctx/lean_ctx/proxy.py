@@ -5,7 +5,7 @@ Posts a chat-style ``messages`` array to the daemon's deterministic
 payloads are compressed; images, tool-call blocks and ids pass through
 untouched, and the output is byte-stable for provider prompt caching.
 
-Stdlib-only (``urllib``) so ``pip install lean-ctx`` pulls in no transitive
+Stdlib-only (``urllib``) so ``pip install lean-ctx-sdk`` pulls in no transitive
 dependencies.
 """
 

@@ -4,7 +4,7 @@ Context compression for AI agents — a thin, dependency-free client for the loc
 [lean-ctx](https://leanctx.com) daemon.
 
 ```bash
-pip install lean-ctx
+pip install lean-ctx-sdk
 ```
 
 ## Drop-in `compress(messages, model)`
@@ -63,7 +63,7 @@ unauthenticated request raises `LeanCtxAuthError`. Both subclass `LeanCtxError`.
 
 ### LiteLLM
 
-Compress requests transparently with a `CustomLogger` (`pip install lean-ctx[litellm]`):
+Compress requests transparently with a `CustomLogger` (`pip install lean-ctx-sdk[litellm]`):
 
 ```python
 import litellm

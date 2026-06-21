@@ -140,7 +140,7 @@ export class ProxyClient {
  * Compress a chat `messages` array, returning the rewritten messages.
  *
  * ```ts
- * import { compress } from "lean-ctx";
+ * import { compress } from "lean-ctx-sdk";
  * const messages = await compress(history, { model: "claude-sonnet-4" });
  * ```
  *
