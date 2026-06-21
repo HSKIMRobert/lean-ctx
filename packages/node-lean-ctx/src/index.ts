@@ -1,5 +1,6 @@
 export { LeanCtxClient } from "./client";
-export { createLeanCtxTool } from "./vercel-ai";
+export { createLeanCtxTool, leanCtxMiddleware, withLeanCtx } from "./vercel-ai";
+export type { LeanCtxLanguageModelMiddleware } from "./vercel-ai";
 export { ProxyClient, compress } from "./proxy";
 export type {
   Message,

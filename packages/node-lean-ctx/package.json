@@ -1,6 +1,6 @@
 {
   "name": "lean-ctx",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SDK for lean-ctx — context compression for AI agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -60,10 +60,30 @@ If the daemon is not running, `compress()` rejects with `LeanCtxConnectionError`
 an unauthenticated request rejects with `LeanCtxAuthError`. Both extend
 `LeanCtxError`.
 
+## Vercel AI SDK
+
+Compress every prompt automatically with language-model middleware:
+
+```ts
+import { wrapLanguageModel } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { leanCtxMiddleware } from "lean-ctx";
+
+const model = wrapLanguageModel({
+  model: openai("gpt-4o"),
+  middleware: leanCtxMiddleware({ model: "gpt-4o" }),
+});
+// every generateText / streamText call now sends a compressed prompt
+```
+
+`withLeanCtx(openai("gpt-4o"))` is a one-liner shortcut (needs the optional `ai`
+peer dependency). A compaction failure never breaks a generation — the original,
+uncompressed prompt is sent instead.
+
 ## Other helpers
 
 `LeanCtxClient` wraps the `lean-ctx` binary for `read` / `search` / `shell` /
-`gain` / `benchmark`, and `createLeanCtxTool` exposes a Vercel AI SDK tool.
+`gain` / `benchmark`, and `createLeanCtxTool` exposes a Vercel AI SDK search tool.
 
 ## License
 

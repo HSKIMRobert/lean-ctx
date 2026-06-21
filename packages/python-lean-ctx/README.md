@@ -59,11 +59,46 @@ compress(messages, base_url="http://127.0.0.1:4444", token="…")
 If the daemon is not running, `compress()` raises `LeanCtxConnectionError`; an
 unauthenticated request raises `LeanCtxAuthError`. Both subclass `LeanCtxError`.
 
+## Framework integrations
+
+### LiteLLM
+
+Compress requests transparently with a `CustomLogger` (`pip install lean-ctx[litellm]`):
+
+```python
+import litellm
+from lean_ctx import LeanCtxLiteLLMHandler
+
+litellm.callbacks = [LeanCtxLiteLLMHandler(model="gpt-4o")]
+# every completion now sends compressed messages
+```
+
+For non-proxy code, `compress_request_data(data)` rewrites the `messages` of any
+OpenAI-style request dict in place.
+
+### LangChain
+
+```python
+from langchain_core.messages import HumanMessage, SystemMessage
+from lean_ctx import compress_messages
+
+messages = compress_messages(
+    [
+        SystemMessage(content="You are a helpful assistant."),
+        HumanMessage(content=large_log_or_file_dump),
+    ],
+    model="gpt-4o",
+)
+```
+
+In both adapters a compaction failure never breaks the call — the original
+messages are kept.
+
 ## CLI helpers
 
 `LeanCtxClient` wraps the `lean-ctx` binary for `read` / `search` / `shell` /
-`gain` / `benchmark`. Framework adapters `LeanCtxRetriever` (LangChain) and
-`LeanCtxNodeParser` (LlamaIndex) are available via the `langchain` / `llamaindex`
+`gain` / `benchmark`. The `LeanCtxRetriever` (LangChain) and `LeanCtxNodeParser`
+(LlamaIndex) retrieval adapters are available via the `langchain` / `llamaindex`
 extras.
 
 ## License
