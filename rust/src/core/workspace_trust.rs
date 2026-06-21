@@ -2,7 +2,7 @@
 //! audit, finding 4).
 //!
 //! A cloned repository ships its own `.lean-ctx.toml`. Through
-//! [`crate::core::config::Config::merge_local`] that file can raise
+//! `Config::merge_local` that file can raise
 //! *security-sensitive* settings — replace the shell allowlist, widen the path
 //! jail (`allow_paths` / `extra_roots`), repoint the proxy upstream, define
 //! command aliases. Opening an untrusted clone with an agent would let the repo

@@ -680,7 +680,7 @@ fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str> {
 }
 
 /// Names of the SECURITY-sensitive overrides a project-local `.lean-ctx.toml`
-/// carries — the keys [`strip_sensitive_overrides`] would withhold for an
+/// carries — the keys `strip_sensitive_overrides` would withhold for an
 /// untrusted workspace. Read-only (parses a throwaway `Config`); used by
 /// `lean-ctx trust` to tell the user exactly what trusting will enable.
 #[must_use]
