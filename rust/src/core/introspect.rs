@@ -177,7 +177,7 @@ pub fn flush() {
     reg.last_flush = Some(Instant::now());
 }
 
-/// Debounced [`flush`]: persists at most once per [`FLUSH_DEBOUNCE`]. Safe to
+/// Debounced [`flush`]: persists at most once per `FLUSH_DEBOUNCE`. Safe to
 /// call from `post_dispatch` on every tool call.
 pub fn flush_if_due() {
     let due = {

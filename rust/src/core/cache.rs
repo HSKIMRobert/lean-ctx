@@ -410,7 +410,7 @@ impl SessionCache {
 
     /// Record that `path` was accessed, strengthening its Hebbian association
     /// with other files read in the same burst window (#3). Called on every
-    /// `store`; co-access boundaries are flushed via [`flush_co_access`].
+    /// `store`; co-access boundaries are flushed via `flush_co_access`.
     pub fn record_co_access(&mut self, path: &str) {
         let key = normalize_key(path);
         self.co_access

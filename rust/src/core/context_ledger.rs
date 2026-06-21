@@ -348,7 +348,7 @@ impl ContextLedger {
 
     /// Global-Workspace ignition (#6): context items compete on salience (Phi);
     /// any whose z-score exceeds the ignition threshold is "broadcast" — promoted
-    /// to Pinned so it survives eviction ([`eviction_candidates_by_phi`] already
+    /// to Pinned so it survives eviction (`eviction_candidates_by_phi` already
     /// skips Pinned) and pressure reinjection, and reaches the compiler's working
     /// set as a pinned candidate. Deterministic: a pure threshold over the current
     /// Phi distribution, no sampling. Returns the paths newly ignited this call.
