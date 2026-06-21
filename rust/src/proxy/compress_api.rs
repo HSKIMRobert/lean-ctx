@@ -299,4 +299,84 @@ mod tests {
         assert_eq!(resp.stats.original_tokens, 0);
         assert_eq!(resp.messages.len(), 1);
     }
+
+    /// #498 regression: a full, mixed-shape conversation must serialise to
+    /// byte-identical output across repeated calls. Provider prompt caching keys
+    /// on the exact bytes, so any non-determinism (ordering, footer leakage,
+    /// counter/timestamp) would silently destroy the cache discount.
+    #[test]
+    fn determinism_regression_full_conversation_498() {
+        let conversation = || {
+            vec![
+                json!({"role": "system", "content": "You are a helpful assistant."}),
+                json!({"role": "user", "content": dedupable_prose()}),
+                json!({
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": dedupable_prose()},
+                        {"type": "image", "source": {"type": "base64", "data": "AAAA"}},
+                        {"type": "tool_result", "tool_use_id": "toolu_1", "content": dedupable_prose()},
+                    ],
+                }),
+                json!({"role": "tool", "name": "ctx_read", "content": dedupable_prose()}),
+            ]
+        };
+
+        let baseline =
+            serde_json::to_string(&run(conversation(), Some("claude-sonnet-4"))).unwrap();
+        for _ in 0..4 {
+            let again =
+                serde_json::to_string(&run(conversation(), Some("claude-sonnet-4"))).unwrap();
+            assert_eq!(again, baseline, "/v1/compress output must be byte-stable");
+        }
+
+        // The byte-stable bodies must also be footer-free (savings live in stats).
+        assert!(!baseline.contains("[lean-ctx:"));
+        assert!(!baseline.contains('\u{2500}'));
+    }
+
+    /// Daemon-free, o200k_base benchmark over a real on-disk corpus. Prints a
+    /// JSON report (ratio + latency) and is `#[ignore]`d so it stays out of CI.
+    /// Reproduce: `cargo test -p lean-ctx --lib \
+    /// proxy::compress_api::tests::bench_real_corpus_o200k -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "benchmark; run explicitly with --ignored --nocapture"]
+    fn bench_real_corpus_o200k() {
+        use std::path::Path;
+        use std::time::Instant;
+
+        let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/reference");
+        let mut messages = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&corpus) {
+            let mut paths: Vec<_> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("md"))
+                .collect();
+            paths.sort();
+            for path in paths {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    messages.push(json!({"role": "user", "content": text}));
+                }
+            }
+        }
+        assert!(!messages.is_empty(), "no corpus files found at {corpus:?}");
+
+        let files = messages.len();
+        let started = Instant::now();
+        let resp = run(messages, Some("gpt-4o"));
+        let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+
+        let report = json!({
+            "corpus": corpus.to_string_lossy(),
+            "files": files,
+            "tokenizer": resp.stats.tokenizer,
+            "original_tokens": resp.stats.original_tokens,
+            "compressed_tokens": resp.stats.compressed_tokens,
+            "tokens_saved": resp.stats.saved_tokens,
+            "saved_pct": resp.stats.saved_pct,
+            "latency_ms": (latency_ms * 100.0).round() / 100.0,
+        });
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+    }
 }

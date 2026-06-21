@@ -85,6 +85,11 @@ uncompressed prompt is sent instead.
 `LeanCtxClient` wraps the `lean-ctx` binary for `read` / `search` / `shell` /
 `gain` / `benchmark`, and `createLeanCtxTool` exposes a Vercel AI SDK search tool.
 
+## Learn more
+
+- [compress() SDK cookbook](https://github.com/yvgude/lean-ctx/blob/main/docs/guides/compress-sdk.md) — Python + TypeScript recipes
+- [lean-ctx vs Headroom](https://github.com/yvgude/lean-ctx/blob/main/docs/comparisons/vs-headroom.md) — comparison + reproducible benchmark
+
 ## License
 
 MIT
