@@ -67,6 +67,23 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "LEAN_CTX_PROXY_COLD_PREFIX_REPACK",
         ),
     );
+    proxy.insert(
+        "live_compress".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.proxy.live_compresses()),
+            "Live-compress non-protected tool_result content on the wire (#481). Default true. Set false for a meter-only proxy — real billed/cache token metering with zero request rewriting (combine with history_mode = \"off\" and no role_aggressiveness for a byte-unchanged body)",
+            "LEAN_CTX_PROXY_LIVE_COMPRESS",
+        ),
+    );
+    proxy.insert(
+        "live_compress_exclude".into(),
+        key(
+            "string[]",
+            serde_json::json!(cfg.proxy.live_compress_exclude_patterns()),
+            "Tool-name patterns (case-insensitive substring) whose tool_result is never live-compressed — treated as protected, like a file read (#481). Unset protects Serena's code-reading tools; set an explicit list to narrow it, or [] to disable",
+        ),
+    );
     sections.insert(
         "proxy".into(),
         SectionSchema {
