@@ -1050,6 +1050,10 @@ pub async fn serve(cfg: HttpServerConfig) -> Result<()> {
     crate::core::protocol::set_mcp_context(true);
     cfg.validate()?;
 
+    // Surface any path-jail relaxation inherited from the launch env or config,
+    // so a loosened boundary is never silent (GH security audit, finding 3).
+    crate::core::pathjail::warn_if_relaxed();
+
     crate::core::plugins::PluginManager::init();
     crate::core::savings_autopush::spawn_if_enabled();
 

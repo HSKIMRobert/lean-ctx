@@ -52,6 +52,36 @@ This is the foundation every other layer assumes.
 
 ---
 
+## 1.5 Workspace trust — gate untrusted project-local config
+
+**What it does:** a cloned repo ships its own `.lean-ctx.toml`, which is merged
+over your global config. That merge can raise **security-sensitive** settings —
+replace the `shell_allowlist`, widen the jail via `allow_paths` / `extra_roots`,
+repoint a `proxy.*_upstream`, define `custom_aliases`, or flip
+`rules_scope` / `rules_injection`. lean-ctx treats those as *trusted-only*.
+
+For a workspace you have **not** trusted, the sensitive overrides are **withheld**
+(comfort knobs like `compression_level` / `theme` still apply) and a `[SECURITY]`
+warning is logged. Grant trust explicitly:
+
+```bash
+lean-ctx trust              # trust the current project root
+lean-ctx trust status       # show trust state + which overrides are gated
+lean-ctx trust --list       # list all trusted workspaces
+lean-ctx untrust            # revoke trust for the current root
+```
+
+Trust is pinned to **both** the workspace path **and** a content hash of
+`.lean-ctx.toml` — editing the file after trust re-gates it, so a "trust once,
+modify later" change can't take effect silently. `lean-ctx doctor` shows the
+state. Headless / fleet environments can opt in without a prompt via
+`LEAN_CTX_TRUST_WORKSPACE=1` or a `LEAN_CTX_TRUSTED_ROOTS=/path/a,/path/b` list.
+
+> Review a clone's `.lean-ctx.toml` before you `lean-ctx trust` it — trusting is
+> what lets its security-sensitive settings widen lean-ctx's own boundaries.
+
+---
+
 ## 2. Shell allowlist & strict mode
 
 **What it does:** the shell hook only compresses/executes commands whose binary
@@ -214,6 +244,7 @@ which controls address which risks — useful when answering a security review.
 | Goal | Control |
 |------|---------|
 | Keep file access in-project | PathJail (on by default) |
+| Gate a cloned repo's `.lean-ctx.toml` | Workspace trust (`lean-ctx trust`) |
 | Restrict which commands run | `shell_allowlist` + `shell_strict_mode` |
 | Never wrap docker mount-escapes | docker/podman off the default allowlist |
 | Confine executed code | Seatbelt (macOS) / Landlock (Linux) |

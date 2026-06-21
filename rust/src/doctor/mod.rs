@@ -278,6 +278,10 @@ pub fn run() {
     let path_jail = path_jail_outcome();
     board.check(&path_jail);
 
+    // 5b3) Workspace trust for project-local .lean-ctx.toml (security audit #4)
+    let workspace_trust = workspace_trust_outcome();
+    board.check(&workspace_trust);
+
     // 5c) Compact-format passthrough (preserve already-compact TOON output, #342)
     let passthrough_outcome = compact_format_passthrough_outcome();
     board.check(&passthrough_outcome);

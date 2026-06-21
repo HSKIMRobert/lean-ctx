@@ -109,9 +109,76 @@ pub(super) fn path_jail_outcome() -> Outcome {
     } else {
         format!("project root + {} configured allow path(s)", entries.len())
     };
-    Outcome {
-        ok: true,
-        line: format!("{BOLD}Path jail{RST}  {GREEN}active{RST}  {DIM}({detail}){RST}"),
+
+    // Env-channel relaxations the config view above can't see (inherited from the
+    // IDE/launchd process env, e.g. LEAN_CTX_ALLOW_PATH / EXTRA_ROOTS /
+    // ALLOW_IDE_DIRS). Surface them as a standing security note (GH security
+    // audit, finding 3); no-jail / path_jail=false are handled by the early
+    // returns above, so only the env/IDE-dir relaxations reach here.
+    let relaxed: Vec<&str> = crate::core::pathjail::active_relaxations()
+        .iter()
+        .map(|r| r.source)
+        .collect();
+    if relaxed.is_empty() {
+        Outcome {
+            ok: true,
+            line: format!("{BOLD}Path jail{RST}  {GREEN}active{RST}  {DIM}({detail}){RST}"),
+        }
+    } else {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Path jail{RST}  {GREEN}active{RST} {YELLOW}but relaxed via {}{RST}  {DIM}({detail}; relaxations widen access beyond the project root){RST}",
+                relaxed.join(", ")
+            ),
+        }
+    }
+}
+
+/// Reports project-local config trust (security audit #4): whether the active
+/// workspace's `.lean-ctx.toml` carries security-sensitive overrides and, if so,
+/// whether they are honoured (workspace trusted) or withheld (untrusted). The
+/// withheld state is the SECURE default, so it stays a yellow note — not a
+/// failure — mirroring the path-jail-relaxed line above.
+pub(super) fn workspace_trust_outcome() -> Outcome {
+    let Some(root) = crate::core::config::Config::find_project_root() else {
+        return Outcome {
+            ok: true,
+            line: format!("{BOLD}Workspace trust{RST}  {DIM}n/a (no project root){RST}"),
+        };
+    };
+    let sensitive = std::fs::read_to_string(crate::core::config::Config::local_path(&root))
+        .ok()
+        .map(|c| crate::core::config::local_sensitive_overrides(&c))
+        .unwrap_or_default();
+
+    if sensitive.is_empty() {
+        return Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Workspace trust{RST}  {GREEN}no project-local security overrides{RST}"
+            ),
+        };
+    }
+
+    if crate::core::workspace_trust::is_trusted(std::path::Path::new(&root)) {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Workspace trust{RST}  {GREEN}trusted{RST}  {DIM}({} sensitive override(s) honoured: {}){RST}",
+                sensitive.len(),
+                sensitive.join(", ")
+            ),
+        }
+    } else {
+        Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Workspace trust{RST}  {YELLOW}untrusted — {} sensitive override(s) withheld{RST}  {DIM}(run `lean-ctx trust`: {}){RST}",
+                sensitive.len(),
+                sensitive.join(", ")
+            ),
+        }
     }
 }
 

@@ -103,6 +103,7 @@ Every CLI command lean-ctx exposes, grouped by purpose. Source of truth:
 |---------|---------|
 | `tools` | MCP tool profile: `minimal`, `standard`, `power`, `show`, `list` |
 | `allow` | Shell allowlist: add/remove commands in `shell_allowlist_extra`, `--list` shows the effective allowlist + any parse errors |
+| `trust` / `untrust` | Workspace trust: gate a cloned repo's project-local `.lean-ctx.toml` security overrides; `trust status`, `trust --list` |
 | `profile` | Context profiles: `list`, `show`, `active`, `diff`, `create`, `set` |
 | `config` | Config file: dump, `init`, `set <k> <v>`, `schema`, `validate`, `show`, `apply` |
 | `theme` | Terminal colors: `list`, `set`, `export`, `import` |

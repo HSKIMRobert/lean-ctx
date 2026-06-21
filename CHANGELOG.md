@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+- **Shell allowlist now enforced on the `-t` / track path (external audit, finding 1).**
+  `exec_argv` (used by the default shell hook `_lc() { lean-ctx -t "$@" }` for
+  multi-arg commands) never called `check_shell_allowlist`, so every aliased
+  invocation like `_lc git status` bypassed the restriction that `lean-ctx -c`
+  enforces. Both paths now share a single `allowlist_gate`, so the track path
+  blocks non-allowlisted commands (exit 126) exactly like the compress path.
+- **Agent API keys are no longer captured or forwarded to `ctx_shell` children
+  (external audit, finding 2).** The agent-runtime-env bridge forwarded every
+  `CODEX_*`/`CLAUDE_*`/`OPENCODE_*`/`GEMINI_*`… var — including `*_API_KEY`,
+  `*_TOKEN`, `*_SECRET`, `*_PASSWORD` — into the env of every command the agent
+  ran, where output redaction can't stop network exfiltration. `is_forwardable`
+  now excludes credential-shaped names (only session/thread identifiers cross the
+  bridge), and `load` retroactively scrubs such vars from any capture file
+  written by an older build, removing the plaintext secret at rest.
+- **Path-jail relaxations are now surfaced loudly (external audit, finding 3).**
+  `path_jail = false`, the `no-jail` build feature and the env channels
+  (`LEAN_CTX_ALLOW_PATH`, `LEAN_CTX_EXTRA_ROOTS`, `LEAN_CTX_ALLOW_IDE_DIRS`) that
+  widen or disable the jail are inherited from the IDE/launchd env and previously
+  loosened the boundary with no in-band signal. The MCP and HTTP servers now emit
+  a `[SECURITY]` warning at startup for each active relaxation, and `lean-ctx
+  doctor` reports env-channel relaxations alongside the config-level ones.
+- **Workspace Trust for project-local `.lean-ctx.toml` overrides (external audit,
+  finding 4).** A cloned repo's `.lean-ctx.toml` is merged over the global config
+  and could raise security-sensitive settings — replace the shell allowlist, widen
+  the path jail (`allow_paths`/`extra_roots`), repoint the proxy upstream, define
+  command aliases, change `rules_scope`/`rules_injection`. For an untrusted
+  workspace those overrides are now **withheld** (comfort knobs like
+  `compression`/`theme` still apply) with a `[SECURITY]` warning; `lean-ctx doctor`
+  shows the state. Grant trust with `lean-ctx trust` (and `lean-ctx untrust` /
+  `lean-ctx trust status` / `--list`); trust is pinned to the workspace path **and**
+  a content hash of `.lean-ctx.toml`, so editing the file re-gates it. Headless use
+  can opt in via `LEAN_CTX_TRUST_WORKSPACE=1` or `LEAN_CTX_TRUSTED_ROOTS`.
+
+### Changed
+- **`lean-ctx bypass` renamed to `lean-ctx raw` (external audit, finding 5).**
+  The "bypass" wording read to a model like a *security* bypass, but it only
+  skips output compression — the shell allowlist and path jail still apply.
+  `lean-ctx bypass` stays as a back-compat alias; model-visible hints now use
+  `raw` and state that the allowlist still holds.
+
 ## [3.8.11] — 2026-06-20
 
 ### Fixed
