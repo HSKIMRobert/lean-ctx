@@ -313,7 +313,7 @@ fn record_published(
     store.cards.retain(|c| c.period != period);
     store.cards.push(PublishedEntry {
         id: card.id.clone(),
-        edit_token,
+        edit_token: edit_token.clone(),
         url: card.url.clone(),
         period: period.to_string(),
         published_at: chrono::Utc::now().to_rfc3339(),
@@ -322,6 +322,18 @@ fn record_published(
     });
     if let Err(e) = store.save() {
         tracing::warn!("Published, but could not save local record: {e}");
+    }
+
+    // Stack this machine under the user's account on the leaderboard (#488): the board
+    // aggregates cards that share a `user_id`, so claiming binds each machine's card to the
+    // logged-in account. Best-effort and idempotent (re-publishes preserve `user_id`
+    // server-side), and only meaningful for opted-in leaderboard cards.
+    if leaderboard
+        && !edit_token.is_empty()
+        && cloud_client::is_logged_in()
+        && let Err(e) = cloud_client::claim_wrapped(&card.id, &edit_token)
+    {
+        tracing::warn!("Published, but could not link this card to your account: {e}");
     }
 }
 
@@ -364,6 +376,18 @@ pub(crate) fn publish(period: &str, name: Option<&str>, leaderboard: bool) {
             if leaderboard {
                 if let Some(base) = card.url.split("/w/").next() {
                     println!("Listed on the community leaderboard: {base}/metrics#leaderboard");
+                }
+                // Account linking (#488): logged-in machines stack under one entry; otherwise
+                // each machine is a separate row. `record_published` did the actual claim — this
+                // only reflects the state to the user.
+                if cloud_client::is_logged_in() {
+                    println!(
+                        "Linked to your account — all your machines now stack under one leaderboard entry."
+                    );
+                } else {
+                    println!(
+                        "Tip: run  lean-ctx login  so your machines stack under one leaderboard entry instead of separate rows."
+                    );
                 }
                 // A nameless entry shows as "anonymous" on the board — nudge once toward a handle.
                 if effective_name.is_none() {

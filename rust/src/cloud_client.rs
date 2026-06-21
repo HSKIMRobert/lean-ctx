@@ -444,6 +444,21 @@ pub fn unpublish_wrapped(id: &str, edit_token: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Bind a published card to the logged-in account so the leaderboard stacks all of the
+/// user's machines under one entry (#488). Auth: account Bearer + the card's `edit_token`
+/// (`X-Edit-Token`). Server: `POST /api/wrapped/:id/claim`. Requires being logged in.
+pub fn claim_wrapped(id: &str, edit_token: &str) -> Result<(), String> {
+    let bearer = auth_bearer_token()?;
+    let url = format!("{}/api/wrapped/{id}/claim", api_url());
+
+    ureq::post(&url)
+        .header("Authorization", &format!("Bearer {bearer}"))
+        .header("X-Edit-Token", edit_token)
+        .send_empty()
+        .map_err(|e| format!("Claim failed: {e}"))?;
+    Ok(())
+}
+
 /// Push the knowledge store as a zero-knowledge vault (GL #467): entries are
 /// sealed client-side (XChaCha20-Poly1305, domain-separated HKDF key) — the
 /// backend stores ciphertext and can never read them. The first vault push
