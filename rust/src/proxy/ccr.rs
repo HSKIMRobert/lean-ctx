@@ -99,6 +99,31 @@ pub(crate) fn persist(content: &str) -> Option<String> {
     Some(handle)
 }
 
+/// Resolve a CCR retrieval `id` (as carried in a proxy stub) back to the
+/// existing tee file. Accepts any of the forms an agent might copy out of a
+/// stub: the absolute tee path, the bare file name `proxy_<hash>.log`,
+/// `proxy_<hash>`, or the bare `<hash>`.
+///
+/// Security: only the *file name* is trusted — the path is always rebuilt from
+/// the canonical `{state}/tee/` dir, so a crafted `id` can never escape the tee
+/// store (no path traversal) and a non-tee id simply resolves to `None`.
+pub(crate) fn resolve_tee(id: &str) -> Option<PathBuf> {
+    let name = Path::new(id)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(id);
+    let hash = name.strip_prefix("proxy_").unwrap_or(name);
+    let hash = hash.strip_suffix(".log").unwrap_or(hash);
+    if hash.len() != 16 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let path = crate::core::paths::state_dir()
+        .ok()?
+        .join("tee")
+        .join(format!("proxy_{hash}.log"));
+    path.is_file().then_some(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,5 +167,41 @@ mod tests {
             persist("too small to bother").is_none(),
             "below MIN_TEE_BYTES there is no handle (the caller keeps its plain stub)"
         );
+    }
+
+    #[test]
+    fn resolve_tee_accepts_every_stub_form() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let content = big("resolvable tee body");
+        let handle = persist(&content).expect("persisted");
+        let hash = crate::core::hasher::hash_short(&content);
+
+        // Full path, bare file name, proxy_<hash>, and bare <hash> all resolve to
+        // the same on-disk file — whatever the agent copied out of the stub.
+        for form in [
+            handle.clone(),
+            format!("proxy_{hash}.log"),
+            format!("proxy_{hash}"),
+            hash.clone(),
+        ] {
+            let resolved = resolve_tee(&form).unwrap_or_else(|| panic!("must resolve {form}"));
+            assert_eq!(
+                resolved.to_string_lossy(),
+                handle,
+                "form {form} -> {handle}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_tee_rejects_nontee_and_traversal_ids() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        // No FS escape: a crafted path is reduced to its file name, which is not a
+        // valid proxy tee name, so it resolves to None instead of reading it.
+        assert!(resolve_tee("/etc/passwd").is_none());
+        assert!(resolve_tee("../../secret").is_none());
+        assert!(resolve_tee("proxy_nothex0000000.log").is_none());
+        // Right shape but no such file in the store.
+        assert!(resolve_tee("deadbeefdeadbeef").is_none());
     }
 }
