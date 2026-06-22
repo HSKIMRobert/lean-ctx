@@ -108,7 +108,10 @@ fn lint_version(version: &str, warnings: &mut Vec<LintWarning>) {
         });
     }
 
-    let expected = crate::rules_inject::RULES_VERSION_STR;
+    let expected = format!(
+        "<!-- version: {} -->",
+        crate::core::rules_canonical::RULES_VERSION
+    );
     if !expected.contains(version) && !version.contains("1.0") {
         warnings.push(LintWarning {
             severity: LintSeverity::Info,

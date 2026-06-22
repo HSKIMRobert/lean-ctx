@@ -88,14 +88,14 @@ impl SetupConfig {
         if crate::rules_inject::any_rules_marker_present(&home) {
             return true;
         }
-        let marker = crate::rules_inject::RULES_MARKER;
         let legacy_paths = [
             crate::core::editor_registry::claude_rules_dir(&home).join("lean-ctx.md"),
             crate::core::editor_registry::codebuddy_rules_dir(&home).join("lean-ctx.md"),
         ];
-        legacy_paths
-            .iter()
-            .any(|p| std::fs::read_to_string(p).is_ok_and(|c| c.contains(marker)))
+        legacy_paths.iter().any(|p| {
+            std::fs::read_to_string(p)
+                .is_ok_and(|c| c.contains(crate::core::rules_canonical::START_MARK))
+        })
     }
 }
 

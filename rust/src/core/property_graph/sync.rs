@@ -111,7 +111,6 @@ pub fn populate_from_project_index(graph: &CodeGraph, index: &ProjectIndex) -> a
         })?;
     }
 
-    // 2) Symbols → symbol nodes carrying line span + kind/export metadata.
     for sym in index.symbols.values() {
         let mut node = Node::symbol(&sym.name, &sym.file, NodeKind::Symbol);
         node.line_start = Some(sym.start_line);
@@ -268,7 +267,6 @@ mod tests {
         let gi = GraphProvider::GraphIndex(fixture_index());
         let pgp = GraphProvider::PropertyGraph(pg);
 
-        // file inventory
         assert_eq!(pgp.file_count(), gi.file_count());
         assert_eq!(pgp.file_paths(), gi.file_paths());
         assert_eq!(pgp.symbol_count(), gi.symbol_count());
@@ -286,7 +284,6 @@ mod tests {
         gi_rdep.sort();
         assert_eq!(pg_rdep, gi_rdep, "dependents must match");
 
-        // symbol lookup by `file::name`
         let pg_sym = pgp.get_symbol("src/a.rs::run").expect("pg symbol");
         let gi_sym = gi.get_symbol("src/a.rs::run").expect("gi symbol");
         assert_eq!(pg_sym.name, gi_sym.name);

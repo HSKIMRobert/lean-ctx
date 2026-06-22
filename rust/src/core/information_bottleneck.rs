@@ -58,7 +58,6 @@ fn query_relevance_scores(lines: &[&str], query: &str) -> Option<Vec<f64>> {
         return None;
     }
 
-    // Document frequency per query term (over lines).
     let mut df: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     let line_terms: Vec<Vec<String>> = lines.iter().map(|l| relevance_terms(l)).collect();
     for terms in &line_terms {

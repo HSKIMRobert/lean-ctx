@@ -63,7 +63,7 @@ pub fn compile(
         opts.unified,
     );
 
-    if let Some(cap) = constraints.and_then(|c| c.mcp_instructions_max_chars)
+    if let Some(cap) = constraints.unwrap().mcp_instructions_max_chars
         && mcp_instructions.len() > cap
     {
         return Err(format!(
