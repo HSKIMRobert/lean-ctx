@@ -33,7 +33,8 @@ pub const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
 /// "the full rules live in the canonical file") does not duplicate guidance and
 /// must not be counted as a second source for its client.
 pub fn carries_full_rules(content: &str) -> bool {
-    content.contains(crate::rules_inject::RULES_MARKER) || content.contains(COMPRESSION_BLOCK_START)
+    content.contains(crate::core::rules_canonical::START_MARK)
+        || content.contains(COMPRESSION_BLOCK_START)
 }
 
 /// True when `content` contains a lean-ctx block but only the lightweight
@@ -106,7 +107,7 @@ pub fn client_autoloads_compression(client_name: &str, home: &Path) -> bool {
 mod tests {
     use super::*;
 
-    const FULL_HEADER: &str = "# lean-ctx — Context Engineering Layer";
+    const FULL_HEADER: &str = crate::core::rules_canonical::START_MARK;
     const COMPRESSION: &str =
         "<!-- lean-ctx-compression -->\nOUTPUT STYLE\n<!-- /lean-ctx-compression -->\n";
     const POINTER: &str = "<!-- lean-ctx -->\n## lean-ctx\nFull rules: ~/.cursor/rules/lean-ctx.mdc\n<!-- /lean-ctx -->\n";
