@@ -452,17 +452,17 @@ more user stuff that is not ours
 
         std::fs::write(
             project.join(".cursor/rules/lean-ctx.mdc"),
-            &format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
         std::fs::write(
             home.join("projects/.cursor/rules/lean-ctx.mdc"),
-            &format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
         std::fs::write(
             project.join("AGENTS.md"),
-            &format!(
+            format!(
                 "<!-- lean-ctx -->\nx\n{}\n",
                 crate::core::rules_canonical::END_MARK
             ),
@@ -497,7 +497,7 @@ more user stuff that is not ours
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(
             home.join(".cursor/rules/lean-ctx.mdc"),
-            &format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
 

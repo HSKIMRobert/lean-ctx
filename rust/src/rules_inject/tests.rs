@@ -23,7 +23,7 @@ fn shared_rules_have_markers() {
     let s = shared_content();
     assert!(s.contains(START_MARK));
     assert!(s.contains(END_MARK));
-    assert!(s.contains(&format!("<!-- version: {} -->", RULES_VERSION)));
+    assert!(s.contains(&format!("<!-- version: {RULES_VERSION} -->")));
     assert!(s.contains("MANDATORY MAPPING"));
     assert!(s.contains("NEVER"));
 }
@@ -33,7 +33,7 @@ fn dedicated_rules_have_markers() {
     let d = dedicated_content_cached();
     assert!(d.contains(START_MARK));
     assert!(d.contains(END_MARK));
-    assert!(d.contains(&format!("<!-- version: {} -->", RULES_VERSION)));
+    assert!(d.contains(&format!("<!-- version: {RULES_VERSION} -->")));
     assert!(d.contains("CRITICAL"));
     assert!(d.contains("intent"));
 }
@@ -159,7 +159,7 @@ fn cursor_mdc_has_frontmatter_and_markers() {
     assert!(mdc.contains("alwaysApply: true"));
     assert!(mdc.contains(START_MARK));
     assert!(mdc.contains(END_MARK));
-    assert!(mdc.contains(&format!("<!-- version: {} -->", RULES_VERSION)));
+    assert!(mdc.contains(&format!("<!-- version: {RULES_VERSION} -->")));
 }
 
 // ── RulesFile operations ─────────────────────────────────────
@@ -186,7 +186,7 @@ fn rules_file_merged_replaces_section_preserving_user_content() {
     assert!(result.contains("user after"), "suffix preserved");
     assert!(!result.contains("old rules"), "old content replaced");
     assert!(
-        result.contains(&format!("<!-- version: {} -->", RULES_VERSION)),
+        result.contains(&format!("<!-- version: {RULES_VERSION} -->")),
         "version updated"
     );
 

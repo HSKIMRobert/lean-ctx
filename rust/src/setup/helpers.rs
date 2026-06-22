@@ -23,7 +23,7 @@ pub(crate) fn install_kiro_steering(home: &std::path::Path) {
     }
 
     let _ = std::fs::create_dir_all(&steering_dir);
-    let _ = std::fs::write(&steering_file, &crate::hooks::kiro_steering_content());
+    let _ = std::fs::write(&steering_file, crate::hooks::kiro_steering_content());
     println!(
         "  \x1b[32m✓\x1b[0m Created .kiro/steering/lean-ctx.md (Kiro will now prefer lean-ctx tools)"
     );

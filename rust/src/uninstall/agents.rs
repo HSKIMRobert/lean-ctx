@@ -748,12 +748,11 @@ fn remove_lean_ctx_block_from_md(content: &str) -> String {
     let mut in_block = false;
 
     for line in content.lines() {
-        if !in_block {
-            if line.contains(start_marker) || line.trim() == heading {
+        if !in_block
+            && (line.contains(start_marker) || line.trim() == heading) {
                 in_block = true;
                 continue;
             }
-        }
         if in_block {
             if line.contains(end_marker) {
                 in_block = false;

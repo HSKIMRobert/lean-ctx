@@ -162,11 +162,9 @@ pub fn render(shadow: bool, wrapper: Wrapper) -> String {
         format!("{CRITICAL}\n\n")
     };
 
-    let version_line = format!("<!-- version: {} -->", RULES_VERSION);
+    let version_line = format!("<!-- version: {RULES_VERSION} -->");
 
-    format!(
-        "{START_MARK}\n\n{version_line}\n\n{critical_section}{body}\n{END_MARK}"
-    )
+    format!("{START_MARK}\n\n{version_line}\n\n{critical_section}{body}\n{END_MARK}")
 }
 // ============================================================
 // RULES FILE — centralized interface for reading rule files
@@ -238,15 +236,14 @@ impl<'a> RulesFile<'a> {
     /// Content before the first `START_MARK` (user content / frontmatter).
     /// Returns an empty string if no start marker was found.
     pub fn prefix(&self) -> &'a str {
-        self.start.map(|s| self.content[..s].trim()).unwrap_or("")
+        self.start.map_or("", |s| self.content[..s].trim())
     }
 
     /// Content after the last `END_MARK` (user content after the lean-ctx
     /// block).  Returns an empty string if no end marker was found.
     pub fn suffix(&self) -> &'a str {
         self.end
-            .map(|e| self.content[e + END_MARK.len()..].trim())
-            .unwrap_or("")
+            .map_or("", |e| self.content[e + END_MARK.len()..].trim())
     }
 
     /// Merge freshly-rendered rules into this file.
@@ -365,7 +362,7 @@ mod tests {
     fn dedicated_has_markers_and_version() {
         let out = render(false, Wrapper::Dedicated);
         assert!(out.contains(START_MARK));
-        assert!(out.contains(&format!("<!-- version: {} -->", RULES_VERSION)));
+        assert!(out.contains(&format!("<!-- version: {RULES_VERSION} -->")));
         assert!(out.contains(END_MARK));
         assert!(out.contains(BULLETS));
         assert!(out.contains(NEVER));
@@ -424,7 +421,10 @@ mod tests {
     fn shared_shadow_omits_mapping() {
         let out = render(true, Wrapper::Shared);
         assert!(out.contains(START_MARK));
-        assert!(!out.contains("MANDATORY MAPPING"), "shadow must not have header");
+        assert!(
+            !out.contains("MANDATORY MAPPING"),
+            "shadow must not have header"
+        );
         assert!(
             !out.contains("MANDATORY MAPPING"),
             "shadow must not contain BULLETS"
@@ -473,8 +473,7 @@ mod tests {
     #[test]
     fn rules_file_parses_version() {
         let content = format!(
-            "stuff before\n{START_MARK}\n<!-- version: {} -->\n\nbody\n{END_MARK}\nstuff after",
-            RULES_VERSION
+            "stuff before\n{START_MARK}\n<!-- version: {RULES_VERSION} -->\n\nbody\n{END_MARK}\nstuff after"
         );
         let f = RulesFile::parse(&content);
         assert!(f.has_content());
@@ -509,7 +508,7 @@ mod tests {
         assert!(merged.contains("before"), "prefix preserved");
         assert!(merged.contains("after"), "suffix preserved");
         assert!(!merged.contains("old"), "old content replaced");
-        assert!(merged.contains(&format!("<!-- version: {} -->", RULES_VERSION)));
+        assert!(merged.contains(&format!("<!-- version: {RULES_VERSION} -->")));
     }
 
     #[test]

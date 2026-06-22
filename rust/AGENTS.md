@@ -1,4 +1,4 @@
-# lean-ctx — Context Engineering Layer
+# Context Engineering Layer
 
 PREFER lean-ctx MCP tools over native equivalents for token savings:
 

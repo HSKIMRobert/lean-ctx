@@ -48,7 +48,6 @@ fn emit_dedicated_session_context(input: &str) {
         return;
     }
     if !crate::core::config::Config::load().dedicated_session_context_active() {
-        return;
     }
     // Session start additional context removed — the MCP instructions
     // already carry the compact rules block.

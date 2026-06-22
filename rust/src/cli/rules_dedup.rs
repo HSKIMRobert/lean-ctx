@@ -346,11 +346,7 @@ mod tests {
     #[test]
     fn strip_removes_rules_and_compression_blocks() {
         let content = format!(
-            "user line\n{block_start}\nour rules\n{block_end}\nmore user\n{comp_start}\nstyle\n{comp_end}\n",
-            block_start = BLOCK_START,
-            block_end = BLOCK_END,
-            comp_start = COMPRESSION_START,
-            comp_end = COMPRESSION_END,
+            "user line\n{BLOCK_START}\nour rules\n{BLOCK_END}\nmore user\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n",
         );
         let out = strip_lean_ctx_blocks(&content);
         assert!(out.contains("user line"));
@@ -362,7 +358,9 @@ mod tests {
 
     #[test]
     fn strip_of_pure_block_file_yields_empty() {
-        let content = format!("{block_start}\nonly ours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END);
+        let content = format!(
+            "{BLOCK_START}\nonly ours\n{BLOCK_END}\n"
+        );
         assert_eq!(strip_lean_ctx_blocks(&content), "");
     }
 
@@ -411,7 +409,9 @@ mod tests {
         let home = tmp.path();
         let project = home.join("app");
         std::fs::create_dir_all(&project).unwrap();
-        let rules = format!("{block_start}\npointer\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END);
+        let rules = format!(
+            "{BLOCK_START}\npointer\n{BLOCK_END}\n"
+        );
         std::fs::write(project.join(".cursorrules"), rules).unwrap();
 
         // Without the global mdc, .cursorrules is the carrier — report only.
@@ -442,7 +442,9 @@ mod tests {
         let path = tmp.path().join(".cursorrules");
         std::fs::write(
             &path,
-            format!("my custom rule\n{block_start}\nours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END),
+            format!(
+                "my custom rule\n{BLOCK_START}\nours\n{BLOCK_END}\n"
+            ),
         )
         .unwrap();
 
@@ -460,11 +462,7 @@ mod tests {
     #[test]
     fn strip_compression_keeps_pointer_and_user_content() {
         let content = format!(
-            "# Agent Instructions\n\n{block_start}\npointer\n{block_end}\n\n{comp_start}\nOUTPUT STYLE\n{comp_end}\n",
-            block_start = BLOCK_START,
-            block_end = BLOCK_END,
-            comp_start = COMPRESSION_START,
-            comp_end = COMPRESSION_END,
+            "# Agent Instructions\n\n{BLOCK_START}\npointer\n{BLOCK_END}\n\n{COMPRESSION_START}\nOUTPUT STYLE\n{COMPRESSION_END}\n",
         );
         let out = strip_compression_block(&content);
         assert!(out.contains("# Agent Instructions"));
@@ -579,7 +577,13 @@ mod tests {
     fn apply_strip_deletes_file_that_was_only_ours() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join(".cursorrules");
-        std::fs::write(&path, format!("{block_start}\nours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END)).unwrap();
+        std::fs::write(
+            &path,
+            format!(
+                "{BLOCK_START}\nours\n{BLOCK_END}\n"
+            ),
+        )
+        .unwrap();
 
         let msg = apply(&Action::StripBlocks {
             path: path.clone(),

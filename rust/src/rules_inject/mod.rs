@@ -195,11 +195,10 @@ pub fn any_rules_marker_present(home: &std::path::Path) -> bool {
             if !seen.insert(target.path.clone()) {
                 continue;
             }
-            if let Ok(content) = std::fs::read_to_string(&target.path) {
-                if RulesFile::parse(&content).has_content() {
+            if let Ok(content) = std::fs::read_to_string(&target.path)
+                && RulesFile::parse(&content).has_content() {
                     return true;
                 }
-            }
         }
     }
     false

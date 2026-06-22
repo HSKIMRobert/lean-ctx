@@ -1,50 +1,46 @@
 <!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->
-# lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v12 -->
+<!-- lean-ctx-rules -->
+<!-- version: 1 -->
 
-## Tool Mapping (MANDATORY — use instead of native equivalents)
-| Instead of | Use | Example |
-|------------|-----|---------|
-| Read/cat/head/tail | `ctx_read(path, mode)` | `ctx_read("src/main.rs")` (omit mode = auto) |
-| Grep/rg/find | `ctx_search(pattern, path)` | `ctx_search("fn handle", "src/")` |
-| Shell/bash | `ctx_shell(command)` | `ctx_shell("cargo test")` |
-| Edit (when Read unavailable) | `ctx_edit(path, old, new)` | `ctx_edit("f.rs", "old", "new")` |
+CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents.      This is NOT optional.
 
-## ctx_read Mode Selection (omit mode to auto-select — recommended)
-| Goal | Mode | When |
-|------|------|------|
-| Exploring / unsure | `auto` (default) | Omit mode; system picks optimal |
-| Edit this file | `full` | Right before an edit |
-| Understand API | `signatures` | Context-only, won't edit |
-| Large file overview | `map` | >500 lines, won't edit |
-| Re-read after edit | `diff` | Post-edit verification |
-| Specific region | `lines:N-M` | Know exact location |
+MANDATORY MAPPING:
+• Read/cat -> ctx_read(path, mode)
+• Glob/find -> ctx_glob(pattern)
+• Shell/bash -> ctx_shell(command)
+• Grep -> ctx_search(pattern, path)
+• ls/find -> ctx_tree(path, depth)
 
-## Workflow (follow this order)
-1. **Orient:** `ctx_overview(task)` or `ctx_compose(task, path)` for unfamiliar tasks
-2. **Locate:** `ctx_search(pattern, path)` for exact text; `ctx_semantic_search(query)` for concepts
-3. **Read:** `ctx_read(path, mode)` with appropriate mode from table above
-4. **Edit:** `ctx_edit(path, old_string, new_string)` or native Edit if available
-5. **Verify:** `ctx_read(path, "diff")` + `ctx_shell("test command")`
-6. **Record:** `ctx_knowledge(action="remember", content="...")` for non-obvious findings
+NEVER use native Read/Grep/Shell/Glob when ctx_* equivalents are available.
 
-## Proactive (use without being asked)
-- `ctx_overview(task)` — at session start for orientation
-- `ctx_compress` — when context grows large (at phase boundaries)
-- `ctx_knowledge(action="wakeup")` — at session start to surface prior findings
+Tool selection by intent:
+• Understand code / find answers / before editing -> ctx_compose (call FIRST)
+• Read a file -> ctx_read(path, mode=signatures|map|full)
+• Find a symbol by name (exact) -> ctx_symbol
+• Search code by pattern (fuzzy) -> ctx_search
+• Search by meaning (concepts) -> ctx_semantic_search
+• Find files by pattern (glob) -> ctx_glob
+• Project structure -> ctx_tree
+• Who calls this / call graph -> ctx_callgraph
+• Session state / memory -> ctx_session / ctx_knowledge
 
-## Compression Bypass (only when compressed output hides needed detail)
-`ctx_read(path, "lines:N-M")` → `ctx_read(path, "full")` → `ctx_shell(cmd, raw=true)`
-Return to compressed defaults after one expanded retrieval.
+Anti-patterns — do NOT:
+• Chain ctx_search -> ctx_read -> ctx_symbol — one ctx_compose replaces all three
+• Grep for symbol definitions — ctx_symbol is faster + more precise
+• Use ctx_read(mode=full) for orientation — use mode=signatures
 
-## Risk Gate (before high-impact edits)
-Before editing exported symbols, auth, DB schemas, or 3+ files: run `ctx_impact(action="analyze")`
-and `ctx_callgraph(action="callers")` to confirm blast radius.
+PARALLEL tool calls: fire independent calls in the SAME turn — don't sequence them.
+One turn with 5 parallel ctx_read calls completes faster than 5 sequential turns.
+ctx_compose bundles multiple lookups into one call; for anything it doesn't
+cover, batch independent reads/searches together.
 
-## Session
-- **Start:** `ctx_session(action="status")` + `ctx_knowledge(action="wakeup")`
-- **End:** `ctx_session(action="decision", content="what was done + next steps")`
-- **On [CHECKPOINT]:** `ctx_session(action="task", value="current status")`
+ctx_read modes (required): full=verbatim(edit-ready) signatures=API map=structure      auto=smart diff=git-delta lines:N-M=window. fresh=true forces disk re-read.
 
-NEVER use native Read/Grep/Shell when ctx_* equivalents are available.
+Auto: preload/dedup/compress run in background.     ctx_session=memory, ctx_knowledge=facts, ctx_semantic_search=meaning search,     ctx_shell raw=true=uncompressed. Details: LEAN-CTX.md
+
+CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~)      4.ONE LINE PER ACTION 5.QUALITY ANCHOR
+
+OUTPUT: never echo tool output, no narration comments, show only changed code.
+
+TOOL PREFERENCE (END): ctx_compose>chain ctx_read>Read ctx_shell>Shell      ctx_search>Grep ctx_glob>Glob ctx_tree>ls | Edit/Write/Delete=native
 <!-- /lean-ctx -->

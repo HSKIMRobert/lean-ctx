@@ -1,4 +1,4 @@
-# lean-ctx — Context Engineering Layer
+# Context Engineering Layer
 
 lean-ctx optimizes LLM context by compressing file reads, shell output, and search results.
 
