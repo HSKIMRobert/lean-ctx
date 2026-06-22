@@ -50,7 +50,8 @@ fn emit_dedicated_session_context(input: &str) {
     if !crate::core::config::Config::load().dedicated_session_context_active() {
         return;
     }
-    emit_session_start_additional_context(crate::rules_inject::dedicated_session_summary());
+    // Session start additional context removed — the MCP instructions
+    // already carry the compact rules block.
 }
 
 #[derive(serde::Serialize)]

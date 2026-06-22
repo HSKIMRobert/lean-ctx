@@ -83,8 +83,8 @@ fn install_claude_mcp_server(home: &std::path::Path) {
 
 /// Shared with `doctor` so the instructions check recognises the same block
 /// this installer writes (GH #396: doctor must not demand the retired rules file).
-pub(crate) const CLAUDE_MD_BLOCK_START: &str = "<!-- lean-ctx -->";
-const CLAUDE_MD_BLOCK_END: &str = "<!-- /lean-ctx -->";
+pub(crate) const CLAUDE_MD_BLOCK_START: &str = crate::core::rules_canonical::START_MARK;
+const CLAUDE_MD_BLOCK_END: &str = crate::core::rules_canonical::END_MARK;
 const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v3";
 
 // v3 (GL #555): self-contained, no `@rules/lean-ctx.md` import. Claude Code

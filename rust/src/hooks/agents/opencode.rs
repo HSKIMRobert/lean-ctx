@@ -166,8 +166,7 @@ fn register_opencode_instructions(home: &std::path::Path) {
     }
 }
 
-/// Remove the lean-ctx instructions[] entry (shared-mode cleanup / toggle-back).
-/// Remove the lean-ctx `instructions[]` entry from opencode.json. Used both for
+/// Remove the lean-ctx `instructions[]` entry from opencode.json. Used for
 /// shared-mode toggle-back and uninstall cleanup.
 pub(crate) fn unregister_opencode_instructions(home: &std::path::Path) {
     let config_path = opencode_config_path(home);
@@ -202,20 +201,20 @@ pub(crate) fn unregister_opencode_instructions(home: &std::path::Path) {
 /// Strip the lean-ctx block from the global OpenCode AGENTS.md (dedicated mode).
 fn strip_opencode_agents_block(home: &std::path::Path) {
     let agents = home.join(".config/opencode/AGENTS.md");
-    if agents
-        .metadata()
-        .is_ok_and(|m| m.is_file())
-        .then(|| std::fs::read_to_string(&agents).ok())
-        .flatten()
-        .is_some_and(|c| c.contains(crate::rules_inject::RULES_MARKER))
+    if let Ok(meta) = agents.metadata()
+        && meta.is_file()
     {
-        crate::marked_block::remove_from_file(
-            &agents,
-            crate::rules_inject::RULES_MARKER,
-            crate::rules_inject::RULES_END_MARKER,
-            true,
-            "OpenCode AGENTS.md lean-ctx block",
-        );
+        if let Ok(content) = std::fs::read_to_string(&agents) {
+            if content.contains(crate::core::rules_canonical::START_MARK) {
+                crate::marked_block::remove_from_file(
+                    &agents,
+                    crate::core::rules_canonical::START_MARK,
+                    crate::core::rules_canonical::END_MARK,
+                    true,
+                    "OpenCode AGENTS.md lean-ctx block",
+                );
+            }
+        }
     }
 }
 
@@ -250,7 +249,6 @@ fn ensure_plugin_package_json(plugin_dir: &std::path::Path) {
     let package_json_path = plugin_dir.join("package.json");
     let template_str = include_str!("../../templates/package.json");
 
-    // Fresh install (or unreadable path) → write the template verbatim.
     let Ok(existing_str) = std::fs::read_to_string(&package_json_path) else {
         let _ = std::fs::write(&package_json_path, template_str);
         return;
@@ -258,7 +256,8 @@ fn ensure_plugin_package_json(plugin_dir: &std::path::Path) {
     let Ok(mut pkg) = serde_json::from_str::<serde_json::Value>(&existing_str) else {
         return;
     };
-    let template: serde_json::Value = serde_json::from_str(template_str).unwrap_or_default();
+    let template: serde_json::Value = serde_json::from_str(template_str)
+        .expect("embedded templates/package.json must be valid JSON");
     let Some(pkg_obj) = pkg.as_object_mut() else {
         return;
     };

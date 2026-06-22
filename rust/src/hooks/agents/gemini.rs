@@ -124,12 +124,12 @@ fn strip_gemini_md_block(home: &std::path::Path) {
         .is_ok_and(|m| m.is_file())
         .then(|| std::fs::read_to_string(&gemini_md).ok())
         .flatten()
-        .is_some_and(|c| c.contains(crate::rules_inject::RULES_MARKER))
+        .is_some_and(|c| c.contains(crate::core::rules_canonical::START_MARK))
     {
         crate::marked_block::remove_from_file(
             &gemini_md,
-            crate::rules_inject::RULES_MARKER,
-            crate::rules_inject::RULES_END_MARKER,
+            crate::core::rules_canonical::START_MARK,
+            crate::core::rules_canonical::END_MARK,
             true,
             "Gemini GEMINI.md lean-ctx block",
         );
