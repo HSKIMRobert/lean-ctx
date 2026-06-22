@@ -161,56 +161,35 @@ impl McpTool for CtxShellTool {
                 (output, tokens, 0, String::new())
             } else {
                 let _mode_guard = crate::core::savings_footer::ModeGuard::new("shell");
-                let result = crate::tools::ctx_shell::handle(&cmd_clone, &output, crp_mode);
+                let result =
+                    crate::tools::ctx_shell::handle(&cmd_clone, &output, exit_code, crp_mode);
                 let original = crate::core::tokens::count_tokens(&output);
                 let sent = crate::core::tokens::count_tokens(&result);
                 let saved = original.saturating_sub(sent);
 
                 let cfg = crate::core::config::Config::load();
-                let savings_pct = if original > 0 {
-                    ((original.saturating_sub(sent)) as f64 / original as f64) * 100.0
+                // Shared tee policy (#811): identical decision to the CLI path —
+                // `Failures` keys off the real exit code, not a substring match.
+                let tee_hint = if crate::shell::tee_policy::should_tee(
+                    &cfg.tee_mode,
+                    exit_code,
+                    output.trim().is_empty(),
+                    original,
+                    sent,
+                ) {
+                    crate::shell::save_tee(&cmd_clone, &output)
+                        .map(|p| {
+                            if matches!(cfg.tee_mode, crate::core::config::TeeMode::HighCompression)
+                            {
+                                let pct = crate::shell::tee_policy::savings_pct(original, sent);
+                                format!("\n[compressed {pct:.0}%: full output at {p} if needed]")
+                            } else {
+                                format!("\n[full output: {p}]")
+                            }
+                        })
+                        .unwrap_or_default()
                 } else {
-                    0.0
-                };
-                let tee_hint = match cfg.tee_mode {
-                    crate::core::config::TeeMode::Always => {
-                        crate::shell::save_tee(&cmd_clone, &output)
-                            .map(|p| format!("\n[full output: {p}]"))
-                            .unwrap_or_default()
-                    }
-                    crate::core::config::TeeMode::Failures
-                        if !output.trim().is_empty()
-                            && (output.contains("error")
-                                || output.contains("Error")
-                                || output.contains("ERROR")) =>
-                    {
-                        crate::shell::save_tee(&cmd_clone, &output)
-                            .map(|p| format!("\n[full output: {p}]"))
-                            .unwrap_or_default()
-                    }
-                    crate::core::config::TeeMode::HighCompression
-                        if savings_pct > 70.0 && original > 100 =>
-                    {
-                        crate::shell::save_tee(&cmd_clone, &output)
-                            .map(|p| {
-                                format!(
-                                    "\n[compressed {savings_pct:.0}%: full output at {p} if needed]"
-                                )
-                            })
-                            .unwrap_or_default()
-                    }
-                    _ => {
-                        if savings_pct > 70.0
-                            && original > 100
-                            && matches!(cfg.tee_mode, crate::core::config::TeeMode::Failures)
-                        {
-                            crate::shell::save_tee(&cmd_clone, &output)
-                                .map(|p| format!("\n[compressed {savings_pct:.0}%: full output at {p} if needed]"))
-                                .unwrap_or_default()
-                        } else {
-                            String::new()
-                        }
-                    }
+                    String::new()
                 };
 
                 (result, original, saved, tee_hint)

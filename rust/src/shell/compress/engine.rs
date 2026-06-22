@@ -10,9 +10,10 @@ pub(in crate::shell) fn compress_and_measure(
     command: &str,
     stdout: &str,
     stderr: &str,
+    exit_code: i32,
 ) -> (String, usize) {
-    let compressed_stdout = compress_if_beneficial(command, stdout);
-    let compressed_stderr = compress_if_beneficial(command, stderr);
+    let compressed_stdout = compress_for_outcome(command, stdout, exit_code);
+    let compressed_stderr = compress_for_outcome(command, stderr, exit_code);
 
     let mut result = String::new();
     if !compressed_stdout.is_empty() {
@@ -20,6 +21,13 @@ pub(in crate::shell) fn compress_and_measure(
     }
     if !compressed_stderr.is_empty() {
         if !result.is_empty() {
+            // On failure, label the stderr block so the agent can attribute the
+            // error (mirrors `shell::combine_streams`); success keeps the plain
+            // join for byte-stable output (#498).
+            if exit_code != 0 {
+                result.push('\n');
+                result.push_str(crate::shell::STDERR_LABEL);
+            }
             result.push('\n');
         }
         result.push_str(&compressed_stderr);
@@ -32,6 +40,22 @@ pub(in crate::shell) fn compress_and_measure(
     };
     let output_tokens = count_tokens(content_for_counting);
     (result, output_tokens)
+}
+
+/// Compress one stream, but never lossily for a command that actually FAILED.
+///
+/// A non-zero exit keeps the output verbatim (size-capped via [`truncate_verbatim`]
+/// with safety-needle-preserving head/tail truncation) so the real error always
+/// reaches the model and the agent never has to re-run the command without
+/// lean-ctx (#809 / #810). This generalizes the build-tool-error guard inside
+/// [`compress_if_beneficial`] to ANY non-zero exit. Empty output and explicit
+/// `<lc_safe>` spans keep the normal pipeline (the latter so its markers are
+/// stripped correctly); a succeeding command still compresses as before.
+pub(crate) fn compress_for_outcome(command: &str, output: &str, exit_code: i32) -> String {
+    if exit_code != 0 && !output.trim().is_empty() && !crate::core::protect::has_markers(output) {
+        return truncate_verbatim(output, count_tokens(output));
+    }
+    compress_if_beneficial(command, output)
 }
 
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {

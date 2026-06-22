@@ -4,9 +4,11 @@ mod interactive;
 pub mod output_policy;
 pub(crate) mod platform;
 mod redact;
+pub(crate) mod tee_policy;
 
 pub use compress::compress_if_beneficial_pub;
 pub(crate) use exec::heavy_timeout;
+pub(crate) use exec::{STDERR_LABEL, combine_streams};
 pub use exec::{exec, exec_argv};
 pub use interactive::interactive;
 pub use output_policy::{OutputPolicy, classify as classify_output};

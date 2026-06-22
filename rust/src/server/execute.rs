@@ -145,13 +145,9 @@ pub(crate) fn execute_command_with_env(
 
     let stdout = crate::shell::decode_output(&out_bytes);
     let stderr = crate::shell::decode_output(&err_bytes);
-    let mut text = if stdout.is_empty() {
-        stderr.clone()
-    } else if stderr.is_empty() {
-        stdout.clone()
-    } else {
-        format!("{stdout}\n{stderr}")
-    };
+    // On failure both streams are labeled so the agent can attribute the error
+    // (#812); success keeps the plain join.
+    let mut text = crate::shell::combine_streams(&stdout, &stderr, code);
 
     if out_trunc || err_trunc {
         text.push_str(&format!(

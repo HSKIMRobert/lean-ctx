@@ -1407,3 +1407,77 @@ mod toon_passthrough_tests {
         );
     }
 }
+
+/// Exit-code-aware compression (#809 / #810): a command that actually FAILED must
+/// never be lossily compressed, so the agent always sees the real error and never
+/// re-runs the command without lean-ctx.
+#[cfg(test)]
+mod outcome_aware_tests {
+    use super::super::engine::{compress_and_measure, compress_for_outcome};
+
+    /// A noisy, repetitive log a successful run WOULD compress.
+    fn noisy_log() -> String {
+        let mut log = String::new();
+        for i in 0..200 {
+            log.push_str(&format!(
+                "2026-06-04T10:00:{:02}Z INFO worker processed item {i} successfully in 12ms\n",
+                i % 60
+            ));
+        }
+        log
+    }
+
+    #[test]
+    fn failed_generic_command_is_verbatim() {
+        let log = noisy_log();
+        let failed = compress_for_outcome("./run-batch.sh", &log, 1);
+        assert_eq!(
+            failed, log,
+            "a failed command's output must be preserved verbatim, not digested"
+        );
+    }
+
+    #[test]
+    fn succeeding_command_still_compresses() {
+        let log = noisy_log();
+        let ok = compress_for_outcome("./run-batch.sh", &log, 0);
+        assert_ne!(
+            ok, log,
+            "a succeeding command's compressible output should still compress"
+        );
+    }
+
+    #[test]
+    fn empty_failed_output_stays_empty() {
+        assert_eq!(compress_for_outcome("flaky-check", "   \n  ", 1), "");
+    }
+
+    #[test]
+    fn failed_command_keeps_buried_error_line() {
+        let mut out = String::from("starting deploy\n");
+        out.push_str("uploading artifact 1 of 3\n");
+        out.push_str("ERR_PERMISSION: cannot write to /opt/app (needle-9b1e4d77)\n");
+        out.push_str("rolling back\n");
+        let failed = compress_for_outcome("./deploy.sh prod", &out, 13);
+        assert!(
+            failed.contains("needle-9b1e4d77"),
+            "the actual error line must survive on a failed command: {failed}"
+        );
+    }
+
+    #[test]
+    fn measure_labels_stderr_only_on_failure() {
+        let (failed, _) = compress_and_measure("./build.sh", "compiling main", "linker error", 1);
+        assert!(
+            failed.contains(crate::shell::STDERR_LABEL),
+            "failure with both streams must label stderr: {failed}"
+        );
+        assert!(failed.contains("compiling main") && failed.contains("linker error"));
+
+        let (ok, _) = compress_and_measure("./build.sh", "compiling main", "note: ok", 0);
+        assert!(
+            !ok.contains(crate::shell::STDERR_LABEL),
+            "success output must not inject the stderr label: {ok}"
+        );
+    }
+}

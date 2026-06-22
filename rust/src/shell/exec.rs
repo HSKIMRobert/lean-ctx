@@ -408,13 +408,20 @@ fn exec_inherit_tracked(command: &str, shell: &str, shell_flag: &str) -> i32 {
     code
 }
 
-fn combine_output(stdout: &str, stderr: &str) -> String {
-    if stderr.is_empty() {
-        stdout.to_string()
-    } else if stdout.is_empty() {
-        stderr.to_string()
-    } else {
-        format!("{stdout}\n{stderr}")
+/// Label inserted between stdout and stderr of a FAILED command so the agent can
+/// attribute the error to the right stream instead of guessing — and never has to
+/// re-run the command raw just to locate the failure. See #809 / #812.
+pub(crate) const STDERR_LABEL: &str = "--- stderr ---";
+
+/// Join captured stdout and stderr for display/recovery. On failure (non-zero
+/// exit) with both streams present, a labeled delimiter separates them; success
+/// output keeps the plain `stdout\nstderr` shape (determinism, #498).
+pub(crate) fn combine_streams(stdout: &str, stderr: &str, exit_code: i32) -> String {
+    match (stdout.is_empty(), stderr.is_empty()) {
+        (_, true) => stdout.to_string(),
+        (true, false) => stderr.to_string(),
+        (false, false) if exit_code != 0 => format!("{stdout}\n{STDERR_LABEL}\n{stderr}"),
+        (false, false) => format!("{stdout}\n{stderr}"),
     }
 }
 
@@ -503,7 +510,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     let stdout = super::platform::decode_output(&output.stdout);
     let stderr = super::platform::decode_output(&output.stderr);
 
-    let full_output = combine_output(&stdout, &stderr);
+    let full_output = combine_streams(&stdout, &stderr, exit_code);
     let input_tokens = count_tokens(&full_output);
 
     // Structured diagnostics (#499): failing cargo/tsc/eslint runs mark their
@@ -515,7 +522,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     crate::core::gotcha_tracker::record_shell_outcome(command, &full_output, exit_code);
 
     let (compressed, output_tokens) =
-        super::compress::compress_and_measure(command, &stdout, &stderr);
+        super::compress::compress_and_measure(command, &stdout, &stderr, exit_code);
 
     crate::core::tool_lifecycle::record_shell_command(input_tokens, output_tokens);
 
@@ -525,21 +532,15 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
             let _ = io::stdout().write_all(b"\n");
         }
     }
-    let should_tee = match cfg.tee_mode {
-        config::TeeMode::Always => !full_output.trim().is_empty(),
-        config::TeeMode::Failures => exit_code != 0 && !full_output.trim().is_empty(),
-        config::TeeMode::HighCompression => {
-            let orig = full_output.len();
-            let after = compressed.len();
-            let pct = if orig > 0 {
-                ((orig.saturating_sub(after)) as f64 / orig as f64) * 100.0
-            } else {
-                0.0
-            };
-            pct > 70.0 && orig > 100
-        }
-        config::TeeMode::Never => false,
-    };
+    // Shared tee policy (#811): identical decision on the CLI and MCP paths —
+    // `Failures` keys off the real exit code, not a substring in the output.
+    let should_tee = super::tee_policy::should_tee(
+        &cfg.tee_mode,
+        exit_code,
+        full_output.trim().is_empty(),
+        input_tokens,
+        output_tokens,
+    );
     if should_tee
         && let Some(path) = super::redact::save_tee(command, &full_output)
         && !matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
@@ -562,6 +563,31 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
 
 #[cfg(test)]
 mod exec_tests {
+    #[test]
+    fn combine_streams_labels_stderr_on_failure() {
+        let out = super::combine_streams("build ok", "linker: undefined symbol", 1);
+        assert_eq!(
+            out,
+            format!(
+                "build ok\n{}\nlinker: undefined symbol",
+                super::STDERR_LABEL
+            )
+        );
+    }
+
+    #[test]
+    fn combine_streams_plain_join_on_success() {
+        let out = super::combine_streams("step 1", "warning: noop", 0);
+        assert_eq!(out, "step 1\nwarning: noop");
+        assert!(!out.contains(super::STDERR_LABEL));
+    }
+
+    #[test]
+    fn combine_streams_single_stream_is_unchanged() {
+        assert_eq!(super::combine_streams("only stdout", "", 1), "only stdout");
+        assert_eq!(super::combine_streams("", "only stderr", 1), "only stderr");
+    }
+
     #[test]
     fn exec_direct_runs_true() {
         let code = super::exec_direct(&["true".to_string()]);

@@ -211,10 +211,11 @@ pub fn normalize_command_for_shell(command: &str) -> String {
 }
 
 /// Compresses shell command output using the unified compression pipeline.
-/// This delegates to the same `compress_if_beneficial` logic used by the CLI,
-/// ensuring consistent behavior for excluded_commands, structural routing, and terse.
-pub fn handle(command: &str, output: &str, _crp_mode: CrpMode) -> String {
-    crate::shell::compress::engine::compress_if_beneficial(command, output)
+/// Delegates to the same exit-code-aware logic used by the CLI, so a failed
+/// command (`exit_code != 0`) is preserved verbatim and successful output is
+/// compressed consistently (excluded_commands, structural routing, terse). #810.
+pub fn handle(command: &str, output: &str, exit_code: i32, _crp_mode: CrpMode) -> String {
+    crate::shell::compress::engine::compress_for_outcome(command, output, exit_code)
 }
 
 #[cfg(test)]
@@ -531,7 +532,7 @@ mod tests {
     fn handle_preserves_auth_flow_output_fully() {
         let output = "To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD1234 to authenticate.\nWaiting for you...\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7\nLine 8\nLine 9\nLine 10\nLine 11\nLine 12\nLine 13";
         // az login is Passthrough via OutputPolicy, so all content is preserved
-        let result = handle("az login --use-device-code", output, CrpMode::Off);
+        let result = handle("az login --use-device-code", output, 0, CrpMode::Off);
         assert!(result.contains("ABCD1234"), "auth code must be preserved");
         assert!(result.contains("devicelogin"), "URL must be preserved");
         assert!(
@@ -544,7 +545,7 @@ mod tests {
     fn handle_compresses_normal_output_not_auth() {
         let lines: Vec<String> = (1..=20).map(|i| format!("Line {i} of output")).collect();
         let output = lines.join("\n");
-        let result = handle("some-tool check", &output, CrpMode::Off);
+        let result = handle("some-tool check", &output, 0, CrpMode::Off);
         assert!(
             !result.contains("auth/device-code flow detected"),
             "normal output must not trigger auth detection"
@@ -601,7 +602,7 @@ mod tests {
             .map(|i| format!("src/file{i}.rs:42: fn search_result()"))
             .collect();
         let output = lines.join("\n");
-        let result = handle("rg search_result src/", &output, CrpMode::Off);
+        let result = handle("rg search_result src/", &output, 0, CrpMode::Off);
         for i in 1..=30 {
             assert!(
                 result.contains(&format!("file{i}")),
