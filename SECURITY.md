@@ -290,24 +290,44 @@ When enabled, the optional LLM proxy (`lean-ctx proxy`) reads and rewrites every
 
 ### Recommended Configuration (Bank / Regulated)
 
+LeanCTX splits **global settings** (`config.toml`) from **capability policy**
+(role files): `config.toml` does *not* define roles or a top-level `[io]`
+policy — per-session I/O limits live on the active role, which is selected via
+`LEAN_CTX_ROLE`.
+
+**1. Global hardening — `~/.lean-ctx/config.toml`:**
+
 ```toml
-# ~/.lean-ctx/config.toml
+update_check_disabled = true   # no daily update check
+path_jail = true               # keep the filesystem jail on (default)
 
-# Disable all outbound network
-update_check_disabled = true
-contribute_enabled = false
+[cloud]
+contribute_enabled = false     # no anonymous stats sharing (default)
+```
 
-# Enforce strict I/O boundary
+**2. A locked-down role — `~/.lean-ctx/roles/bank.toml`:**
+
+```toml
+[role]
+name = "bank"
+description = "Locked-down role for regulated environments"
+
+[tools]
+denied = ["ctx_execute", "ctx_shell"]   # no code or shell execution
+
 [io]
-boundary_mode = "enforce"
-allow_secret_paths = false
+boundary_mode = "enforce"               # error (not warn) on boundary hits
+allow_secret_paths = false              # never read .env / keys
+allow_ignore_gitignore = false          # never scan .gitignore'd paths
+allow_cross_project_search = false      # stay within this project
+```
 
-# Use restrictive role
-[roles.bank]
-denied = ["ctx_execute"]
-io.boundary_mode = "enforce"
-io.allow_secret_paths = false
-io.allow_ignore_gitignore = false
+**3. Activate the role** where lean-ctx (or the MCP server) starts. The active
+role resolves in order **env → project `.lean-ctx/roles/` → global
+`~/.lean-ctx/roles/` → built-in**:
+
+```bash
+export LEAN_CTX_ROLE=bank
 ```
 
 ### Network Surface
