@@ -121,6 +121,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   can opt in via `LEAN_CTX_TRUST_WORKSPACE=1` or `LEAN_CTX_TRUSTED_ROOTS`.
 
 ### Changed
+- **Faster semantic search on a native ONNX Runtime (#497).** The
+  embedding/index stack moves from the pure-Rust `rten` backend to native `ort`
+  (ONNX Runtime 2.0), with a rebuilt indexing pipeline (int8-quantized vectors,
+  tighter HNSW, a compact postcard on-disk format). ONNX Runtime is loaded at
+  runtime (ort's `load-dynamic`), resolved across platforms from `ORT_DYLIB_PATH`,
+  Nix profiles, and well-known system locations — so it is provided once by the
+  platform `onnxruntime` package (declared as a dependency in the Arch/Homebrew
+  packages), `pip install onnxruntime`, or a manual `ORT_DYLIB_PATH`. The `ort`
+  crate is exact-pinned (`=2.0.0-rc.12`) until a stable 2.0 ships. **One-time
+  re-index:** the new index format is not backward-compatible; the first semantic
+  search after upgrade rebuilds the index automatically (a load-time version guard
+  removes any stale index rather than risk mis-decoding it). The `jina-code-v2`
+  built-in (pre-existing broken) is removed; code-specialized embeddings remain
+  available through the `hf:org/repo[@rev]` custom scheme
+  (`hf:jinaai/jina-embeddings-v2-base-code`), which auto-probes the model's
+  ONNX I/O signature. Thanks to @omar-mohamed-khallaf for the optimization work.
 - **`lean-ctx bypass` renamed to `lean-ctx raw` (external audit, finding 5).**
   The "bypass" wording read to a model like a *security* bypass, but it only
   skips output compression — the shell allowlist and path jail still apply.
