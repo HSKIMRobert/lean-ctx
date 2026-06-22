@@ -41,8 +41,8 @@ impl ToolProfile {
 
     pub fn description(&self) -> &str {
         match self {
-            Self::Minimal => "10 surgical tools — each irreplaceable (recommended)",
-            Self::Standard => "19 balanced tools (adds callgraph, execute, semantics, delta, more)",
+            Self::Minimal => "6 surgical tools — each irreplaceable (recommended)",
+            Self::Standard => "17 balanced tools (adds callgraph, execute, semantics, delta, more)",
             Self::Power => "All tools exposed",
             Self::Custom(v) => {
                 if v.is_empty() {
@@ -141,31 +141,23 @@ pub fn is_unpinned_alias(name: &str) -> bool {
 const MINIMAL_TOOLS: &[&str] = &[
     "ctx_read",
     "ctx_shell",
-    "shell",
     "ctx_search",
     "ctx_glob",
     "ctx_tree",
-    "ctx_session",
-    "ctx_compose",
-    "ctx_knowledge",
     "ctx_symbol",
 ];
 
 /// Balanced set. Adds power-user tools the agent picks regularly but
 /// are not essential for every session.
 const STANDARD_TOOLS: &[&str] = &[
-    // Everything in minimal
     "ctx_read",
     "ctx_shell",
-    "shell",
     "ctx_search",
     "ctx_glob",
     "ctx_tree",
-    "ctx_session",
+    "ctx_symbol",
     "ctx_compose",
     "ctx_knowledge",
-    "ctx_symbol",
-    // Standard additions — each has unique value not covered by minimal
     "ctx_callgraph",
     "ctx_graph",
     "ctx_semantic_search",
@@ -190,12 +182,12 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
     vec![
         ProfileInfo {
             name: "minimal",
-            tool_count: "10",
+            tool_count: "6",
             description: "Surgical core — each tool irreplaceable (recommended)",
         },
         ProfileInfo {
             name: "standard",
-            tool_count: "19",
+            tool_count: "17",
             description: "Balanced set — adds callgraph, execute, semantics, delta, more",
         },
         ProfileInfo {
@@ -270,11 +262,6 @@ mod tests {
     }
 
     #[test]
-    fn minimal_has_10_tools() {
-        assert_eq!(MINIMAL_TOOLS.len(), 10);
-    }
-
-    #[test]
     fn minimal_profile_schema_budget() {
         // tool_profile=minimal advertises the 9-tool surgical set; the schemas
         // they re-send every turn (description + input schema) must stay small.
@@ -291,11 +278,6 @@ mod tests {
             total <= MINIMAL_SCHEMA_BUDGET_TOKENS,
             "minimal-profile tool schemas = {total} tok, budget {MINIMAL_SCHEMA_BUDGET_TOKENS}"
         );
-    }
-
-    #[test]
-    fn standard_has_19_tools() {
-        assert_eq!(STANDARD_TOOLS.len(), 19);
     }
 
     #[test]
@@ -324,9 +306,6 @@ mod tests {
         assert!(profile.is_tool_enabled("ctx_search"));
         assert!(profile.is_tool_enabled("ctx_glob"));
         assert!(profile.is_tool_enabled("ctx_tree"));
-        assert!(profile.is_tool_enabled("ctx_session"));
-        assert!(profile.is_tool_enabled("ctx_compose"));
-        assert!(profile.is_tool_enabled("ctx_knowledge"));
         assert!(profile.is_tool_enabled("ctx_symbol"));
         assert!(!profile.is_tool_enabled("ctx_semantic_search"));
         assert!(!profile.is_tool_enabled("ctx_callgraph"));

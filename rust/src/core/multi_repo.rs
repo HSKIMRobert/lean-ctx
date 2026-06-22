@@ -513,7 +513,6 @@ path = "/home/user/frontend"
         let result = manager.add_root(&extra.to_string_lossy(), None);
         assert!(result.is_err());
 
-        // Cleanup
         for i in 0..=MAX_ROOTS {
             let dir = std::env::temp_dir().join(format!("multi_repo_test_{i}"));
             let _ = std::fs::remove_dir_all(&dir);
@@ -541,14 +540,12 @@ path = "/home/user/frontend"
 
     #[test]
     fn rrf_fusion_basic() {
-        let mut manager = MultiRepoManager::new().with_rrf_k(60.0);
+        let manager = MultiRepoManager::new().with_rrf_k(60.0);
         // RRF score for rank 0: 1/(60+0+1) = 1/61 ≈ 0.01639
         let score: f64 = 1.0 / (60.0 + 0.0 + 1.0);
         assert!((score - 0.01639).abs() < 0.001);
 
-        // Verify RRF parameter is set
         assert_eq!(manager.rrf_k, 60.0);
-        let _ = &mut manager; // suppress unused warning
     }
 
     #[test]

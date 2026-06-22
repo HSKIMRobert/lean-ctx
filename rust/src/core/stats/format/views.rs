@@ -90,7 +90,7 @@ pub fn format_gain_graph() -> String {
 }
 
 /// Renders a daily breakdown table of token savings with totals.
-#[allow(clippy::many_single_char_names)] // ANSI formatting: t=theme, r=reset, b=bold, d=dim
+#[allow(clippy::many_single_char_names)]
 pub fn format_gain_daily() -> String {
     let theme = active_theme();
     let store = crate::core::stats::load();
