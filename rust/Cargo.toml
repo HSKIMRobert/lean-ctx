@@ -192,7 +192,20 @@ tree-sitter-dart = { version = "0.2", optional = true }
 tree-sitter-gdscript = { version = "6.1", optional = true }
 tree-sitter-lua = { version = "0.5", optional = true }
 tree-sitter-luau = { version = "1.2", optional = true }
-ort = { version = "2.0.0-rc.12", optional = true, default-features = false, features = [
+# Exact pin: `ort` 2.0 is still in its release-candidate phase (no stable 2.0.0
+# yet; rc.12 is the upstream-recommended production build). RCs can carry breaking
+# API changes between candidates, so `=` prevents `cargo update` from silently
+# pulling an unvetted rc.13+ (`ort-sys` is already `=`-pinned transitively).
+# Revisit when ort 2.0.0 stable ships.
+#
+# `load-dynamic` loads `libonnxruntime` at runtime (see `core::ort_environment`)
+# rather than linking it at build time. This is deliberate: ort's static
+# `download-binaries` has no `x86_64-pc-windows-gnu` artifact (our CI's Windows
+# target) and would statically bloat every test binary. Runtime loading keeps
+# builds portable; the shared library is provided by the platform package
+# (`onnxruntime` on Arch/Homebrew/Nix), `pip install onnxruntime`, or
+# `ORT_DYLIB_PATH`.
+ort = { version = "=2.0.0-rc.12", optional = true, default-features = false, features = [
   "api-24",
   "std",
   "ndarray",
