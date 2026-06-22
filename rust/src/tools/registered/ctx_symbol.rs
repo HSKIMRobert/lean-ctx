@@ -25,7 +25,7 @@ impl McpTool for CtxSymbolTool {
                 "properties": {
                     "name": { "type": "string", "description": "fn|struct|class|method name" },
                     "file": { "type": "string", "description": "Narrow search to file" },
-                    "kind": { "type": "string", "description": "fn|struct|class|trait|enum filter" }
+                    "kind": { "type": "string", "description": "fn|struct|class|trait|enum" }
                 },
                 "required": ["name"]
             }),

@@ -535,7 +535,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         return do_replace(path, &pre, params, cap, &args);
     }
 
-    // Direct match failed -- try CRLF/LF normalization
     if uses_crlf && !old_str.contains('\r') {
         let old_crlf = old_str.replace('\n', "\r\n");
         let occ = content.matches(&old_crlf).count();
@@ -570,7 +569,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         }
     }
 
-    // Still not found -- try trimmed trailing whitespace per line
     let normalized_content = trim_trailing_per_line(content);
     let normalized_old = trim_trailing_per_line(old_str);
     if !normalized_old.is_empty() && normalized_content.contains(&normalized_old) {
@@ -592,7 +590,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         }
     }
 
-    // Check if edit was already applied (new_string exists but old_string doesn't)
     if content.contains(new_str) {
         return (
             format!(

@@ -61,9 +61,7 @@ impl McpTool for CtxCallgraphTool {
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let action = get_str(args, "action")
-            .or_else(|| get_str(args, "direction"))
-            .unwrap_or_else(|| "callers".to_string());
+        let action = get_str(args, "action").unwrap_or_else(|| "callers".to_string());
 
         let action_normalized = match action.to_lowercase().as_str() {
             "callers" | "caller" => "callers",

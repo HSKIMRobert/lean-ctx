@@ -124,12 +124,10 @@ fn handle_single(
     allow_secret_paths: bool,
     max_results: usize,
 ) -> Result<ToolOutput, ErrorData> {
-    let pattern = pattern.to_string();
-    let path_clone = path.to_string();
     let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::tools::ctx_glob::handle(
-            &pattern,
-            &path_clone,
+            pattern,
+            path,
             respect_gitignore,
             allow_secret_paths,
             max_results,

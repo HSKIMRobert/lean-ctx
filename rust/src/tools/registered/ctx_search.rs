@@ -83,16 +83,12 @@ impl McpTool for CtxSearchTool {
         let mut total_sent: usize = 0;
 
         for root in &resolved.roots {
-            let pat = pattern.clone();
-            let r = root.clone();
-            let inc = include.clone();
-
             let search_result = tokio::task::block_in_place(|| {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     crate::tools::ctx_search::handle(
-                        &pat,
-                        &r,
-                        inc.as_deref(),
+                        &pattern,
+                        root,
+                        include.as_deref(),
                         per_root_max,
                         crp,
                         respect,
@@ -108,14 +104,16 @@ impl McpTool for CtxSearchTool {
             };
             let result = outcome.text;
 
-            if result.starts_with("ERROR:") || result.trim().is_empty() {
-                if !result.trim().is_empty() {
-                    combined.push_str(&format!("── {root} ──\n{result}\n\n"));
-                }
+            if result.trim().is_empty() {
                 continue;
             }
 
             combined.push_str(&format!("── {root} ──\n{result}\n\n"));
+
+            if result.starts_with("ERROR:") {
+                continue;
+            }
+
             total_observed += outcome.observed_tokens;
             total_sent += crate::core::tokens::count_tokens(&result);
         }
@@ -158,14 +156,12 @@ fn search_single(
     allow_secret_paths: bool,
 ) -> Result<ToolOutput, ErrorData> {
     let _mode_guard = crate::core::savings_footer::ModeGuard::new("search");
-    let pattern_clone = pattern.to_string();
-    let path_clone = path.to_string();
 
     let search_result = tokio::task::block_in_place(|| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             crate::tools::ctx_search::handle(
-                &pattern_clone,
-                &path_clone,
+                pattern,
+                path,
                 include,
                 max,
                 crp,

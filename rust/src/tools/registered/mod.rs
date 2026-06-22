@@ -78,7 +78,6 @@ pub mod plugin_tool;
 pub mod shell_alias;
 
 /// Resolve a relative path against session state (sync version).
-/// Thin wrapper over [`crate::core::path_resolve::resolve_tool_path`].
 /// Must be called within `tokio::task::block_in_place`.
 pub(crate) fn resolve_path_sync(
     session: &crate::core::session::SessionState,

@@ -60,8 +60,7 @@ impl McpTool for PluginTool {
         args: &Map<String, Value>,
         _ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
-        let args_json = serde_json::to_string(&Value::Object(args.clone()))
-            .unwrap_or_else(|_| "{}".to_string());
+        let args_json = serde_json::to_string(args).unwrap_or_else(|_| "{}".to_string());
         match crate::core::plugins::tools::invoke(&self.spec, &args_json) {
             Ok(text) => Ok(ToolOutput::simple(text)),
             Err(e) => Err(ErrorData::internal_error(e, None)),

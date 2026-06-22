@@ -52,7 +52,6 @@ impl McpTool for CtxGraphTool {
         let action = get_str(args, "action")
             .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
 
-        // For diagram action, pass the raw path; for others, use the resolved path.
         let path = if action == "diagram" {
             get_str(args, "path")
         } else if let Some(p) = ctx.resolved_path("path") {

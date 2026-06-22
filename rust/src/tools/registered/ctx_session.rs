@@ -76,7 +76,6 @@ impl McpTool for CtxSessionTool {
                 terse,
             },
         );
-        drop(session);
 
         Ok(ToolOutput {
             text: result,

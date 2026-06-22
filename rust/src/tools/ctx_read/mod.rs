@@ -1149,7 +1149,7 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
     let head = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
         format!("{file_ref}={short}")
     } else {
-        short.clone()
+        short
     };
     (format!("{head} [diff]\n{diff_output}\n{savings}"), sent)
 }

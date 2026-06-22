@@ -16,9 +16,8 @@ impl McpTool for CtxComposeTool {
         tool_def(
             "ctx_compose",
             "PRIMARY TOOL — call FIRST for understanding code, before editing, debugging, or\n\
-             answering 'how does X work'. Pass a task/question or symbol names. One call replaces\n\
-             ctx_search + ctx_read + ctx_symbol chains: returns ranked files with relevant symbol\n\
-             source inline grouped by file. Combines BM25 lexical + semantic search + associative\n\
+             answering 'how does X work'. Pass a task/question or symbol names. returns ranked files with \n\
+             relevant symbol source inline grouped by file. Combines BM25 lexical + semantic + associative\n\
              retrieval + submodular optimization. Do NOT chain search→read→symbol — one compose\n\
              does it all. Do NOT Read files whose source compose already returned — it IS the source.\n\
              Fire independent ctx_read or ctx_compose calls for different areas in PARALLEL.",

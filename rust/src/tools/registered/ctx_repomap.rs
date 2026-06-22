@@ -56,8 +56,6 @@ impl McpTool for CtxRepomapTool {
             get_int(args, "max_tokens").map_or(DEFAULT_MAX_TOKENS, |v| v.max(100) as usize);
 
         let focus_files = get_str_array(args, "focus_files").unwrap_or_default();
-
-        // Extract session files from the session state
         let session_files = extract_session_files(ctx);
 
         let result = crate::tools::ctx_repomap::handle(
@@ -81,7 +79,6 @@ impl McpTool for CtxRepomapTool {
     }
 }
 
-/// Extract the list of recently touched file paths from the session.
 fn extract_session_files(ctx: &ToolContext) -> Vec<String> {
     let Some(ref session_arc) = ctx.session else {
         return Vec::new();

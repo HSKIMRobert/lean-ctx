@@ -516,8 +516,7 @@ fn handle_pr(
             match serde_json::to_string_pretty(&json) {
                 Ok(s) => {
                     json.tokens = count_tokens(&s) as u64;
-                    serde_json::to_string_pretty(&json)
-                        .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
+                    serde_json::to_string_pretty(&json).unwrap()
                 }
                 Err(e) => format!("{{\"error\": \"serialization failed: {e}\"}}"),
             }
@@ -701,7 +700,7 @@ fn is_artifact_relevant(a: &ResolvedArtifact, changed: &[ChangedFile]) -> bool {
 }
 
 fn parse_changes_from_input(input: &str) -> Vec<ChangedFile> {
-    if input.contains("diff --git") || input.contains("\n+++ ") || input.starts_with("diff --git") {
+    if input.contains("diff --git") || input.contains("\n+++ ") {
         let paths = parse_unified_diff_paths(input);
         let mut out = Vec::new();
         for p in paths {

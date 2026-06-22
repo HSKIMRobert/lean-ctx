@@ -2,7 +2,9 @@ use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str, get_str_array};
+use crate::server::tool_trait::{
+    McpTool, ToolContext, ToolOutput, get_f64, get_str, get_str_array,
+};
 use crate::tool_defs::tool_def;
 
 pub struct CtxKnowledgeTool;
@@ -60,10 +62,7 @@ impl McpTool for CtxKnowledgeTool {
         let as_of = get_str(args, "as_of");
         let pattern_type = get_str(args, "pattern_type");
         let examples = get_str_array(args, "examples");
-        let confidence: Option<f32> = args
-            .get("confidence")
-            .and_then(serde_json::Value::as_f64)
-            .map(|v| v as f32);
+        let confidence = get_f64(args, "confidence").map(|v| v as f32);
 
         let session_handle = ctx
             .session

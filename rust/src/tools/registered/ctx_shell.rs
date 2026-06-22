@@ -390,7 +390,6 @@ fn warn_shell_secret_paths(command: &str) {
     }
 }
 
-/// Scans shell output for secrets and redacts them before returning to the agent.
 fn redact_shell_output_secrets(output: &str) -> String {
     let cfg = crate::core::config::Config::load();
     if !cfg.secret_detection.enabled {

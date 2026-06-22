@@ -97,39 +97,34 @@ impl McpTool for CtxSemanticSearchTool {
             }
         }
 
-        let file_path_param = get_str(args, "file_path");
-        let line_param = get_int(args, "line");
-
         if let Some(ref cache) = ctx.bm25_cache {
             crate::tools::ctx_semantic_search::set_thread_cache(cache.clone());
         }
 
-        if let Some(ref ps) = ctx.progress_sender
-            && let Some(sender) = ps
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_ref()
-        {
-            sender.send(0.0, Some(1.0), Some("Starting search...".to_string()));
-        }
-
-        let result = if action == "reindex" {
+        let send_progress = |progress: f64, msg: &str| {
+            #[allow(clippy::unwrap_or_default)]
             if let Some(ref ps) = ctx.progress_sender
                 && let Some(sender) = ps
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .as_ref()
             {
-                sender.send(0.0, Some(1.0), Some("Rebuilding BM25 index...".to_string()));
+                sender.send(progress, Some(1.0), Some(msg.to_string()));
             }
+        };
+
+        send_progress(0.0, "Starting search...");
+
+        let result = if action == "reindex" {
+            send_progress(0.0, "Rebuilding BM25 index...");
             if artifacts {
                 crate::tools::ctx_semantic_search::handle_reindex_artifacts(&path, workspace)
             } else {
                 crate::tools::ctx_semantic_search::handle_reindex(&path)
             }
         } else if action == "find_related" {
-            let fp = file_path_param.unwrap_or_default();
-            let line = line_param.unwrap_or(1) as usize;
+            let fp = get_str(args, "file_path").unwrap_or_default();
+            let line = get_int(args, "line").unwrap_or(1) as usize;
             if fp.is_empty() {
                 return Err(ErrorData::invalid_params(
                     "find_related requires file_path and line parameters",
@@ -157,14 +152,7 @@ impl McpTool for CtxSemanticSearchTool {
             )
         };
 
-        if let Some(ref ps) = ctx.progress_sender
-            && let Some(sender) = ps
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_ref()
-        {
-            sender.send(1.0, Some(1.0), Some("Search complete".to_string()));
-        }
+        send_progress(1.0, "Search complete");
 
         let repeat_hint = if action == "reindex" {
             String::new()

@@ -494,7 +494,6 @@ fn render_rename_apply(
             Err(e) => return format!("ERROR: {e}"),
         }
     }
-    // Gate (a): TOCTOU plan_hash.
     let actual = match plan_hash(project_root, &plan.usages) {
         Ok(h) => h,
         Err(e) => return format!("ERROR: {e}"),
@@ -505,7 +504,6 @@ fn render_rename_apply(
              expected={expected_hash}, actual={actual})"
         );
     }
-    // Gate (b): refactoring conflicts.
     if !plan.conflicts.is_empty() && !force {
         return format!(
             "ERROR: CONFLICT: {} refactoring conflict(s); pass force=true to override",
@@ -965,7 +963,6 @@ fn handle_move_refactor(action: &str, args: &Value, project_root: &str) -> Strin
         Ok(t) => t,
         Err(e) => return format!("ERROR: {e}"),
     };
-    // Stage 1 (source).
     let (rel_path, start_line, end_line) = match resolve_rename_target(args, project_root) {
         Ok(t) => t,
         Err(e) => return format!("ERROR: {e}"),
@@ -1348,7 +1345,6 @@ fn handle_symbols_overview(file_path: &str, project_root: &str, uri: &lsp_types:
 }
 
 fn handle_symbol_edit(action: &str, args: &Value, project_root: &str) -> String {
-    // 1) Resolve target: name_path (primary) or path+line(+column) fallback.
     let (rel_path, start_line, end_line) = if let Some(np) =
         args.get("name_path").and_then(Value::as_str)
     {

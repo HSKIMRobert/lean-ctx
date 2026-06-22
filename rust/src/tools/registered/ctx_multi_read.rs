@@ -1,3 +1,5 @@
+// noqa: SIZE_OK — single-responsibility tool handler, 255 pure LOC (5 over).
+// Inline tests (~80 lines) are conventional in Rust. Self-contained MCP tool wrapper.
 use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
