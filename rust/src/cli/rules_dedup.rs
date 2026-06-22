@@ -24,8 +24,8 @@ use std::path::{Path, PathBuf};
 
 const COMPRESSION_START: &str = "<!-- lean-ctx-compression -->";
 const COMPRESSION_END: &str = "<!-- /lean-ctx-compression -->";
-const BLOCK_START: &str = "<!-- lean-ctx -->";
-const BLOCK_END: &str = "<!-- /lean-ctx -->";
+const BLOCK_START: &str = crate::core::rules_canonical::START_MARK;
+const BLOCK_END: &str = crate::core::rules_canonical::END_MARK;
 
 /// One planned dedup action.
 #[derive(Debug, PartialEq, Eq)]
@@ -48,11 +48,11 @@ pub(crate) enum Action {
 fn is_owned_rules_file(content: &str) -> bool {
     let starts_with_header = content
         .trim_start()
-        .starts_with(crate::rules_inject::RULES_MARKER)
+        .starts_with(crate::core::rules_canonical::START_MARK)
         // CursorMdc has YAML frontmatter before the header.
         || (content.trim_start().starts_with("---")
-            && content.contains(crate::rules_inject::RULES_MARKER));
-    starts_with_header && content.contains("<!-- lean-ctx-rules-")
+            && content.contains(crate::core::rules_canonical::START_MARK));
+    starts_with_header && content.contains("<!-- version:")
 }
 
 fn has_marked_block(content: &str) -> bool {
@@ -322,8 +322,8 @@ mod tests {
 
     fn owned_mdc() -> String {
         format!(
-            "---\ndescription: lean-ctx\n---\n{}\n<!-- lean-ctx-rules-v9 -->\nbody\n",
-            crate::rules_inject::RULES_MARKER
+            "---\ndescription: lean-ctx\n---\n{}\n<!-- version: 1 -->\nbody\n",
+            crate::core::rules_canonical::START_MARK
         )
     }
 
@@ -331,22 +331,28 @@ mod tests {
     fn detects_owned_dedicated_files() {
         assert!(is_owned_rules_file(&owned_mdc()));
         assert!(is_owned_rules_file(&format!(
-            "{}\n<!-- lean-ctx-rules-v11 -->\nbody\n",
-            crate::rules_inject::RULES_MARKER
+            "{}\n<!-- version: 1 -->\nbody\n",
+            crate::core::rules_canonical::START_MARK
         )));
         // User file mentioning lean-ctx is NOT owned.
         assert!(!is_owned_rules_file("# My rules\nuse lean-ctx tools\n"));
         // Marker buried mid-file (user prepended content) is NOT owned.
         assert!(!is_owned_rules_file(&format!(
-            "# my header\n{}\n<!-- lean-ctx-rules-v11 -->\n",
-            crate::rules_inject::RULES_MARKER
+            "# my header\n{}\n<!-- version: 1 -->\n",
+            crate::core::rules_canonical::START_MARK
         )));
     }
 
     #[test]
     fn strip_removes_rules_and_compression_blocks() {
-        let content = "user line\n<!-- lean-ctx -->\nour rules\n<!-- /lean-ctx -->\nmore user\n<!-- lean-ctx-compression -->\nstyle\n<!-- /lean-ctx-compression -->\n";
-        let out = strip_lean_ctx_blocks(content);
+        let content = format!(
+            "user line\n{block_start}\nour rules\n{block_end}\nmore user\n{comp_start}\nstyle\n{comp_end}\n",
+            block_start = BLOCK_START,
+            block_end = BLOCK_END,
+            comp_start = COMPRESSION_START,
+            comp_end = COMPRESSION_END,
+        );
+        let out = strip_lean_ctx_blocks(&content);
         assert!(out.contains("user line"));
         assert!(out.contains("more user"));
         assert!(!out.contains("our rules"));
@@ -356,8 +362,8 @@ mod tests {
 
     #[test]
     fn strip_of_pure_block_file_yields_empty() {
-        let content = "<!-- lean-ctx -->\nonly ours\n<!-- /lean-ctx -->\n";
-        assert_eq!(strip_lean_ctx_blocks(content), "");
+        let content = format!("{block_start}\nonly ours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END);
+        assert_eq!(strip_lean_ctx_blocks(&content), "");
     }
 
     #[test]
@@ -405,7 +411,7 @@ mod tests {
         let home = tmp.path();
         let project = home.join("app");
         std::fs::create_dir_all(&project).unwrap();
-        let rules = "<!-- lean-ctx -->\npointer\n<!-- /lean-ctx -->\n";
+        let rules = format!("{block_start}\npointer\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END);
         std::fs::write(project.join(".cursorrules"), rules).unwrap();
 
         // Without the global mdc, .cursorrules is the carrier — report only.
@@ -436,7 +442,7 @@ mod tests {
         let path = tmp.path().join(".cursorrules");
         std::fs::write(
             &path,
-            "my custom rule\n<!-- lean-ctx -->\nours\n<!-- /lean-ctx -->\n",
+            format!("my custom rule\n{block_start}\nours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END),
         )
         .unwrap();
 
@@ -453,10 +459,16 @@ mod tests {
 
     #[test]
     fn strip_compression_keeps_pointer_and_user_content() {
-        let content = "# Agent Instructions\n\n<!-- lean-ctx -->\npointer\n<!-- /lean-ctx -->\n\n<!-- lean-ctx-compression -->\nOUTPUT STYLE\n<!-- /lean-ctx-compression -->\n";
-        let out = strip_compression_block(content);
+        let content = format!(
+            "# Agent Instructions\n\n{block_start}\npointer\n{block_end}\n\n{comp_start}\nOUTPUT STYLE\n{comp_end}\n",
+            block_start = BLOCK_START,
+            block_end = BLOCK_END,
+            comp_start = COMPRESSION_START,
+            comp_end = COMPRESSION_END,
+        );
+        let out = strip_compression_block(&content);
         assert!(out.contains("# Agent Instructions"));
-        assert!(out.contains("<!-- lean-ctx -->"));
+        assert!(out.contains(BLOCK_START));
         assert!(out.contains("pointer"));
         assert!(!out.contains("lean-ctx-compression"));
         assert!(!out.contains("OUTPUT STYLE"));
@@ -477,8 +489,8 @@ mod tests {
         std::fs::write(
             home.join(".cursor/rules/lean-ctx.mdc"),
             format!(
-                "{}\n<!-- lean-ctx-rules-v12 -->\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n",
-                crate::rules_inject::RULES_MARKER
+                "{}\n<!-- version: 1 -->\n{COMPRESSION_START}\nstyle\n{COMPRESSION_END}\n",
+                crate::core::rules_canonical::START_MARK
             ),
         )
         .unwrap();
@@ -557,7 +569,7 @@ mod tests {
         });
         assert!(msg.starts_with("thinned"), "{msg}");
         let after = std::fs::read_to_string(&path).unwrap();
-        assert!(after.contains("<!-- lean-ctx -->"));
+        assert!(after.contains(BLOCK_START));
         assert!(!after.contains("lean-ctx-compression"));
         let bak = std::fs::read_to_string(path.with_extension("bak")).unwrap();
         assert!(bak.contains("lean-ctx-compression"));
@@ -567,7 +579,7 @@ mod tests {
     fn apply_strip_deletes_file_that_was_only_ours() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join(".cursorrules");
-        std::fs::write(&path, "<!-- lean-ctx -->\nours\n<!-- /lean-ctx -->\n").unwrap();
+        std::fs::write(&path, format!("{block_start}\nours\n{block_end}\n", block_start = BLOCK_START, block_end = BLOCK_END)).unwrap();
 
         let msg = apply(&Action::StripBlocks {
             path: path.clone(),

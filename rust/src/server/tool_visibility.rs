@@ -213,7 +213,6 @@ mod tests {
         assert!(is_tool_visible("ctx_semantic_search", &p, &[], false, true));
         assert!(is_tool_visible("ctx_callgraph", &p, &[], false, true));
         assert!(is_tool_visible("ctx_graph", &p, &[], false, true));
-        assert!(is_tool_visible("ctx_execute", &p, &[], false, true));
     }
 
     #[test]

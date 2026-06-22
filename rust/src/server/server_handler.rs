@@ -227,11 +227,6 @@ impl ServerHandler for LeanCtxServer {
             dynamic_tools::init_from_config(&cats);
         }
 
-        if client_caps.dynamic_tools
-            && let Ok(mut dt) = dynamic_tools::global().lock()
-        {
-            dt.set_supports_list_changed(true);
-        }
         if let Some(max) = client_caps.max_tools
             && let Ok(mut dt) = dynamic_tools::global().lock()
         {
@@ -240,6 +235,10 @@ impl ServerHandler for LeanCtxServer {
                 dt.unload_category(dynamic_tools::ToolCategory::Debug);
                 dt.unload_category(dynamic_tools::ToolCategory::Memory);
             }
+        } else if client_caps.dynamic_tools
+            && let Ok(mut dt) = dynamic_tools::global().lock()
+        {
+            dt.set_supports_list_changed(true);
         }
 
         crate::core::client_capabilities::set_detected(&client_caps);

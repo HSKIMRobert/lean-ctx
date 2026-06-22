@@ -546,16 +546,20 @@ fn canonical_provider_path(path: &str) -> Option<String> {
     if let Some(rest) = path.strip_prefix("/v1/v1/") {
         return Some(format!("/v1/{rest}"));
     }
-    const BARE_TO_CANONICAL: &[(&str, &str)] = &[
-        ("/responses", "/v1/responses"),
-        ("/chat/completions", "/v1/chat/completions"),
-        ("/messages", "/v1/messages"),
+    const BARE_TO_CANONICAL: &[(&str, &str, &str)] = &[
+        ("/responses", "/v1/responses", "/responses/"),
+        (
+            "/chat/completions",
+            "/v1/chat/completions",
+            "/chat/completions/",
+        ),
+        ("/messages", "/v1/messages", "/messages/"),
     ];
-    for (bare, canonical) in BARE_TO_CANONICAL {
+    for (bare, canonical, bare_with_slash) in BARE_TO_CANONICAL {
         if path == *bare {
             return Some((*canonical).to_string());
         }
-        if let Some(rest) = path.strip_prefix(&format!("{bare}/")) {
+        if let Some(rest) = path.strip_prefix(bare_with_slash) {
             return Some(format!("{canonical}/{rest}"));
         }
     }

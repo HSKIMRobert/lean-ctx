@@ -840,17 +840,14 @@ command = \"other\"
     #[test]
     fn shared_markdown_surgical_removal() {
         let input = "# My custom rules\n\nDo this and that.\n\n\
-                      # lean-ctx — Context Engineering Layer\n\
+                      # Context Engineering Layer\n\
                       <!-- lean-ctx-rules-v9 -->\n\n\
                       Use ctx_read instead of Read.\n\
                       <!-- /lean-ctx -->\n\n\
                       # Other section\n\nMore user content.\n";
 
-        let cleaned = remove_marked_block(
-            input,
-            "# lean-ctx — Context Engineering Layer",
-            "<!-- /lean-ctx -->",
-        );
+        let cleaned =
+            remove_marked_block(input, "# Context Engineering Layer", "<!-- /lean-ctx -->");
 
         assert!(
             !cleaned.contains("lean-ctx"),
@@ -872,16 +869,13 @@ command = \"other\"
 
     #[test]
     fn shared_markdown_only_lean_ctx() {
-        let input = "# lean-ctx — Context Engineering Layer\n\
+        let input = "# Context Engineering Layer\n\
                       <!-- lean-ctx-rules-v9 -->\n\
                       content\n\
                       <!-- /lean-ctx -->\n";
 
-        let cleaned = remove_marked_block(
-            input,
-            "# lean-ctx — Context Engineering Layer",
-            "<!-- /lean-ctx -->",
-        );
+        let cleaned =
+            remove_marked_block(input, "# Context Engineering Layer", "<!-- /lean-ctx -->");
 
         assert!(
             cleaned.trim().is_empty() || !cleaned.contains("lean-ctx"),
@@ -895,7 +889,7 @@ command = \"other\"
     fn cursorrules_surgical_removal() {
         let input = "# My project rules\n\n\
                       Always use TypeScript.\n\n\
-                      # lean-ctx — Context Engineering Layer\n\n\
+                      # Context Engineering Layer\n\n\
                       PREFER lean-ctx MCP tools over native equivalents.\n";
 
         let cleaned = remove_lean_ctx_section_from_rules(input);
@@ -916,7 +910,7 @@ command = \"other\"
 
     #[test]
     fn cursorrules_only_lean_ctx() {
-        let input = "# lean-ctx — Context Engineering Layer\n\n\
+        let input = "# Context Engineering Layer\n\n\
                       PREFER lean-ctx MCP tools.\n";
 
         let cleaned = remove_lean_ctx_section_from_rules(input);

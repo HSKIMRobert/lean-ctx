@@ -17,7 +17,6 @@ pub(crate) fn cmd_knowledge(args: &[String]) {
         Some("status") => {
             #[cfg(unix)]
             {
-                #[cfg(unix)]
                 if let Some(out) = crate::daemon_client::try_daemon_tool_call_blocking_text(
                     "ctx_knowledge",
                     Some(serde_json::json!({

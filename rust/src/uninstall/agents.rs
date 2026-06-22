@@ -15,8 +15,8 @@ pub(super) fn remove_project_agent_files(dry_run: bool) -> bool {
     let agents = cwd.join("AGENTS.md");
     let lean_ctx_md = cwd.join("LEAN-CTX.md");
 
-    const START: &str = "<!-- lean-ctx -->";
-    const END: &str = "<!-- /lean-ctx -->";
+    const START: &str = crate::core::rules_canonical::START_MARK;
+    const END: &str = crate::core::rules_canonical::END_MARK;
     const OWNED: &str = "<!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->";
 
     let mut removed = false;
@@ -160,29 +160,35 @@ pub(super) fn remove_project_agent_files(dry_run: bool) -> bool {
 }
 
 /// Remove the lean-ctx section from .cursorrules / .windsurfrules / .clinerules.
-/// These files have lean-ctx content appended starting with `# lean-ctx`.
-/// The content has no end marker, so we remove from the heading to the end of
-/// the lean-ctx block (next non-lean-ctx heading or end of file).
+/// These files have lean-ctx content appended starting with the canonical
+/// `START_MARK` comment. The content has no end marker, so we remove from
+/// the marker to the end of the lean-ctx block (next heading or end of file).
 pub(super) fn remove_lean_ctx_section_from_rules(content: &str) -> String {
-    // If the file has the markdown markers, use marker-based removal
-    const MARKER_START: &str = "<!-- lean-ctx -->";
-    const MARKER_END: &str = "<!-- /lean-ctx -->";
-    if content.contains(MARKER_START) {
-        return remove_marked_block(content, MARKER_START, MARKER_END);
+    // If the file has the HTML comment markers, use marker-based removal.
+    // Check both new (`START_MARK`) and old (`<!-- lean-ctx-rules-`) formats.
+    const MARKER_END: &str = crate::core::rules_canonical::END_MARK;
+    for marker_start in [
+        crate::core::rules_canonical::START_MARK,
+        "<!-- lean-ctx-rules-",
+    ] {
+        if content.contains(marker_start) {
+            return remove_marked_block(content, marker_start, MARKER_END);
+        }
     }
 
-    // Otherwise, remove from `# lean-ctx` heading to end of file or next
-    // non-lean-ctx heading.
+    // Otherwise, remove from `# Context Engineering Layer` heading to end of file
+    // or next non-lean-ctx heading.
+    let heading = "# Context Engineering Layer";
     let mut out = String::with_capacity(content.len());
     let mut in_block = false;
 
     for line in content.lines() {
-        if !in_block && line.starts_with('#') && line.to_lowercase().contains("lean-ctx") {
+        if !in_block && line.trim() == heading {
             in_block = true;
             continue;
         }
         if in_block {
-            if line.starts_with('#') && !line.to_lowercase().contains("lean-ctx") {
+            if line.starts_with('#') && line.trim() != heading {
                 in_block = false;
                 out.push_str(line);
                 out.push('\n');
@@ -651,11 +657,11 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
 
     // --- Shared: surgically remove lean-ctx section, keep user content ---
     // Two marker styles exist:
-    //   1. Heading-based: `# lean-ctx — Context Engineering Layer` … `<!-- /lean-ctx -->`
-    //   2. HTML comments: `<!-- lean-ctx -->` … `<!-- /lean-ctx -->`
-    const HEADING_MARKER: &str = "# lean-ctx — Context Engineering Layer";
-    const HTML_START: &str = "<!-- lean-ctx -->";
-    const HTML_END: &str = "<!-- /lean-ctx -->";
+    //   1. HTML comment markers: `START_MARK` … `END_MARK`
+    //   2. Old heading-based: `# Context Engineering Layer` (pre-v13)
+    const HEADING_MARKER: &str = "# Context Engineering Layer";
+    const HTML_START: &str = crate::core::rules_canonical::START_MARK;
+    const HTML_END: &str = crate::core::rules_canonical::END_MARK;
 
     for (name, path) in &shared_files {
         if !path.exists() {
@@ -734,16 +740,26 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
 }
 
 fn remove_lean_ctx_block_from_md(content: &str) -> String {
+    // Detect both HTML-comment markers and old heading-based markers.
+    let start_marker = crate::core::rules_canonical::START_MARK;
+    let end_marker = crate::core::rules_canonical::END_MARK;
+    let heading = "# Context Engineering Layer";
     let mut out = String::with_capacity(content.len());
     let mut in_block = false;
 
     for line in content.lines() {
-        if !in_block && line.contains("lean-ctx") && line.starts_with('#') {
-            in_block = true;
-            continue;
+        if !in_block {
+            if line.contains(start_marker) || line.trim() == heading {
+                in_block = true;
+                continue;
+            }
         }
         if in_block {
-            if line.starts_with('#') && !line.contains("lean-ctx") {
+            if line.contains(end_marker) {
+                in_block = false;
+                continue;
+            }
+            if line.starts_with('#') && line.trim() != heading && !line.contains(start_marker) {
                 in_block = false;
                 out.push_str(line);
                 out.push('\n');
