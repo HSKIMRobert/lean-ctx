@@ -7,7 +7,8 @@
 //! [`Plan::Free`](crate::core::billing::Plan) — so the open backend runs fully
 //! standalone and **no local capability is ever gated** (Local-Free Invariant).
 
-use std::sync::{Mutex, PoisonError};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::Json;
@@ -33,9 +34,99 @@ pub(super) async fn resolve_plan(cfg: &Config, user_id: Uuid) -> Plan {
         .unwrap_or(Plan::Free)
 }
 
+// ── Entitlements cache (GL #785) ──────────────────────────────────────────────
+//
+// A per-user, in-memory cache of the billing plane's entitlements payload. It
+// exists for one reason: a brief billing-service outage must never downgrade a
+// *paying* account. Without it, `resolve_entitlements_raw` degrades to `Free` on
+// any failure, so a single blip would 402 paying Pro users on every
+// `/api/sync/*` request (fail-closed against people who pay us).
+//
+// Policy (mirrors the supporters-wall cache below):
+// - fresh within `ENTITLEMENTS_CACHE_TTL` ⇒ serve cached (also shields the plane
+//   from per-request traffic),
+// - otherwise refetch; on success refresh the slot,
+// - on upstream failure ⇒ serve the last value regardless of age (a stale plan
+//   beats a wrong downgrade). Only an account never seen before falls through to
+//   `Free`, exactly as it did before this cache existed.
+//
+// Memory is bounded: once the map passes `ENTITLEMENTS_CACHE_MAX`, entries older
+// than `ENTITLEMENTS_STALE_RETAIN` are pruned — they could only ever serve as a
+// very old stale fallback.
+
+/// How long a fetched entitlements payload counts as fresh.
+const ENTITLEMENTS_CACHE_TTL: Duration = Duration::from_mins(1);
+/// Soft cap on distinct cached accounts before pruning kicks in.
+const ENTITLEMENTS_CACHE_MAX: usize = 50_000;
+/// On overflow, evict entries older than this (kept only as stale fallback).
+const ENTITLEMENTS_STALE_RETAIN: Duration = Duration::from_hours(1);
+
+struct CachedEntitlements {
+    at: Instant,
+    value: Value,
+}
+
+type EntitlementsCacheSlot = Mutex<HashMap<Uuid, CachedEntitlements>>;
+static ENTITLEMENTS_CACHE: LazyLock<EntitlementsCacheSlot> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// The cached payload for `user_id` if it was stored less than
+/// `ENTITLEMENTS_CACHE_TTL` before `now`. `now` is injected so expiry is
+/// unit-testable without sleeping.
+fn entitlements_cache_fresh(
+    slot: &EntitlementsCacheSlot,
+    user_id: Uuid,
+    now: Instant,
+) -> Option<Value> {
+    let guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
+    guard
+        .get(&user_id)
+        .filter(|e| now.duration_since(e.at) < ENTITLEMENTS_CACHE_TTL)
+        .map(|e| e.value.clone())
+}
+
+/// The last cached payload for `user_id` regardless of age — the stale fallback
+/// served when the billing plane is unreachable (a stale plan beats a wrong
+/// downgrade to Free for a paying account).
+fn entitlements_cache_any(slot: &EntitlementsCacheSlot, user_id: Uuid) -> Option<Value> {
+    let guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
+    guard.get(&user_id).map(|e| e.value.clone())
+}
+
+/// Store a freshly fetched payload, restarting the TTL window at `now` and
+/// pruning very old entries if the map has grown past its soft cap.
+fn entitlements_cache_store(
+    slot: &EntitlementsCacheSlot,
+    user_id: Uuid,
+    now: Instant,
+    value: &Value,
+) {
+    let mut guard = slot.lock().unwrap_or_else(PoisonError::into_inner);
+    guard.insert(
+        user_id,
+        CachedEntitlements {
+            at: now,
+            value: value.clone(),
+        },
+    );
+    if guard.len() > ENTITLEMENTS_CACHE_MAX {
+        prune_entitlements_cache(&mut guard, now);
+    }
+}
+
+/// Drop entries older than `ENTITLEMENTS_STALE_RETAIN` relative to `now`. They
+/// could only ever serve as a very old stale fallback, so evicting them bounds
+/// memory without affecting fresh hits or recent stale fallbacks.
+fn prune_entitlements_cache(map: &mut HashMap<Uuid, CachedEntitlements>, now: Instant) {
+    map.retain(|_, e| now.duration_since(e.at) < ENTITLEMENTS_STALE_RETAIN);
+}
+
 /// The raw entitlements payload from the private billing service (plan,
-/// entitlements, org membership — GL #468). `None` on any failure, so callers
-/// degrade exactly like [`resolve_plan`].
+/// entitlements, org membership — GL #468). Cached per user with a stale-on-error
+/// fallback (GL #785), so a billing blip never downgrades a paying account.
+/// `None` only when billing is unconfigured, or the account has never been seen
+/// and the plane is currently unreachable — callers then degrade to
+/// [`Plan::Free`] exactly like before.
 async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> {
     let (Some(base), Some(key)) = (
         cfg.billing_base_url.clone(),
@@ -44,8 +135,13 @@ async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> 
         return None;
     };
 
+    let now = Instant::now();
+    if let Some(cached) = entitlements_cache_fresh(&ENTITLEMENTS_CACHE, user_id, now) {
+        return Some(cached);
+    }
+
     let url = format!("{base}/api/billing/entitlements/{user_id}");
-    let body = tokio::task::spawn_blocking(move || {
+    let fetched = tokio::task::spawn_blocking(move || {
         ureq::get(&url)
             .header("X-Internal-Key", &key)
             .call()
@@ -56,9 +152,18 @@ async fn resolve_entitlements_raw(cfg: &Config, user_id: Uuid) -> Option<Value> 
     })
     .await
     .ok()
-    .flatten()?;
+    .flatten()
+    .and_then(|body| serde_json::from_str::<Value>(&body).ok());
 
-    serde_json::from_str::<Value>(&body).ok()
+    match fetched {
+        Some(value) => {
+            entitlements_cache_store(&ENTITLEMENTS_CACHE, user_id, now, &value);
+            Some(value)
+        }
+        // Billing unreachable / bad response: serve the last known plan so a blip
+        // never downgrades a paying account. Never-seen accounts fall to Free.
+        None => entitlements_cache_any(&ENTITLEMENTS_CACHE, user_id),
+    }
 }
 
 /// Billing-side account deletion (GL #535): cancels any live subscription
@@ -1571,5 +1676,85 @@ mod tests {
         let t1 = t0 + SUPPORTERS_CACHE_TTL + Duration::from_secs(10);
         supporters_cache_store(&slot, t1, &wall);
         assert_eq!(supporters_cache_fresh(&slot, t1), Some(wall));
+    }
+
+    // ── Entitlements cache (GL #785) ──────────────────────────────────────────
+
+    #[test]
+    fn entitlements_cache_fresh_then_expiry_then_stale_fallback() {
+        let slot: EntitlementsCacheSlot = Mutex::new(HashMap::new());
+        let uid = Uuid::new_v4();
+        let t0 = Instant::now();
+
+        // Cold cache: neither fresh nor stale.
+        assert!(entitlements_cache_fresh(&slot, uid, t0).is_none());
+        assert!(entitlements_cache_any(&slot, uid).is_none());
+
+        let pro = json!({ "plan": "pro", "entitlements": { "cloud_sync": true } });
+        entitlements_cache_store(&slot, uid, t0, &pro);
+
+        // Fresh just before the TTL window closes.
+        let just_before = (t0 + ENTITLEMENTS_CACHE_TTL)
+            .checked_sub(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(
+            entitlements_cache_fresh(&slot, uid, just_before),
+            Some(pro.clone())
+        );
+
+        // At/after the TTL it is no longer fresh…
+        assert!(entitlements_cache_fresh(&slot, uid, t0 + ENTITLEMENTS_CACHE_TTL).is_none());
+        // …but survives as the stale fallback served during a billing outage.
+        assert_eq!(entitlements_cache_any(&slot, uid), Some(pro));
+    }
+
+    #[test]
+    fn entitlements_cache_stale_fallback_is_per_user() {
+        let slot: EntitlementsCacheSlot = Mutex::new(HashMap::new());
+        let seen = Uuid::new_v4();
+        let never_seen = Uuid::new_v4();
+        let t0 = Instant::now();
+
+        entitlements_cache_store(&slot, seen, t0, &json!({ "plan": "pro" }));
+
+        // A previously-seen payer keeps Pro during an outage; an account we have
+        // never resolved has nothing to fall back to → caller degrades to Free.
+        assert_eq!(
+            entitlements_cache_any(&slot, seen),
+            Some(json!({ "plan": "pro" }))
+        );
+        assert!(entitlements_cache_any(&slot, never_seen).is_none());
+    }
+
+    #[test]
+    fn prune_entitlements_cache_evicts_only_very_old_entries() {
+        let mut map: HashMap<Uuid, CachedEntitlements> = HashMap::new();
+        let t0 = Instant::now();
+        let later = t0 + ENTITLEMENTS_STALE_RETAIN + Duration::from_secs(1);
+
+        let old = Uuid::new_v4();
+        let recent = Uuid::new_v4();
+        map.insert(
+            old,
+            CachedEntitlements {
+                at: t0,
+                value: json!({ "plan": "team" }),
+            },
+        );
+        map.insert(
+            recent,
+            CachedEntitlements {
+                at: later,
+                value: json!({ "plan": "pro" }),
+            },
+        );
+
+        prune_entitlements_cache(&mut map, later);
+
+        assert!(
+            !map.contains_key(&old),
+            "entries past the stale-retain window are dropped"
+        );
+        assert!(map.contains_key(&recent), "recent entries are kept");
     }
 }
