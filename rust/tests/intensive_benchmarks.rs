@@ -130,9 +130,12 @@ fn bench_tool_descriptions_token_count() {
     // the live server advertises in full mode. Set with deliberate headroom over
     // the current actual so adding a tool or two never blocks CI; only raise it
     // again on a material jump in the surface, not on routine additions (#290).
+    // Raised 3000 -> 4000 for the #496 tool-profile reorg: a material jump that
+    // enriches per-tool profile metadata on the full opt-in surface. The default
+    // surface stays small (see `bench_lazy_default_vs_full_overhead`).
     assert!(
-        total < 3000,
-        "Total tool description tokens should be <3000, got {total}"
+        total < 4000,
+        "Total tool description tokens should be <4000, got {total}"
     );
 
     for (name, desc) in &descriptions {
@@ -178,9 +181,11 @@ fn bench_total_input_overhead() {
     // worst-case opt-in overhead. The default lazy surface is far smaller; see
     // `bench_lazy_default_vs_full_overhead` (#141). Set with deliberate headroom
     // over the current actual so routine tool additions do not trip CI (#290).
+    // Raised 12000 -> 13000 for the #496 tool-profile reorg (material jump in
+    // the full opt-in surface); the lazy default users actually pay is unaffected.
     assert!(
-        total < 12000,
-        "Total input overhead should be <12000 tokens, got {total}"
+        total < 13000,
+        "Total input overhead should be <13000 tokens, got {total}"
     );
 }
 
@@ -981,18 +986,19 @@ fn guard_essential_instructions_present() {
 
     // #579: the static skeleton is capped at ≤400 tokens — workflow tools
     // (ctx_overview, ctx_compress) moved to the on-demand LEAN-CTX.md doc.
-    // The skeleton must still anchor the mandatory mapping + CEP protocol.
+    // #496: the per-session skeleton (Bare profile) stays lean — it anchors the
+    // mandatory tool mapping + the intent playbook. The CEP protocol, AUTO hints
+    // and the LEAN-CTX.md reference now live in the dedicated rule file /
+    // CLAUDE.md (FULL profile) that the agent loads alongside, keeping the
+    // worst-case per-session MCP instructions under the 2048-char Claude cap.
     let required = vec![
-        "ALWAYS use lean-ctx MCP tools",
+        "ALWAYS use lean-ctx tools",
         "ctx_read",
         "ctx_shell",
         "ctx_search",
         "ctx_tree",
-        "CEP v1",
-        "ACT FIRST",
-        "DELTA ONLY",
+        "ctx_compose",
         "ctx_session",
-        "LEAN-CTX.md",
     ];
 
     for keyword in &required {

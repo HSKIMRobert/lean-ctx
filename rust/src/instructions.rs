@@ -224,7 +224,7 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
 \n\
 {decoder_block}\n\
 \n\
-Full instructions at {config_dir}/CLAUDE.md (imports rules/lean-ctx.md)\n\
+Full instructions at {config_dir}/CLAUDE.md\n\
 {session_block}\
 {knowledge_block}\
 {gotcha_block}\
@@ -419,7 +419,7 @@ fn build_shell_hint() -> String {
     let name = crate::shell::shell_name();
     let is_posix = matches!(name.as_str(), "bash" | "sh" | "zsh" | "fish");
     if is_posix {
-        format!("\nSHELL: {name} (POSIX) — POSIX commands only, no PowerShell cmdlets.\n")
+        format!("\nSHELL: {name} (POSIX) — no PowerShell cmdlets.\n")
     } else if name.contains("powershell") || name.contains("pwsh") {
         format!("\nSHELL: {name}. Use PowerShell cmdlets.\n")
     } else {
