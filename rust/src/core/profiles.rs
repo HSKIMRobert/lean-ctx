@@ -833,6 +833,11 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
                 .lifecycle
                 .base_stability_days
                 .or(parent.memory.lifecycle.base_stability_days),
+            archetype_aware_decay: child
+                .memory
+                .lifecycle
+                .archetype_aware_decay
+                .or(parent.memory.lifecycle.archetype_aware_decay),
         },
     };
     let verification = crate::core::output_verification::VerificationConfig {

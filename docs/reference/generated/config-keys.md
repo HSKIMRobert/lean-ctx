@@ -101,7 +101,8 @@ Controls autonomous background behaviors (preload, dedup, consolidation)
 - `auto_related` (bool, default `true`) — Auto-load graph-related files
 - `cognition_loop_enabled` (bool, default `true` — env `LEAN_CTX_COGNITION_LOOP_ENABLED`) — Enable the background cognition loop (periodic knowledge consolidation)
 - `cognition_loop_interval_secs` (u64, default `3600` — env `LEAN_CTX_COGNITION_LOOP_INTERVAL_SECS`) — Seconds between cognition loop iterations
-- `cognition_loop_max_steps` (u8, default `8` — env `LEAN_CTX_COGNITION_LOOP_MAX_STEPS`) — Maximum steps per cognition loop iteration
+- `cognition_loop_max_steps` (u8, default `9` — env `LEAN_CTX_COGNITION_LOOP_MAX_STEPS`) — Maximum steps per cognition loop iteration (>= 9 enables observation synthesis)
+- `cognition_synthesis_min_cluster` (usize, default `3` — env `LEAN_CTX_COGNITION_SYNTHESIS_MIN_CLUSTER`) — Minimum facts per entity before observation synthesis writes a summary (needs cognition_loop_max_steps >= 9)
 - `consolidate_cooldown_secs` (u64, default `120`) — Minimum seconds between consolidation runs
 - `consolidate_every_calls` (u32, default `25`) — Consolidate knowledge every N tool calls
 - `dedup_threshold` (usize, default `8`) — Number of repeated reads before dedup triggers
@@ -258,6 +259,7 @@ Knowledge memory budgets (facts, patterns, gotchas)
 
 Knowledge lifecycle policy (decay, staleness, dedup)
 
+- `archetype_aware_decay` (bool, default `false`) — Scale Ebbinghaus stability by fact archetype so structural evidence decays slower than inference (default false)
 - `base_stability_days` (f32, default `90.0`) — Characteristic memory stability (days) for the Ebbinghaus curve
 - `decay_rate` (f32, default `0.01`) — Rate at which knowledge confidence decays over time
 - `forgetting_model` (string, default `ebbinghaus`) — Forgetting curve: ebbinghaus (default, exponential + spacing) or linear

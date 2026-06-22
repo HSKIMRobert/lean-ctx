@@ -149,6 +149,7 @@ opt-in via `LEAN_CTX_STOCHASTIC=1`.
 | Idle replay | Sharp-wave-ripple replay | A quiet gap triggers a deeper background consolidation pass | `LEAN_CTX_COGNITION_IDLE_SECS` |
 | FEP prefetch | Active inference / free energy | Surfaces likely-next co-accessed files as a warmup hint (never auto-reads) | — |
 | Immune detector | Artificial immune system | Screens external provider data for injection/poisoning before ingest; stricter for untrusted workspaces | coupled to Workspace Trust |
+| Observation synthesis | Entity-summary memory (Hindsight) | Distils per-entity fact clusters into deterministic, recall-prioritized observation summaries | `cognition_synthesis_min_cluster`, `cognition_loop_max_steps` |
 
 ### Proving they are active
 
@@ -157,7 +158,7 @@ what is wired and what has actually fired this session:
 
 ```
 $ lean-ctx introspect cognition
-Cognition subsystems: 7/11 active (11 wired)
+Cognition subsystems: 8/12 active (12 wired)
 
   [active] Sticky-Phi fix             count=42   last=3s ago   time-variant salience (attention)
   [active] Immune detector            count=2    last=1m ago   artificial immune system
@@ -165,8 +166,36 @@ Cognition subsystems: 7/11 active (11 wired)
   ...
 ```
 
-`lean-ctx doctor` summarizes the same (`Cognition  7/11 subsystems active`).
+`lean-ctx doctor` summarizes the same (`Cognition  8/12 subsystems active`).
 Add `--json` for machine-readable output.
+
+### Observation synthesis (entity summaries)
+
+Inspired by [Hindsight](https://github.com/vectorize-io/hindsight)'s *observation
+network*, the loop's 9th step distils clusters of related facts into compact,
+per-entity **observations** — a synthesized orientation layer over the raw store.
+
+- **Epistemic typing (evidence vs. inference).** Every fact is typed by archetype
+  on write (`infer_from_category`), separating objective *evidence* (architecture,
+  dependency, convention, gotcha, fact) from *inference* (decision, preference,
+  observation). Typing already feeds salience ranking, and — opt-in via
+  `archetype_aware_decay` — lets structural evidence decay slower than inference on
+  the Ebbinghaus curve.
+- **Deterministic synthesis.** Facts are grouped by an entity anchor (a file path
+  in the key/value, else the category); each cluster of ≥
+  `cognition_synthesis_min_cluster` (default 3) facts becomes one observation
+  written through the normal `remember()` path — so versioning, persistence, and
+  idempotency come for free (unchanged facts → confirmation; changed → supersede).
+  The value is a stable function of the source content (no timestamps/counters), so
+  hot-path recall stays byte-stable (#498). An optional LLM refinement sits behind
+  `llm.enabled`; the deterministic digest is always the fallback.
+- **Recall priority.** A relevant synthesized observation gets a *balanced* recall
+  boost — above incidental matches, but below an exact key hit — so a stale summary
+  never buries a precise raw fact.
+
+Synthesis runs as step 9, active only when `cognition_loop_max_steps >= 9` (the new
+default; set 8 to disable). Activity shows as `observation_synthesis` in
+`lean-ctx introspect cognition`.
 
 ### QUBO selection (research spike)
 
@@ -204,3 +233,4 @@ conditional on a future, reproducible gain.
 - Free-Energy Principle (Friston 2010) — active inference, prefetch
 - Artificial Immune Systems (de Castro & Timmis 2002) — anomaly/self-nonself
 - QUBO / simulated bifurcation (Goto et al. 2019) — quantum-inspired optimization
+- Hindsight (Vectorize, 2025) — agent observation networks, evidence vs. inference

@@ -333,6 +333,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Characteristic memory stability (days) for the Ebbinghaus curve",
         ),
     );
+    mem_lifecycle.insert(
+        "archetype_aware_decay".into(),
+        key(
+            "bool",
+            serde_json::json!(mem.lifecycle.archetype_aware_decay),
+            "Scale Ebbinghaus stability by fact archetype so structural evidence decays slower than inference (default false)",
+        ),
+    );
     sections.insert(
         "memory.lifecycle".into(),
         SectionSchema {

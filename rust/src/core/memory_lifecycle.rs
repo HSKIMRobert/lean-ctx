@@ -73,6 +73,10 @@ pub struct LifecycleConfig {
     /// Characteristic stability (days) for the Ebbinghaus curve before spacing
     /// and feedback modulation.
     pub base_stability_days: f32,
+    /// When true, scale stability by the fact's archetype so structural *evidence*
+    /// (architecture/dependency/…) decays slower than *inference* (#788/cognition).
+    /// Default false keeps the baseline tuning byte-for-byte.
+    pub archetype_aware_decay: bool,
 }
 
 impl Default for LifecycleConfig {
@@ -85,6 +89,7 @@ impl Default for LifecycleConfig {
             consolidation_similarity: 0.85,
             forgetting_model: ForgettingModel::default(),
             base_stability_days: DEFAULT_BASE_STABILITY_DAYS,
+            archetype_aware_decay: false,
         }
     }
 }
@@ -126,6 +131,14 @@ pub fn apply_confidence_decay(facts: &mut [KnowledgeFact], config: &LifecycleCon
         let retrieval_count = fact.retrieval_count as f32;
         let net_feedback = i64::from(fact.feedback_up) - i64::from(fact.feedback_down);
 
+        // Archetype-aware stability (opt-in): structural evidence is more durable
+        // than inference. Off by default → identical to the prior baseline.
+        let base_stability = if config.archetype_aware_decay {
+            config.base_stability_days * fact.archetype.stability_multiplier()
+        } else {
+            config.base_stability_days
+        };
+
         let new_confidence = match config.forgetting_model {
             ForgettingModel::Ebbinghaus => ebbinghaus_confidence(
                 fact.confidence,
@@ -133,7 +146,7 @@ pub fn apply_confidence_decay(facts: &mut [KnowledgeFact], config: &LifecycleCon
                 days_since_retrieved,
                 retrieval_count,
                 net_feedback,
-                config.base_stability_days,
+                base_stability,
             ),
             ForgettingModel::Linear => linear_confidence(
                 fact.confidence,
@@ -486,6 +499,37 @@ mod tests {
         assert_eq!(count, 1);
         assert!(facts[0].confidence < 0.9);
         assert!(facts[0].confidence > 0.7);
+    }
+
+    #[test]
+    fn archetype_aware_decay_protects_evidence() {
+        // Opt-in: structural evidence (Architecture) decays slower than inference
+        // (Preference). Off (default), archetype is ignored and both decay alike.
+        let mut evidence = make_old_fact("arch", "db", "PostgreSQL", 0.9, 30);
+        evidence.archetype = KnowledgeArchetype::Architecture;
+        let mut inference = make_old_fact("pref", "style", "tabs", 0.9, 30);
+        inference.archetype = KnowledgeArchetype::Preference;
+
+        let off = LifecycleConfig::default();
+        let mut a = vec![evidence.clone(), inference.clone()];
+        apply_confidence_decay(&mut a, &off);
+        assert!(
+            (a[0].confidence - a[1].confidence).abs() < 1e-6,
+            "flag off → archetype ignored, equal decay"
+        );
+
+        let on = LifecycleConfig {
+            archetype_aware_decay: true,
+            ..Default::default()
+        };
+        let mut b = vec![evidence, inference];
+        apply_confidence_decay(&mut b, &on);
+        assert!(
+            b[0].confidence > b[1].confidence,
+            "evidence {} should outlast inference {}",
+            b[0].confidence,
+            b[1].confidence
+        );
     }
 
     #[test]

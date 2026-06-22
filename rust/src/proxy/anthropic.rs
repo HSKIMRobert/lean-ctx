@@ -314,6 +314,9 @@ mod tests {
 
     #[test]
     fn compress_request_body_is_deterministic() {
+        // tee path depends on the data dir; serialize env access so a parallel
+        // test never swaps LEAN_CTX_DATA_DIR between the two compressions.
+        let _lock = crate::core::data_dir::test_env_lock();
         // #498: the proxy rewrite must be a pure function of the body so the
         // provider prompt-cache prefix stays byte-identical across turns.
         let bytes = serde_json::to_vec(&forge_log_body("Bash")).unwrap();

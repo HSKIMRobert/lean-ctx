@@ -81,6 +81,11 @@ pub const SUBSYSTEMS: &[Subsystem] = &[
         science: "artificial immune system",
     },
     Subsystem {
+        key: "observation_synthesis",
+        label: "Observation synthesis",
+        science: "entity-summary memory (Hindsight)",
+    },
+    Subsystem {
         key: "qubo_select",
         label: "QUBO selection (spike)",
         science: "quantum-inspired optimization",

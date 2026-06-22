@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Observation tier — synthesized, recall-prioritized entity summaries (GL #788).**
+  A 9th cognition-loop step distils clusters of related facts into compact,
+  per-entity *observations* (Hindsight-inspired). Synthesis is **deterministic by
+  default** — facts are grouped by an entity anchor (file path in key/value, else
+  category) and each cluster of ≥ `cognition_synthesis_min_cluster` (default 3)
+  facts is written through the normal `remember()` path, so versioning, persistence
+  and idempotency come for free and the value stays byte-stable (#498). An optional
+  LLM refinement sits behind `llm.enabled` with the deterministic digest as
+  fallback. Recall gives a *balanced* boost to relevant synthesized observations
+  (above incidental matches, below an exact key hit). Facts are now **epistemically
+  typed** on write (evidence vs. inference) via `infer_from_category`, feeding
+  salience and — opt-in via `archetype_aware_decay` — slower decay for structural
+  evidence. Gated by `cognition_loop_max_steps >= 9` (the new default; set 8 to
+  disable); visible as `observation_synthesis` in `lean-ctx introspect cognition`.
 - **Configurable shell-security mode — `enforce` | `warn` | `off` (GL #788).** One
   switch now governs *all* command gating (the allowlist **and** the hard blocks:
   `eval`/`exec`/`source`, `$()`/backticks at command position, interpreter `-c`),

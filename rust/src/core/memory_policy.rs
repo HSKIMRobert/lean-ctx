@@ -66,6 +66,7 @@ pub struct LifecyclePolicyOverrides {
     pub similarity_threshold: Option<f32>,
     pub forgetting_model: Option<String>,
     pub base_stability_days: Option<f32>,
+    pub archetype_aware_decay: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,6 +328,9 @@ pub struct LifecyclePolicy {
     pub forgetting_model: String,
     /// Characteristic memory stability in days for the Ebbinghaus curve.
     pub base_stability_days: f32,
+    /// Scale Ebbinghaus stability by fact archetype so structural evidence decays
+    /// slower than inference. Default false keeps the baseline tuning unchanged.
+    pub archetype_aware_decay: bool,
 }
 
 impl Default for LifecyclePolicy {
@@ -338,6 +342,7 @@ impl Default for LifecyclePolicy {
             similarity_threshold: 0.85,
             forgetting_model: "ebbinghaus".to_string(),
             base_stability_days: crate::core::memory_lifecycle::DEFAULT_BASE_STABILITY_DAYS,
+            archetype_aware_decay: false,
         }
     }
 }
@@ -371,6 +376,9 @@ impl LifecyclePolicy {
             && let Ok(n) = v.parse()
         {
             self.base_stability_days = n;
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_LIFECYCLE_ARCHETYPE_AWARE") {
+            self.archetype_aware_decay = v == "1" || v.eq_ignore_ascii_case("true");
         }
     }
 
@@ -413,6 +421,9 @@ impl LifecyclePolicy {
         }
         if let Some(v) = o.base_stability_days {
             self.base_stability_days = v;
+        }
+        if let Some(v) = o.archetype_aware_decay {
+            self.archetype_aware_decay = v;
         }
     }
 }

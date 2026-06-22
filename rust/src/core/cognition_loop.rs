@@ -1,6 +1,6 @@
 //! Hebbian-inspired Cognition Loop — periodic background reorganization of knowledge.
-//! Runs 8 steps: seed promote, structural repair, fidelity check, lateral synthesis,
-//! contradiction resolution, hebbian strengthen, decay, compact.
+//! Runs 9 steps: seed promote, structural repair, fidelity check, lateral synthesis,
+//! contradiction resolution, hebbian strengthen, decay, compact, observation synthesis.
 
 use std::collections::HashSet;
 
@@ -17,6 +17,11 @@ const LATERAL_MAX_NEW_EDGES: usize = 20;
 const HEBBIAN_CO_RETRIEVAL_HOURS: i64 = 1;
 const EDGE_STALE_DAYS: i64 = 30;
 
+// Observation synthesis (#788/cognition): how many facts an entity needs before it
+// earns a summary, and the digest size caps that keep the value byte-stable.
+const SYNTHESIS_MAX_MEMBERS: usize = 6;
+const SYNTHESIS_VALUE_MAX: usize = 400;
+
 #[derive(Debug, Clone, Default)]
 pub struct CognitionLoopReport {
     pub steps_run: u8,
@@ -29,6 +34,8 @@ pub struct CognitionLoopReport {
     pub lateral_connections: u32,
     /// Facts whose confidence was lifted by the replay-consolidation pass (#3).
     pub facts_consolidated: u32,
+    /// Per-entity observation summaries written/refreshed by synthesis (#788).
+    pub observations_synthesized: u32,
     pub duration_ms: u64,
 }
 
@@ -38,7 +45,7 @@ impl std::fmt::Display for CognitionLoopReport {
             f,
             "Cognition Loop ({} steps, {}ms): promoted={}, repaired={}, \
              strengthened={}, decayed={}, archived={}, contradictions={}, lateral={}, \
-             consolidated={}",
+             consolidated={}, synthesized={}",
             self.steps_run,
             self.duration_ms,
             self.facts_promoted,
@@ -49,6 +56,7 @@ impl std::fmt::Display for CognitionLoopReport {
             self.contradictions_resolved,
             self.lateral_connections,
             self.facts_consolidated,
+            self.observations_synthesized,
         )
     }
 }
@@ -57,9 +65,11 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
     let start = std::time::Instant::now();
     let mut report = CognitionLoopReport::default();
 
-    let Ok(policy) = crate::core::config::Config::load().memory_policy_effective() else {
+    let config = crate::core::config::Config::load();
+    let Ok(policy) = config.memory_policy_effective() else {
         return report;
     };
+    let synth_min_cluster = config.autonomy.cognition_synthesis_min_cluster.max(1);
 
     // Knowledge read-modify-write under the shared in-process + cross-process
     // lock so this loop (also driven by the background cognition scheduler)
@@ -115,6 +125,14 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
                 crate::core::introspect::tick("memory_consolidation");
             }
             report.steps_run = 8;
+        }
+
+        // Step 9 (#788): synthesize per-entity observation summaries from the now
+        // settled store (after lifecycle), so summaries reflect surviving facts.
+        if max_steps >= 9 {
+            report.observations_synthesized =
+                step_synthesize_observations(knowledge, &policy, synth_min_cluster);
+            report.steps_run = 9;
         }
 
         let _ = graph.save();
@@ -321,6 +339,7 @@ fn step_decay(
             &policy.lifecycle.forgetting_model,
         ),
         base_stability_days: policy.lifecycle.base_stability_days,
+        archetype_aware_decay: policy.lifecycle.archetype_aware_decay,
     };
     crate::core::memory_lifecycle::apply_confidence_decay(&mut knowledge.facts, &lifecycle_cfg);
 
@@ -414,6 +433,125 @@ pub fn run_idle_replay(project_root: &str) -> u32 {
         crate::core::introspect::tick("replay_consolidation");
     }
     promoted
+}
+
+/// Step 9 (#788/cognition): deterministically synthesize per-entity *observation*
+/// summaries from clusters of related raw facts — lean-ctx's take on Hindsight's
+/// observation network. Current facts (never synthesized observations) are grouped
+/// by an entity anchor (a file path referenced in the key/value, else the
+/// category); each cluster of `>= min_cluster` facts writes/refreshes one compact
+/// observation via [`ProjectKnowledge::remember`] (idempotent + versioned), so
+/// summaries never summarize summaries.
+///
+/// Deterministic: the value is a stable function of the source facts' content
+/// (sorted, capped, char-boundary-truncated — no timestamps/counters), so it never
+/// perturbs the prompt cache (#498). Runs in the background loop, never a hot path.
+fn step_synthesize_observations(
+    knowledge: &mut ProjectKnowledge,
+    policy: &MemoryPolicy,
+    min_cluster: usize,
+) -> u32 {
+    use std::collections::BTreeMap;
+
+    if min_cluster == 0 {
+        return 0;
+    }
+
+    // Cluster current facts by entity. Only *synthesized* observations are skipped
+    // (no recursion) — raw user findings (also `Observation` archetype) are valid
+    // input. BTreeMap → deterministic entity order.
+    let mut clusters: BTreeMap<String, Vec<(String, String, f32)>> = BTreeMap::new();
+    for f in knowledge.facts.iter().filter(|f| f.is_current()) {
+        if f.is_synthesized_observation() {
+            continue;
+        }
+        let entity = synthesis_entity_anchor(&f.category, &f.key, &f.value);
+        clusters.entry(entity).or_default().push((
+            f.category.clone(),
+            f.value.clone(),
+            f.confidence,
+        ));
+    }
+
+    let mut count = 0u32;
+    for (entity, mut members) in clusters {
+        if members.len() < min_cluster {
+            continue;
+        }
+        // Strongest evidence first, then lexical — deterministic.
+        members.sort_by(|a, b| {
+            b.2.partial_cmp(&a.2)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        members.truncate(SYNTHESIS_MAX_MEMBERS);
+
+        let summary = synthesize_observation_value(&entity, &members);
+        // Optional LLM refinement (opt-in via `llm.enabled`); deterministic fallback.
+        let summary = crate::core::llm_enhance::enhance_observation(&entity, &summary);
+        // An observation never out-confidences its own evidence: mean, capped.
+        let mean = members.iter().map(|m| m.2).sum::<f32>() / members.len() as f32;
+        knowledge.remember(
+            "observation",
+            &entity,
+            &summary,
+            crate::core::knowledge::COGNITION_SYNTHESIS_SOURCE,
+            mean.min(0.9),
+            policy,
+        );
+        count += 1;
+    }
+
+    if count > 0 {
+        crate::core::introspect::tick("observation_synthesis");
+    }
+    count
+}
+
+/// The entity an observation summarizes: the first file path referenced in the
+/// fact key (findings key by `file:line`) or value, else the category. Deterministic.
+fn synthesis_entity_anchor(category: &str, key: &str, value: &str) -> String {
+    crate::core::content_chunk::extract_file_references(key)
+        .into_iter()
+        .next()
+        .or_else(|| {
+            crate::core::content_chunk::extract_file_references(value)
+                .into_iter()
+                .next()
+        })
+        .unwrap_or_else(|| category.to_string())
+}
+
+/// Compose a deterministic, structured digest of an entity's facts grouped by their
+/// source category. Char-boundary-truncated so the stored value is byte-stable.
+fn synthesize_observation_value(entity: &str, members: &[(String, String, f32)]) -> String {
+    use std::collections::BTreeMap;
+    let mut by_cat: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (cat, val, _) in members {
+        by_cat.entry(cat.as_str()).or_default().push(val.as_str());
+    }
+    let body = by_cat
+        .into_iter()
+        .map(|(cat, vals)| format!("{cat}: {}", vals.join("; ")))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    format!(
+        "{entity} — {}",
+        truncate_on_char_boundary(&body, SYNTHESIS_VALUE_MAX)
+    )
+}
+
+/// Truncate to at most `max` bytes on a UTF-8 boundary, appending an ellipsis when
+/// it actually shortens. Deterministic; used to bound synthesized observation text.
+fn truncate_on_char_boundary(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &s[..end])
 }
 
 fn slug_key(s: &str, max: usize) -> String {
@@ -788,6 +926,179 @@ mod tests {
 
         let report = run_cognition_loop(&project_root_str, 8);
         assert_eq!(report.steps_run, 8);
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn synthesize_observation_value_is_deterministic() {
+        let members = vec![
+            ("finding".to_string(), "b issue".to_string(), 0.5f32),
+            ("finding".to_string(), "a issue".to_string(), 0.9f32),
+            ("gotcha".to_string(), "race".to_string(), 0.7f32),
+        ];
+        let v1 = synthesize_observation_value("src/x.rs", &members);
+        let v2 = synthesize_observation_value("src/x.rs", &members);
+        assert_eq!(v1, v2, "synthesis value must be deterministic");
+        assert!(v1.starts_with("src/x.rs — "));
+        // Grouped by source category in deterministic (BTreeMap) order.
+        let f = v1.find("finding:").expect("finding group");
+        let g = v1.find("gotcha:").expect("gotcha group");
+        assert!(f < g, "categories grouped in sorted order");
+    }
+
+    #[test]
+    fn synthesis_entity_anchor_resolves_file_then_category() {
+        assert_eq!(
+            synthesis_entity_anchor("finding", "src/auth.rs:42", "x"),
+            "src/auth.rs"
+        );
+        assert_eq!(
+            synthesis_entity_anchor("decision", "no-file", "see src/lib.rs here"),
+            "src/lib.rs"
+        );
+        assert_eq!(
+            synthesis_entity_anchor("decision", "plain-key", "no path at all"),
+            "decision"
+        );
+    }
+
+    #[test]
+    fn step_synthesizes_per_entity_observation_and_is_idempotent() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_env::set_var(
+            "LEAN_CTX_DATA_DIR",
+            tmp.path().to_string_lossy().to_string(),
+        );
+
+        let policy = MemoryPolicy::default();
+        let mut k = ProjectKnowledge::new("/tmp/test-synthesis");
+        // Three facts anchored to the same file → one entity cluster.
+        k.remember(
+            "finding",
+            "src/auth.rs:10",
+            "missing null check",
+            "s1",
+            0.8,
+            &policy,
+        );
+        k.remember(
+            "finding",
+            "src/auth.rs:20",
+            "token not validated",
+            "s1",
+            0.7,
+            &policy,
+        );
+        k.remember(
+            "gotcha",
+            "src/auth.rs:30",
+            "race on refresh",
+            "s1",
+            0.9,
+            &policy,
+        );
+
+        let made = step_synthesize_observations(&mut k, &policy, 3);
+        assert_eq!(made, 1, "one observation for the clustered entity");
+
+        let obs: Vec<_> = k
+            .facts
+            .iter()
+            .filter(|f| f.is_current() && f.is_synthesized_observation())
+            .collect();
+        assert_eq!(obs.len(), 1);
+        assert_eq!(obs[0].key, "src/auth.rs");
+        assert_eq!(obs[0].archetype, KnowledgeArchetype::Observation);
+
+        // Re-run with unchanged facts → same value → confirmation, not a duplicate.
+        let again = step_synthesize_observations(&mut k, &policy, 3);
+        assert_eq!(again, 1, "step still writes (confirms) the summary");
+        let current = k
+            .facts
+            .iter()
+            .filter(|f| f.is_current() && f.is_synthesized_observation())
+            .count();
+        assert_eq!(current, 1, "idempotent: no duplicate observation");
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn synthesis_excludes_synthesized_observations_from_input() {
+        let policy = MemoryPolicy::default();
+        let mut k = ProjectKnowledge::new("/tmp/test-no-recursion");
+        // A pre-existing synthesized observation must never be re-summarized.
+        k.remember(
+            "observation",
+            "src/x.rs",
+            "src/x.rs — finding: a; b",
+            crate::core::knowledge::COGNITION_SYNTHESIS_SOURCE,
+            0.6,
+            &policy,
+        );
+        k.remember("finding", "src/y.rs:1", "issue one", "s1", 0.5, &policy);
+        // Only one non-synthesized entity ("src/y.rs"), below the threshold → none.
+        let made = step_synthesize_observations(&mut k, &policy, 3);
+        assert_eq!(made, 0, "no entity reaches the cluster threshold");
+    }
+
+    #[test]
+    fn cognition_loop_step_9_synthesizes_observations() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        crate::test_env::set_var(
+            "LEAN_CTX_DATA_DIR",
+            tmp.path().to_string_lossy().to_string(),
+        );
+        let project_root = tmp.path().join("proj");
+        std::fs::create_dir_all(&project_root).expect("mkdir");
+        let root = project_root.to_string_lossy().to_string();
+
+        let policy = MemoryPolicy::default();
+        let mut knowledge = ProjectKnowledge::load_or_create(&root);
+        knowledge.remember(
+            "finding",
+            "src/api.rs:1",
+            "no auth on route",
+            "s1",
+            0.8,
+            &policy,
+        );
+        knowledge.remember(
+            "finding",
+            "src/api.rs:2",
+            "missing rate limit",
+            "s1",
+            0.7,
+            &policy,
+        );
+        knowledge.remember(
+            "gotcha",
+            "src/api.rs:3",
+            "panics on empty body",
+            "s1",
+            0.9,
+            &policy,
+        );
+        let _ = knowledge.save();
+
+        let report = run_cognition_loop(&root, 9);
+        assert_eq!(report.steps_run, 9);
+        assert!(
+            report.observations_synthesized >= 1,
+            "step 9 must synthesize at least one observation"
+        );
+
+        let reloaded = ProjectKnowledge::load_or_create(&root);
+        assert!(
+            reloaded
+                .facts
+                .iter()
+                .any(|f| f.is_current() && f.is_synthesized_observation()),
+            "synthesized observation must persist"
+        );
 
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }

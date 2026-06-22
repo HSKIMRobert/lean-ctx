@@ -103,9 +103,10 @@ pub fn maybe_run(project_root: &str) {
     LAST_RUN_SECS.store(now, Ordering::Relaxed);
 
     let root = project_root.to_string();
+    let max_steps = cfg.autonomy.cognition_loop_max_steps;
     std::thread::spawn(move || {
         let _guard = RunningGuard;
-        let report = crate::core::cognition_loop::run_cognition_loop(&root, 8);
+        let report = crate::core::cognition_loop::run_cognition_loop(&root, max_steps);
         tracing::debug!(target: "cognition", "background cognition loop: {report}");
     });
 }
