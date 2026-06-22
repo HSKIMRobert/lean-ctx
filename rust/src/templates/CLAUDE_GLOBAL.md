@@ -1,4 +1,4 @@
-# lean-ctx — Context Engineering Layer (Global)
+{RULES_MARKER} (Global)
 
 You have the lean-ctx MCP server available. You MUST use it for ALL file reads, shell commands, and code searches. Using native tools wastes tokens — lean-ctx compresses everything.
 
