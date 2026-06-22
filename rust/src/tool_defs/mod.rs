@@ -69,18 +69,16 @@ pub fn normalize_for_strict_validators(schema: &mut Map<String, Value>) {
 
 pub const CORE_TOOL_NAMES: &[&str] = &[
     "ctx_read",
-    "ctx_search",
-    "ctx_semantic_search",
     "ctx_shell",
     "shell",
+    "ctx_search",
+    "ctx_semantic_search",
+    "ctx_glob",
     "ctx_tree",
-    "ctx_edit",
     "ctx_session",
-    "ctx_knowledge",
-    "ctx_overview",
+    "ctx_compose",
     "ctx_graph",
     "ctx_call",
-    "ctx_provider",
     "ctx_expand",
 ];
 

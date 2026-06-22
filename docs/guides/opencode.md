@@ -61,7 +61,7 @@ OpenCode uses `~/.config/opencode/AGENTS.md` for global agent instructions. lean
 ...
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 
 ## Mode Selection
 - Editing the file? → `full` first, then `diff` for re-reads

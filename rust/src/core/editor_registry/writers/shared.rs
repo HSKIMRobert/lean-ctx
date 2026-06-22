@@ -99,19 +99,20 @@ pub(super) fn lean_ctx_server_entry_with_instructions(
     agent_key: &str,
 ) -> Value {
     let mut entry = lean_ctx_server_entry(binary, include_auto_approve);
-    let mode = crate::core::rules_canonical::Mode::from_hook_mode(
-        &crate::hooks::recommend_hook_mode(agent_key),
-    );
-    let instructions = crate::core::rules_canonical::mcp_instructions(mode);
+    let shadow = crate::core::config::Config::load().shadow_mode;
+    let instructions =
+        crate::core::rules_canonical::render(shadow, crate::core::rules_canonical::Wrapper::Bare);
 
     let constraints = crate::core::client_constraints::by_client_id(agent_key);
     if let Some(max_chars) = constraints.and_then(|c| c.mcp_instructions_max_chars) {
-        let truncated = if instructions.len() > max_chars {
+        let truncated: &str = if instructions.len() > max_chars {
             &instructions[..max_chars]
         } else {
-            instructions
+            &instructions
         };
         entry["instructions"] = serde_json::json!(truncated);
+    } else {
+        entry["instructions"] = serde_json::json!(&instructions);
     }
     entry
 }

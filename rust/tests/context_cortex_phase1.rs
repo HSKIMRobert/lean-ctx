@@ -1,14 +1,14 @@
 //! Phase 1: Cortical Column Infrastructure — Integration Tests
 //!
 //! Verifies the full Context Engine Phase 1 implementation:
-//!   1. ContentChunk ↔ CodeChunk bidirectional conversion
-//!   2. ContentSource serialization and tagging
+//!   1. `ContentChunk` ↔ `CodeChunk` bidirectional conversion
+//!   2. `ContentSource` serialization and tagging
 //!   3. BM25 cross-source ingest pipeline
 //!   4. Provider Registry lifecycle (register, discover, execute)
-//!   5. ContextColumn trait pipeline (L4 → L2/3 → L5)
+//!   5. `ContextColumn` trait pipeline (L4 → L2/3 → L5)
 //!   6. Config-driven provider activation
 //!   7. File reference extraction from freeform text
-//!   8. ChunkKind extensions for external sources
+//!   8. `ChunkKind` extensions for external sources
 
 use lean_ctx::core::bm25_index::{BM25Index, ChunkKind, CodeChunk};
 use lean_ctx::core::content_chunk::{ContentChunk, ContentSource, extract_file_references};
@@ -18,10 +18,6 @@ use lean_ctx::core::context_column::{
 use lean_ctx::core::providers::registry::{ProviderRegistry, global_registry, result_to_chunks};
 use lean_ctx::core::providers::{ContextProvider, ProviderItem, ProviderParams, ProviderResult};
 use std::sync::Arc;
-
-// ---------------------------------------------------------------------------
-// 1. ContentChunk ↔ CodeChunk conversion
-// ---------------------------------------------------------------------------
 
 #[test]
 fn content_chunk_from_provider_has_correct_uri_scheme() {
@@ -86,10 +82,6 @@ fn code_chunk_to_content_chunk_defaults_to_file_source() {
     assert!(cc.metadata.is_none());
 }
 
-// ---------------------------------------------------------------------------
-// 2. ContentSource serialization
-// ---------------------------------------------------------------------------
-
 #[test]
 fn content_source_file_serializes_correctly() {
     let src = ContentSource::File;
@@ -134,10 +126,6 @@ fn content_source_knowledge_roundtrips() {
     let roundtrip: ContentSource = serde_json::from_str(&json).unwrap();
     assert_eq!(roundtrip, src);
 }
-
-// ---------------------------------------------------------------------------
-// 3. BM25 cross-source ingest
-// ---------------------------------------------------------------------------
 
 #[test]
 fn bm25_ingest_content_chunks_increases_doc_count() {
@@ -259,7 +247,6 @@ fn bm25_mixed_code_and_provider_chunks() {
     assert_eq!(index.chunks.len(), 2);
     assert_eq!(index.external_chunk_count(), 1);
 
-    // Both a code chunk and an issue chunk are in the index
     let has_code = index.chunks.iter().any(|c| c.file_path == "src/auth.rs");
     let has_issue = index
         .chunks
@@ -334,10 +321,6 @@ fn bm25_ingest_zero_chunks_is_noop() {
     assert_eq!(ingested, 0);
     assert_eq!(index.doc_count, 0);
 }
-
-// ---------------------------------------------------------------------------
-// 4. Provider Registry
-// ---------------------------------------------------------------------------
 
 struct MockProvider {
     available: bool,
@@ -488,10 +471,6 @@ fn registry_execute_as_chunks_produces_content_chunks() {
     assert!(chunks[0].file_path.contains("mock_test://issues/"));
 }
 
-// ---------------------------------------------------------------------------
-// 5. result_to_chunks bridge
-// ---------------------------------------------------------------------------
-
 #[test]
 fn result_to_chunks_maps_all_resource_types() {
     let types_and_kinds = vec![
@@ -592,10 +571,6 @@ fn result_to_chunks_preserves_metadata() {
     assert_eq!(meta["labels"][1], "p1");
 }
 
-// ---------------------------------------------------------------------------
-// 6. ContextColumn trait — FilesystemColumn
-// ---------------------------------------------------------------------------
-
 #[test]
 fn filesystem_column_process_real_file() {
     let col = FilesystemColumn;
@@ -673,10 +648,6 @@ fn filesystem_column_verify_budget_enforcement() {
     assert!(output.budget_ok);
 }
 
-// ---------------------------------------------------------------------------
-// 7. ContextColumn trait — ProviderColumn
-// ---------------------------------------------------------------------------
-
 #[test]
 fn provider_column_wraps_provider_correctly() {
     let provider = Arc::new(MockProvider { available: true });
@@ -726,10 +697,6 @@ fn provider_column_inactive_when_unavailable() {
     assert!(!col.is_active());
 }
 
-// ---------------------------------------------------------------------------
-// 8. File reference extraction
-// ---------------------------------------------------------------------------
-
 #[test]
 fn extract_refs_handles_backtick_paths() {
     let text = "Check `src/auth/handler.rs` for the fix";
@@ -760,10 +727,6 @@ fn extract_refs_handles_multiple_extensions() {
     assert!(refs.contains(&"tests/main_test.py".to_string()));
 }
 
-// ---------------------------------------------------------------------------
-// 9. ChunkKind extensions
-// ---------------------------------------------------------------------------
-
 #[test]
 fn chunk_kind_serialization_roundtrip() {
     let kinds = vec![
@@ -782,10 +745,6 @@ fn chunk_kind_serialization_roundtrip() {
         assert_eq!(roundtrip, kind, "ChunkKind {kind:?} should roundtrip");
     }
 }
-
-// ---------------------------------------------------------------------------
-// 10. Config-driven activation
-// ---------------------------------------------------------------------------
 
 #[test]
 fn providers_config_defaults_are_enabled() {
@@ -823,10 +782,6 @@ fn providers_config_deserializes_from_toml() {
         Some("https://gitlab.internal.com")
     );
 }
-
-// ---------------------------------------------------------------------------
-// 11. End-to-end: Provider → Chunks → BM25 → Search
-// ---------------------------------------------------------------------------
 
 #[test]
 fn end_to_end_provider_to_bm25_search() {
@@ -887,10 +842,6 @@ fn end_to_end_column_pipeline_to_bm25() {
     assert_eq!(ingested, 3);
     assert_eq!(index.external_chunk_count(), 3);
 }
-
-// ---------------------------------------------------------------------------
-// 12. Global registry singleton
-// ---------------------------------------------------------------------------
 
 #[test]
 fn global_registry_is_singleton() {

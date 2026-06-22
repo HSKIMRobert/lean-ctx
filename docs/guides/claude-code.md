@@ -230,7 +230,7 @@ If you have a project-level `CLAUDE.md`, lean-ctx can inject its rules there too
 ...
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 ## Mode Selection
 - Editing the file? → `full` first, then `diff` for re-reads
 - Context only? → `map` or `signatures`
@@ -238,7 +238,7 @@ If you have a project-level `CLAUDE.md`, lean-ctx can inject its rules there too
 <!-- /lean-ctx -->
 ```
 
-The section between `<!-- lean-ctx-rules-v10 -->` and `<!-- /lean-ctx -->` is managed by lean-ctx and auto-updated.
+The section between `<!-- lean-ctx-rules -->` and `<!-- /lean-ctx -->` is managed by lean-ctx and auto-updated.
 
 ## Troubleshooting
 

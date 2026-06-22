@@ -152,7 +152,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             key_enum(
                 &["minimal", "standard", "power"],
                 cfg.tool_profile.as_deref().unwrap_or(""),
-                "Tool visibility profile: minimal (6 tools), standard (22), power (all). Override via LEAN_CTX_TOOL_PROFILE",
+                "Tool visibility profile: minimal (6 tools), standard (17), power (all). Override via LEAN_CTX_TOOL_PROFILE",
             ),
         );
     root.insert(

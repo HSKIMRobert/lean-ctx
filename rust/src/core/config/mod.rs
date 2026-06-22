@@ -164,7 +164,7 @@ pub struct Config {
     /// Set via `lean-ctx config set profile passthrough` or editing config.toml.
     #[serde(default)]
     pub profile: Option<String>,
-    /// Tool visibility profile: "minimal" (6), "standard" (22), or "power" (all).
+    /// Tool visibility profile: "minimal" (10), "standard" (19), or "power" (all).
     /// Override via LEAN_CTX_TOOL_PROFILE env var.
     /// Existing installs default to "power" (backward compat).
     #[serde(default)]
@@ -938,8 +938,6 @@ impl Config {
         let mut policy = self.memory.clone();
         policy.apply_env_overrides();
 
-        // Scale memory limits proportionally when max_disk_mb is set
-        // and individual limits are still at their defaults.
         let budget = self.max_disk_mb_effective();
         if budget > 0 {
             let scale_factor = (budget as f64 / 500.0).clamp(0.5, 10.0);
@@ -1063,16 +1061,13 @@ impl Config {
     /// from the RAM profile so large repos persist instead of rebuilding forever
     /// (issue #249).
     pub fn bm25_max_cache_mb_effective(&self) -> u64 {
-        // Explicit per-key override always wins.
         if self.bm25_max_cache_mb != serde_defaults::default_bm25_max_cache_mb() {
             return self.bm25_max_cache_mb;
         }
-        // Otherwise derive from an explicit overall disk budget when present …
         let budget = self.max_disk_mb_effective();
         if budget > 0 {
             return budget * 10 / 100;
         }
-        // … else fall back to the generous, profile-independent disk default.
         DEFAULT_BM25_PERSIST_MB
     }
 }

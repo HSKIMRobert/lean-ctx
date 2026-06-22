@@ -378,7 +378,7 @@ fn snippet_from_disk(
 }
 
 #[cfg(feature = "qdrant")]
-fn chunk_kind_str(kind: &ChunkKind) -> &'static str {
+pub(crate) fn kind_to_str(kind: &ChunkKind) -> &'static str {
     match kind {
         ChunkKind::Function => "Function",
         ChunkKind::Struct => "Struct",
@@ -415,11 +415,6 @@ pub(crate) fn kind_from_str(s: &str) -> ChunkKind {
         "ExternalOther" => ChunkKind::ExternalOther,
         _ => ChunkKind::Other,
     }
-}
-
-#[cfg(feature = "qdrant")]
-pub(crate) fn kind_to_str(kind: &ChunkKind) -> &'static str {
-    chunk_kind_str(kind)
 }
 
 #[cfg(test)]

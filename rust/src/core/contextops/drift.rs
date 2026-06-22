@@ -40,8 +40,8 @@ pub fn detect_drift(home: &Path, _config: &RulesConfig) -> Vec<DriftReport> {
     let source_shared = crate::rules_inject::rules_shared_content();
     let source_dedicated = crate::rules_inject::rules_dedicated_markdown();
 
-    let marker = crate::rules_inject::RULES_MARKER;
-    let end_marker = "<!-- /lean-ctx -->";
+    let marker = crate::core::rules_canonical::START_MARK;
+    let end_marker = crate::core::rules_canonical::END_MARK;
 
     statuses
         .into_iter()
@@ -88,9 +88,9 @@ pub fn detect_drift(home: &Path, _config: &RulesConfig) -> Vec<DriftReport> {
                 status.state == "up_to_date" && !content.contains("existing user rules");
 
             let expected_section = if is_dedicated {
-                extract_section(source_dedicated, marker, end_marker)
+                extract_section(&source_dedicated, marker, end_marker)
             } else {
-                extract_section(source_shared, marker, end_marker)
+                extract_section(&source_shared, marker, end_marker)
             };
 
             let section_trimmed = section.trim();
@@ -156,6 +156,7 @@ fn compute_diff(expected: &str, actual: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::rules_canonical::{END_MARK, START_MARK};
 
     #[test]
     fn drift_status_display() {
@@ -170,15 +171,11 @@ mod tests {
     #[test]
     fn extract_section_with_markers() {
         let content =
-            "before\n# lean-ctx — Context Engineering Layer\nrules\n<!-- /lean-ctx -->\nafter";
-        let section = extract_section(
-            content,
-            "# lean-ctx — Context Engineering Layer",
-            "<!-- /lean-ctx -->",
-        );
+            format!("before\n{START_MARK}\n<!-- version: 1 -->\n\nrules\n{END_MARK}\nafter");
+        let section = extract_section(&content, START_MARK, END_MARK);
         assert!(section.contains("rules"));
-        assert!(section.contains("# lean-ctx"));
-        assert!(section.contains("<!-- /lean-ctx -->"));
+        assert!(section.contains(START_MARK));
+        assert!(section.contains(END_MARK));
         assert!(!section.contains("before"));
         assert!(!section.contains("after"));
     }

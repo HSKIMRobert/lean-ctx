@@ -2,7 +2,9 @@ use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
-use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str, get_str_array};
+use crate::server::tool_trait::{
+    McpTool, ToolContext, ToolOutput, get_f64, get_str, get_str_array,
+};
 use crate::tool_defs::tool_def;
 
 pub struct CtxKnowledgeTool;
@@ -15,7 +17,11 @@ impl McpTool for CtxKnowledgeTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_knowledge",
-            "Persistent project knowledge across sessions (facts, patterns, gotchas, typed relations).",
+            "Persistent memory across sessions — remember decisions, patterns, and facts.\n\
+             action=remember saves a fact; action=recall query='X' retrieves it.\n\
+             Use to persist architecture decisions, gotchas, and patterns for future sessions.\n\
+             action=gotcha trigger='X' resolution='Y' for known pitfalls.\n\
+             mode=semantic|exact for recall. category groups related facts.",
             json!({
                 "type": "object",
                 "properties": {
@@ -23,14 +29,14 @@ impl McpTool for CtxKnowledgeTool {
                         "type": "string",
                         "description": "remember|recall|search|pattern|gotcha|relate|relations|consolidate|status|timeline|rooms|wakeup|remove|export (also: feedback, unrelate, relations_diagram, health, lifecycle_report, policy, embeddings_*)"
                     },
-                    "trigger": { "type": "string", "description": "gotcha: what triggers it" },
-                    "resolution": { "type": "string", "description": "gotcha: the fix" },
+                    "trigger": { "type": "string", "description": "gotcha trigger pattern" },
+                    "resolution": { "type": "string", "description": "gotcha resolution/fix" },
                     "severity": { "type": "string", "description": "gotcha: critical|warning|info" },
                     "category": { "type": "string", "description": "Fact category" },
                     "key": { "type": "string" },
                     "value": { "type": "string" },
-                    "query": { "type": "string", "description": "For recall/search/relate" },
-                    "mode": { "type": "string", "description": "Recall: auto|exact|semantic|hybrid" },
+                    "query": { "type": "string", "description": "Query for recall/search/relate" },
+                    "mode": { "type": "string", "description": "Recall mode: auto|exact|semantic|hybrid" },
                     "as_of": { "type": "string", "description": "Recall facts valid at this date (YYYY-MM-DD)" },
                     "pattern_type": { "type": "string" },
                     "examples": { "type": "array", "items": { "type": "string" } },
@@ -56,10 +62,7 @@ impl McpTool for CtxKnowledgeTool {
         let as_of = get_str(args, "as_of");
         let pattern_type = get_str(args, "pattern_type");
         let examples = get_str_array(args, "examples");
-        let confidence: Option<f32> = args
-            .get("confidence")
-            .and_then(serde_json::Value::as_f64)
-            .map(|v| v as f32);
+        let confidence = get_f64(args, "confidence").map(|v| v as f32);
 
         let session_handle = ctx
             .session

@@ -429,7 +429,7 @@ pub fn handle_summary(project_root: &str) -> String {
     };
 
     let entries = registry.list().unwrap_or_default();
-    let matching: Vec<_> = entries.iter().filter(|_| true).collect();
+    let matching: Vec<_> = entries.iter().collect();
 
     let mut out = format!("Project: {project_root}\nProject hash: {phash}\n");
     out.push_str(&format!("Installed packages: {}\n", matching.len()));
@@ -516,8 +516,7 @@ fn handle_pr(
             match serde_json::to_string_pretty(&json) {
                 Ok(s) => {
                     json.tokens = count_tokens(&s) as u64;
-                    serde_json::to_string_pretty(&json)
-                        .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {e}\"}}"))
+                    serde_json::to_string_pretty(&json).unwrap()
                 }
                 Err(e) => format!("{{\"error\": \"serialization failed: {e}\"}}"),
             }
@@ -701,7 +700,7 @@ fn is_artifact_relevant(a: &ResolvedArtifact, changed: &[ChangedFile]) -> bool {
 }
 
 fn parse_changes_from_input(input: &str) -> Vec<ChangedFile> {
-    if input.contains("diff --git") || input.contains("\n+++ ") || input.starts_with("diff --git") {
+    if input.contains("diff --git") || input.contains("\n+++ ") {
         let paths = parse_unified_diff_paths(input);
         let mut out = Vec::new();
         for p in paths {
@@ -806,17 +805,17 @@ fn detect_default_base(project_root: &str) -> Option<String> {
     None
 }
 
-fn dedup_changes(mut changes: Vec<ChangedFile>) -> Vec<ChangedFile> {
+fn dedup_changes(changes: Vec<ChangedFile>) -> Vec<ChangedFile> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut out: Vec<ChangedFile> = Vec::new();
-    for c in changes.drain(..) {
+    for c in changes {
         let key = c.path.clone();
-        if let Some(i) = seen.get(&key) {
-            out[*i] = c;
-            continue;
+        if let Some(&i) = seen.get(&key) {
+            out[i] = c;
+        } else {
+            seen.insert(key, out.len());
+            out.push(c);
         }
-        seen.insert(key, out.len());
-        out.push(c);
     }
     out
 }

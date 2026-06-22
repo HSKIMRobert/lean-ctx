@@ -21,10 +21,8 @@ mod shell_security {
     /// Override the allowlist completely (bypasses config defaults) for deterministic tests.
     fn check(command: &str, allowlist: &[&str]) -> Result<(), String> {
         let val = allowlist.join(",");
-        // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", &val) };
         let result = check_shell_allowlist(command);
-        // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE") };
         result
     }
@@ -117,14 +115,12 @@ mod shell_security {
     #[test]
     #[serial_test::serial]
     fn scenario_empty_allowlist_passes_safe_commands() {
-        // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "") };
         assert!(check_shell_allowlist("anything goes here").is_ok());
         assert!(check_shell_allowlist("ls -la").is_ok());
         // Unconditionally blocked commands (eval, exec, source) are still rejected
         assert!(check_shell_allowlist("eval 'rm -rf /'").is_err());
         assert!(check_shell_allowlist("exec /bin/bash").is_err());
-        // TODO: Audit that the environment access only happens in single-threaded code.
         unsafe { std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE") };
     }
 }
@@ -150,14 +146,13 @@ mod hnsw_performance {
 
     #[test]
     fn scenario_topk_exact_on_small_set() {
-        let dim = 384; // MiniLM embedding dimension
+        let dim = 384;
         let vectors: Vec<Vec<f32>> = (0..200).map(|i| deterministic_vec(dim, i)).collect();
         let query = deterministic_vec(dim, 9999);
 
         let top10 = brute_force_topk(&FlatEmbeddings::from_vecs(vectors.clone()), &query, 10);
         assert_eq!(top10.len(), 10);
 
-        // Must be in descending similarity order
         for w in top10.windows(2) {
             assert!(
                 w[0].1 >= w[1].1,
@@ -253,7 +248,6 @@ mod hebbian_boltzmann {
         let config_rs = path_hash("src/config.rs");
         let unrelated = path_hash("docs/readme.md");
 
-        // Simulate: main.rs and lib.rs are always accessed together (10 bursts)
         for _ in 0..10 {
             matrix.record_access(main_rs);
             matrix.record_access(lib_rs);
@@ -292,10 +286,8 @@ mod hebbian_boltzmann {
             9.0, // very active
         ];
 
-        // Low temperature (high pressure) → nearly deterministic
         let evictions = boltzmann_select_evictions(&energies, 2, 0.05);
         assert_eq!(evictions.len(), 2);
-        // Should evict idx 3 (energy=1.0) and idx 1 (energy=2.0)
         assert!(
             evictions.contains(&3),
             "Expected idx 3 (lowest energy) to be evicted, got {evictions:?}"
@@ -310,15 +302,12 @@ mod hebbian_boltzmann {
     fn scenario_boltzmann_low_pressure_is_lenient() {
         let energies = vec![5.0, 4.0, 6.0, 3.0, 7.0];
 
-        // High temperature: still picks N items but order less strict
         let evictions = boltzmann_select_evictions(&energies, 2, 50.0);
         assert_eq!(evictions.len(), 2);
-        // At very high T, all probabilities are similar — just verify count
     }
 
     #[test]
     fn scenario_entry_energy_computation() {
-        // Highly active file: recent, many reads, strong associations
         let active = EntryEnergy {
             read_count: 15,
             recency_secs: 10.0,
@@ -327,10 +316,9 @@ mod hebbian_boltzmann {
             graph_centrality: 0.9,
         };
 
-        // Stale file: old, single read, no associations, large
         let stale = EntryEnergy {
             read_count: 1,
-            recency_secs: 7200.0, // 2 hours old
+            recency_secs: 7200.0,
             association_strength: 0.0,
             token_size: 50000,
             graph_centrality: 0.0,
@@ -359,7 +347,6 @@ mod predictive_prefetch {
         let src = 100u64;
         let test = 200u64;
 
-        // Strong pattern: src → test (100 repetitions builds high transition weight)
         for _ in 0..100 {
             model.observe(src);
             model.observe(test);
@@ -377,13 +364,11 @@ mod predictive_prefetch {
     fn scenario_accuracy_improves_with_feedback() {
         let mut model = PrefetchModel::new();
 
-        // Record some hits
         for i in 0..30 {
             model.report_hit(i, true);
         }
         let high_acc = model.accuracy();
 
-        // Now some misses
         for i in 30..50 {
             model.report_hit(i, false);
         }
@@ -396,7 +381,6 @@ mod predictive_prefetch {
     fn scenario_free_energy_reflects_surprise() {
         let mut model = PrefetchModel::new();
 
-        // Perfect predictions
         for i in 0..20 {
             model.report_hit(i, true);
         }
@@ -406,7 +390,6 @@ mod predictive_prefetch {
             "Low surprise should mean low free energy, got {low_fe}"
         );
 
-        // Reset with all misses
         let mut bad_model = PrefetchModel::new();
         for i in 0..20 {
             bad_model.report_hit(i, false);
@@ -429,7 +412,6 @@ mod predictive_prefetch {
             model.observe(b);
         }
 
-        // If B is already active, it shouldn't appear in predictions
         let predictions = model.predict(a, &[b]);
         assert!(
             !predictions.iter().any(|(h, _)| *h == b),
@@ -449,11 +431,9 @@ mod homeostasis {
     fn scenario_normal_operation_no_intervention() {
         let mut ctrl = HomeostasisController::new(100_000);
 
-        // 40% utilization — completely fine
         let action = ctrl.evaluate(40_000);
         assert_eq!(action, HomeostasisAction::None);
 
-        // 60% — still fine
         let action = ctrl.evaluate(60_000);
         assert_eq!(action, HomeostasisAction::None);
     }
@@ -462,12 +442,11 @@ mod homeostasis {
     fn scenario_gradual_pressure_buildup() {
         let mut ctrl = HomeostasisController::new(100_000);
 
-        // Gradual increase
-        let a1 = ctrl.evaluate(72_000); // 72% → Elevated
+        let a1 = ctrl.evaluate(72_000);
         assert_eq!(a1, HomeostasisAction::TrimOutputs);
 
-        ctrl.report_outcome(true); // Action helped
-        let a2 = ctrl.evaluate(65_000); // Dropped to 65% → Nominal
+        ctrl.report_outcome(true);
+        let a2 = ctrl.evaluate(65_000);
         assert_eq!(a2, HomeostasisAction::None);
     }
 
@@ -475,8 +454,7 @@ mod homeostasis {
     fn scenario_rapid_pressure_spike() {
         let mut ctrl = HomeostasisController::new(100_000);
 
-        // Sudden spike to critical
-        let action = ctrl.evaluate(93_000); // 93% → Critical
+        let action = ctrl.evaluate(93_000);
         assert_eq!(action, HomeostasisAction::UnloadIndices);
     }
 
@@ -501,17 +479,14 @@ mod homeostasis {
     fn scenario_recovery_resets_state() {
         let mut ctrl = HomeostasisController::new(100_000);
 
-        // Build up escalation
         ctrl.evaluate(92_000);
         ctrl.report_outcome(false);
         ctrl.evaluate(92_000);
         ctrl.report_outcome(false);
 
-        // Pressure drops significantly
         let action = ctrl.evaluate(50_000);
         assert_eq!(action, HomeostasisAction::None);
 
-        // Next pressure event starts fresh (no immediate escalation)
         let action = ctrl.evaluate(73_000);
         assert_eq!(action, HomeostasisAction::TrimOutputs);
     }
@@ -539,7 +514,7 @@ mod predictive_coding {
         assert!(delta.added_lines.is_empty());
         assert!(delta.removed_lines.is_empty());
         assert_eq!(delta.unchanged_count, 2);
-        assert!(should_use_delta(&delta, 50)); // Zero-cost delta
+        assert!(should_use_delta(&delta, 50));
     }
 
     #[test]
@@ -552,7 +527,6 @@ mod predictive_coding {
         assert!(delta.added_lines[0].contains("new_api"));
         assert_eq!(delta.unchanged_count, 2);
 
-        // Delta should be much smaller than re-sending the full output
         assert!(should_use_delta(&delta, 100));
     }
 
@@ -569,8 +543,6 @@ mod predictive_coding {
 
         let delta = compute_delta("signatures", &prev, &curr).unwrap();
 
-        // When almost everything changed, delta might not save much
-        // This tests that the system correctly identifies high-change scenarios
         assert_eq!(delta.removed_lines.len(), 50);
         assert_eq!(delta.added_lines.len(), 50);
     }
@@ -586,7 +558,6 @@ mod predictive_coding {
         };
 
         let formatted = delta.format_compact();
-        // Should be much shorter than re-sending 27 lines of full output
         assert!(formatted.lines().count() < 10);
         assert!(formatted.contains("[delta:map]"));
         assert!(formatted.contains("unchanged:25"));
@@ -662,10 +633,8 @@ mod multiscale {
 
         let index = MultiScaleIndex::build_from_chunks(&chunks);
 
-        // Searching for "authentication" at file level
         let results = index.search_meso(&["auth".to_string(), "login".to_string()], 3);
         assert!(!results.is_empty());
-        // Auth files should rank highest
         assert!(
             results[0].0.contains("auth"),
             "Top meso result should be an auth file, got: {}",
@@ -685,7 +654,6 @@ mod multiscale {
 
         let index = MultiScaleIndex::build_from_chunks(&chunks);
 
-        // Architecture-level query: "where is database logic?"
         let results = index.search_macro(&["database".to_string(), "query".to_string()], 3);
         assert!(!results.is_empty());
         assert!(
@@ -752,7 +720,6 @@ mod attention_assembly {
         let result = attention_weighted_assembly(&chunks, 3000);
         assert_eq!(result.len(), 3);
 
-        // Definition (AuthService) should get more budget than imports or TODOs
         assert!(
             result[0].token_budget > result[1].token_budget,
             "Definition ({}) should get more budget than imports ({})",
@@ -782,7 +749,6 @@ mod attention_assembly {
 
         let result = attention_weighted_assembly(&chunks, 3000);
 
-        // Duplicate (idx 1) should get less budget than unique content (idx 2)
         assert!(
             result[2].token_budget > result[1].token_budget,
             "Unique chunk ({}) should get more budget than duplicate ({})",
@@ -802,7 +768,6 @@ mod attention_assembly {
         let result = attention_weighted_assembly(&chunks, 3000);
         let total_allocated: usize = result.iter().map(|r| r.token_budget).sum();
 
-        // Should be within reasonable bounds of the total budget
         assert!(
             total_allocated > 2000 && total_allocated < 4000,
             "Total allocated ({total_allocated}) should be close to budget (3000)"
@@ -846,7 +811,6 @@ mod session_token {
     fn scenario_tokens_are_cryptographically_random() {
         let tokens: Vec<String> = (0..100).map(|_| generate_token()).collect();
 
-        // All should be 64 hex chars
         for t in &tokens {
             assert_eq!(t.len(), 64, "Token length should be 64, got {}", t.len());
             assert!(
@@ -855,7 +819,6 @@ mod session_token {
             );
         }
 
-        // No duplicates (probability of collision with 32 bytes is negligible)
         let unique: std::collections::HashSet<&String> = tokens.iter().collect();
         assert_eq!(unique.len(), 100, "All 100 tokens should be unique");
     }

@@ -18,8 +18,6 @@ const IDE_CONFIG_DIRS: &[&str] = &[
     ".codebuddy",
 ];
 
-/// Expands `~`, `$VAR` and `${VAR}` in a config-supplied path entry.
-///
 /// `allow_paths` / `extra_roots` come from `config.toml`, where no shell ever
 /// runs — users writing `"$HOME/code"` or `"~/code"` got a literal,
 /// never-matching prefix and concluded the whole option was broken (GH #392).
@@ -137,9 +135,6 @@ fn canonicalized_roots(config_entries: &[String], env_var: &str) -> Vec<PathBuf>
     out
 }
 
-/// The configured read-only roots (config `read_only_roots` +
-/// `LEAN_CTX_READ_ONLY_ROOTS`), canonicalized for prefix comparison.
-///
 /// A read-only root is a sibling subtree the agent may **read** but never
 /// **write** — e.g. a reference repo mounted next to the project. Empty by
 /// default, so [`is_read_only_path`]/[`enforce_writable`] are zero-cost no-ops

@@ -58,7 +58,7 @@ alwaysApply: true
 ---
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 
 ## Mode: Hybrid (MCP reads + CLI shell)
 
@@ -183,7 +183,7 @@ alwaysApply: true
 ---
 
 # Project lean-ctx rules
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 ## Mode Selection
 - Editing → `full` then `diff` for re-reads
 - Context only → `map` or `signatures`
@@ -199,7 +199,7 @@ For projects using the `AGENTS.md` convention, lean-ctx's rules can also be plac
 
 <!-- lean-ctx section (auto-managed) -->
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 ...
 <!-- /lean-ctx -->
 ```

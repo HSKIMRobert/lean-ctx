@@ -77,9 +77,7 @@ impl RulesConfig {
             if status.state == "up_to_date" || status.state == "outdated" {
                 let key = status.name.to_lowercase().replace(' ', "_");
                 let path = Path::new(&status.path);
-                if path.exists()
-                    && let Ok(content) = std::fs::read_to_string(path)
-                {
+                if let Ok(content) = std::fs::read_to_string(path) {
                     let extra = extract_user_content(&content);
                     if !extra.is_empty() {
                         agent_rules.insert(key, AgentRules { extra });
@@ -92,7 +90,7 @@ impl RulesConfig {
             rules: RulesSection {
                 version: default_version(),
                 core: CoreRules {
-                    content: crate::rules_inject::rules_shared_content().to_string(),
+                    content: crate::rules_inject::rules_shared_content().clone(),
                 },
                 agent: agent_rules,
             },
@@ -113,16 +111,13 @@ impl RulesConfig {
 }
 
 fn extract_user_content(content: &str) -> String {
-    let marker = crate::rules_inject::RULES_MARKER;
-    let end_marker = "<!-- /lean-ctx -->";
-
-    let start = content.find(marker);
-    let end = content.find(end_marker);
+    let start = content.find(crate::core::rules_canonical::START_MARK);
+    let end = content.find(crate::core::rules_canonical::END_MARK);
 
     match (start, end) {
         (Some(s), Some(e)) => {
             let before = content[..s].trim();
-            let after_end = e + end_marker.len();
+            let after_end = e + crate::core::rules_canonical::END_MARK.len();
             let after = content[after_end..].trim();
             let mut parts = Vec::new();
             if !before.is_empty() {
@@ -242,7 +237,7 @@ extra = "claude specific"
     fn extract_user_content_with_markers() {
         let content = format!(
             "user preamble\n\n{}\nrules here\n<!-- /lean-ctx -->\n\nuser postamble",
-            crate::rules_inject::RULES_MARKER
+            crate::core::rules_canonical::START_MARK
         );
         let result = extract_user_content(&content);
         assert!(result.contains("user preamble"));

@@ -1865,7 +1865,11 @@ mod tests {
         write(
             tmp.path(),
             ".claude/CLAUDE.md",
-            "<!-- lean-ctx -->\ncontent\n<!-- /lean-ctx -->",
+            &format!(
+                "{}\ncontent\n{}",
+                crate::core::rules_canonical::START_MARK,
+                crate::core::rules_canonical::END_MARK,
+            ),
         );
         write(tmp.path(), ".claude/skills/lean-ctx/SKILL.md", "skill");
         let out = check(tmp.path(), RulesScope::Global, RulesInjection::Shared);
@@ -1877,7 +1881,11 @@ mod tests {
     #[serial_test::serial(claude_config_dir)]
     fn block_without_skill_still_passes() {
         let tmp = tempfile::tempdir().unwrap();
-        write(tmp.path(), ".claude/CLAUDE.md", "<!-- lean-ctx -->\nx");
+        write(
+            tmp.path(),
+            ".claude/CLAUDE.md",
+            &format!("{}\nx", crate::core::rules_canonical::START_MARK),
+        );
         let out = check(tmp.path(), RulesScope::Global, RulesInjection::Shared);
         assert!(out.ok, "{}", out.line);
     }

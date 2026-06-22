@@ -340,8 +340,9 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     let lean_ctx_md = project.join("LEAN-CTX.md");
     let lean_ctx_content = std::fs::read_to_string(&lean_ctx_md).expect("LEAN-CTX.md exists");
     assert!(
-        lean_ctx_content.contains("lean-ctx — Context Engineering Layer"),
-        "LEAN-CTX.md must contain rules"
+        lean_ctx_content.contains("<!-- lean-ctx-rules -->")
+            && lean_ctx_content.contains("ctx_read modes"),
+        "LEAN-CTX.md must contain the canonical lean-ctx ruleset"
     );
 }
 
@@ -499,8 +500,8 @@ fn init_augment_installs_lean_ctx_mcp_into_dot_augment_settings() {
     );
     let rules = std::fs::read_to_string(&rules_path).expect("rules readable");
     assert!(
-        rules.contains("lean-ctx-rules-"),
-        "rules file must contain version marker"
+        rules.contains("<!-- lean-ctx-rules -->") && rules.contains("<!-- version: "),
+        "rules file must carry the canonical marker + version comment"
     );
 
     // Ticket #2: the VS Code extension surface (augment.vscode-augment) keeps

@@ -1,13 +1,10 @@
-//! E2E tests for shell detection, LEAN_CTX_SHELL override,
+//! E2E tests for shell detection, `LEAN_CTX_SHELL` override,
 //! agent init (incl. antigravity alias), Windows path handling,
 //! and pipe-guard (stdout not a terminal → bypass lean-ctx).
+// noqa: SIZE_OK — single-responsibility E2E test module for the CLI binary.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn lean_ctx_bin() -> String {
     env!("CARGO_BIN_EXE_lean-ctx").to_string()
@@ -93,10 +90,6 @@ fn assert_hook_command_suffix(actual: Option<&str>, expected_suffix: &str) {
     );
 }
 
-// ---------------------------------------------------------------------------
-// LEAN_CTX_SHELL override tests (via `lean-ctx -c`)
-// ---------------------------------------------------------------------------
-
 #[test]
 fn lean_ctx_shell_override_uses_specified_shell() {
     if cfg!(windows) {
@@ -137,10 +130,6 @@ fn lean_ctx_shell_override_invalid_shell_fails() {
     );
     assert_ne!(code, 0, "should fail with nonexistent shell");
 }
-
-// ---------------------------------------------------------------------------
-// Shell command execution tests (basic sanity)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn shell_exec_simple_command() {
@@ -213,10 +202,6 @@ fn shell_exec_quoted_args() {
         "quoted args: {stdout}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Agent init tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn agent_init_antigravity_alias() {
@@ -483,10 +468,6 @@ fn agent_init_lists_antigravity_in_supported() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Hook rewrite with LEAN_CTX_SHELL override
-// ---------------------------------------------------------------------------
-
 #[test]
 fn hook_rewrite_works_with_shell_override() {
     let input = r#"{"tool_name":"Bash","command":"git status"}"#;
@@ -546,10 +527,6 @@ fn codex_pretooluse_disabled_exits_cleanly() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Windows path handling in generated scripts
-// ---------------------------------------------------------------------------
-
 #[test]
 fn generated_script_handles_windows_path() {
     let script = lean_ctx::hooks::generate_rewrite_script("/c/Users/Jaina/bin/lean-ctx.exe");
@@ -586,10 +563,6 @@ fn generated_script_skips_own_binary() {
         "script should reference lean-ctx for self-skip check"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Bash script execution with Windows-style binary path
-// ---------------------------------------------------------------------------
 
 #[test]
 fn bash_script_with_windows_binary_path_produces_valid_json() {
@@ -640,10 +613,6 @@ fn bash_script_with_windows_binary_path_produces_valid_json() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pipe guard: lean-ctx must NOT compress when stdout is piped
-// ---------------------------------------------------------------------------
-
 #[test]
 fn piped_output_is_not_compressed() {
     if cfg!(windows) {
@@ -671,7 +640,7 @@ fn bash_hook_contains_pipe_guard() {
         return;
     }
     let bin = lean_ctx_bin();
-    let output = Command::new(&bin)
+    let _output = Command::new(&bin)
         .args(["init", "--dry-run"])
         .env("LEAN_CTX_DISABLED", "1")
         .env("SHELL", "/bin/bash")
@@ -679,10 +648,6 @@ fn bash_hook_contains_pipe_guard() {
         .stderr(Stdio::piped())
         .output()
         .expect("run init --dry-run");
-    let _stdout = String::from_utf8_lossy(&output.stdout);
-    let _stderr = String::from_utf8_lossy(&output.stderr);
-    // The pipe guard should be in the generated hook
-    // We verify by checking that `_lc()` in generated bash hooks contains `! -t 1`
     // This is tested more directly in cli.rs unit tests
 }
 
@@ -691,7 +656,6 @@ fn generated_bash_hook_has_tty_check() {
     let script = lean_ctx::hooks::generate_rewrite_script("lean-ctx");
     // The rewrite hook is for Claude Code / Gemini, not the shell alias.
     // The shell alias pipe guard is in cli.rs.
-    // But we can verify the compact hook doesn't break on pipes either.
     assert!(
         !script.is_empty(),
         "generated rewrite script should not be empty"

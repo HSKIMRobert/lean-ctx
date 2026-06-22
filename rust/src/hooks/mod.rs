@@ -350,27 +350,21 @@ const REDIRECT_SCRIPT_GENERIC: &str = r"#!/usr/bin/env bash
 exit 0
 ";
 
-pub(crate) const HYBRID_RULES: &str = "\
-# lean-ctx — Hybrid Mode (MCP reads + CLI commands)
-
-Use MCP tools for reads (cache benefit), CLI commands for everything else (no schema overhead):
-
-## MCP tools (keep using):
-| Tool | Why MCP |
-|------|---------|
-| `ctx_read(path, mode)` | In-process cache, re-reads ~13 tokens |
-
-## CLI commands (via Shell/Bash):
-| USE (via Shell/Bash) | INSTEAD OF (MCP) | Why |
-|---------------------|-------------------|-----|
-| `lean-ctx -c \"<cmd>\"` | `ctx_shell` | No MCP schema overhead |
-| `lean-ctx grep <pattern> [path]` | `ctx_search` | No MCP schema overhead |
-| `lean-ctx ls [path]` | `ctx_tree` | No MCP schema overhead |
-
-## File editing:
-Use native Edit/StrReplace — lean-ctx only handles READ operations.
-Write, Delete, Glob → use normally.
-";
+pub fn hybrid_rules_content() -> String {
+    use crate::core::rules_canonical;
+    format!(
+        "{start}\n<!-- version: {version} -->\n\n\
+# lean-ctx \u{2014} Hybrid Mode (MCP reads + CLI commands)\n\n\
+{bullets}\n\n\
+{never}\n\n\
+{end}",
+        start = rules_canonical::START_MARK,
+        version = rules_canonical::RULES_VERSION,
+        bullets = rules_canonical::BULLETS,
+        never = rules_canonical::NEVER,
+        end = rules_canonical::END_MARK,
+    )
+}
 
 pub fn install_project_rules() {
     install_project_rules_for_agents(&[]);
@@ -416,17 +410,17 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
                 .unwrap_or_default()
                 .contains("lean-ctx")
         {
-            let content = CURSORRULES_TEMPLATE;
+            let content = cursorrules_content();
             if cursorrules.exists() {
                 let mut existing = std::fs::read_to_string(&cursorrules).unwrap_or_default();
                 if !existing.ends_with('\n') {
                     existing.push('\n');
                 }
                 existing.push('\n');
-                existing.push_str(content);
+                existing.push_str(&content);
                 write_file(&cursorrules, &existing);
             } else {
-                write_file(&cursorrules, content);
+                write_file(&cursorrules, &content);
             }
             if !mcp_server_quiet_mode() {
                 eprintln!("Created/updated .cursorrules in project root.");
@@ -442,7 +436,7 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
         // lean-ctx-owned copy is removed instead of refreshed.
         let claude_rules_file = cwd.join(".claude").join("rules").join("lean-ctx.md");
         if let Ok(existing) = std::fs::read_to_string(&claude_rules_file)
-            && existing.contains("<!-- lean-ctx-rules-")
+            && existing.contains("<!-- lean-ctx-rules")
             && std::fs::remove_file(&claude_rules_file).is_ok()
             && !mcp_server_quiet_mode()
         {
@@ -457,7 +451,7 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
     if wants("codebuddy") {
         let codebuddy_rules_file = cwd.join(".codebuddy").join("rules").join("lean-ctx.md");
         if let Ok(existing) = std::fs::read_to_string(&codebuddy_rules_file)
-            && existing.contains("<!-- lean-ctx-rules-")
+            && existing.contains("<!-- lean-ctx-rules")
             && std::fs::remove_file(&codebuddy_rules_file).is_ok()
             && !mcp_server_quiet_mode()
         {
@@ -480,7 +474,7 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
                     .contains("lean-ctx")
             {
                 let _ = std::fs::create_dir_all(&steering_dir);
-                write_file(&steering_file, KIRO_STEERING_TEMPLATE);
+                write_file(&steering_file, &kiro_steering_content());
                 if !mcp_server_quiet_mode() {
                     eprintln!("Created .kiro/steering/lean-ctx.md (Kiro steering).");
                 }
@@ -492,6 +486,9 @@ pub fn install_project_rules_for_agents(agents: &[&str]) {
 const PROJECT_LEAN_CTX_MD_MARKER: &str = "<!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->";
 const PROJECT_LEAN_CTX_MD: &str = "LEAN-CTX.md";
 const PROJECT_AGENTS_MD: &str = "AGENTS.md";
+// The AGENTS.md pointer block keeps its own marker pair, independent of the
+// dedicated rules-file `START_MARK`: existing user blocks (and uninstall) match
+// on `<!-- lean-ctx -->`, so it must not be aliased to `<!-- lean-ctx-rules -->`.
 const AGENTS_BLOCK_START: &str = "<!-- lean-ctx -->";
 const AGENTS_BLOCK_END: &str = "<!-- /lean-ctx -->";
 
@@ -509,7 +506,11 @@ fn ensure_project_agents_integration(cwd: &std::path::Path) {
         .contains(PROJECT_LEAN_CTX_MD_MARKER)
     {
         let current = std::fs::read_to_string(&lean_ctx_md).unwrap_or_default();
-        if !current.contains(crate::rules_inject::RULES_VERSION_STR) {
+        let version_str = format!(
+            "<!-- version: {} -->",
+            crate::core::rules_canonical::RULES_VERSION
+        );
+        if !current.contains(&version_str) {
             write_file(&lean_ctx_md, &desired);
         }
     }
@@ -521,9 +522,7 @@ fn ensure_project_agents_integration(cwd: &std::path::Path) {
     let block = format!(
         "{AGENTS_BLOCK_START}\n\
 ## lean-ctx\n\n\
-Prefer lean-ctx MCP tools over native equivalents for token savings:\n\
-`ctx_read` > Read/cat, `ctx_search` > Grep/rg, `ctx_shell` > bash, `ctx_tree` > ls/find.\n\
-Native Edit/Write/Glob stay as-is; use `ctx_edit` only when Edit needs an unavailable Read.\n\
+lean-ctx is active — the MCP tools replace native equivalents.\n\
 Full rules: {PROJECT_LEAN_CTX_MD} (open on demand — do not auto-load).\n\
 {AGENTS_BLOCK_END}\n"
     );
@@ -580,57 +579,50 @@ Full rules: {PROJECT_LEAN_CTX_MD} (open on demand — do not auto-load).\n\
 /// Compact pointer only (#578): Cursor already auto-loads the canonical full
 /// ruleset from `~/.cursor/rules/lean-ctx.mdc`, so a project `.cursorrules`
 /// that repeats it bills the same guidance twice in every session.
-const CURSORRULES_TEMPLATE: &str = "\
-<!-- lean-ctx -->
-# lean-ctx
+pub fn cursorrules_content() -> String {
+    let start = crate::core::rules_canonical::START_MARK;
+    let end = crate::core::rules_canonical::END_MARK;
+    let version = crate::core::rules_canonical::RULES_VERSION;
+    format!(
+        "{start}\n<!-- version: {version} -->\n\n\
+# lean-ctx\n\n\
+{bullets}\n\n\
+{never}\n\
+Full rules: ~/.cursor/rules/lean-ctx.mdc (auto-loaded) \u{2014} do not duplicate here.\n\
+{end}",
+        bullets = crate::core::rules_canonical::BULLETS,
+        never = crate::core::rules_canonical::NEVER,
+    )
+}
 
-Prefer lean-ctx MCP tools: ctx_read > Read/cat, ctx_search > Grep/rg, ctx_shell > bash, ctx_tree > ls/find.
-Edit/Write/Glob stay native; ctx_edit only when Edit needs an unavailable Read.
-Full rules: ~/.cursor/rules/lean-ctx.mdc (auto-loaded) — do not duplicate here.
-<!-- /lean-ctx -->
-";
-
-pub const KIRO_STEERING_TEMPLATE: &str = "\
----
-inclusion: always
----
-
-# lean-ctx — Context Engineering Layer
-
-The workspace has the `lean-ctx` MCP server installed. You MUST prefer lean-ctx tools over native equivalents for token efficiency and caching.
-
-## Mandatory Tool Preferences
-
-| Use this | Instead of | Why |
-|----------|-----------|-----|
-| `mcp_lean_ctx_ctx_read` | `readFile`, `readCode` | Cached reads, 10 compression modes, re-reads cost ~13 tokens |
-| `mcp_lean_ctx_ctx_multi_read` | `readMultipleFiles` | Batch cached reads in one call |
-| `mcp_lean_ctx_ctx_shell` | `executeBash` | Pattern compression for git/npm/test output |
-| `mcp_lean_ctx_ctx_search` | `grepSearch` | Compact, .gitignore-aware results |
-| `mcp_lean_ctx_ctx_tree` | `listDirectory` | Compact directory maps with file counts |
-
-## When to use native Kiro tools instead
-
-- `fsWrite` / `fsAppend` — always use native (lean-ctx doesn't write files)
-- `strReplace` — always use native (precise string replacement)
-- `semanticRename` / `smartRelocate` — always use native (IDE integration)
-- `getDiagnostics` — always use native (language server diagnostics)
-- `deleteFile` — always use native
-
-## Session management
-
-- At the start of a long task, call `mcp_lean_ctx_ctx_preload` with a task description to warm the cache
-- Use `mcp_lean_ctx_ctx_compress` periodically in long conversations to checkpoint context
-- Use `mcp_lean_ctx_ctx_knowledge` to persist important discoveries across sessions
-
-## Rules
-
-- NEVER loop on edit failures — switch to `mcp_lean_ctx_ctx_edit` immediately
-- For large files, use `mcp_lean_ctx_ctx_read` with `mode: \"signatures\"` or `mode: \"map\"` first
-- For re-reading a file you already read, just call `mcp_lean_ctx_ctx_read` again (cache hit = ~13 tokens)
-- When running tests or build commands, use `mcp_lean_ctx_ctx_shell` for compressed output
-";
-
+pub fn kiro_steering_content() -> String {
+    use crate::core::rules_canonical;
+    format!(
+        "---\n\
+inclusion: always\n\
+---\n\n\
+# Context Engineering Layer\n\n\
+{start}\n\
+<!-- version: {version} -->\n\n\
+The workspace has the `lean-ctx` MCP server installed. \
+You MUST prefer lean-ctx tools over native equivalents for token efficiency and caching.\n\n\
+{bullets}\n\n\
+{never}\n\n\
+## When to use native Kiro tools instead\n\n\
+- `fsWrite` / `fsAppend` \u{2014} always use native (lean-ctx doesn't write files)\n\
+- `strReplace` \u{2014} always use native (precise string replacement)\n\
+- `semanticRename` / `smartRelocate` \u{2014} always use native (IDE integration)\n\
+- `getDiagnostics` \u{2014} always use native (language server diagnostics)\n\
+- `deleteFile` \u{2014} always use native\n\
+- Glob \u{2014} always use native glob\n\n\
+{end}",
+        start = rules_canonical::START_MARK,
+        version = rules_canonical::RULES_VERSION,
+        bullets = rules_canonical::BULLETS,
+        never = rules_canonical::NEVER,
+        end = rules_canonical::END_MARK,
+    )
+}
 /// #281: whether the hooks layer may register the lean-ctx MCP server in an
 /// agent's config. Honors `[setup] auto_update_mcp`. Hooks, rules and skills
 /// still install when this is `false` — only the MCP-server writes are gated, so

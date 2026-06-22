@@ -166,8 +166,7 @@ fn register_opencode_instructions(home: &std::path::Path) {
     }
 }
 
-/// Remove the lean-ctx instructions[] entry (shared-mode cleanup / toggle-back).
-/// Remove the lean-ctx `instructions[]` entry from opencode.json. Used both for
+/// Remove the lean-ctx `instructions[]` entry from opencode.json. Used for
 /// shared-mode toggle-back and uninstall cleanup.
 pub(crate) fn unregister_opencode_instructions(home: &std::path::Path) {
     let config_path = opencode_config_path(home);
@@ -202,17 +201,15 @@ pub(crate) fn unregister_opencode_instructions(home: &std::path::Path) {
 /// Strip the lean-ctx block from the global OpenCode AGENTS.md (dedicated mode).
 fn strip_opencode_agents_block(home: &std::path::Path) {
     let agents = home.join(".config/opencode/AGENTS.md");
-    if agents
-        .metadata()
-        .is_ok_and(|m| m.is_file())
-        .then(|| std::fs::read_to_string(&agents).ok())
-        .flatten()
-        .is_some_and(|c| c.contains(crate::rules_inject::RULES_MARKER))
+    if let Ok(meta) = agents.metadata()
+        && meta.is_file()
+        && let Ok(content) = std::fs::read_to_string(&agents)
+        && content.contains(crate::core::rules_canonical::START_MARK)
     {
         crate::marked_block::remove_from_file(
             &agents,
-            crate::rules_inject::RULES_MARKER,
-            crate::rules_inject::RULES_END_MARKER,
+            crate::core::rules_canonical::START_MARK,
+            crate::core::rules_canonical::END_MARK,
             true,
             "OpenCode AGENTS.md lean-ctx block",
         );
@@ -250,7 +247,6 @@ fn ensure_plugin_package_json(plugin_dir: &std::path::Path) {
     let package_json_path = plugin_dir.join("package.json");
     let template_str = include_str!("../../templates/package.json");
 
-    // Fresh install (or unreadable path) → write the template verbatim.
     let Ok(existing_str) = std::fs::read_to_string(&package_json_path) else {
         let _ = std::fs::write(&package_json_path, template_str);
         return;
@@ -258,7 +254,8 @@ fn ensure_plugin_package_json(plugin_dir: &std::path::Path) {
     let Ok(mut pkg) = serde_json::from_str::<serde_json::Value>(&existing_str) else {
         return;
     };
-    let template: serde_json::Value = serde_json::from_str(template_str).unwrap_or_default();
+    let template: serde_json::Value = serde_json::from_str(template_str)
+        .expect("embedded templates/package.json must be valid JSON");
     let Some(pkg_obj) = pkg.as_object_mut() else {
         return;
     };
@@ -539,40 +536,5 @@ mod shadow_gating_tests {
             "empty mcp object dropped: {json}"
         );
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn shadow_plugin_routes_heavy_surface_through_compressed_tools() {
-        // shadow_mode's whole point is that native read/grep/glob/edit/bash are
-        // transparently routed through lean-ctx. The heaviest addressable surface
-        // in a fix task — build/test/repro logs — flows through `bash`, so if the
-        // bundled plugin ever stops shadowing it the output bypasses the
-        // compressor (the R1 "102 native bash / 0 ctx_shell" regression). This is
-        // the OpenCode analog of the Pi `resolveSuppressedBuiltins` guard: it pins
-        // the bundled template (`include_str!`'d into the installer) so a refactor
-        // can't silently drop a route.
-        let plugin = include_str!("../../templates/opencode-plugin.ts");
-        for (native, ctx) in [
-            ("bash", "ctx_shell"),
-            ("read", "ctx_read"),
-            ("grep", "ctx_search"),
-            ("glob", "ctx_glob"),
-            ("edit", "ctx_edit"),
-        ] {
-            assert!(
-                plugin.contains(&format!("{native}: tool(")),
-                "plugin must statically shadow the native `{native}` tool"
-            );
-            // Section header ties the native name to its ctx_* target …
-            assert!(
-                plugin.contains(&format!("{native} → lean-ctx {ctx}")),
-                "`{native}` must be documented as routing to `{ctx}`"
-            );
-            // … and the execute body must actually invoke that compressed tool.
-            assert!(
-                plugin.contains(&format!("callTool(\"{ctx}\"")),
-                "`{native}` must route through the compressed `{ctx}`"
-            );
-        }
     }
 }

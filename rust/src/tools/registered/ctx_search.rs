@@ -15,21 +15,23 @@ impl McpTool for CtxSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_search",
-            "Regex code search. Prefer over native Grep/rg/find (compact, .gitignore-aware).",
+            "Regex pattern search — use when you know the exact pattern. For understanding code or\n\
+             finding answers, use ctx_compose FIRST (one call replaces search+read+symbol chains).\n\
+             pattern required; include='*.rs'; path scopes; max_results=N (default 20).\n\
+             paths=['dir1','dir2'] for multi-root. ignore_gitignore bypasses .gitignore (needs role).",
             json!({
                 "type": "object",
                 "properties": {
                     "pattern": { "type": "string", "description": "Regex pattern" },
-                    "path": { "type": "string", "description": "Directory to search" },
+                    "path": { "type": "string", "description": "Search dir" },
                     "paths": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Multiple roots (alternative to path)"
+                        "description": "Multi-root (alternative to path)"
                     },
-                    "include": { "type": "string", "description": "Glob filter, e.g. *.ts, src/**/*.rs" },
-                    "ext": { "type": "string", "description": "Deprecated; use include" },
+                    "include": { "type": "string", "description": "Glob filter: *.ts, src/**/*.rs" },
                     "max_results": { "type": "integer", "description": "Default 20" },
-                    "ignore_gitignore": { "type": "boolean", "description": "Also scan gitignored files (needs role)" }
+                    "ignore_gitignore": { "type": "boolean", "description": "Scan gitignored (needs role)" }
                 },
                 "required": ["pattern"]
             }),
@@ -81,16 +83,12 @@ impl McpTool for CtxSearchTool {
         let mut total_sent: usize = 0;
 
         for root in &resolved.roots {
-            let pat = pattern.clone();
-            let r = root.clone();
-            let inc = include.clone();
-
             let search_result = tokio::task::block_in_place(|| {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     crate::tools::ctx_search::handle(
-                        &pat,
-                        &r,
-                        inc.as_deref(),
+                        &pattern,
+                        root,
+                        include.as_deref(),
                         per_root_max,
                         crp,
                         respect,
@@ -106,14 +104,16 @@ impl McpTool for CtxSearchTool {
             };
             let result = outcome.text;
 
-            if result.starts_with("ERROR:") || result.trim().is_empty() {
-                if !result.trim().is_empty() {
-                    combined.push_str(&format!("── {root} ──\n{result}\n\n"));
-                }
+            if result.trim().is_empty() {
                 continue;
             }
 
             combined.push_str(&format!("── {root} ──\n{result}\n\n"));
+
+            if result.starts_with("ERROR:") {
+                continue;
+            }
+
             total_observed += outcome.observed_tokens;
             total_sent += crate::core::tokens::count_tokens(&result);
         }
@@ -156,14 +156,12 @@ fn search_single(
     allow_secret_paths: bool,
 ) -> Result<ToolOutput, ErrorData> {
     let _mode_guard = crate::core::savings_footer::ModeGuard::new("search");
-    let pattern_clone = pattern.to_string();
-    let path_clone = path.to_string();
 
     let search_result = tokio::task::block_in_place(|| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             crate::tools::ctx_search::handle(
-                &pattern_clone,
-                &path_clone,
+                pattern,
+                path,
                 include,
                 max,
                 crp,

@@ -1,4 +1,4 @@
-use super::super::{KIRO_STEERING_TEMPLATE, install_mcp_json_agent, write_file};
+use super::super::{install_mcp_json_agent, kiro_steering_content, write_file};
 
 pub(crate) fn install_kiro_hook() {
     let home = crate::core::home::resolve_home_dir().unwrap_or_default();
@@ -21,7 +21,7 @@ pub(crate) fn install_kiro_hook() {
         eprintln!("  Kiro steering file already exists at .kiro/steering/lean-ctx.md");
     } else {
         let _ = std::fs::create_dir_all(&steering_dir);
-        write_file(&steering_file, KIRO_STEERING_TEMPLATE);
+        write_file(&steering_file, &kiro_steering_content());
         eprintln!(
             "  \x1b[32m✓\x1b[0m Created .kiro/steering/lean-ctx.md (Kiro will now prefer lean-ctx tools)"
         );

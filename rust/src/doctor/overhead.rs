@@ -69,7 +69,8 @@ pub(crate) fn lean_ctx_block_tokens(content: &str) -> usize {
     let mut block = String::new();
     for line in content.lines() {
         if !in_block
-            && (line.contains("<!-- lean-ctx") || line.contains(crate::rules_inject::RULES_MARKER))
+            && (line.contains("<!-- lean-ctx")
+                || line.contains(crate::core::rules_canonical::START_MARK))
         {
             in_block = true;
         }
@@ -328,6 +329,7 @@ fn shorten(path: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::rules_canonical::START_MARK;
 
     #[test]
     fn block_tokens_counts_only_marked_regions() {
@@ -357,10 +359,10 @@ more user stuff that is not ours
 
     #[test]
     fn block_tokens_handles_canonical_marker_without_end() {
-        // CursorMdc-style files start with the canonical header and have no
-        // HTML end marker — the whole remainder counts as lean-ctx content.
-        let content = "# lean-ctx — Context Engineering Layer\nrule body\nmore rules\n";
-        assert!(lean_ctx_block_tokens(content) > 0);
+        // Dedicated files start with the canonical header and the whole
+        // remainder counts as lean-ctx content.
+        let content = format!("{START_MARK}\n<!-- version: 1 -->\n\nrule body\nmore rules\n");
+        assert!(lean_ctx_block_tokens(&content) > 0);
     }
 
     #[test]
@@ -450,17 +452,20 @@ more user stuff that is not ours
 
         std::fs::write(
             project.join(".cursor/rules/lean-ctx.mdc"),
-            "# lean-ctx — Context Engineering Layer\nbody\n",
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
         std::fs::write(
             home.join("projects/.cursor/rules/lean-ctx.mdc"),
-            "# lean-ctx — Context Engineering Layer\nbody\n",
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
         std::fs::write(
             project.join("AGENTS.md"),
-            "<!-- lean-ctx -->\nx\n<!-- /lean-ctx -->\n",
+            format!(
+                "<!-- lean-ctx -->\nx\n{}\n",
+                crate::core::rules_canonical::END_MARK
+            ),
         )
         .unwrap();
 
@@ -492,7 +497,7 @@ more user stuff that is not ours
         std::fs::create_dir_all(&project).unwrap();
         std::fs::write(
             home.join(".cursor/rules/lean-ctx.mdc"),
-            "# lean-ctx — Context Engineering Layer\nbody\n",
+            format!("{START_MARK}\n<!-- version: 1 -->\n\nbody\n"),
         )
         .unwrap();
 

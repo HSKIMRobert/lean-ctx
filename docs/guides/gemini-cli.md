@@ -53,7 +53,7 @@ Gemini CLI reads `~/.gemini/GEMINI.md` for global instructions. lean-ctx **appen
 ...
 
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 
 ## Mode Selection
 - Editing the file? → `full` first, then `diff` for re-reads
@@ -77,7 +77,7 @@ Fallback only if a lean-ctx tool is unavailable: use native equivalents.
 <!-- /lean-ctx -->
 ```
 
-The section between `<!-- lean-ctx-rules-v10 -->` and `<!-- /lean-ctx -->` is auto-managed by lean-ctx. When you run `lean-ctx setup`, it updates only this section while preserving everything else in your `GEMINI.md`.
+The section between `<!-- lean-ctx-rules -->` and `<!-- /lean-ctx -->` is auto-managed by lean-ctx. When you run `lean-ctx setup`, it updates only this section while preserving everything else in your `GEMINI.md`.
 
 ### Step 3: Shell Hook
 

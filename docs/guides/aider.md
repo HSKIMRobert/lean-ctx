@@ -57,7 +57,7 @@ lean-ctx injects dedicated rules that guide Aider to use lean-ctx tools:
 
 ```markdown
 # lean-ctx — Context Engineering Layer
-<!-- lean-ctx-rules-v10 -->
+<!-- lean-ctx-rules -->
 
 ## Mode Selection
 1. Editing the file? → `full` first, then `diff` for re-reads

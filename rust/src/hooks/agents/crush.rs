@@ -1,4 +1,4 @@
-use super::super::{HYBRID_RULES, HookMode, resolve_binary_path, write_file};
+use super::super::{HookMode, hybrid_rules_content, resolve_binary_path, write_file};
 
 pub(crate) fn install_crush_hook() {
     // #281: only the MCP-server entry is gated; `install_crush_hook_with_mode`
@@ -75,11 +75,11 @@ fn install_crush_hybrid_rules(mode: HookMode) {
     let rules_path = rules_dir.join("lean-ctx.md");
 
     let content = match mode {
-        HookMode::Hybrid => HYBRID_RULES,
+        HookMode::Hybrid => hybrid_rules_content(),
         HookMode::Mcp => return,
     };
 
-    write_file(&rules_path, content);
+    write_file(&rules_path, &content);
 
     let mode_name = match mode {
         HookMode::Hybrid => "hybrid",

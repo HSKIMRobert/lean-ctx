@@ -15,8 +15,9 @@ impl McpTool for CtxGlobTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_glob",
-            "Find files by glob pattern. Prefer over native Glob for consistency.\n\
-             Respects .gitignore; supports multi-root via `paths` array.",
+            "Find files by glob pattern. Respects .gitignore;\n\
+             supports multi-root via `paths` array. max_results=N sets limit.\n\
+             For file content search, use ctx_search (pattern) or ctx_semantic_search (meaning).",
             json!({
                 "type": "object",
                 "properties": {
@@ -123,12 +124,10 @@ fn handle_single(
     allow_secret_paths: bool,
     max_results: usize,
 ) -> Result<ToolOutput, ErrorData> {
-    let pattern = pattern.to_string();
-    let path_clone = path.to_string();
     let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::tools::ctx_glob::handle(
-            &pattern,
-            &path_clone,
+            pattern,
+            path,
             respect_gitignore,
             allow_secret_paths,
             max_results,

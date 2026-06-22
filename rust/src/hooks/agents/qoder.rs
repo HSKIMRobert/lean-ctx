@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::super::{
-    HYBRID_RULES, HookMode, mcp_server_quiet_mode, resolve_binary_path, write_file,
+    HookMode, hybrid_rules_content, mcp_server_quiet_mode, resolve_binary_path, write_file,
 };
 
 pub(crate) fn install_qoder_hook_with_mode(mode: HookMode) {
@@ -106,11 +106,11 @@ fn install_qoder_hybrid_rules(mode: HookMode) {
     let rules_path = rules_dir.join("lean-ctx.md");
 
     let content = match mode {
-        HookMode::Hybrid => HYBRID_RULES,
+        HookMode::Hybrid => hybrid_rules_content(),
         HookMode::Mcp => return,
     };
 
-    write_file(&rules_path, content);
+    write_file(&rules_path, &content);
 
     let mode_name = match mode {
         HookMode::Hybrid => "hybrid",

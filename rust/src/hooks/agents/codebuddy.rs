@@ -80,8 +80,8 @@ fn install_codebuddy_mcp_server(home: &std::path::Path) {
 
 /// Shared with `doctor` so the instructions check recognises the same block
 /// this installer writes.
-pub(crate) const CODEBUDDY_MD_BLOCK_START: &str = "<!-- lean-ctx -->";
-const CODEBUDDY_MD_BLOCK_END: &str = "<!-- /lean-ctx -->";
+pub(crate) const CODEBUDDY_MD_BLOCK_START: &str = crate::core::rules_canonical::START_MARK;
+const CODEBUDDY_MD_BLOCK_END: &str = crate::core::rules_canonical::END_MARK;
 const CODEBUDDY_MD_BLOCK_VERSION: &str = "lean-ctx-codebuddy-v1";
 
 const CODEBUDDY_MD_BLOCK_CONTENT_MCP: &str = "\
@@ -190,7 +190,7 @@ fn remove_codebuddy_rules_file(home: &std::path::Path) {
     let Ok(existing) = std::fs::read_to_string(&rules_path) else {
         return;
     };
-    if existing.contains("<!-- lean-ctx-rules-")
+    if existing.contains("<!-- lean-ctx-rules")
         && std::fs::remove_file(&rules_path).is_ok()
         && !super::super::mcp_server_quiet_mode()
     {

@@ -78,16 +78,16 @@ Fewer tools = fewer tokens spent on tool definitions and less agent confusion.
 
 ```bash
 lean-ctx tools                     # show active profile
-lean-ctx tools minimal             # ~6 core read/search/session tools
-lean-ctx tools standard            # the balanced everyday set (~22 tools)
+lean-ctx tools minimal             # ~10 core tools
+lean-ctx tools standard            # the balanced everyday set (19 tools)
 lean-ctx tools power               # everything (graph, control, agent, …)
 lean-ctx tools list                # list tools per profile
 ```
 
 | Profile | Tools | Best for |
 |---------|-------|----------|
-| `minimal` | ~6 | small models / strict token budgets |
-| `standard` | ~22 | most users — recommended everyday trim |
+| `minimal` | 10 | small models / strict token budgets |
+| `standard` | 19 | most users — recommended everyday trim |
 | `power` | all (71) | code-intelligence + multi-agent + context-engineering work |
 
 > **Default:** with no explicit `tool_profile` in config, lean-ctx exposes the

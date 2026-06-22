@@ -1,6 +1,6 @@
 //! Integration tests for the hardening sprint:
 //! - Context IR hot-path recording
-//! - ContextProvider trait interface
+//! - `ContextProvider` trait interface
 //! - CONTRACTS.md machine-checked KV block integrity
 
 // =============================================================================

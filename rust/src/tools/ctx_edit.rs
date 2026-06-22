@@ -535,7 +535,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         return do_replace(path, &pre, params, cap, &args);
     }
 
-    // Direct match failed -- try CRLF/LF normalization
     if uses_crlf && !old_str.contains('\r') {
         let old_crlf = old_str.replace('\n', "\r\n");
         let occ = content.matches(&old_crlf).count();
@@ -570,7 +569,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         }
     }
 
-    // Still not found -- try trimmed trailing whitespace per line
     let normalized_content = trim_trailing_per_line(content);
     let normalized_old = trim_trailing_per_line(old_str);
     if !normalized_old.is_empty() && normalized_content.contains(&normalized_old) {
@@ -592,7 +590,6 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         }
     }
 
-    // Check if edit was already applied (new_string exists but old_string doesn't)
     if content.contains(new_str) {
         return (
             format!(
@@ -614,9 +611,7 @@ pub fn run_io(params: &EditParams, last_mode: &str) -> (String, CacheEffect) {
         ""
     };
 
-    // Same-file hint: closest matching line (usually a whitespace/indent diff).
     let closest_hint = find_closest_line_hint(content, old_str);
-    // Cross-file hint: did the agent target the wrong file? (#331 point 2)
     let cross_file = crate::tools::edit_recovery::cross_file_hint(path, old_str);
 
     let (escalation, effect) = auto_escalate_reread(last_mode, file_path);
@@ -641,7 +636,6 @@ fn find_closest_line_hint(content: &str, old_str: &str) -> String {
 
     let mut best_line: Option<(usize, &str)> = None;
 
-    // Try exact substring match first
     for (i, line) in content.lines().enumerate() {
         if line.contains(first_line) {
             best_line = Some((i + 1, line));
@@ -651,12 +645,11 @@ fn find_closest_line_hint(content: &str, old_str: &str) -> String {
 
     // Try matching with significant identifiers from old_string's first line
     if best_line.is_none() {
-        let keywords: Vec<&str> = first_line
+        let keyword = first_line
             .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|w| w.len() >= 4)
-            .collect();
+            .find(|w| w.len() >= 4);
 
-        if let Some(keyword) = keywords.first() {
+        if let Some(keyword) = keyword {
             for (i, line) in content.lines().enumerate() {
                 if line.contains(keyword) {
                     best_line = Some((i + 1, line));

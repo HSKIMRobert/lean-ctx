@@ -18,16 +18,18 @@ impl McpTool for CtxRepomapTool {
     fn tool_def(&self) -> rmcp::model::Tool {
         tool_def(
             "ctx_repomap",
-            "PageRank-based repo map showing the most important symbols across the codebase, ranked by structural importance and session relevance.",
+            "PageRank symbol map: focus_files=['path/*.rs'] boosts areas; max_tokens controls size (default 2048)\n\
+             Shows structurally important symbols ranked by PageRank and session relevance.\n\
+             Use for codebase-wide orientation; for task-scoped view use ctx_overview.",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Project root path (default: session project root)" },
-                    "max_tokens": { "type": "integer", "description": "Token budget for output (default: 2048)", "default": 2048 },
+                    "path": { "type": "string", "description": "Project root (default: session)" },
+                    "max_tokens": { "type": "integer", "description": "Token budget (default 2048)", "default": 2048 },
                     "focus_files": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Files to boost in ranking (relative paths)"
+                        "description": "Boost ranking for relative paths"
                     }
                 }
             }),
@@ -54,8 +56,6 @@ impl McpTool for CtxRepomapTool {
             get_int(args, "max_tokens").map_or(DEFAULT_MAX_TOKENS, |v| v.max(100) as usize);
 
         let focus_files = get_str_array(args, "focus_files").unwrap_or_default();
-
-        // Extract session files from the session state
         let session_files = extract_session_files(ctx);
 
         let result = crate::tools::ctx_repomap::handle(
@@ -79,7 +79,6 @@ impl McpTool for CtxRepomapTool {
     }
 }
 
-/// Extract the list of recently touched file paths from the session.
 fn extract_session_files(ctx: &ToolContext) -> Vec<String> {
     let Some(ref session_arc) = ctx.session else {
         return Vec::new();

@@ -5,7 +5,6 @@ pub fn cmd_profile(args: &[String]) {
     let action = args.first().map_or("list", String::as_str);
 
     match action {
-        // Tool profile subcommands
         "tools" => cmd_tool_profile(&args[1..]),
         "minimal" | "min" | "standard" | "std" | "power" | "full" | "all" | "lean" | "lazy"
         | "reset" => {
@@ -13,7 +12,6 @@ pub fn cmd_profile(args: &[String]) {
             println!("  \x1b[2mTip: the canonical command is `lean-ctx tools {action}`.\x1b[0m");
         }
 
-        // Existing compression profile subcommands
         "list" | "ls" => cmd_profile_list(),
         "show" => {
             let name = args
@@ -410,8 +408,8 @@ fn print_profile_help() {
 TOOL PROFILES — how many MCP tools your agent sees:
   lean-ctx tools                Show current tool profile
   lean-ctx tools lean           Lazy core advertised, all via ctx_call (default)
-  lean-ctx tools minimal        10 essential tools
-  lean-ctx tools standard       19 balanced tools
+  lean-ctx tools minimal        6 essential tools
+  lean-ctx tools standard       17 balanced tools
   lean-ctx tools power          All tools (highest context overhead)
   lean-ctx tools list           List tool profiles with counts
 

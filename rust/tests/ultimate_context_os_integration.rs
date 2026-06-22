@@ -1,19 +1,5 @@
-//! Ultimate integration test suite covering ALL Context OS features:
-//! - Multi-agent shared sessions (concurrent read/write)
-//! - ContextBus event streaming + replay
-//! - Workspace/channel isolation
-//! - Metrics observability
-//! - Redaction levels
-//! - SSE broadcast semantics
-//! - Session mutations (task, findings, decisions, files, evidence)
-//! - CCP compaction snapshots
-//! - Knowledge system (remember, recall, contradictions)
-//! - A2A scratchpad (agent messages, rate limiting)
-//! - Property graph (build, multi-edge queries)
-//! - Pipeline stages (shell compression, intent routing)
-//! - CLI commands (read, shell, version, config)
-//! - Contract/SSOT drift gates
-//! - Backward compatibility (existing test suite)
+//! Ultimate integration test suite covering all Context OS features:
+//! shared sessions, `ContextBus`, metrics, redaction, CLI, knowledge, A2A, contracts, E2E.
 
 use std::process::Command;
 use std::sync::Arc;
@@ -43,10 +29,6 @@ fn rand_u32() -> u32 {
     std::thread::current().id().hash(&mut h);
     (h.finish() & 0xFFFF_FFFF) as u32
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 1: Context OS Core — SharedSessionStore
-// ═══════════════════════════════════════════════════════════════════
 
 mod shared_sessions {
     use super::*;
@@ -220,10 +202,6 @@ mod shared_sessions {
         );
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 2: Context OS Core — ContextBus Event Streaming
-// ═══════════════════════════════════════════════════════════════════
 
 mod context_bus {
     use super::*;
@@ -414,10 +392,6 @@ mod context_bus {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 3: Context OS — Metrics Observability
-// ═══════════════════════════════════════════════════════════════════
-
 mod metrics {
     use lean_ctx::core::context_os::ContextOsMetrics;
 
@@ -484,10 +458,6 @@ mod metrics {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 4: Context OS — Redaction
-// ═══════════════════════════════════════════════════════════════════
-
 mod redaction {
     use lean_ctx::core::context_os::{ContextEventV1, RedactionLevel, redact_event_payload};
 
@@ -548,10 +518,6 @@ mod redaction {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 5: External App Simulation (SDK-style docking)
-// ═══════════════════════════════════════════════════════════════════
-
 mod external_app_docking {
     use super::*;
     use lean_ctx::core::context_os::{
@@ -568,7 +534,6 @@ mod external_app_docking {
         let ws = "ws-external";
         let ch = "ch-default";
 
-        // --- Phase 1: Agent writes session data ---
         {
             let session = store.get_or_load(project, ws, ch);
             let mut s = session.write().await;
@@ -599,7 +564,6 @@ mod external_app_docking {
         );
         metrics.record_event_appended();
 
-        // --- Phase 2: External app subscribes and reads ---
         let mut rx = bus.subscribe(ws, ch).expect("subscribe rx");
         metrics.record_sse_connect();
 
@@ -612,7 +576,6 @@ mod external_app_docking {
         assert_eq!(s.files_touched.len(), 1);
         metrics.record_session_loaded();
 
-        // --- Phase 3: Agent makes another change, external app receives it ---
         bus.append(
             ws,
             ch,
@@ -627,7 +590,6 @@ mod external_app_docking {
         assert_eq!(received.actor.as_deref(), Some("cursor-agent"));
         assert_eq!(received.workspace_id, ws);
 
-        // --- Phase 4: Verify metrics ---
         let snap = metrics.snapshot();
         assert_eq!(snap.events_appended, 2);
         assert_eq!(snap.sse_connections_active, 1);
@@ -645,21 +607,18 @@ mod external_app_docking {
         let mut app1_rx = bus.subscribe(ws, ch).expect("subscribe app1");
         let mut app2_rx = bus.subscribe(ws, ch).expect("subscribe app2");
 
-        // Agent 1 writes to session
         {
             let s_arc = store.get_or_load(project, ws, ch);
             let mut s = s_arc.write().await;
             s.next_steps.push("Deploy to staging".to_string());
         }
 
-        // Agent 2 writes to same session
         {
             let s_arc = store.get_or_load(project, ws, ch);
             let mut s = s_arc.write().await;
             s.next_steps.push("Run integration tests".to_string());
         }
 
-        // Both agents emit events
         bus.append(
             ws,
             ch,
@@ -675,7 +634,6 @@ mod external_app_docking {
             serde_json::json!({"step": "test"}),
         );
 
-        // Both external apps receive both events
         let app1_ev1 = app1_rx.try_recv().unwrap();
         let app1_ev2 = app1_rx.try_recv().unwrap();
         let app2_ev1 = app2_rx.try_recv().unwrap();
@@ -686,16 +644,11 @@ mod external_app_docking {
         assert_eq!(app2_ev1.actor.as_deref(), Some("agent-1"));
         assert_eq!(app2_ev2.actor.as_deref(), Some("agent-2"));
 
-        // Verify shared session has both steps
         let s_arc = store.get_or_load(project, ws, ch);
         let s = s_arc.read().await;
         assert_eq!(s.next_steps.len(), 2);
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 6: CCP Session Features (Resume, Compaction, Evidence)
-// ═══════════════════════════════════════════════════════════════════
 
 mod session_features {
     use lean_ctx::core::session::{
@@ -708,14 +661,12 @@ mod session_features {
         let mut session = SessionState::default();
         session.project_root = Some("/home/user/project".to_string());
 
-        // Set task
         session.task = Some(TaskInfo {
             description: "Build Context OS".to_string(),
             intent: Some("architecture".to_string()),
             progress_pct: Some(0),
         });
 
-        // Add findings
         for i in 0..5 {
             session.findings.push(Finding {
                 file: Some(format!("src/module{i}.rs")),
@@ -725,14 +676,12 @@ mod session_features {
             });
         }
 
-        // Add decisions
         session.decisions.push(Decision {
             summary: "Use SSE for realtime events".to_string(),
             rationale: Some("Lower overhead than WebSocket for unidirectional flow".to_string()),
             timestamp: chrono::Utc::now(),
         });
 
-        // Add files touched
         for i in 0..10 {
             session.files_touched.push(FileTouched {
                 path: format!("src/file{i}.rs"),
@@ -747,7 +696,6 @@ mod session_features {
             });
         }
 
-        // Add evidence
         session.evidence.push(EvidenceRecord {
             kind: EvidenceKind::Manual,
             key: "test:unit".to_string(),
@@ -760,22 +708,18 @@ mod session_features {
             timestamp: chrono::Utc::now(),
         });
 
-        // Progress update
         if let Some(ref mut t) = session.task {
             t.progress_pct = Some(75);
         }
 
-        // Build resume block
         let resume = session.build_resume_block();
         assert!(resume.contains("Build Context OS"), "task in resume");
         assert!(resume.contains("75%"), "progress in resume");
         assert!(resume.contains("SSE"), "decision in resume");
 
-        // Build compaction snapshot
         let snapshot = session.build_compaction_snapshot();
         assert!(!snapshot.is_empty(), "snapshot is non-empty");
 
-        // Serialize/deserialize roundtrip
         let json = serde_json::to_string(&session).unwrap();
         let restored: SessionState = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.findings.len(), 5);
@@ -783,10 +727,6 @@ mod session_features {
         assert_eq!(restored.evidence.len(), 1);
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 7: CLI Commands (binary-level integration)
-// ═══════════════════════════════════════════════════════════════════
 
 mod cli_commands {
     use super::*;
@@ -887,10 +827,6 @@ mod cli_commands {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 8: Contract / SSOT Drift Gates
-// ═══════════════════════════════════════════════════════════════════
-
 mod contract_gates {
     #[test]
     fn contracts_md_exists_and_has_content() {
@@ -947,21 +883,13 @@ mod contract_gates {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 9: Knowledge System
-// ═══════════════════════════════════════════════════════════════════
-
 mod knowledge_system {
     use lean_ctx::core::knowledge::ProjectKnowledge;
     use lean_ctx::core::memory_policy::MemoryPolicy;
 
-    fn default_policy() -> MemoryPolicy {
-        MemoryPolicy::default()
-    }
-
     #[test]
     fn remember_recall_roundtrip() {
-        let policy = default_policy();
+        let policy = MemoryPolicy::default();
         let mut kb = ProjectKnowledge::new("/tmp/knowledge-test-ultimate");
         kb.remember(
             "architecture",
@@ -1000,7 +928,7 @@ mod knowledge_system {
 
     #[test]
     fn knowledge_multi_category_recall() {
-        let policy = default_policy();
+        let policy = MemoryPolicy::default();
         let mut kb = ProjectKnowledge::new("/tmp/knowledge-multi-cat-ultimate");
         kb.remember(
             "security",
@@ -1037,10 +965,6 @@ mod knowledge_system {
         assert!(empty.is_empty(), "no facts for nonexistent category");
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 10: A2A Agent Communication
-// ═══════════════════════════════════════════════════════════════════
 
 mod a2a_communication {
     use lean_ctx::core::a2a::message::{
@@ -1128,10 +1052,6 @@ mod a2a_communication {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 11: Shell Compression Patterns
-// ═══════════════════════════════════════════════════════════════════
-
 mod shell_compression {
     use super::*;
 
@@ -1156,10 +1076,6 @@ mod shell_compression {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// SECTION 12: End-to-End Multi-Agent Scenario
-// ═══════════════════════════════════════════════════════════════════
-
 mod e2e_multi_agent_scenario {
     use super::*;
     use lean_ctx::core::context_os::*;
@@ -1174,7 +1090,6 @@ mod e2e_multi_agent_scenario {
         let ws = "ws-team";
         let ch = "ch-main";
 
-        // ── Step 1: Cursor Agent starts a task ──
         {
             let s = store.get_or_load(project, ws, ch);
             let mut session = s.write().await;
@@ -1204,7 +1119,6 @@ mod e2e_multi_agent_scenario {
         );
         metrics.record_event_appended();
 
-        // ── Step 2: Claude Agent reads context and adds findings ──
         let mut claude_rx = bus.subscribe(ws, ch).expect("subscribe claude");
         metrics.record_sse_connect();
 
@@ -1248,11 +1162,9 @@ mod e2e_multi_agent_scenario {
         metrics.record_event_appended();
         metrics.record_event_broadcast();
 
-        // ── Step 3: External dashboard app subscribes ──
         let mut dashboard_rx = bus.subscribe(ws, ch).expect("subscribe dashboard");
         metrics.record_sse_connect();
 
-        // ── Step 4: Copilot Agent adds a decision ──
         {
             let s = store.get_or_load(project, ws, ch);
             let mut session = s.write().await;
@@ -1275,13 +1187,11 @@ mod e2e_multi_agent_scenario {
         metrics.record_event_appended();
         metrics.record_event_broadcast();
 
-        // ── Step 5: Knowledge is recorded ──
         bus.append(ws, ch, &ContextEventKindV1::KnowledgeRemembered,
             Some("cursor-agent"),
             serde_json::json!({"fact": "OAuth2 PKCE is required for all public clients", "room": "security"}));
         metrics.record_event_appended();
 
-        // ── Step 6: Verify final state ──
         let s = store.get_or_load(project, ws, ch);
         let session = s.read().await;
 
@@ -1294,7 +1204,6 @@ mod e2e_multi_agent_scenario {
         assert_eq!(session.decisions.len(), 1, "1 decision from copilot");
         assert_eq!(session.task.as_ref().unwrap().progress_pct, Some(40));
 
-        // Verify event log
         let all_events = bus.read(ws, ch, 0, 1000);
         assert!(all_events.len() >= 4, "at least 4 events recorded");
 
@@ -1304,20 +1213,16 @@ mod e2e_multi_agent_scenario {
         assert!(actors.contains("claude-agent"), "claude events present");
         assert!(actors.contains("copilot-agent"), "copilot events present");
 
-        // Verify metrics
         let snap = metrics.snapshot();
         assert!(snap.events_appended >= 4);
         assert_eq!(snap.sse_connections_active, 2, "claude + dashboard");
 
-        // Verify broadcast (claude received copilot's events)
         let claude_ev = claude_rx.try_recv();
         assert!(claude_ev.is_ok(), "claude must receive broadcast events");
 
-        // Dashboard also received events
         let dash_ev = dashboard_rx.try_recv();
         assert!(dash_ev.is_ok(), "dashboard must receive broadcast events");
 
-        // Verify redaction works on events
         let mut ev_for_dashboard = all_events[0].clone();
         redact_event_payload(&mut ev_for_dashboard, RedactionLevel::RefsOnly);
         assert!(
@@ -1329,7 +1234,6 @@ mod e2e_multi_agent_scenario {
             "redacted events have redacted flag"
         );
 
-        // Verify compaction snapshot
         let snapshot = session.build_compaction_snapshot();
         assert!(!snapshot.is_empty());
     }

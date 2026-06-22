@@ -121,10 +121,8 @@ pub fn run_setup() {
         };
         match run_setup_with_options(opts) {
             Ok(report) => {
-                if !report.warnings.is_empty() {
-                    for w in &report.warnings {
-                        tracing::warn!("{w}");
-                    }
+                for w in &report.warnings {
+                    tracing::warn!("{w}");
                 }
             }
             Err(e) => tracing::error!("Setup error: {e}"),
@@ -146,12 +144,10 @@ pub fn run_setup() {
     let (inject_rules, inject_skills) = first_run_setup_level();
     persist_setup_choice(inject_rules, inject_skills);
 
-    // Step 1: Shell hook (legacy aliases + universal shell hook)
     terminal_ui::print_step_header(1, 12, "Shell Hook");
     crate::cli::cmd_init(&["--global".to_string()]);
     crate::shell_hook::install_all(false);
 
-    // Step 2: Daemon (optional acceleration for CLI routing)
     terminal_ui::print_step_header(2, 12, "Daemon");
     if crate::daemon::is_daemon_running() {
         terminal_ui::print_status_ok("Daemon running — restarting with current binary…");
@@ -164,7 +160,6 @@ pub fn run_setup() {
         terminal_ui::print_status_warn(&format!("Daemon start failed: {e}"));
     }
 
-    // Step 3: Editor auto-detection + configuration
     terminal_ui::print_step_header(3, 12, "AI Tool Detection");
 
     let targets = crate::core::editor_registry::build_targets(&home);
@@ -248,7 +243,6 @@ pub fn run_setup() {
 
     configure_plan_mode_settings(&newly_configured, &already_configured);
 
-    // Step 4: Agent rules injection (only if user opted in)
     terminal_ui::print_step_header(4, 12, "Agent Rules");
     let rules_result = if inject_rules {
         let r = crate::rules_inject::inject_all_rules(&home);
@@ -282,7 +276,6 @@ pub fn run_setup() {
         crate::rules_inject::InjectResult::default()
     };
 
-    // Agent hooks (mode-aware)
     for target in &targets {
         if !target.detect_path.exists() || target.agent_key.is_empty() {
             continue;
@@ -291,7 +284,6 @@ pub fn run_setup() {
         crate::hooks::install_agent_hook_with_mode(&target.agent_key, true, mode);
     }
 
-    // Step 5: API Proxy (opt-in)
     terminal_ui::print_step_header(5, 12, "API Proxy (optional)");
     {
         let cfg = crate::core::config::Config::load();
@@ -348,7 +340,6 @@ pub fn run_setup() {
         }
     }
 
-    // Step 6: SKILL.md installation (only if user opted in)
     terminal_ui::print_step_header(6, 12, "Skill Files");
     if inject_skills {
         let skill_result = install_skill_files(&home);
@@ -372,7 +363,6 @@ pub fn run_setup() {
         );
     }
 
-    // Step 7: Data directory + diagnostics
     terminal_ui::print_step_header(7, 12, "Environment Check");
     let lean_dir = crate::core::data_dir::lean_ctx_data_dir()
         .unwrap_or_else(|_| home.join(".config/lean-ctx"));
@@ -397,7 +387,6 @@ pub fn run_setup() {
     // marker can never re-collapse config/data/state/cache later (GL #623).
     crate::core::layout_pin::heal();
 
-    // Step 8: Data sharing
     terminal_ui::print_step_header(8, 12, "Help Improve lean-ctx");
     println!("  Share anonymous compression stats to make lean-ctx better.");
     println!("  \x1b[1mNo code, no file names, no personal data — ever.\x1b[0m");
@@ -433,7 +422,6 @@ pub fn run_setup() {
         terminal_ui::print_status_skip("Skipped — enable later with: lean-ctx config");
     }
 
-    // Step 9: Auto-Update opt-in
     terminal_ui::print_step_header(9, 12, "Auto-Updates");
     println!("  Keep lean-ctx up to date automatically.");
     println!("  \x1b[1mChecks GitHub every 6h, installs only when a new release exists.\x1b[0m");
@@ -470,15 +458,12 @@ pub fn run_setup() {
         terminal_ui::print_status_skip("Skipped — enable later: lean-ctx update --schedule");
     }
 
-    // Step 10: Tool Profile selection
     terminal_ui::print_step_header(10, 12, "Tool Profile");
     configure_tool_profile();
 
-    // Step 11: Advanced tuning (optional power-user options)
     terminal_ui::print_step_header(11, 12, "Advanced Tuning (optional)");
     configure_premium_features(&home);
 
-    // Step 12: Code Intelligence — build graph in background
     terminal_ui::print_step_header(12, 12, "Code Intelligence");
     let cwd = std::env::current_dir().ok();
     let cwd_is_home = cwd
@@ -552,7 +537,6 @@ pub fn run_setup() {
     }
     println!();
 
-    // Auto-approve transparency banner
     {
         let tools = crate::core::editor_registry::writers::auto_approve_tools();
         println!();
@@ -567,7 +551,6 @@ pub fn run_setup() {
         println!("  \x1b[2mDisable with: lean-ctx setup --no-auto-approve\x1b[0m");
     }
 
-    // Summary
     println!();
     println!(
         "  \x1b[1;32m✓ Setup complete!\x1b[0m  \x1b[1m{}\x1b[0m configured, \x1b[2m{} already set, {} skipped\x1b[0m",
@@ -585,7 +568,6 @@ pub fn run_setup() {
         );
     }
 
-    // Next steps
     let source_cmd = crate::shell_hook::shell_source_command().unwrap_or("Restart your shell");
 
     let dim = "\x1b[2m";
@@ -610,7 +592,7 @@ pub fn run_setup() {
         .iter()
         .chain(rules_result.updated.iter())
     {
-        if !tools_to_restart.iter().any(|t| t == name) {
+        if !tools_to_restart.contains(name) {
             tools_to_restart.push(name.clone());
         }
     }
@@ -634,12 +616,10 @@ pub fn run_setup() {
     );
     println!("  {dim}Verify with:{rst} {bold}lean-ctx gain{rst}");
 
-    // Logo + commands
     println!();
     terminal_ui::print_logo_animated();
     terminal_ui::print_command_box();
 
-    // First-run "aha": show the savings lean-ctx just started capturing (once).
     crate::cli::show_first_run_wow();
 }
 
@@ -683,7 +663,6 @@ pub fn run_onboard() {
         }
     };
 
-    // Which AI tools did we actually wire up?
     let connected: Vec<String> = report
         .steps
         .iter()
@@ -732,7 +711,6 @@ pub fn run_onboard() {
     println!();
     terminal_ui::print_command_box();
 
-    // First-run "aha": show the savings lean-ctx just started capturing (once).
     crate::cli::show_first_run_wow();
 }
 
@@ -963,7 +941,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     } else if opts.yes && opts.non_interactive {
         setup_cfg.should_inject_rules()
     } else {
-        !opts.skip_rules
+        true
     };
 
     if should_inject {
@@ -1036,7 +1014,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     } else if opts.yes && opts.non_interactive {
         setup_cfg.should_inject_skills()
     } else {
-        !opts.skip_rules
+        true
     };
     if should_install_skills {
         let skill_results = crate::rules_inject::install_all_skills(&home);

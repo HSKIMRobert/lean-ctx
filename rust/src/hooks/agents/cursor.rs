@@ -137,8 +137,20 @@ pub fn install_cursor_hook(global: bool) {
                 eprintln!("Cursor rule already exists.");
             }
         } else {
-            let rule_content = include_str!("../../templates/lean-ctx.mdc");
-            write_file(&rule_path, rule_content);
+            let body = crate::core::rules_canonical::render(
+                false,
+                crate::core::rules_canonical::Wrapper::Dedicated,
+            );
+            let rule_content = format!(
+                "---\n\
+                 description: \"lean-ctx: context compression layer. \
+                 Tools replace native Read/Grep/Shell — see rule body.\"\n\
+                 globs: **/*\n\
+                 alwaysApply: true\n\
+                 ---\n\n\
+                 {body}"
+            );
+            write_file(&rule_path, &rule_content);
             if !mcp_server_quiet_mode() {
                 eprintln!("Created .cursor/rules/lean-ctx.mdc in current project.");
             }
@@ -191,11 +203,20 @@ fn install_cursor_rules_for_mode(global: bool, mode: HookMode) {
     }
 }
 
-fn cursor_mdc_for_mode(mode: HookMode) -> String {
-    match mode {
-        HookMode::Hybrid => include_str!("../../templates/lean-ctx-hybrid.mdc").to_string(),
-        HookMode::Mcp => include_str!("../../templates/lean-ctx.mdc").to_string(),
-    }
+fn cursor_mdc_for_mode(_mode: HookMode) -> String {
+    let body = crate::core::rules_canonical::render(
+        false,
+        crate::core::rules_canonical::Wrapper::Dedicated,
+    );
+    format!(
+        "---\n\
+         description: \"lean-ctx: context compression layer. \
+         Tools replace native Read/Grep/Shell — see rule body.\"\n\
+         globs: **/*\n\
+         alwaysApply: true\n\
+         ---\n\n\
+         {body}"
+    )
 }
 
 pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {

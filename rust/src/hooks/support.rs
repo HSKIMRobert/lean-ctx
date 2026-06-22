@@ -96,7 +96,7 @@ fn print_named_json_server_success(name: &str, display_path: &str) {
 }
 
 const CODEX_AGENTS_BLOCK_START: &str = "<!-- lean-ctx -->";
-const CODEX_AGENTS_BLOCK_END: &str = "<!-- /lean-ctx -->";
+const CODEX_AGENTS_BLOCK_END: &str = crate::core::rules_canonical::END_MARK;
 
 pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
     let agents_path = codex_dir.join("AGENTS.md");
@@ -187,8 +187,12 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 
 fn codex_instruction_doc_content() -> String {
     let binary = super::resolve_binary_path();
+    let marker = crate::core::rules_canonical::START_MARK;
+    let bullets = crate::core::rules_canonical::BULLETS;
+    let never = crate::core::rules_canonical::NEVER;
+    let read_modes = crate::core::rules_canonical::READ_MODES;
     format!(
-        r#"# lean-ctx — Context Engineering Layer (Hybrid Mode)
+        r#"{marker} (Hybrid Mode)
 
 lean-ctx is available via **both** MCP tools and CLI commands.
 
@@ -210,12 +214,11 @@ those tokens.
 
 ## MCP tools
 
-| Tool | Purpose |
-|------|---------|
-| `ctx_read` | Cached, compressed file reads (modes: full/map/signatures/lines:N-M) |
-| `ctx_shell` | Shell commands with pattern compression (95+ patterns) |
-| `ctx_search` | Token-efficient code search |
-| `ctx_tree` | Compact directory maps |
+{bullets}
+
+{never}
+
+Read modes: {read_modes}
 
 ## CLI
 
