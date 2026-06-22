@@ -354,7 +354,7 @@ fn build_full_instructions_for_test(crp_mode: CrpMode, client_name: &str) -> Str
 fn build_full_instructions_for_compiler(
     crp_mode: CrpMode,
     client_name: &str,
-    unified_tool_mode: bool,
+    _unified_tool_mode: bool,
 ) -> String {
     // MCP instructions are capped at 2048 chars (Claude Code). Use
     // COMPACT_SHADOW profile — omits BULLETS/NEVER/CRITICAL that the
@@ -374,8 +374,6 @@ fn build_full_instructions_for_compiler(
             crate::core::protocol::instruction_decoder_block(matches!(crp_mode, CrpMode::Tdd)),
         origin = crate::core::integrity::origin_line(),
     );
-
-    let _ = unified_tool_mode; // feature kept for API compat, no content needed
 
     let _ = client_name;
 

@@ -20,7 +20,9 @@ Parameters: `path`*
 
 ## `ctx_architecture`
 
-Graph-based architecture analysis. Actions: overview|clusters|communities|layers|cycles|entrypoints|hotspots|health|module.
+Architecture analysis: action=overview→high-level; clusters|communities→groupings
+layers|cycles→dependency violations; entrypoints|hotspots→risk areas; health→quality.
+Use to understand module structure without reading every file. action=module path='src/' to zoom.
 
 Parameters: `action`, `format`, `path`, `root`
 
@@ -51,9 +53,14 @@ Parameters: `arguments`, `name`*
 
 ## `ctx_callgraph`
 
-Call graph query: callers/callees (multi-hop BFS), trace path between symbols, risk classification by caller count.
+Callers/callees analysis — who calls a function and what it calls.
+action=callers symbol='fn' returns every call site with file:line.
+For END-TO-END flow tracing (how does X reach Y), use ctx_compose FIRST
+— one call returns the path + source. Use ctx_callgraph only when you need
+exhaustive enumeration of ALL callers/callees for a single symbol.
+action=trace from→to finds path between two symbols. depth=N for BFS depth.
 
-Parameters: `action`, `depth`, `direction`, `file`, `from`, `symbol`, `to`
+Parameters: `action`, `depth`, `file`, `from`, `symbol`, `to`
 
 ## `ctx_checkpoint`
 
@@ -72,13 +79,20 @@ Parameters: `budget`, `mode`
 
 ## `ctx_compose`
 
-Task composer: one call returns keywords + semantically ranked files + exact match locations + the top symbol's body inline. Replaces the search→read→outline→read chain.
+PRIMARY TOOL — call FIRST for understanding code, before editing, debugging, or
+answering 'how does X work'. Pass a task/question or symbol names. returns ranked files with 
+relevant symbol source inline grouped by file. Combines BM25 lexical + semantic + associative
+retrieval + submodular optimization. Do NOT chain search→read→symbol — one compose
+does it all. Do NOT Read files whose source compose already returned — it IS the source.
+Fire independent ctx_read or ctx_compose calls for different areas in PARALLEL.
 
 Parameters: `path`, `task`*
 
 ## `ctx_compress`
 
-Context checkpoint for long conversations.
+Context checkpoint: compresses read cache to free budget in long sessions
+include_signatures=true (default) preserves API surface in compressed state.
+Does not affect session state or knowledge—only the read cache compaction.
 
 Parameters: `include_signatures`
 
@@ -114,7 +128,10 @@ Parameters: `action`
 
 ## `ctx_delta`
 
-Incremental diff — sends only changed lines since last read.
+Incremental diff since last read — shows only changed lines after you edit.
+Use INSTEAD of re-reading the whole file after modifications — saves 90%+ tokens
+on unchanged content. Path must have a prior ctx_read in this session's cache.
+For the full git diff against HEAD, use ctx_read(path, mode=diff) instead.
 
 Parameters: `path`*
 
@@ -132,19 +149,31 @@ Parameters: `query`
 
 ## `ctx_edit`
 
-Edit a file via search-and-replace. Use when the IDE's Edit tool requires Read but Read is unavailable.
+Search-and-replace edit: old_string must be unique unless replace_all=true
+create=true writes new files from new_string. TOCTOU-guarded with preimage hash verification.
+backup creates .bak before modifying. Supports MD5/size/mtime pre-guards for race-free edits.
 
 Parameters: `create`, `new_string`*, `old_string`, `path`*, `replace_all`
 
 ## `ctx_execute`
 
-Run code in sandbox (11 languages). Only stdout enters context. Raw data never leaves subprocess. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir.
+Run code in sandbox (11 languages) — use when compute beats shell glue.
+action=code (default) for one-shot transform/math/generation; action=batch for parallel
+multi-language scripts; action=file to process a project file (extension auto-detects
+language). Pass intent to focus large output and save tokens. Prefer over ctx_shell when
+logic, conditionals, multi-line scripts, or cross-language data munging — stdout-only,
+no argv escaping. Languages: javascript, typescript, python, shell, ruby, go, rust, php,
+perl, r, elixir.
 
 Parameters: `action`, `code`, `intent`, `items`, `language`, `path`, `timeout`
 
 ## `ctx_expand`
 
-Retrieve archived/firewalled tool output (zero-loss). Use the ID from an [Archived:/Firewalled: ...] hint.
+Retrieve archived tool output by ID (e.g. id=@F1 from [Archived:ID] hints).
+Use when you see an [Archived:ID] reference in tool output and need the full
+content. Supports head/tail/search to filter lines. action=search_all across
+all archives. action=list shows available archives. Zero-loss: original preserved.
+For reading files, use ctx_read or ctx_compose instead.
 
 Parameters: `action`, `end_line`, `head`, `id`, `json_keys`, `json_path`, `query`, `search`, `session_id`, `start_line`, `tail`
 
@@ -177,14 +206,20 @@ Parameters: `max_tokens`, `mode`, `path`, `query`, `ref`, `timeout_secs`, `url`*
 
 ## `ctx_glob`
 
-Find files by glob pattern. Prefer over native Glob for consistency.
-Respects .gitignore; supports multi-root via `paths` array.
+Find files by glob pattern. Respects .gitignore;
+supports multi-root via `paths` array. max_results=N sets limit.
+For file content search, use ctx_search (pattern) or ctx_semantic_search (meaning).
 
 Parameters: `ignore_gitignore`, `max_results`, `path`, `paths`, `pattern`*
 
 ## `ctx_graph`
 
-Code graph: dependencies, symbol usages, impact/blast radius, Mermaid diagrams, git-diff impact.
+Code graph queries — find usages, relationships, and dependency chains.
+action=symbol path='file.rs::fnName' finds all usages of a symbol.
+action=neighbors shows adjacent nodes; action=path from→to shows dependency
+chains between files. action=diff since=HEAD~1 for git change impact.
+For understanding code end-to-end, use ctx_compose FIRST. Use ctx_graph for
+targeted structural queries the graph index can answer directly.
 
 Parameters: `action`*, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
 
@@ -202,7 +237,9 @@ Parameters: `action`, `path`
 
 ## `ctx_impact`
 
-Graph-based impact analysis. Actions: analyze|diff|chain|build|update|status.
+Change impact: action=analyze path='file.rs'→blast radius; depth=N; action=diff→git refs
+action=chain from→to→dependency path. depth controls traversal (default 5).
+Use before refactoring to assess risk. path can be file path or type/class name.
 
 Parameters: `action`, `depth`, `format`, `path`, `root`
 
@@ -220,7 +257,11 @@ Parameters: `project_root`, `query`*
 
 ## `ctx_knowledge`
 
-Persistent project knowledge across sessions (facts, patterns, gotchas, typed relations).
+Persistent memory across sessions — remember decisions, patterns, and facts.
+action=remember saves a fact; action=recall query='X' retrieves it.
+Use to persist architecture decisions, gotchas, and patterns for future sessions.
+action=gotcha trigger='X' resolution='Y' for known pitfalls.
+mode=semantic|exact for recall. category groups related facts.
 
 Parameters: `action`*, `as_of`, `category`, `confidence`, `examples`, `key`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `trigger`, `value`
 
@@ -244,7 +285,11 @@ Parameters: _none_
 
 ## `ctx_multi_read`
 
-Batch read files in one call. Same modes as ctx_read.
+Batch-read multiple files in one call — more token-efficient than N sequential
+ctx_read calls. paths=['a.rs','b.rs'] reads them all at once.
+mode=full for files you edit; mode=auto for general reading (compressed).
+Use when you need the content of several files. For understanding code logic,
+use ctx_compose FIRST — it returns relevant symbol source grouped by file.
 
 Parameters: `fresh`, `mode`, `paths`*
 
@@ -256,13 +301,18 @@ Parameters: `action`*, `alias`, `max_results`, `path`, `query`, `roots`
 
 ## `ctx_outline`
 
-List all symbols in a file (functions, structs, classes, methods) with signatures. Much fewer tokens than reading the full file.
+File symbols: path='file.rs'->signatures; kind=fn|struct|class|all filter
+Lists all named symbols in a file with signatures and line numbers.
+Generated via tree-sitter extraction of fn/struct/class/trait declarations.
 
 Parameters: `kind`, `path`*
 
 ## `ctx_overview`
 
-Task-relevant project map — use at session start.
+Task-relevant project map — use at session start to orient before diving into code.
+task='your goal' scopes files/modules by relevance (PageRank on symbol graph).
+For deeper code understanding, use ctx_compose instead — returns source + flow
+in one call. ctx_overview is lighter: high-level structure only, no source body.
 
 Parameters: `path`, `task`
 
@@ -322,8 +372,12 @@ Parameters: `format`
 
 ## `ctx_read`
 
-Read a file. Prefer over native Read/cat/head/tail (cached, compressed).
-Omit mode to auto-select (recommended); use full only right before editing. Re-reads ~13 tokens. fresh=true forces a disk re-read.
+Read source files. mode is REQUIRED — choose by intent:
+full=verbatim (edit-ready, use before Edit), signatures=API surface only,
+map=structural overview of large files, auto=smart (learns from task and
+session context, use for orientation), diff=git delta, lines:N-M=window.
+fresh=true bypasses cache.
+For understanding code or finding answers, use ctx_compose FIRST instead.
 
 Parameters: `aggressiveness`, `fresh`, `limit`, `mode`, `offset`, `path`*, `protect`, `start_line`
 
@@ -335,7 +389,9 @@ Parameters: `action`*, `column`, `direction`, `end_line`, `expected_hash`, `forc
 
 ## `ctx_repomap`
 
-PageRank-based repo map showing the most important symbols across the codebase, ranked by structural importance and session relevance.
+PageRank symbol map: focus_files=['path/*.rs'] boosts areas; max_tokens controls size (default 2048)
+Shows structurally important symbols ranked by PageRank and session relevance.
+Use for codebase-wide orientation; for task-scoped view use ctx_overview.
 
 Parameters: `focus_files`, `max_tokens`, `path`
 
@@ -359,7 +415,9 @@ Parameters: `action`*, `depth`, `path`
 
 ## `ctx_routes`
 
-List HTTP routes/endpoints extracted from the project. Supports Express, Flask, FastAPI, Actix, Spring, Rails, Next.js.
+HTTP routes: method=GET|POST filter; path='/api' prefix; auto-detects frameworks
+Extracts endpoints from: Express, Flask, FastAPI, Actix, Spring, Rails, Next.js.
+Use to discover API surface without reading route definition files.
 
 Parameters: `method`, `path`
 
@@ -371,19 +429,28 @@ Parameters: `action`*, `agent`
 
 ## `ctx_search`
 
-Regex code search. Prefer over native Grep/rg/find (compact, .gitignore-aware).
+Regex pattern search — use when you know the exact pattern. For understanding code or
+finding answers, use ctx_compose FIRST (one call replaces search+read+symbol chains).
+pattern required; include='*.rs'; path scopes; max_results=N (default 20).
+paths=['dir1','dir2'] for multi-root. ignore_gitignore bypasses .gitignore (needs role).
 
-Parameters: `ext`, `ignore_gitignore`, `include`, `max_results`, `path`, `paths`, `pattern`*
+Parameters: `ignore_gitignore`, `include`, `max_results`, `path`, `paths`, `pattern`*
 
 ## `ctx_semantic_search`
 
-Concept/semantic code search (hybrid BM25+embeddings). Use when keyword ctx_search misses intent.
+Search code by MEANING (BM25+embeddings) — use when you know the concept but not the exact
+symbol name. query='user auth' finds relevant code even with no keyword match.
+Different from ctx_search (regex): use ctx_search for exact patterns, this for
+fuzzy/conceptual. For understanding code end-to-end, use ctx_compose FIRST.
+find_related(file_path, line) for context neighbors. mode=bm25|dense|hybrid.
 
 Parameters: `action`, `file_path`, `languages`, `line`, `mode`, `path`, `path_glob`, `query`*, `top_k`
 
 ## `ctx_session`
 
-Cross-session memory: record task/finding/decision, restore previous session state.
+Cross-session memory: action=task/finding/decision persists; load session_id=X resumes
+Use at session end to persist progress; at start to restore previous work.
+action=status for current snapshot; action=save commits state; action=reset clears.
 
 Parameters: `action`*, `session_id`, `value`
 
@@ -395,8 +462,10 @@ Parameters: `action`*, `message`, `paths`, `to_agent`
 
 ## `ctx_shell`
 
-Run a shell command with compressed output. Prefer over native Shell/Bash.
-Uses the system shell ($SHELL) profile-free — no rc/profile files sourced. Especially for build/test/log commands (cargo, make, npm, pytest, go test, …), the heaviest output in a session. Compression is lossless for signal: compiler errors, test results and panics are kept verbatim. cwd persists across calls.
+Run shell commands with automatic output compression (~95 patterns).
+Optimized for build/test/log output (cargo, npm, pytest, go test).
+raw=true disables compression for verbatim output. Lossless for errors
+and exit codes — [exit:N] footer for failure codes. cwd persists.
 
 Parameters: `command`*, `cwd`, `env`, `raw`
 
@@ -426,7 +495,11 @@ Parameters: `action`, `query`, `top_k`
 
 ## `ctx_symbol`
 
-Read a specific symbol (function, struct, class) by name. Returns only the symbol code block instead of the entire file. 90-97% fewer tokens than full file read.
+Get ONE symbol's body by name — exact, AST-precise (tree-sitter index). Use AFTER
+ctx_compose gave you the overview and you need a specific symbol's full body.
+For multiple symbols or understanding an area, use ctx_compose FIRST (returns
+all relevant symbols grouped by file in one call). name='fnName' returns code block.
+file='path.rs' narrows; kind='fn'|'struct'|'class'|'trait'|'enum' disambiguates.
 
 Parameters: `file`, `kind`, `name`*
 
@@ -452,16 +525,17 @@ Parameters: `focus_topic`, `fresh_tail_tokens`, `messages`*, `protect_min_messag
 
 ## `ctx_tree`
 
-List a directory. Prefer over native ls/find (counts, compact tree).
+Directory tree with file counts per directory. depth=N (default 3);
+show_hidden for dotfiles; paths for multi-root.
+respect_gitignore filters ignored files (default true).
 
 Parameters: `depth`, `path`, `paths`, `respect_gitignore`, `show_hidden`
 
 ## `ctx_url_read`
 
-Fetch a web page, PDF, RSS/Atom feed, or YouTube URL as compressed, cited context.
-HTML→clean Markdown (tables→GFM), PDF→text, feeds→dated item list, YouTube→transcript; modes: auto|markdown|text|links|facts|quotes|transcript.
-GitHub blob/raw page URLs auto-resolve to the raw file. facts/quotes return claims with confidence + source. SSRF-guarded (http/https only, blocks private/loopback).
-Use for research/crawl instead of raw fetch.
+Fetch URL: pages→Markdown; PDF→text; YouTube→transcript; mode=auto best per type
+mode=facts|quotes for research (claims+confidence). query='topic' to focus extraction.
+GitHub blob/raw URLs auto-resolve to raw file. SSRF-guarded (no private IPs). max_tokens=6000.
 
 Parameters: `max_items`, `max_tokens`, `mode`, `query`, `timeout_secs`, `url`*
 
@@ -479,7 +553,8 @@ Parameters: `action`, `key`, `name`, `spec`, `to`, `value`
 
 ## `shell`
 
-Execute a shell command. Returns token-optimized compressed output (95+ patterns for git, npm, cargo, docker, tsc, etc). Equivalent to running the command in a terminal but with automatic output compression for efficiency.
+Shell command with auto-compression (~95 patterns). Alias for ctx_shell.
+Output is compressed for token savings. For verbatim output pass raw=true.
 
 Parameters: `command`*, `cwd`
 

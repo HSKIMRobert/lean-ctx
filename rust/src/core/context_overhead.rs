@@ -196,9 +196,10 @@ mod tests {
             "rules_injection=off must zero the rules block"
         );
         assert!(
-            o.tool_count <= 8,
-            "minimal profile must keep the surface lean, got {} tools",
-            o.tool_count
+            o.tool_count <= crate::core::tool_profiles::ToolProfile::Minimal.tool_count() + 1,
+            "minimal profile must keep the surface lean, got {} tools (expected ≤ {})",
+            o.tool_count,
+            crate::core::tool_profiles::ToolProfile::Minimal.tool_count() + 1,
         );
         assert!(
             o.total_tokens() <= MINIMAL_ARM_PREFIX_BUDGET_TOKENS,

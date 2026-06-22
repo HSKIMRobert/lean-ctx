@@ -75,7 +75,7 @@ Top-level configuration keys
 - `tee_mode` (enum: never | failures | always, default `failures`) — Controls when shell output is tee'd to disk for later retrieval
 - `terse_agent` (enum: off | lite | full | ultra, default `off` — env `LEAN_CTX_TERSE_AGENT`) — Controls agent output verbosity via instructions injection
 - `theme` (string, default `default`) — Dashboard color theme
-- `tool_profile` (enum: minimal | standard | power, default `""`) — Tool visibility profile: minimal (10 tools), standard (19), power (all). Override via LEAN_CTX_TOOL_PROFILE
+- `tool_profile` (enum: minimal | standard | power, default `""`) — Tool visibility profile: minimal (6 tools), standard (17), power (all). Override via LEAN_CTX_TOOL_PROFILE
 - `tools_enabled` (string[], default `[]`) — Explicit list of enabled tool names (overrides tool_profile when non-empty)
 - `ultra_compact` (bool, default `false`) — Legacy flag for maximum compression (use compression_level instead)
 - `update_check_disabled` (bool, default `false` — env `LEAN_CTX_NO_UPDATE_CHECK`) — Disable the daily version check
@@ -144,7 +144,7 @@ Semantic-embedding engine settings (model selection for ctx_semantic_search)
 
 - `auto_download` (bool, default `null` — env `LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD`) — Download the embedding model in the background on first semantic need (default: allowed). Set false for air-gapped machines; semantic features then stay off until a model is provided manually.
 - `dimensions` (integer, default `null`) — Declared embedding width for hf: custom models (fallback only — the real width is probed from the ONNX graph at load time). Built-in models ignore this key.
-- `model` (string, default `minilm` — env `LEAN_CTX_EMBEDDING_MODEL`) — Local ONNX embedding model for ctx_semantic_search. One of: minilm (all-MiniLM-L6-v2, 384d, default), jina-code-v2 (768d, code-optimized), nomic (768d) — or any HuggingFace repo with an ONNX export via hf:org/repo[@revision]. Switching models re-indexes once on the next search.
+- `model` (string, default `minilm` — env `LEAN_CTX_EMBEDDING_MODEL`) — Local ONNX embedding model for ctx_semantic_search. One of: minilm (all-MiniLM-L6-v2, 384d, default), nomic (768d) — or any HuggingFace repo with an ONNX export via hf:org/repo[@revision] (e.g. hf:jinaai/jina-embeddings-v2-base-code for code). Switching models re-indexes once on the next search.
 
 ## `[gain]`
 
@@ -298,7 +298,7 @@ Proxy upstream configuration for API routing
 
 - `allow_insecure_http_upstream` (bool, default `false` — env `LEAN_CTX_ALLOW_INSECURE_HTTP_UPSTREAM`) — Allow a non-loopback plaintext http:// upstream (trusted local network only, e.g. http://host.docker.internal:2455 in front of codex-lb). Opt-in; default false
 - `anthropic_upstream` (string?, default `null`) — Custom upstream URL for Anthropic API proxy
-- `cold_prefix_repack` (bool, default `false` — env `LEAN_CTX_PROXY_COLD_PREFIX_REPACK`) — Opt-in big-gap cold-prefix repack (#480): on a session-resume request the proxy may predict (from idle time vs the provider cache TTL) that the client-cached prefix has already expired, then prune that now-cold prefix once to re-seed a leaner cache. A wrong guess re-bills cache reads as writes (~12x), so default false
+- `cold_prefix_repack` (bool, default `false` — env `LEAN_CTX_PROXY_COLD_PREFIX_REPACK`) — Opt-in big-gap cold-prefix repack (#480): on a session-resume request the proxy may predict (from idle time vs the provider cache TTL) that the client-cached prefix has already expired, then prune that now-cold prefix to re-seed a leaner cache and keep applying the same deterministic compression on later turns so warm follow-ups hit it (sticky; baselines persist across restarts, #499). A wrong guess re-bills cache reads as writes (~12x), so default false
 - `gemini_upstream` (string?, default `null`) — Custom upstream URL for Gemini API proxy
 - `history_mode` (enum: cache-aware | rolling | off, default `cache-aware` — env `LEAN_CTX_PROXY_HISTORY_MODE`) — History pruning strategy. cache-aware: frozen boundaries that keep provider prompt caches valid (default). rolling: legacy moving window (max raw savings, breaks prompt caching). off: never prune
 - `live_compress` (bool, default `true` — env `LEAN_CTX_PROXY_LIVE_COMPRESS`) — Live-compress non-protected tool_result content on the wire (#481). Default true. Set false for a meter-only proxy — real billed/cache token metering with zero request rewriting (combine with history_mode = "off" and no role_aggressiveness for a byte-unchanged body)

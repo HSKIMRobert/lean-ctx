@@ -121,6 +121,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   can opt in via `LEAN_CTX_TRUST_WORKSPACE=1` or `LEAN_CTX_TRUSTED_ROOTS`.
 
 ### Changed
+- **Faster semantic search on a native ONNX Runtime (#497).** The
+  embedding/index stack moves from the pure-Rust `rten` backend to native `ort`
+  (ONNX Runtime 2.0), with a rebuilt indexing pipeline (int8-quantized vectors,
+  tighter HNSW, a compact postcard on-disk format). ONNX Runtime is loaded at
+  runtime (ort's `load-dynamic`), resolved across platforms from `ORT_DYLIB_PATH`,
+  Nix profiles, and well-known system locations — so it is provided once by the
+  platform `onnxruntime` package (declared as a dependency in the Arch/Homebrew
+  packages), `pip install onnxruntime`, or a manual `ORT_DYLIB_PATH`. The `ort`
+  crate is exact-pinned (`=2.0.0-rc.12`) until a stable 2.0 ships. **One-time
+  re-index:** the new index format is not backward-compatible; the first semantic
+  search after upgrade rebuilds the index automatically (a load-time version guard
+  removes any stale index rather than risk mis-decoding it). The `jina-code-v2`
+  built-in (pre-existing broken) is removed; code-specialized embeddings remain
+  available through the `hf:org/repo[@rev]` custom scheme
+  (`hf:jinaai/jina-embeddings-v2-base-code`), which auto-probes the model's
+  ONNX I/O signature. Thanks to @omar-mohamed-khallaf for the optimization work.
 - **`lean-ctx bypass` renamed to `lean-ctx raw` (external audit, finding 5).**
   The "bypass" wording read to a model like a *security* bypass, but it only
   skips output compression — the shell allowlist and path jail still apply.
@@ -128,6 +144,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `raw` and state that the allowlist still holds.
 
 ### Fixed
+- **Shell-output compression can no longer inflate token counts (Windows CI
+  flake).** The VCS branch of `compress_output` (git/jj/gh/glab/hg) returned its
+  authoritative compressor's result even when it was not strictly shorter — so a
+  compact `git log --oneline` stays verbatim — but it skipped the token guard the
+  other paths use. A tiny adversarial `git status` body could reshape into a
+  one-token-larger summary, breaking the `compress_output_never_inflates_tokens`
+  property on Windows. The VCS path now allows *equal* (verbatim) output but
+  rejects any growth, restoring the never-inflate invariant deterministically.
+  Pinned with a regression unit test for the exact failing input.
+- **Cold-prefix repack is now sticky, persistent, and marker-stable (#499).** Three
+  fixes to the opt-in big-gap repack (#480): (1) once a resumed conversation is judged
+  cold and repacked, the decision **latches** so every warm follow-up keeps the same
+  deterministic prefix compression and hits the cache written at the cold turn — the
+  previous one-shot repack re-sent the *uncompressed* prefix on the very next turn and
+  busted its own fresh cache (net-negative for the common resume-then-continue case);
+  (2) per-conversation baselines now **persist to disk** (`cold_prefix_touch.json`,
+  atomic write) and reload on proxy startup, so a long idle gap that straddles a daemon
+  restart is still detected; (3) the conversation key **ignores the volatile
+  `cache_control` marker**, so a moving cache breakpoint no longer flips the key into a
+  permanent first-sighting that never repacks. All three are cache-safe by construction
+  (deterministic re-compression) and covered by new N→N+1, restart, and marker-stability
+  tests. Thanks to @phawrylak for the precise analysis.
+- **`gain` no longer reports `0` saved when MCP tools wrote to a different data
+  dir (#500).** The savings headline, gain score, cost view and net-of-injection
+  line now **sum stats across every auto-resolved data dir** that holds a
+  `stats.json`. When an agent host launches the lean-ctx MCP server with a
+  different `HOME`/`XDG_*` than the user's shell (e.g. a containerised Hermes
+  Agent) the savings landed in a sibling tree while the CLI read an empty primary
+  dir and showed a false zero. Aggregation is a **no-op without a split** and is
+  skipped entirely when `LEAN_CTX_DATA_DIR` pins one dir, so non-split users are
+  unaffected. The empty-state screen now also cross-checks the tamper-evident
+  savings ledger and, when it holds events that `stats.json` does not, names the
+  data-dir split outright (`lean-ctx savings` / `lean-ctx doctor`). Finally, the
+  proxy "bridge OFF — savings cannot be measured" caveat is suppressed whenever
+  there are real (MCP-measured) savings to show, since `gain` measures MCP-tool
+  savings directly and needs no proxy. Thanks to the reporter for the detailed
+  Hermes + OpenRouter writeup.
 - **Billing edge no longer downgrades a paying account on a billing-service blip
   (GL #785).** Entitlement resolution at the cloud edge now caches each user's
   last known plan (in-memory, short TTL) and, when the upstream billing service
