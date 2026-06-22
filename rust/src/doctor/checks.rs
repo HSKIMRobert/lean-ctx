@@ -19,6 +19,29 @@ pub(super) fn shell_allowlist_outcome() -> Outcome {
         };
     }
 
+    // GL #788: the security mode overrides the allowlist view, so surface a
+    // relaxed posture loudly — an unexpected `off`/`warn` must never hide behind
+    // a populated allowlist.
+    match crate::core::shell_allowlist::ShellSecurity::resolve() {
+        crate::core::shell_allowlist::ShellSecurity::Off => {
+            return Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Shell allowlist{RST}  {YELLOW}off{RST}  {DIM}(shell_security=off — gating skipped, all commands allowed){RST}"
+                ),
+            };
+        }
+        crate::core::shell_allowlist::ShellSecurity::Warn => {
+            return Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Shell allowlist{RST}  {YELLOW}warn-only{RST}  {DIM}(shell_security=warn — violations logged, never blocked){RST}"
+                ),
+            };
+        }
+        crate::core::shell_allowlist::ShellSecurity::Enforce => {}
+    }
+
     let effective = crate::core::shell_allowlist::effective_allowlist_pub();
     if effective.is_empty() {
         return Outcome {

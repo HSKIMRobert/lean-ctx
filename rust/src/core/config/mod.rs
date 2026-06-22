@@ -491,6 +491,14 @@ pub struct Config {
     /// Default false preserves backward compatibility — set true for maximum security.
     #[serde(default)]
     pub shell_strict_mode: bool,
+
+    /// Shell-security mode for ctx_shell / `lean-ctx -c` command gating (GL #788):
+    /// `enforce` (default, secure), `warn` (run checks, log violations, never
+    /// block) or `off` (skip the allowlist + dangerous-pattern blocks entirely —
+    /// a deliberate opt-out; compression stays active). Override via
+    /// LEAN_CTX_SHELL_SECURITY. `None` resolves to `enforce`.
+    #[serde(default)]
+    pub shell_security: Option<String>,
     /// Setup behavior: controls what gets injected during setup and updates.
     #[serde(default)]
     pub setup: SetupConfig,
@@ -595,6 +603,7 @@ impl Default for Config {
             shell_allowlist: default_shell_allowlist(),
             shell_allowlist_extra: Vec::new(),
             shell_strict_mode: false,
+            shell_security: None,
             setup: SetupConfig::default(),
         }
     }

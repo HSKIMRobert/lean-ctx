@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Configurable shell-security mode — `enforce` | `warn` | `off` (GL #788).** One
+  switch now governs *all* command gating (the allowlist **and** the hard blocks:
+  `eval`/`exec`/`source`, `$()`/backticks at command position, interpreter `-c`),
+  applied at a single chokepoint so MCP `ctx_shell` and the CLI (`lean-ctx -c`/`-t`)
+  behave identically. `enforce` stays the secure default; `warn` runs every check
+  but only logs violations; `off` is a deliberate opt-out that skips gating entirely
+  while **compression stays fully active**. Set via `shell_security` in config or
+  the `LEAN_CTX_SHELL_SECURITY` env (env wins; unknown values fall back to
+  `enforce`, never fail open). `off` does not lift the read-only-output doctrine
+  (no `>`/`tee`/heredoc writes via shell). `lean-ctx doctor` surfaces the active
+  mode whenever it is not `enforce`. Supersedes the CLI-only
+  `LEAN_CTX_ALLOWLIST_WARN_ONLY` (kept for backward compatibility).
 - **`/v1` contract clients published under one name — `lean-ctx-client`.** The thin,
   engine-independent clients now ship on every registry under a single consistent
   name: [PyPI](https://pypi.org/project/lean-ctx-client/) (import module stays

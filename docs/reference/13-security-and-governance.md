@@ -106,6 +106,41 @@ excluded_commands = []                            # never intercept these
   `lean-ctx allow --list` prints the effective allowlist plus any parse errors so
   a typo can never silently drop your overrides.
 
+### 2.1 Shell-security mode (`enforce` | `warn` | `off`)
+
+One switch governs **all** command gating — the allowlist *and* the hard blocks
+(`eval`/`exec`/`source`, `$()`/backticks at command position, interpreter `-c`).
+It is applied at a single chokepoint, so MCP `ctx_shell` and the CLI
+(`lean-ctx -c` / `-t`) behave identically.
+
+```toml
+# config.toml
+shell_security = "enforce"   # default — secure
+# shell_security = "warn"    # run the checks, log violations via tracing, never block
+# shell_security = "off"     # skip command gating entirely — compression stays active
+```
+
+| Mode | Allowlist | Hard blocks (`eval`, `$()`, …) | Compression |
+|---|---|---|---|
+| `enforce` (default) | enforced | blocked | on |
+| `warn` | logged only | logged only | on |
+| `off` | skipped | skipped | **on** |
+
+- **Resolution:** `LEAN_CTX_SHELL_SECURITY` env → `shell_security` in config →
+  default `enforce`. An unknown value falls back to `enforce` (never fails open).
+- **Why `enforce` is the default, even for beginners:** lean-ctx mediates the
+  agent's shell, so a weaker default would silently downgrade security for every
+  install on upgrade. In practice the default allowlist already covers normal
+  workflows (`git`/`cargo`/`npm`/`node`/`python`/…), so beginners rarely hit it —
+  the friction is for power users running exotic tools, who opt into `off`.
+- **`off` is the "YOLO" escape hatch.** It disables *command gating* only; it does
+  **not** lift the read-only-output doctrine in `ctx_shell` (no `>`/`tee`/heredoc
+  file writes — use the native write tool). Compression is unaffected in every mode.
+- `lean-ctx doctor` surfaces the active mode whenever it is not `enforce`, so a
+  relaxed posture can never hide.
+- This supersedes the CLI-only `LEAN_CTX_ALLOWLIST_WARN_ONLY` (which still works
+  for backward compatibility); `shell_security` is the canonical, global switch.
+
 ---
 
 ## 3. OS sandboxing for executed code

@@ -574,6 +574,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Block $(), backticks, <() in shell arguments. Default false = warn only.",
         ),
     );
+    root.insert(
+        "shell_security".into(),
+        key_with_env(
+            "string",
+            serde_json::json!("enforce"),
+            "Shell command gating: enforce (default, secure), warn (log only, never block) or off (skip allowlist + hard blocks; compression stays active)",
+            "LEAN_CTX_SHELL_SECURITY",
+        ),
+    );
 
     sections.insert(
         "root".into(),

@@ -64,6 +64,7 @@ Top-level configuration keys
 - `shell_allowlist` (array, default `[]` — env `LEAN_CTX_SHELL_ALLOWLIST`) — Optional shell command allowlist. When non-empty, only listed binaries are permitted
 - `shell_allowlist_extra` (array, default `[]`) — Commands merged on top of shell_allowlist without replacing the defaults. Managed via `lean-ctx allow <cmd>`
 - `shell_hook_disabled` (bool, default `false` — env `LEAN_CTX_NO_HOOK`) — Disable shell hook injection
+- `shell_security` (string, default `enforce` — env `LEAN_CTX_SHELL_SECURITY`) — Shell command gating: enforce (default, secure), warn (log only, never block) or off (skip allowlist + hard blocks; compression stays active)
 - `shell_strict_mode` (bool, default `false`) — Block $(), backticks, <() in shell arguments. Default false = warn only.
 - `slow_command_threshold_ms` (u64, default `5000`) — Commands taking longer than this (ms) are recorded in the slow log. Set to 0 to disable
 - `structure_first` (bool, default `false` — env `LEAN_CTX_STRUCTURE_FIRST`) — Opt-in: bias `auto` toward structure-first reads (map) for medium code files on a cold read. Off by default — for phase-isolated harnesses with no warm-session cache payback. Override via LEAN_CTX_STRUCTURE_FIRST
