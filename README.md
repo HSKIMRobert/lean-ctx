@@ -11,9 +11,9 @@
 
 ### **Control what your AI can see.**
 
-**LeanCTX — Lean Context Intelligence for AI agents**
+**LeanCTX — Lean Context Engineering for AI agents**
 
-LeanCTX — short for **Lean Context** — is the context intelligence layer for
+LeanCTX — short for **Lean Context** — is the context engineering layer for
 AI agents. It runs as a single local binary between your agents and your code,
 shell and data: it **decides** what they read, **remembers** what they learn,
 **guards** what they touch — and **proves** what they save with a signed,
@@ -52,7 +52,7 @@ receipt, not the product. Zero config required. Local-first.
 
 ---
 
-> **Control what your AI can see.** LeanCTX — short for **Lean Context** — is the **context intelligence layer** for AI agents: one local Rust binary that decides what your agents read, remembers what they learn, guards what they touch — and proves what they save.
+> **Control what your AI can see.** LeanCTX — short for **Lean Context** — is the **context engineering layer** for AI agents: one local Rust binary that decides what your agents read, remembers what they learn, guards what they touch — and proves what they save.
 
 > Token savings are the receipt. Intelligence is the product. Works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 30+ other agents — no config needed.
 
