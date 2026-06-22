@@ -380,6 +380,10 @@ mod delta_explicit_tests {
 
     #[test]
     fn effective_false_when_unset() {
+        // Serialize with the env-mutating sibling test below: this reads the var
+        // as a guard and again inside delta_explicit_effective(), so without the
+        // shared lock a parallel set_var between the two reads flips the result.
+        let _lock = crate::core::data_dir::test_env_lock();
         if std::env::var("LCTX_DELTA_EXPLICIT").is_ok() {
             return;
         }
@@ -391,6 +395,8 @@ mod delta_explicit_tests {
 
     #[test]
     fn config_field_true_respected_when_no_env() {
+        // Serialize with the env-mutating sibling test (see effective_false_when_unset).
+        let _lock = crate::core::data_dir::test_env_lock();
         if std::env::var("LCTX_DELTA_EXPLICIT").is_ok() {
             return;
         }
@@ -403,6 +409,8 @@ mod delta_explicit_tests {
 
     #[test]
     fn config_field_false_respected_when_no_env() {
+        // Serialize with the env-mutating sibling test (see effective_false_when_unset).
+        let _lock = crate::core::data_dir::test_env_lock();
         if std::env::var("LCTX_DELTA_EXPLICIT").is_ok() {
             return;
         }
@@ -496,6 +504,8 @@ mod delta_explicit_tests {
 
     #[test]
     fn delta_explicit_independent_of_no_degrade() {
+        // Serialize with the env-mutating sibling tests (see effective_false_when_unset).
+        let _lock = crate::core::data_dir::test_env_lock();
         if std::env::var("LCTX_DELTA_EXPLICIT").is_ok() || std::env::var("LCTX_NO_DEGRADE").is_ok()
         {
             return;
