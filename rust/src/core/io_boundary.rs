@@ -265,7 +265,11 @@ pub fn ensure_ignore_gitignore_allowed(tool: &str) -> Result<(), String> {
     }
     let msg = format!(
         "[I/O BOUNDARY] ignore_gitignore requires explicit policy.\n\
-Role '{role_name}' does not allow scanning .gitignore'd paths. Switch to role 'admin' or set io.allow_ignore_gitignore=true."
+Role '{role_name}' does not allow scanning .gitignore'd paths. \
+An agent cannot escalate to a privileged role at runtime, so configure this where lean-ctx starts:\n\
+- set LEAN_CTX_ROLE=admin, or\n\
+- add `io.allow_ignore_gitignore = true` to a role file (~/.lean-ctx/roles/<name>.toml), then select it via LEAN_CTX_ROLE.\n\
+Docs: https://leanctx.com/docs/security/#ignore-gitignore"
     );
     events::emit_policy_violation(&role_name, tool, &msg);
     Err(format!("ERROR: {msg}"))
