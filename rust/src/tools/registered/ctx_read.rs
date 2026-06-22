@@ -35,24 +35,26 @@ impl McpTool for CtxReadTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_read",
-            "Read a file. Prefer over native Read/cat/head/tail (cached, compressed).\n\
-             Omit mode to auto-select (recommended); use full only right before editing. \
-             Re-reads ~13 tokens. fresh=true forces a disk re-read.",
+            "Read source files. mode is REQUIRED — choose by intent:\n\
+             full=verbatim (edit-ready, use before Edit), signatures=API surface only,\n\
+             map=structural overview of large files, auto=smart (learns from task and\n\
+             session context, use for orientation), diff=git delta, lines:N-M=window.\n\
+             fresh=true bypasses cache.\n\
+             For understanding code or finding answers, use ctx_compose FIRST instead.",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Absolute file path" },
+                    "path": { "type": "string", "description": "Absolute path" },
                     "mode": {
                         "type": "string",
-                        "default": "auto",
-                        "description": "Omit to auto-select (recommended). auto(default)|full (for editing)|raw|map (large files)|signatures|diff|task|reference|aggressive|entropy|lines:N-M|density:0.X"
+                        "description": "REQUIRED. full=verbatim(edit-ready) signatures=API map=structure auto=smart diff=git-delta lines:N-M=window reference=quotes task=focus"
                     },
-                    "start_line": { "type": "integer", "description": "First line, 1-based (alias: offset)" },
-                    "offset": { "type": "integer", "description": "Alias for start_line" },
-                    "limit": { "type": "integer", "description": "Max lines to read" },
-                    "fresh": { "type": "boolean", "description": "Bypass cache, force disk re-read" },
-                    "aggressiveness": { "type": "number", "description": "Compression intensity 0.0 (lossless)–1.0 (max). With no explicit mode, routes through the density path at the mapped target; also tunes entropy/task. Omit for per-mode defaults" },
-                    "protect": { "type": "array", "items": { "type": "string" }, "description": "Symbols/strings whose lines must never be compressed away — force-kept verbatim in entropy/task modes" }
+                    "start_line": { "type": "integer", "description": "1-based first line (offset alias)" },
+                    "offset": { "type": "integer", "description": "start_line alias" },
+                    "limit": { "type": "integer", "description": "Max lines" },
+                    "fresh": { "type": "boolean", "description": "Bypass cache, disk re-read" },
+                    "aggressiveness": { "type": "number", "description": "0.0(lossless)–1.0(max). Without explicit mode→density; also tunes entropy/task. Omit for defaults" },
+                    "protect": { "type": "array", "items": { "type": "string" }, "description": "Symbols/strings force-kept verbatim in entropy/task modes" }
                 },
                 "required": ["path"]
             }),
@@ -160,11 +162,8 @@ impl CtxReadTool {
         if cache_policy == "off" {
             fresh = true;
         }
-        // #714 aggressiveness knob: per-call arg > LEAN_CTX_AGGRESSIVENESS > config.
         let aggressiveness =
             crate::core::aggressiveness::effective(get_f64(args, "aggressiveness"));
-        // #720 protect list: lines containing any of these survive the lossy
-        // line filters (entropy/task) verbatim; threaded into ReadTuning.protect.
         let protect = get_str_array(args, "protect").unwrap_or_default();
         // One-knob UX: when the caller sets aggressiveness without pinning a mode,
         // route through the proven density path at the mapped target. An explicit
@@ -357,7 +356,6 @@ impl CtxReadTool {
             if let Some(result) = fast_result {
                 result
             } else {
-                // Slow path: spawn thread with bounded timeout for contended locks.
                 let cache_lock = cache_lock.clone();
                 let mode = mode.clone();
                 let task_owned = current_task.clone();
@@ -477,7 +475,6 @@ impl CtxReadTool {
             } // end else (slow path)
         };
 
-        // Convert error results to proper MCP ErrorData instead of success body
         if resolved_mode == "error" {
             return Err(ErrorData::invalid_params(output, None));
         }
@@ -501,7 +498,6 @@ impl CtxReadTool {
                 // background thread can record a traversal/co-access edge (#289).
                 traversal_working_set =
                     crate::core::tool_lifecycle::recent_working_set(&session, path);
-                // Auto-generate file summary from output content
                 let file_summary = extract_file_summary(&output, path);
                 if !file_summary.is_empty() {
                     session.set_file_summary(path, &file_summary);
@@ -521,7 +517,6 @@ impl CtxReadTool {
                         session.active_structured_intent = Some(inferred);
                     }
                 }
-                // Auto-infer task every 5th file read if not explicitly set
                 if session.task.is_none() && session.stats.files_read % 5 == 0 {
                     session.auto_infer_task();
                 }

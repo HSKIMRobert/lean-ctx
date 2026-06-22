@@ -12,16 +12,13 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 | Profile | Count | Who it's for |
 |---------|-------|--------------|
-| **minimal** | 6 | Lowest context overhead; the absolute essentials |
-| **standard** | 22 | Balanced default for most coding workflows |
+| **minimal** | 10 | Lowest context overhead; the absolute essentials |
+| **standard** | 19 | Balanced default for most coding workflows |
 | **power** | 75 | Everything (default for existing installs) |
 
-- **minimal (6):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_tree`, `ctx_session`
-- **standard (+16):** + `ctx_semantic_search`, `ctx_knowledge`, `ctx_overview`,
-  `ctx_repomap`, `ctx_callgraph`, `ctx_impact`, `ctx_compress`, `ctx_multi_read`,
-  `ctx_delta`, `ctx_edit`, `ctx_agent`, `ctx_architecture`, `ctx_pack`,
-  `ctx_routes`, `ctx_refactor`, `ctx_url_read`
-- **power (+53):** all remaining tools.
+- **minimal (10):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_glob`, `ctx_tree`, `ctx_session`, `ctx_compose`, `ctx_knowledge`, `ctx_symbol`
+- **standard (+9):** + `ctx_callgraph`, `ctx_graph`, `ctx_semantic_search`, `ctx_delta`, `ctx_execute`, `ctx_expand`, `ctx_overview`, `ctx_multi_read`, `ctx_url_read`
+- **power (+47):** all remaining tools.
 
 ---
 
@@ -45,7 +42,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_tree` | Compact directory tree with file counts | `path`, `depth`, `show_hidden` | M |
 | `ctx_semantic_search` | Semantic search (BM25 + embeddings / hybrid) | `query`*, `action` (search\|reindex\|find_related), `mode` (bm25\|dense\|hybrid), `top_k` | S |
 | `ctx_compose` | Task composer: keywords + ranked files + matches + top symbol | `task`*, `path` | P |
-| `ctx_execute` | Sandboxed code execution (11 languages); only stdout enters context | `language`*, `code`*, `action`, `timeout` | P |
+| `ctx_execute` | Sandboxed code execution (11 languages); only stdout enters context | `language`*, `code`*, `action`, `timeout` | S |
 | `ctx_multi_repo` | Multi-repo management + cross-repo search (RRF) | `action` (add_root\|remove_root\|list_roots\|search\|status\|save_config) | P |
 | `ctx_url_read` | Fetch a web page, PDF, RSS/Atom feed, or YouTube video as compressed, cited context (HTML→Markdown incl. GFM tables, PDF→text, feeds→dated items, transcript; GitHub blob/raw URLs auto-resolve to the raw file; facts/quotes carry confidence + source); SSRF-guarded | `url`*, `mode` (auto\|markdown\|text\|links\|facts\|quotes\|transcript), `query`, `max_tokens`, `max_items`, `timeout_secs` | S |
 | `ctx_git_read` | Read a remote git repo via a cached shallow clone instead of scraping its web page | `url`*, `mode` (overview\|tree\|read\|grep), `path`, `ref`, `query`, `max_tokens` | P |

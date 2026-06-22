@@ -259,6 +259,7 @@ impl ServerHandler for LeanCtxServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        use crate::server::tool_visibility::CandidateSet;
         // Panic guard (mirrors call_tool): a panic while filtering the registry /
         // touching the dynamic-tools mutex must not kill the rmcp request task.
         use std::panic::AssertUnwindSafe;
@@ -274,7 +275,6 @@ impl ServerHandler for LeanCtxServer {
             // `core ∩ standard` intersection.
             let explicit_profile = crate::server::tool_visibility::explicit_profile(&cfg);
 
-            use crate::server::tool_visibility::CandidateSet;
             let candidate = crate::server::tool_visibility::candidate_set(
                 crate::tool_defs::is_full_mode(),
                 std::env::var("LEAN_CTX_UNIFIED").is_ok(),
@@ -337,8 +337,8 @@ impl ServerHandler for LeanCtxServer {
             // client (one that only calls advertised tools) could not reach them.
             // ctx_call enforces the same role/workflow gates on the inner tool.
             let tools = {
-                let mut tools = tools;
                 use crate::server::tool_visibility::INVOKER;
+                let mut tools = tools;
                 let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
                 if crate::server::tool_visibility::needs_invoker(
                     crate::tool_defs::is_full_mode(),
@@ -460,14 +460,14 @@ impl ServerHandler for LeanCtxServer {
         })
     }
 
-    async fn list_prompts(
+    fn list_prompts(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
-        Ok(rmcp::model::ListPromptsResult::with_all_items(
+    ) -> impl Future<Output = Result<rmcp::model::ListPromptsResult, ErrorData>> {
+        std::future::ready(Ok(rmcp::model::ListPromptsResult::with_all_items(
             prompts::list_prompts(),
-        ))
+        )))
     }
 
     async fn get_prompt(
@@ -485,14 +485,14 @@ impl ServerHandler for LeanCtxServer {
         }
     }
 
-    async fn list_resources(
+    fn list_resources(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
-        Ok(rmcp::model::ListResourcesResult::with_all_items(
+    ) -> impl Future<Output = Result<rmcp::model::ListResourcesResult, rmcp::ErrorData>> {
+        std::future::ready(Ok(rmcp::model::ListResourcesResult::with_all_items(
             resources::list_resources(),
-        ))
+        )))
     }
 
     async fn read_resource(

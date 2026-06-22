@@ -209,9 +209,11 @@ mod tests {
         // `core ∩ standard` intersection. Profile-authoritative resolution must
         // surface them.
         let p = ToolProfile::Standard;
-        assert!(is_tool_visible("ctx_architecture", &p, &[], false, true));
+        assert!(is_tool_visible("ctx_execute", &p, &[], false, true));
         assert!(is_tool_visible("ctx_semantic_search", &p, &[], false, true));
         assert!(is_tool_visible("ctx_callgraph", &p, &[], false, true));
+        assert!(is_tool_visible("ctx_graph", &p, &[], false, true));
+        assert!(is_tool_visible("ctx_execute", &p, &[], false, true));
     }
 
     #[test]

@@ -106,7 +106,7 @@ impl AgentRegistry {
 
     pub fn register(&mut self, agent_type: &str, role: Option<&str>, project_root: &str) -> String {
         let pid = std::process::id();
-        let agent_id = format!("{}-{}-{}", agent_type, pid, &generate_short_id());
+        let agent_id = format!("{}-{}-{}", agent_type, pid, generate_short_id());
 
         if let Some(existing) = self.agents.iter_mut().find(|a| a.pid == pid) {
             existing.last_active = Utc::now();
@@ -281,7 +281,6 @@ impl AgentRegistry {
             if agent.status == AgentStatus::Finished {
                 continue;
             }
-            // Mark as finished if process is no longer running (regardless of age)
             if !is_process_alive(agent.pid) {
                 agent.status = AgentStatus::Finished;
             }
@@ -368,8 +367,9 @@ impl AgentDiary {
             self.agent_id,
             self.entries.len()
         );
+        let now = Utc::now();
         for e in self.entries.iter().rev().take(10) {
-            let age = (Utc::now() - e.timestamp).num_minutes();
+            let age = (now - e.timestamp).num_minutes();
             let prefix = match e.entry_type {
                 DiaryEntryType::Discovery => "FOUND",
                 DiaryEntryType::Decision => "DECIDED",

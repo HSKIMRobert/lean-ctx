@@ -18,8 +18,6 @@ const IDE_CONFIG_DIRS: &[&str] = &[
     ".codebuddy",
 ];
 
-/// Expands `~`, `$VAR` and `${VAR}` in a config-supplied path entry.
-///
 /// `allow_paths` / `extra_roots` come from `config.toml`, where no shell ever
 /// runs — users writing `"$HOME/code"` or `"~/code"` got a literal,
 /// never-matching prefix and concluded the whole option was broken (GH #392).
@@ -137,9 +135,6 @@ fn canonicalized_roots(config_entries: &[String], env_var: &str) -> Vec<PathBuf>
     out
 }
 
-/// The configured read-only roots (config `read_only_roots` +
-/// `LEAN_CTX_READ_ONLY_ROOTS`), canonicalized for prefix comparison.
-///
 /// A read-only root is a sibling subtree the agent may **read** but never
 /// **write** — e.g. a reference repo mounted next to the project. Empty by
 /// default, so [`is_read_only_path`]/[`enforce_writable`] are zero-cost no-ops
@@ -149,11 +144,10 @@ pub fn read_only_roots_from_env_and_config() -> Vec<PathBuf> {
     canonicalized_roots(&cfg.read_only_roots, "LEAN_CTX_READ_ONLY_ROOTS")
 }
 
-/// True when `candidate` resolves to a location inside a configured read-only
-/// root. The candidate's nearest existing ancestor is canonicalized (so a
-/// not-yet-existing file inherits the read-only status of the directory it
-/// would be created in — closing the "create a new file in a read-only repo"
-/// hole) and matched against the (symlink-resolved) read-only roots.
+/// The candidate's nearest existing ancestor is canonicalized (so a not-yet-existing
+/// file inherits the read-only status of the directory it would be created in —
+/// closing the "create a new file in a read-only repo" hole) and matched against
+/// the (symlink-resolved) read-only roots.
 ///
 /// A `false` return is only authoritative when the roots list is empty or the
 /// path provably sits outside every root; an unresolvable candidate (no

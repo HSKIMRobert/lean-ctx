@@ -429,7 +429,7 @@ pub fn handle_summary(project_root: &str) -> String {
     };
 
     let entries = registry.list().unwrap_or_default();
-    let matching: Vec<_> = entries.iter().filter(|_| true).collect();
+    let matching: Vec<_> = entries.iter().collect();
 
     let mut out = format!("Project: {project_root}\nProject hash: {phash}\n");
     out.push_str(&format!("Installed packages: {}\n", matching.len()));
@@ -798,8 +798,7 @@ fn detect_default_base(project_root: &str) -> Option<String> {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
-            .ok()
-            .is_some_and(|s| s.success());
+            .is_ok_and(|s| s.success());
         if ok {
             return Some(cand.to_string());
         }
@@ -807,17 +806,17 @@ fn detect_default_base(project_root: &str) -> Option<String> {
     None
 }
 
-fn dedup_changes(mut changes: Vec<ChangedFile>) -> Vec<ChangedFile> {
+fn dedup_changes(changes: Vec<ChangedFile>) -> Vec<ChangedFile> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     let mut out: Vec<ChangedFile> = Vec::new();
-    for c in changes.drain(..) {
+    for c in changes {
         let key = c.path.clone();
-        if let Some(i) = seen.get(&key) {
-            out[*i] = c;
-            continue;
+        if let Some(&i) = seen.get(&key) {
+            out[i] = c;
+        } else {
+            seen.insert(key, out.len());
+            out.push(c);
         }
-        seen.insert(key, out.len());
-        out.push(c);
     }
     out
 }

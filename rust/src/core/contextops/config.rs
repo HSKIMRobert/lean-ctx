@@ -92,7 +92,7 @@ impl RulesConfig {
             rules: RulesSection {
                 version: default_version(),
                 core: CoreRules {
-                    content: crate::rules_inject::rules_shared_content().to_string(),
+                    content: crate::rules_inject::rules_shared_content().clone(),
                 },
                 agent: agent_rules,
             },

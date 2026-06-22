@@ -286,7 +286,6 @@ pub(crate) fn resolve_name_path(name_path: &str, project_root: &str) -> Result<R
         .filter(|s| s.name == leaf)
         .collect();
 
-    // Qualify by the immediate ancestor segment, if present.
     if segments.len() >= 2 {
         let ancestor = segments[segments.len() - 2];
         let parents: Vec<_> = gp
@@ -488,7 +487,6 @@ fn render_rename_apply(
         Ok(p) => p,
         Err(e) => return format!("ERROR: {e}"),
     };
-    // Capture pre-apply usage text (also jail-checks every usage path).
     let mut pre: Vec<(String, u32, String)> = Vec::with_capacity(plan.usages.len());
     for u in &plan.usages {
         match usage_range_text(project_root, u) {
@@ -558,12 +556,10 @@ fn handle_rename_refactor(action: &str, args: &Value, project_root: &str) -> Str
             .to_string();
     }
 
-    // Resolve target symbol → 1-based inclusive span.
     let (rel_path, start_line, end_line) = match resolve_rename_target(args, project_root) {
         Ok(t) => t,
         Err(e) => return format!("ERROR: {e}"),
     };
-    // PathJail stage (a): the resolved target path.
     let abs_path =
         match crate::core::path_resolve::resolve_tool_path(Some(project_root), None, &rel_path) {
             Ok(p) => p,
@@ -598,7 +594,6 @@ fn handle_rename_refactor(action: &str, args: &Value, project_root: &str) -> Str
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
-    // Backing B is mandatory (no headless rename) → BACKEND_REQUIRED otherwise.
     let mut backend = match live_jetbrains_backend(project_root) {
         Ok(b) => b,
         Err(e) => return format!("ERROR: {e}"),
@@ -832,14 +827,12 @@ fn resolve_move_target(
             })
         }
         (None, Some(parent_np)) => {
-            // Resolve the parent symbol → its file + declaration span.
             let r = resolve_name_path(parent_np, project_root)?; // NO_SYMBOL / AMBIGUOUS_SYMBOL
             let abs =
                 crate::core::path_resolve::resolve_tool_path(Some(project_root), None, &r.rel_path)
                     .map_err(|e| {
                         format!("INVALID_TARGET: target_parent file blocked by jail: {e}")
                     })?;
-            // Read the parent file to compute the end-of-line column (mirror handle_rename_refactor).
             let content =
                 std::fs::read_to_string(&abs).map_err(|e| format!("FILE_NOT_FOUND: {abs}: {e}"))?;
             let end_col = content
@@ -2102,7 +2095,6 @@ mod tests {
 
     #[test]
     fn inspections_run_and_list_dispatch_and_truncation() {
-        use lsp_types::Position;
         struct InspBackend;
         impl crate::lsp::backend::LspBackend for InspBackend {
             fn open_file(&mut self, _u: &lsp_types::Uri, _l: &str, _t: &str) -> Result<(), String> {
@@ -2215,7 +2207,6 @@ mod tests {
             bad_out.contains("ERROR"),
             "unknown mode not rejected: {bad_out}"
         );
-        let _ = (Position::new(0, 0),); // keep import used if refactored
     }
 
     #[test]

@@ -30,7 +30,7 @@ var SETTINGS_META = {
   tool_profile: {
     label: 'Tool profile',
     env: 'LEAN_CTX_TOOL_PROFILE',
-    desc: 'How many MCP tools are exposed: minimal (6), standard (22), power (all), or lean (unpinned default).',
+    desc: 'How many MCP tools are exposed: minimal (10), standard (19), power (all), or lean (unpinned default).',
   },
   structure_first: {
     label: 'Structure first',

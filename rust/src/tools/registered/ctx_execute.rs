@@ -17,37 +17,43 @@ impl McpTool for CtxExecuteTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_execute",
-            "Run code in sandbox (11 languages). Only stdout enters context. Raw data never leaves subprocess. Languages: javascript, typescript, python, shell, ruby, go, rust, php, perl, r, elixir.",
+            "Run code in sandbox (11 languages) — use when compute beats shell glue.\n\
+             action=code (default) for one-shot transform/math/generation; action=batch for parallel\n\
+             multi-language scripts; action=file to process a project file (extension auto-detects\n\
+             language). Pass intent to focus large output and save tokens. Prefer over ctx_shell when\n\
+             logic, conditionals, multi-line scripts, or cross-language data munging — stdout-only,\n\
+             no argv escaping. Languages: javascript, typescript, python, shell, ruby, go, rust, php,\n\
+             perl, r, elixir.",
             json!({
                 "type": "object",
                 "properties": {
                     "language": {
                         "type": "string",
-                        "description": "Language: javascript|typescript|python|shell|ruby|go|rust|php|perl|r|elixir"
+                        "description": "REQUIRED for action=code. One of: javascript|typescript|python|shell|ruby|go|rust|php|perl|r|elixir. Omit for action=file (auto-detected)."
                     },
                     "code": {
                         "type": "string",
-                        "description": "Code to execute in sandbox"
+                        "description": "Source code string. REQUIRED for action=code. Set intent to focus large output on what you need."
                     },
                     "intent": {
                         "type": "string",
-                        "description": "What you want from the output (triggers intent-driven filtering for large results)"
+                        "description": "What you need from output. Triggers intent-driven filtering when output is large — saves tokens by discarding irrelevant lines."
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds (default: 30)"
+                        "description": "Timeout in seconds (default: 30). Increase for long-running scripts (data processing, scraping)."
                     },
                     "action": {
                         "type": "string",
-                        "description": "batch — execute multiple scripts. Provide items as JSON array [{language, code}]"
+                        "description": "code (default) — run one script via language+code. batch — run multiple scripts in parallel via items. file — process a project file (language auto-detected from extension)."
                     },
                     "items": {
                         "type": "string",
-                        "description": "JSON array of [{\"language\": \"...\", \"code\": \"...\"}] for batch execution"
+                        "description": "JSON array of [{\"language\": \"...\", \"code\": \"...\"}] for action=batch. All scripts run in parallel."
                     },
                     "path": {
                         "type": "string",
-                        "description": "File path for action=file"
+                        "description": "Project file path. REQUIRED for action=file. Language auto-detected from file extension (see detect_language_from_extension)."
                     }
                 }
             }),

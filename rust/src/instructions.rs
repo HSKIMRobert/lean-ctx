@@ -30,10 +30,12 @@ const STATIC_INSTRUCTION_SHELL_HINT_TOKENS: usize = 25;
 #[cfg(all(test, not(windows)))]
 const STATIC_INSTRUCTION_SHELL_HINT_TOKENS: usize = 0;
 
+#[must_use]
 pub fn build_instructions(crp_mode: CrpMode) -> String {
     build_instructions_with_client(crp_mode, "")
 }
 
+#[must_use]
 pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> String {
     if is_claude_code_client(client_name) || is_codebuddy_client(client_name) {
         return build_claude_code_instructions();
@@ -41,12 +43,14 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
     build_full_instructions(crp_mode, client_name)
 }
 
+#[must_use]
 pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
     // Avoid loading dynamic on-disk session/knowledge/gotcha blocks in tests, which can
     // vary across machines and between concurrent test runs.
     build_full_instructions_for_test(crp_mode, "")
 }
 
+#[must_use]
 pub fn build_instructions_with_client_for_test(crp_mode: CrpMode, client_name: &str) -> String {
     if is_claude_code_client(client_name) || is_codebuddy_client(client_name) {
         return build_claude_code_instructions();
@@ -58,6 +62,7 @@ pub fn build_instructions_with_client_for_test(crp_mode: CrpMode, client_name: &
 ///
 /// MUST NOT depend on process-global env toggles or on-disk mutable config, because the compiler
 /// output is intended to be stable and diffable across runs and in CI.
+#[must_use]
 pub fn build_instructions_with_client_for_compiler(
     crp_mode: CrpMode,
     client_name: &str,
@@ -129,6 +134,7 @@ fn rotate_wakeup_manifest(session: &crate::core::session::SessionState, profile_
     let _ = updated.save();
 }
 
+#[must_use]
 pub fn claude_config_dir_display() -> String {
     match std::env::var("CLAUDE_CONFIG_DIR") {
         Ok(dir) if !dir.trim().is_empty() => {
@@ -154,7 +160,6 @@ fn build_claude_code_instructions() -> String {
     let shell_hint = build_shell_hint();
     let config_dir = claude_config_dir_display();
 
-    // Load session state for continuity (compact version for Claude Code's char limit)
     let session_block = match crate::core::session::SessionState::load_latest() {
         Some(session) => {
             let mut parts = Vec::new();
@@ -240,6 +245,7 @@ Full instructions at {config_dir}/CLAUDE.md (imports rules/lean-ctx.md){session_
 }
 
 fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
+    use crate::core::rules_canonical as rc;
     let cfg = crate::core::config::Config::load();
     let minimal = cfg.minimal_overhead_effective_for_client(client_name);
 
@@ -252,9 +258,6 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
 
     let (session_block, litm_end_block) = match loaded_session {
         Some(ref session) => {
-            // LITM calibration (#539): rotate the placement manifest — every
-            // entry the agent never re-recalled counts as a placement hit —
-            // then rebuild it for this injection and apply the learned share.
             rotate_wakeup_manifest(session, profile.name);
             let share = crate::core::litm_calibration::begin_share(profile.name);
             let positioned = crate::core::litm::position_optimize_with_share(session, share);
@@ -325,8 +328,14 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
 
     let shell_hint = build_shell_hint();
 
-    use crate::core::rules_canonical as rc;
     let tool_bullets = rc::tool_mapping_bullets(rc::Mode::Mcp);
+    let intent_block = if minimal { "" } else { rc::intent_playbook() };
+    let antipattern_block = if minimal { "" } else { rc::anti_patterns() };
+    let parallel_block = if minimal {
+        ""
+    } else {
+        rc::parallel_tool_guidance()
+    };
     let read_modes = rc::ctx_read_modes_block();
     let auto_block = rc::automation_block();
     let cep = rc::cep_block();
@@ -345,7 +354,13 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
 CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token savings.\n\
 \n\
 {tool_bullets}\n\
+\n\
+{intent_block}\n\
 {shell_hint}\
+\n\
+{antipattern_block}\n\
+\n\
+{parallel_block}\n\
 \n\
 {read_modes}\n\
 \n\
@@ -366,7 +381,7 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
         decoder_block =
             crate::core::protocol::instruction_decoder_block(matches!(crp_mode, CrpMode::Tdd)),
         origin = crate::core::integrity::origin_line(),
-        litm_end_block = &litm_end_block
+        litm_end_block = litm_end_block
     );
 
     if should_use_unified(client_name) {
@@ -375,14 +390,13 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
         base.push('\n');
     }
 
-    let intelligence_block = build_intelligence_block();
     // Cross-channel dedup (#684): a client that already auto-loads the
     // compression/output-style block from its own rule file does not need a
     // second copy in the per-session MCP instructions — the file copy governs.
     let terse_block = if client_loads_compression_from_file(client_name) {
         String::new()
     } else {
-        build_terse_agent_block_for_client(&crp_mode, client_name)
+        build_terse_agent_block_for_client(crp_mode, client_name)
     };
 
     // The guidance suffix (CRP-mode rules + compression/output-style + the
@@ -390,9 +404,9 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
     // survive the token cap. The variable session/knowledge/gotcha blocks live
     // inside `base` and are the right thing to shed under pressure (H3). So we
     // protect the suffix and truncate only `base` to fit the budget.
-    let guidance_suffix = match crp_mode_suffix(&crp_mode) {
-        "" => format!("{terse_block}{intelligence_block}"),
-        crp => format!("{crp}\n\n{terse_block}{intelligence_block}"),
+    let guidance_suffix = match crp_mode_suffix(crp_mode) {
+        "" => format!("{terse_block}{INTELLIGENCE_BLOCK}"),
+        crp => format!("{crp}\n\n{terse_block}{INTELLIGENCE_BLOCK}"),
     };
 
     assemble_within_cap(&base, &guidance_suffix, INSTRUCTION_CAP_TOKENS)
@@ -400,7 +414,7 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
 
 /// CRP-mode contract appended to the instructions. One compact line per mode
 /// (#579): the abbreviation list and notation example double as the legend.
-fn crp_mode_suffix(crp_mode: &CrpMode) -> &'static str {
+fn crp_mode_suffix(crp_mode: CrpMode) -> &'static str {
     match crp_mode {
         CrpMode::Off => "",
         CrpMode::Compact => {
@@ -518,7 +532,7 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
         decoder_block =
             crate::core::protocol::instruction_decoder_block(matches!(crp_mode, CrpMode::Tdd)),
         origin = crate::core::integrity::origin_line(),
-        litm_end_block = &litm_end_block
+        litm_end_block = litm_end_block
     );
 
     if should_use_unified(client_name) {
@@ -527,12 +541,11 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
         base.push('\n');
     }
 
-    let intelligence_block = build_intelligence_block();
-    let terse_block = build_terse_agent_block_for_client(&crp_mode, client_name);
+    let terse_block = build_terse_agent_block_for_client(crp_mode, client_name);
 
-    match crp_mode_suffix(&crp_mode) {
-        "" => format!("{base}\n\n{terse_block}{intelligence_block}"),
-        crp => format!("{base}\n\n{crp}\n\n{terse_block}{intelligence_block}"),
+    match crp_mode_suffix(crp_mode) {
+        "" => format!("{base}\n\n{terse_block}{INTELLIGENCE_BLOCK}"),
+        crp => format!("{base}\n\n{crp}\n\n{terse_block}{INTELLIGENCE_BLOCK}"),
     }
 }
 
@@ -541,14 +554,17 @@ fn build_full_instructions_for_compiler(
     client_name: &str,
     unified_tool_mode: bool,
 ) -> String {
+    use crate::core::rules_canonical as rc;
     let shell_hint = build_shell_hint();
     let session_block = String::new();
     let knowledge_block = String::new();
     let gotcha_block = String::new();
     let litm_end_block = String::new();
 
-    use crate::core::rules_canonical as rc;
     let tool_bullets = rc::tool_mapping_bullets(rc::Mode::Mcp);
+    let intent_block = rc::intent_playbook();
+    let antipattern_block = rc::anti_patterns();
+    let parallel_block = rc::parallel_tool_guidance();
     let read_modes = rc::ctx_read_modes_block();
     let auto_blk = rc::automation_block();
     let cep = rc::cep_block();
@@ -559,7 +575,13 @@ fn build_full_instructions_for_compiler(
 CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token savings.\n\
 \n\
 {tool_bullets}\n\
+\n\
+{intent_block}\n\
 {shell_hint}\
+\n\
+{antipattern_block}\n\
+\n\
+{parallel_block}\n\
 \n\
 {read_modes}\n\
 \n\
@@ -580,7 +602,7 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
         decoder_block =
             crate::core::protocol::instruction_decoder_block(matches!(crp_mode, CrpMode::Tdd)),
         origin = crate::core::integrity::origin_line(),
-        litm_end_block = &litm_end_block
+        litm_end_block = litm_end_block
     );
 
     if unified_tool_mode {
@@ -590,14 +612,14 @@ CRITICAL: ALWAYS use lean-ctx MCP tools instead of native equivalents for token 
     }
 
     let _ = client_name; // keep signature aligned with other builders
-    let intelligence_block = build_intelligence_block();
 
-    match crp_mode_suffix(&crp_mode) {
-        "" => format!("{base}\n\n{intelligence_block}"),
-        crp => format!("{base}\n\n{crp}\n\n{intelligence_block}"),
+    match crp_mode_suffix(crp_mode) {
+        "" => format!("{base}\n\n{INTELLIGENCE_BLOCK}"),
+        crp => format!("{base}\n\n{crp}\n\n{INTELLIGENCE_BLOCK}"),
     }
 }
 
+#[must_use]
 pub fn claude_code_instructions() -> String {
     build_claude_code_instructions()
 }
@@ -612,7 +634,7 @@ fn client_loads_compression_from_file(client_name: &str) -> bool {
     })
 }
 
-fn build_terse_agent_block_for_client(_crp_mode: &CrpMode, client_name: &str) -> String {
+fn build_terse_agent_block_for_client(_crp_mode: CrpMode, client_name: &str) -> String {
     use crate::core::config::{CompressionLevel, Config};
     let cfg = Config::load();
     let compression = CompressionLevel::effective(&cfg);
@@ -627,9 +649,8 @@ fn build_terse_agent_block_for_client(_crp_mode: &CrpMode, client_name: &str) ->
     String::new()
 }
 
-fn build_intelligence_block() -> String {
-    "OUTPUT: never echo tool output, no narration comments, show only changed code.".to_string()
-}
+const INTELLIGENCE_BLOCK: &str =
+    "OUTPUT: never echo tool output, no narration comments, show only changed code.";
 
 fn build_shell_hint() -> String {
     if !cfg!(windows) {

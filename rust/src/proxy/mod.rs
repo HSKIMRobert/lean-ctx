@@ -375,7 +375,6 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         .and_then(|guard| guard.as_ref().map(|b| serde_json::to_value(b).ok()))
         .flatten();
 
-    // Measured spend: real model + billed tokens read from provider responses.
     let spend = usage_meter::snapshot();
     let spend_total: f64 = spend.iter().map(|m| m.cost_usd).sum();
 
@@ -417,6 +416,7 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
     (StatusCode::OK, axum::Json(body))
 }
 
+#[allow(clippy::result_large_err)]
 async fn proxy_auth_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
@@ -428,7 +428,6 @@ async fn proxy_auth_guard(
         return Ok(next.run(req).await);
     }
 
-    // Accept Bearer token (lean-ctx session token)
     if let Some(auth) = req
         .headers()
         .get("authorization")

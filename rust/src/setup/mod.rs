@@ -121,10 +121,8 @@ pub fn run_setup() {
         };
         match run_setup_with_options(opts) {
             Ok(report) => {
-                if !report.warnings.is_empty() {
-                    for w in &report.warnings {
-                        tracing::warn!("{w}");
-                    }
+                for w in &report.warnings {
+                    tracing::warn!("{w}");
                 }
             }
             Err(e) => tracing::error!("Setup error: {e}"),
@@ -610,7 +608,7 @@ pub fn run_setup() {
         .iter()
         .chain(rules_result.updated.iter())
     {
-        if !tools_to_restart.iter().any(|t| t == name) {
+        if !tools_to_restart.contains(name) {
             tools_to_restart.push(name.clone());
         }
     }
@@ -634,7 +632,6 @@ pub fn run_setup() {
     );
     println!("  {dim}Verify with:{rst} {bold}lean-ctx gain{rst}");
 
-    // Logo + commands
     println!();
     terminal_ui::print_logo_animated();
     terminal_ui::print_command_box();
@@ -963,7 +960,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     } else if opts.yes && opts.non_interactive {
         setup_cfg.should_inject_rules()
     } else {
-        !opts.skip_rules
+        true
     };
 
     if should_inject {
@@ -1036,7 +1033,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     } else if opts.yes && opts.non_interactive {
         setup_cfg.should_inject_skills()
     } else {
-        !opts.skip_rules
+        true
     };
     if should_install_skills {
         let skill_results = crate::rules_inject::install_all_skills(&home);
@@ -1211,9 +1208,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
 
     // Project root validation: warn if no root is configured and cwd is broad
     {
-        let has_env_root = std::env::var("LEAN_CTX_PROJECT_ROOT")
-            .ok()
-            .is_some_and(|v| !v.is_empty());
+        let has_env_root = std::env::var("LEAN_CTX_PROJECT_ROOT").is_ok_and(|v| !v.is_empty());
         let cfg = crate::core::config::Config::load();
         let has_cfg_root = cfg.project_root.as_ref().is_some_and(|v| !v.is_empty());
         if !has_env_root
