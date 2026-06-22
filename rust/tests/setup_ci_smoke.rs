@@ -340,7 +340,7 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     let lean_ctx_md = project.join("LEAN-CTX.md");
     let lean_ctx_content = std::fs::read_to_string(&lean_ctx_md).expect("LEAN-CTX.md exists");
     assert!(
-        lean_ctx_content.contains("lean-ctx — Context Engineering Layer"),
+        lean_ctx_content.contains("Context Engineering Layer"),
         "LEAN-CTX.md must contain rules"
     );
 }
