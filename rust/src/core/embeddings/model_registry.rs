@@ -5,10 +5,12 @@
 //! `LEAN_CTX_EMBEDDING_MODEL` env var or the `[embedding].model` key in `config.toml`
 //! (env var wins) — see [`resolve_model`].
 //!
-//! Besides the three built-ins, any compatible HuggingFace repo can be loaded
-//! with `model = "hf:org/repo[@revision]"` (GL #397, upstream #328): the repo
-//! must ship an ONNX export (`onnx/model.onnx`) and a `tokenizer.json`. See
-//! `docs/guides/custom-embeddings.md` for the export workflow.
+//! Besides the built-ins, any compatible HuggingFace repo can be loaded with
+//! `model = "hf:org/repo[@revision]"` (GL #397, upstream #328): the repo must
+//! ship an ONNX export (`onnx/model.onnx`) and a `tokenizer.json`. This custom
+//! path probes the ONNX graph for its real input/output signature, so it suits
+//! code-specialized models (e.g. `hf:jinaai/jina-embeddings-v2-base-code`) that
+//! need no hand-maintained config. See `docs/guides/custom-embeddings.md`.
 
 use std::fmt;
 
@@ -19,9 +21,6 @@ pub enum EmbeddingModel {
     /// all-MiniLM-L6-v2 — generic sentence embeddings (384d, ~91MB).
     /// Default model for backward compatibility.
     AllMiniLmL6V2,
-    /// jina-embeddings-v2-base-code — code-optimized, 30 languages (768d, ~642MB).
-    /// Best for mixed code + natural language search.
-    JinaCodeV2,
     /// nomic-embed-text-v1.5 — top MTEB general-purpose (768d, ~547MB).
     /// Matryoshka representation learning, supports dimension truncation.
     NomicEmbedV1_5,
@@ -117,21 +116,6 @@ impl EmbeddingModel {
                 document_prefix: None,
                 needs_token_type_ids: true,
             },
-            Self::JinaCodeV2 => ModelConfig {
-                model: self.clone(),
-                name: "jina-embeddings-v2-base-code".into(),
-                hf_repo: "jinaai/jina-embeddings-v2-base-code".into(),
-                revision: None,
-                onnx_path: "onnx/model.onnx".into(),
-                vocab_file: VocabSource::TokenizerJson("tokenizer.json".into()),
-                dimensions: 768,
-                max_seq_len: 512,
-                model_min_bytes: 100_000_000,
-                vocab_min_bytes: 100_000,
-                query_prefix: None,
-                document_prefix: None,
-                needs_token_type_ids: true,
-            },
             Self::NomicEmbedV1_5 => ModelConfig {
                 model: self.clone(),
                 name: "nomic-embed-text-v1.5".into(),
@@ -187,9 +171,6 @@ impl EmbeddingModel {
         }
         match trimmed.to_lowercase().replace('_', "-").as_str() {
             "all-minilm-l6-v2" | "minilm" | "default" => Some(Self::AllMiniLmL6V2),
-            "jina-code-v2" | "jina-embeddings-v2-base-code" | "jina-code" | "jina" => {
-                Some(Self::JinaCodeV2)
-            }
             "nomic-embed-v1.5" | "nomic-embed-text-v1.5" | "nomic" | "nomic-embed" => {
                 Some(Self::NomicEmbedV1_5)
             }
@@ -198,13 +179,12 @@ impl EmbeddingModel {
     }
 
     /// All built-in model variants (custom models are user-defined).
-    pub const ALL: &'static [Self] = &[Self::AllMiniLmL6V2, Self::JinaCodeV2, Self::NomicEmbedV1_5];
+    pub const ALL: &'static [Self] = &[Self::AllMiniLmL6V2, Self::NomicEmbedV1_5];
 
     /// Unique subdirectory name for model storage isolation.
     pub fn storage_dir_name(&self) -> String {
         match self {
             Self::AllMiniLmL6V2 => "all-minilm-l6-v2".to_string(),
-            Self::JinaCodeV2 => "jina-code-v2".to_string(),
             Self::NomicEmbedV1_5 => "nomic-embed-v1.5".to_string(),
             Self::Custom(spec) => spec.storage_slug(),
         }
@@ -329,7 +309,7 @@ fn resolve_model_from(
             None => {
                 tracing::warn!(
                     "Unknown embedding model {name:?} from {source}; using {} instead \
-                     (built-ins: minilm, jina-code-v2, nomic — or hf:org/repo[@rev])",
+                     (built-ins: minilm, nomic — or hf:org/repo[@rev])",
                     EmbeddingModel::DEFAULT
                 );
             }
@@ -354,18 +334,6 @@ mod tests {
             Some(EmbeddingModel::AllMiniLmL6V2)
         );
         assert_eq!(
-            EmbeddingModel::from_str_name("jina-code-v2"),
-            Some(EmbeddingModel::JinaCodeV2)
-        );
-        assert_eq!(
-            EmbeddingModel::from_str_name("jina-code"),
-            Some(EmbeddingModel::JinaCodeV2)
-        );
-        assert_eq!(
-            EmbeddingModel::from_str_name("jina"),
-            Some(EmbeddingModel::JinaCodeV2)
-        );
-        assert_eq!(
             EmbeddingModel::from_str_name("nomic-embed-v1.5"),
             Some(EmbeddingModel::NomicEmbedV1_5)
         );
@@ -378,6 +346,10 @@ mod tests {
             Some(EmbeddingModel::AllMiniLmL6V2)
         );
         assert_eq!(EmbeddingModel::from_str_name("unknown"), None);
+        // The removed jina built-in must no longer resolve as an alias; it is
+        // reachable only via the explicit `hf:` custom scheme.
+        assert_eq!(EmbeddingModel::from_str_name("jina-code-v2"), None);
+        assert_eq!(EmbeddingModel::from_str_name("jina"), None);
     }
 
     #[test]
@@ -494,8 +466,8 @@ mod tests {
             "all-MiniLM-L6-v2"
         );
         assert_eq!(
-            format!("{}", EmbeddingModel::JinaCodeV2),
-            "jina-embeddings-v2-base-code"
+            format!("{}", EmbeddingModel::NomicEmbedV1_5),
+            "nomic-embed-text-v1.5"
         );
     }
 
@@ -514,12 +486,12 @@ mod tests {
     #[test]
     fn config_selects_model_when_env_unset() {
         assert_eq!(
-            resolve_model_from(None, Some("jina-code-v2"), None),
-            EmbeddingModel::JinaCodeV2
-        );
-        assert_eq!(
             resolve_model_from(None, Some("nomic"), None),
             EmbeddingModel::NomicEmbedV1_5
+        );
+        assert_eq!(
+            resolve_model_from(None, Some("minilm"), None),
+            EmbeddingModel::AllMiniLmL6V2
         );
     }
 
@@ -545,8 +517,8 @@ mod tests {
         );
         // Empty/whitespace in the higher-priority source is skipped, not treated as a match.
         assert_eq!(
-            resolve_model_from(Some("   "), Some("jina"), None),
-            EmbeddingModel::JinaCodeV2
+            resolve_model_from(Some("   "), Some("nomic"), None),
+            EmbeddingModel::NomicEmbedV1_5
         );
     }
 
@@ -558,14 +530,6 @@ mod tests {
         };
         assert_eq!(spec.dimensions, Some(1024));
         assert_eq!(spec.revision.as_deref(), Some("pin"));
-    }
-
-    #[test]
-    fn jina_code_v2_config_details() {
-        let cfg = EmbeddingModel::JinaCodeV2.config();
-        assert_eq!(cfg.dimensions, 768);
-        assert!(cfg.needs_token_type_ids);
-        assert!(cfg.query_prefix.is_none());
     }
 
     #[test]
@@ -584,21 +548,13 @@ mod tests {
 
     #[test]
     fn builtin_models_have_valid_vocab_sources() {
+        // All current built-ins are WordPiece (vocab.txt) models. Custom HF
+        // repos use tokenizer.json, but those are user-defined, not built-ins.
         for model in EmbeddingModel::ALL {
-            match model {
-                EmbeddingModel::JinaCodeV2 => {
-                    assert!(
-                        !model.config().vocab_file.is_wordpiece(),
-                        "{model} should use HuggingFace tokenizer.json"
-                    );
-                }
-                _ => {
-                    assert!(
-                        model.config().vocab_file.is_wordpiece(),
-                        "{model} should use WordPiece vocab.txt"
-                    );
-                }
-            }
+            assert!(
+                model.config().vocab_file.is_wordpiece(),
+                "{model} should use WordPiece vocab.txt"
+            );
         }
     }
 

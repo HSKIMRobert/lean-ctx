@@ -647,9 +647,10 @@ impl Default for LoopDetectionConfig {
 ///
 /// `model` selects which local ONNX embedding model lean-ctx downloads and uses for
 /// `ctx_semantic_search`. Accepts the same aliases as the `LEAN_CTX_EMBEDDING_MODEL` env
-/// var: `minilm` (all-MiniLM-L6-v2, 384d — the default), `jina-code-v2` (768d,
-/// code-optimized), `nomic` (768d) — or any HuggingFace repo with an ONNX export via
-/// `hf:org/repo[@revision]` (GL #397). When the env var is set it takes precedence; an
+/// var: `minilm` (all-MiniLM-L6-v2, 384d — the default), `nomic` (768d) — or any
+/// HuggingFace repo with an ONNX export via `hf:org/repo[@revision]` (GL #397), e.g.
+/// `hf:jinaai/jina-embeddings-v2-base-code` for code-specialized embeddings. When the
+/// env var is set it takes precedence; an
 /// unset/`None` value uses the default model. Switching models triggers a one-time
 /// re-index on the next semantic search (vector dimensions follow from the model).
 ///

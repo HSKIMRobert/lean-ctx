@@ -72,8 +72,9 @@ pub fn cmd_config(args: &[String]) {
                 {
                     eprintln!(
                         "Unknown embedding model '{val}'. Available: minilm (default), \
-                         jina-code-v2, nomic — or hf:org/repo[@revision] for any HuggingFace \
-                         repo with an ONNX export (see docs/guides/custom-embeddings.md)."
+                         nomic — or hf:org/repo[@revision] for any HuggingFace repo with an \
+                         ONNX export, e.g. hf:jinaai/jina-embeddings-v2-base-code for code \
+                         (see docs/guides/custom-embeddings.md)."
                     );
                     std::process::exit(1);
                 }

@@ -411,14 +411,28 @@ impl EmbeddingIndex {
     pub fn load(root: &Path) -> Option<Self> {
         let bin_path = index_dir(root).join("embeddings.bin");
         let data = std::fs::read(&bin_path).ok()?;
-        if let Ok(idx) = postcard::from_bytes::<Self>(&data) {
-            Some(idx)
-        } else {
-            tracing::warn!(
-                "[embeddings] corrupt embeddings.bin — removing and will rebuild from scratch"
-            );
-            let _ = std::fs::remove_file(&bin_path);
-            None
+        match postcard::from_bytes::<Self>(&data) {
+            // Only accept an index whose on-disk schema matches the current one.
+            Ok(idx) if idx.version == CURRENT_VERSION => Some(idx),
+            // A structurally-valid but stale schema (older/newer bin layout) must
+            // not be trusted — postcard can silently mis-decode a changed struct.
+            // Drop it and rebuild rather than serving garbage vectors.
+            Ok(idx) => {
+                tracing::warn!(
+                    "[embeddings] index format v{} != current v{CURRENT_VERSION} — \
+                     removing and rebuilding from scratch",
+                    idx.version
+                );
+                let _ = std::fs::remove_file(&bin_path);
+                None
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "[embeddings] corrupt embeddings.bin — removing and will rebuild from scratch"
+                );
+                let _ = std::fs::remove_file(&bin_path);
+                None
+            }
         }
     }
 }
