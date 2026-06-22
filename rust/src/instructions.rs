@@ -213,16 +213,18 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
         ""
     };
 
+    let config_dir = claude_config_dir_display();
     let base = format!(
         "\
 {shadow_preamble}\
 {critical}\n\
 \n\
-{skeleton}\n\",
+{skeleton}\n\
 {shell_hint}\
 \n\
 {decoder_block}\n\
 \n\
+Full instructions at {config_dir}/CLAUDE.md (imports rules/lean-ctx.md)\n\
 {session_block}\
 {knowledge_block}\
 {gotcha_block}\
