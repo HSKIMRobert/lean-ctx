@@ -47,8 +47,7 @@ fn emit_dedicated_session_context(input: &str) {
     if v.get("hook_event_name").and_then(|e| e.as_str()) != Some("SessionStart") {
         return;
     }
-    if !crate::core::config::Config::load().dedicated_session_context_active() {
-    }
+    if !crate::core::config::Config::load().dedicated_session_context_active() {}
     // Session start additional context removed — the MCP instructions
     // already carry the compact rules block.
 }

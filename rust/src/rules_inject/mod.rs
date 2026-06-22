@@ -196,9 +196,10 @@ pub fn any_rules_marker_present(home: &std::path::Path) -> bool {
                 continue;
             }
             if let Ok(content) = std::fs::read_to_string(&target.path)
-                && RulesFile::parse(&content).has_content() {
-                    return true;
-                }
+                && RulesFile::parse(&content).has_content()
+            {
+                return true;
+            }
         }
     }
     false

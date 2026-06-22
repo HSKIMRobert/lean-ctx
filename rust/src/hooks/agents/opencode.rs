@@ -204,15 +204,16 @@ fn strip_opencode_agents_block(home: &std::path::Path) {
     if let Ok(meta) = agents.metadata()
         && meta.is_file()
         && let Ok(content) = std::fs::read_to_string(&agents)
-            && content.contains(crate::core::rules_canonical::START_MARK) {
-                crate::marked_block::remove_from_file(
-                    &agents,
-                    crate::core::rules_canonical::START_MARK,
-                    crate::core::rules_canonical::END_MARK,
-                    true,
-                    "OpenCode AGENTS.md lean-ctx block",
-                );
-            }
+        && content.contains(crate::core::rules_canonical::START_MARK)
+    {
+        crate::marked_block::remove_from_file(
+            &agents,
+            crate::core::rules_canonical::START_MARK,
+            crate::core::rules_canonical::END_MARK,
+            true,
+            "OpenCode AGENTS.md lean-ctx block",
+        );
+    }
 }
 
 fn install_opencode_plugin(home: &std::path::Path) {

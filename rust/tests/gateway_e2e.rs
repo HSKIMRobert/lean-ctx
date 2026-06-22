@@ -6,6 +6,7 @@
 //! this is the same `rmcp` server/client machinery used in production, just
 //! wired over an in-memory transport for determinism.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -27,11 +28,11 @@ impl ServerHandler for EchoServer {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
     }
 
-    async fn list_tools(
+    fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, ErrorData> {
+    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> {
         let echo = Tool::new(
             "echo",
             "Echo back the provided text",
@@ -63,19 +64,19 @@ impl ServerHandler for EchoServer {
                 .clone(),
             ),
         );
-        Ok(ListToolsResult {
+        std::future::ready(Ok(ListToolsResult {
             tools: vec![echo, add],
             ..Default::default()
-        })
+        }))
     }
 
-    async fn call_tool(
+    fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> impl Future<Output = Result<CallToolResult, ErrorData>> {
         let args = request.arguments.unwrap_or_default();
-        match request.name.as_ref() {
+        std::future::ready(match request.name.as_ref() {
             "echo" => {
                 let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("");
                 Ok(CallToolResult::success(vec![Content::text(format!(
@@ -99,7 +100,7 @@ impl ServerHandler for EchoServer {
                 format!("unknown tool: {other}"),
                 None,
             )),
-        }
+        })
     }
 }
 

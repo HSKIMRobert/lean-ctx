@@ -98,7 +98,7 @@ pub(super) fn lean_ctx_server_entry_with_instructions(
     include_auto_approve: bool,
     agent_key: &str,
 ) -> Value {
-    let mut entry = lean_ctx_server_entry(binary, data_dir, include_auto_approve);
+    let mut entry = lean_ctx_server_entry(binary, include_auto_approve);
     let shadow = crate::core::config::Config::load().shadow_mode;
     let instructions =
         crate::core::rules_canonical::render(shadow, crate::core::rules_canonical::Wrapper::Bare);

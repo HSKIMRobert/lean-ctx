@@ -358,9 +358,7 @@ mod tests {
 
     #[test]
     fn strip_of_pure_block_file_yields_empty() {
-        let content = format!(
-            "{BLOCK_START}\nonly ours\n{BLOCK_END}\n"
-        );
+        let content = format!("{BLOCK_START}\nonly ours\n{BLOCK_END}\n");
         assert_eq!(strip_lean_ctx_blocks(&content), "");
     }
 
@@ -409,9 +407,7 @@ mod tests {
         let home = tmp.path();
         let project = home.join("app");
         std::fs::create_dir_all(&project).unwrap();
-        let rules = format!(
-            "{BLOCK_START}\npointer\n{BLOCK_END}\n"
-        );
+        let rules = format!("{BLOCK_START}\npointer\n{BLOCK_END}\n");
         std::fs::write(project.join(".cursorrules"), rules).unwrap();
 
         // Without the global mdc, .cursorrules is the carrier — report only.
@@ -442,9 +438,7 @@ mod tests {
         let path = tmp.path().join(".cursorrules");
         std::fs::write(
             &path,
-            format!(
-                "my custom rule\n{BLOCK_START}\nours\n{BLOCK_END}\n"
-            ),
+            format!("my custom rule\n{BLOCK_START}\nours\n{BLOCK_END}\n"),
         )
         .unwrap();
 
@@ -577,13 +571,7 @@ mod tests {
     fn apply_strip_deletes_file_that_was_only_ours() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join(".cursorrules");
-        std::fs::write(
-            &path,
-            format!(
-                "{BLOCK_START}\nours\n{BLOCK_END}\n"
-            ),
-        )
-        .unwrap();
+        std::fs::write(&path, format!("{BLOCK_START}\nours\n{BLOCK_END}\n")).unwrap();
 
         let msg = apply(&Action::StripBlocks {
             path: path.clone(),
