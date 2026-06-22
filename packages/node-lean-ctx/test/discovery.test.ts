@@ -81,6 +81,15 @@ describe("discovery", () => {
     expect(resolveToken()).toBe("deadbeef");
   });
 
+  it("session_token file is withheld from a non-loopback proxy url", () => {
+    process.env.LEAN_CTX_DATA_DIR = tmp;
+    writeFileSync(join(tmp, "session_token"), "deadbeef\n");
+    // A remote base url must never receive the local on-disk credential.
+    expect(resolveToken(undefined, "https://remote.example:443")).toBeUndefined();
+    // A loopback base url still uses the file token.
+    expect(resolveToken(undefined, "http://127.0.0.1:4444")).toBe("deadbeef");
+  });
+
   it("token absent returns undefined", () => {
     expect(resolveToken()).toBeUndefined();
   });

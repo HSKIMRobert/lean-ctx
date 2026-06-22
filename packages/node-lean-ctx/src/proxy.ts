@@ -46,7 +46,7 @@ export class ProxyClient {
 
   constructor(options: ProxyClientOptions = {}) {
     this.baseUrl = resolveBaseUrl(options.baseUrl);
-    this.token = resolveToken(options.token);
+    this.token = resolveToken(options.token, this.baseUrl);
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
