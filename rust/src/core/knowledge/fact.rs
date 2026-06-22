@@ -8,7 +8,7 @@ impl KnowledgeFact {
     }
 
     /// A synthesized observation: an entity-summary written by the cognition loop's
-    /// synthesis step (#788), not a user-supplied finding. Recall surfaces these as
+    /// synthesis step (#802), not a user-supplied finding. Recall surfaces these as
     /// orientation (a balanced boost, never absolute).
     pub fn is_synthesized_observation(&self) -> bool {
         self.archetype == KnowledgeArchetype::Observation

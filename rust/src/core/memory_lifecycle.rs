@@ -74,7 +74,7 @@ pub struct LifecycleConfig {
     /// and feedback modulation.
     pub base_stability_days: f32,
     /// When true, scale stability by the fact's archetype so structural *evidence*
-    /// (architecture/dependency/…) decays slower than *inference* (#788/cognition).
+    /// (architecture/dependency/…) decays slower than *inference* (#802/cognition).
     /// Default false keeps the baseline tuning byte-for-byte.
     pub archetype_aware_decay: bool,
 }

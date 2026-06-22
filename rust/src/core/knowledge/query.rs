@@ -136,7 +136,7 @@ impl ProjectKnowledge {
                 } else if f.category.to_lowercase() == q {
                     relevance += 0.5;
                 }
-                // Observation tier (#788): a relevant synthesized entity-summary is
+                // Observation tier (#802): a relevant synthesized entity-summary is
                 // orientation — lift it above incidental matches, but keep it below an
                 // exact key hit (+1.0) so a stale summary never buries a precise raw
                 // fact. Balanced, not absolute.
@@ -183,7 +183,7 @@ impl ProjectKnowledge {
             .map(|(i, _)| i)
             .collect();
 
-        // Within a category, synthesized observation summaries lead (#788) — a
+        // Within a category, synthesized observation summaries lead (#802) — a
         // balanced tier ahead of the usual salience sort, never an absolute override.
         idxs.sort_by(|a, b| {
             let (fa, fb) = (&self.facts[*a], &self.facts[*b]);

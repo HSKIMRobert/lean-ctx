@@ -120,7 +120,7 @@ fn deterministic_contradiction(a: &str, b: &str) -> String {
     format!("Conflict: \"{a}\" vs \"{b}\"")
 }
 
-/// Refine a synthesized observation summary with an LLM (#788). Opt-in via
+/// Refine a synthesized observation summary with an LLM (#802). Opt-in via
 /// `llm.enabled`; the deterministic input is always a valid result and is returned
 /// unchanged when LLM is disabled, errors, times out, or yields something unusable.
 /// The model is constrained to the supplied notes (no invention). Because the

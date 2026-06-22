@@ -251,7 +251,7 @@ pub struct AutonomyConfig {
     pub cognition_loop_interval_secs: u64,
     #[serde(default = "serde_defaults::default_cognition_loop_max_steps")]
     pub cognition_loop_max_steps: u8,
-    /// Minimum facts an entity needs before observation synthesis (#788) writes a
+    /// Minimum facts an entity needs before observation synthesis (#802) writes a
     /// summary. Synthesis itself is gated by `cognition_loop_max_steps >= 9`.
     #[serde(default = "serde_defaults::default_cognition_synthesis_min_cluster")]
     pub cognition_synthesis_min_cluster: usize,

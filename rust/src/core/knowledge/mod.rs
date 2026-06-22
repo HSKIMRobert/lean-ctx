@@ -103,6 +103,40 @@ mod tests {
     }
 
     #[test]
+    fn recall_exact_key_hit_outranks_observation() {
+        // #802 keeps the observation tier *balanced*: an exact key hit (+1.0) still
+        // outranks a synthesized summary (+0.4), so a stale summary can never bury a
+        // precisely-queried raw fact. This is the guarantee the reference docs make.
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test-recall-exact-vs-obs");
+        k.remember(
+            "decision",
+            "jwt",
+            "auth module uses jwt tokens",
+            "s1",
+            0.6,
+            &policy,
+        );
+        k.remember(
+            "observation",
+            "src/auth.rs",
+            "auth module summary jwt tokens",
+            crate::core::knowledge::COGNITION_SYNTHESIS_SOURCE,
+            0.6,
+            &policy,
+        );
+
+        let (out, _total) = k.recall_for_output("jwt", 10);
+        assert_eq!(out[0].key, "jwt", "exact key hit leads the ranking");
+        assert_eq!(out[0].category, "decision");
+        assert!(
+            out.iter()
+                .any(crate::core::knowledge::KnowledgeFact::is_synthesized_observation),
+            "the observation is still recalled, just below the exact hit"
+        );
+    }
+
+    #[test]
     fn facts_evict_down_to_cap_not_double() {
         // Regression: remember() must keep the fact count at or below max_facts.
         // Previously the lifecycle only fired above 2 * max_facts, so a store

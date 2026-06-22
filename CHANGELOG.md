@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- **Observation tier — synthesized, recall-prioritized entity summaries (GL #788).**
+- **Observation tier — synthesized, recall-prioritized entity summaries (GL #802).**
   A 9th cognition-loop step distils clusters of related facts into compact,
   per-entity *observations* (Hindsight-inspired). Synthesis is **deterministic by
   default** — facts are grouped by an entity anchor (file path in key/value, else

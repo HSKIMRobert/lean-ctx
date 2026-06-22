@@ -17,7 +17,7 @@ const LATERAL_MAX_NEW_EDGES: usize = 20;
 const HEBBIAN_CO_RETRIEVAL_HOURS: i64 = 1;
 const EDGE_STALE_DAYS: i64 = 30;
 
-// Observation synthesis (#788/cognition): how many facts an entity needs before it
+// Observation synthesis (#802/cognition): how many facts an entity needs before it
 // earns a summary, and the digest size caps that keep the value byte-stable.
 const SYNTHESIS_MAX_MEMBERS: usize = 6;
 const SYNTHESIS_VALUE_MAX: usize = 400;
@@ -34,7 +34,7 @@ pub struct CognitionLoopReport {
     pub lateral_connections: u32,
     /// Facts whose confidence was lifted by the replay-consolidation pass (#3).
     pub facts_consolidated: u32,
-    /// Per-entity observation summaries written/refreshed by synthesis (#788).
+    /// Per-entity observation summaries written/refreshed by synthesis (#802).
     pub observations_synthesized: u32,
     pub duration_ms: u64,
 }
@@ -127,7 +127,7 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
             report.steps_run = 8;
         }
 
-        // Step 9 (#788): synthesize per-entity observation summaries from the now
+        // Step 9 (#802): synthesize per-entity observation summaries from the now
         // settled store (after lifecycle), so summaries reflect surviving facts.
         if max_steps >= 9 {
             report.observations_synthesized =
@@ -435,7 +435,7 @@ pub fn run_idle_replay(project_root: &str) -> u32 {
     promoted
 }
 
-/// Step 9 (#788/cognition): deterministically synthesize per-entity *observation*
+/// Step 9 (#802/cognition): deterministically synthesize per-entity *observation*
 /// summaries from clusters of related raw facts — lean-ctx's take on Hindsight's
 /// observation network. Current facts (never synthesized observations) are grouped
 /// by an entity anchor (a file path referenced in the key/value, else the

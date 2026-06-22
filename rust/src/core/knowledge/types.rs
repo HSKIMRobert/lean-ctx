@@ -5,7 +5,7 @@ use crate::core::memory_boundary::FactPrivacy;
 use crate::core::sensitivity::SensitivityLevel;
 
 /// `source_session` marker for facts written by the cognition loop's observation
-/// synthesis step (#788). Lets recall distinguish synthesized entity-summaries
+/// synthesis step (#802). Lets recall distinguish synthesized entity-summaries
 /// from user-supplied findings (both are `Observation` archetype).
 pub const COGNITION_SYNTHESIS_SOURCE: &str = "cognition-synthesis";
 
