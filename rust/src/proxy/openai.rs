@@ -48,6 +48,13 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     if cfg.proxy.ccr_inband_enabled() {
         modified |= super::ccr::splice_inband_in_place(&mut doc);
     }
+    // #834: cache-safe cross-provider effort control. Default off → no-op. The
+    // value is a constant, so it never perturbs the prompt-cache prefix; it sets
+    // `reasoning_effort` only on reasoning models and never overrides a
+    // client-set value.
+    if let Some(effort) = cfg.proxy.resolved_effort() {
+        modified |= super::effort::apply_openai_chat(&mut doc, effort);
+    }
     // Meter-only (#481): nothing rewrites the body, so skip all work and let
     // forward + usage metering run against the byte-unchanged request. A pending
     // in-band splice (`modified`) opts out: the body did change this turn.
@@ -297,6 +304,38 @@ mod tests {
             compress_request_body(a, la).0,
             compress_request_body(b, lb).0,
             "identical input must yield byte-identical output (#498)"
+        );
+    }
+
+    #[test]
+    fn effort_control_sets_reasoning_effort_and_off_is_noop() {
+        // #834 end-to-end through the Chat Completions request path.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
+        let body = serde_json::json!({
+            "model": "gpt-5.5", "messages": [{"role": "user", "content": "hi"}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+
+        // Off by default: a cache-safe no-op (size unchanged, no param added).
+        let (off, o, c) = compress_request_body(body.clone(), bytes.len());
+        assert_eq!(c, o, "effort off must be a passthrough");
+        assert!(
+            serde_json::from_slice::<Value>(&off)
+                .unwrap()
+                .get("reasoning_effort")
+                .is_none()
+        );
+
+        // Enabled: reasoning_effort is filled on the reasoning model.
+        crate::core::config::Config::update_global(|cfg| {
+            cfg.proxy.effort = Some("low".into());
+        })
+        .unwrap();
+        let (on, _o, _c) = compress_request_body(body, bytes.len());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&on).unwrap()["reasoning_effort"],
+            "low"
         );
     }
 }

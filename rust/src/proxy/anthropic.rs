@@ -49,6 +49,13 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     if cfg.proxy.ccr_inband_enabled() {
         modified |= super::ccr::splice_inband_in_place(&mut doc);
     }
+    // #834: cache-safe cross-provider effort control. Default off → no-op. The
+    // value is a constant, so it never perturbs the prompt-cache prefix; it only
+    // dials an *existing* adaptive thinking request (never enables thinking the
+    // client didn't ask for).
+    if let Some(effort) = cfg.proxy.resolved_effort() {
+        modified |= super::effort::apply_anthropic(&mut doc, effort);
+    }
     // Meter-only (#481): live compression off, no history pruning, no prose
     // rewriting → forward + usage metering still run, but the body is left
     // unchanged so the provider prompt-cache prefix stays byte-stable. A pending
@@ -686,6 +693,45 @@ mod tests {
             parsed["system"].as_str().unwrap(),
             prose,
             "a warm prefix must stay protected even with repack enabled — only LARGE gaps trigger"
+        );
+    }
+
+    #[test]
+    fn effort_control_dials_adaptive_thinking_only() {
+        // #834 end-to-end: fill output_config.effort when the client already
+        // asked for adaptive thinking, but never enable thinking otherwise.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.effort = Some("medium".into());
+        })
+        .unwrap();
+
+        let adaptive = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "thinking": {"type": "adaptive"},
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let bytes = serde_json::to_vec(&adaptive).unwrap();
+        let (out, _o, _c) = compress_request_body(adaptive, bytes.len());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&out).unwrap()["output_config"]["effort"],
+            "medium"
+        );
+
+        // No thinking field → the proxy must not add output_config (no surprise
+        // reasoning cost, no 400 risk).
+        let plain = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "messages": [{"role": "user", "content": "hi"}]
+        });
+        let bytes = serde_json::to_vec(&plain).unwrap();
+        let (out, _o, _c) = compress_request_body(plain, bytes.len());
+        assert!(
+            serde_json::from_slice::<Value>(&out)
+                .unwrap()
+                .get("output_config")
+                .is_none()
         );
     }
 }

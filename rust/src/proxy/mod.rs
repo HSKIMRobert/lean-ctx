@@ -5,6 +5,7 @@ pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
 pub mod cost;
+pub mod effort;
 pub mod forward;
 pub mod google;
 pub mod history_prune;
@@ -392,6 +393,10 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
     // reflects config.toml hot-reloads and any start-time env override.
     let up = state.upstream_snapshot();
 
+    // Resolve the effort level fresh so /status reflects config.toml hot-reloads
+    // and env overrides, matching the upstream snapshot above (#834).
+    let active_effort = crate::core::config::Config::load().proxy.resolved_effort();
+
     let body = serde_json::json!({
         "status": "running",
         "port": state.port,
@@ -408,6 +413,7 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
         "cache_safety": cache_safety::snapshot(),
+        "effort": effort::snapshot(active_effort),
         "per_model": cost::snapshot(),
         "spend": {
             "source": "measured",

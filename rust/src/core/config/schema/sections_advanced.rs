@@ -93,6 +93,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "LEAN_CTX_PROXY_CCR_INBAND",
         ),
     );
+    proxy.insert(
+        "effort".into(),
+        key_enum_with_env(
+            &["off", "minimal", "low", "medium", "high"],
+            "off",
+            "Cache-safe cross-provider reasoning-effort control (#834). off (default) = no-op. minimal|low|medium|high pins the model's reasoning depth across providers: lean-ctx translates it to OpenAI reasoning_effort / reasoning.effort and Anthropic output_config.effort, only on models that accept it and only when the client didn't set its own value. The level is a constant, so it never breaks the provider prompt cache (unlike per-turn effort routing). Anthropic is dialed only when the client already requested adaptive thinking",
+            "LEAN_CTX_PROXY_EFFORT",
+        ),
+    );
     sections.insert(
         "proxy".into(),
         SectionSchema {

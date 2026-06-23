@@ -60,6 +60,17 @@ pub struct ProxyConfig {
     /// provider cache prefix unless the model explicitly asked to expand. See
     /// [`ProxyConfig::ccr_inband_enabled`].
     pub ccr_inband: Option<bool>,
+    /// Cache-safe, cross-provider reasoning-effort control (#834). One of
+    /// `minimal|low|medium|high` pins the model's reasoning depth across every
+    /// provider; `None`/`"off"` (the default) is a strict no-op. The value is a
+    /// constant — identical on every request — so the provider prompt-cache
+    /// prefix stays byte-stable (#448/#498) and only the model's reasoning depth
+    /// changes. lean-ctx translates it to each provider's native parameter and
+    /// only ever *fills* it (never overrides a client-set value), on models that
+    /// accept it. Per-turn effort switching is deliberately unsupported — it
+    /// would invalidate the prompt cache. Env `LEAN_CTX_PROXY_EFFORT`. See
+    /// [`ProxyConfig::resolved_effort`].
+    pub effort: Option<String>,
 }
 
 /// Per-role prose-compression intensity for the proxy's frozen request region.
@@ -154,6 +165,28 @@ impl ProxyConfig {
     /// config.toml, else `false`.
     pub fn ccr_inband_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CCR_INBAND").is_ok() || self.ccr_inband.unwrap_or(false)
+    }
+
+    /// Resolved cross-provider reasoning effort (#834), or `None` when the
+    /// feature is off (the default — a strict no-op that preserves the
+    /// byte-unchanged meter-only path). Precedence: `LEAN_CTX_PROXY_EFFORT` env
+    /// (`off` disables, a valid level wins, an unparseable/blank value is
+    /// ignored) > `[proxy] effort` in config.toml. Any unknown value resolves to
+    /// `None` so a typo can never silently enable reasoning steering.
+    #[must_use]
+    pub fn resolved_effort(&self) -> Option<super::Effort> {
+        if let Ok(raw) = std::env::var("LEAN_CTX_PROXY_EFFORT") {
+            let trimmed = raw.trim();
+            if trimmed.eq_ignore_ascii_case("off") {
+                return None;
+            }
+            if let Some(effort) = super::Effort::parse(trimmed) {
+                return Some(effort);
+            }
+            // Blank/unknown env → ignore and fall through to config, mirroring
+            // `live_compresses` so a typo never flips the configured behaviour.
+        }
+        self.effort.as_deref().and_then(super::Effort::parse)
     }
 
     /// Whether the proxy live-compresses non-protected `tool_result` content
@@ -558,6 +591,53 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.ccr_inband_enabled());
+    }
+
+    #[test]
+    fn effort_defaults_off_and_config_sets_it() {
+        // #834: cache-safe effort control is opt-in. Isolate from a developer
+        // shell that may export the env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
+        assert_eq!(
+            ProxyConfig::default().resolved_effort(),
+            None,
+            "effort control must be opt-in (off by default)"
+        );
+        let cfg = ProxyConfig {
+            effort: Some("low".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            cfg.resolved_effort(),
+            Some(crate::core::config::Effort::Low)
+        );
+        // An unknown configured value resolves to off — never a silent default.
+        let typo = ProxyConfig {
+            effort: Some("lowish".into()),
+            ..Default::default()
+        };
+        assert_eq!(typo.resolved_effort(), None);
+    }
+
+    #[test]
+    fn effort_env_overrides_and_off_disables() {
+        use crate::core::config::Effort;
+        let _lock = crate::core::data_dir::test_env_lock();
+        let cfg = ProxyConfig {
+            effort: Some("high".into()),
+            ..Default::default()
+        };
+        // A valid env level wins over config.
+        crate::test_env::set_var("LEAN_CTX_PROXY_EFFORT", "minimal");
+        assert_eq!(cfg.resolved_effort(), Some(Effort::Minimal));
+        // `off` explicitly disables even a configured level.
+        crate::test_env::set_var("LEAN_CTX_PROXY_EFFORT", "off");
+        assert_eq!(cfg.resolved_effort(), None);
+        // A blank/garbage env value is ignored → falls back to config.
+        crate::test_env::set_var("LEAN_CTX_PROXY_EFFORT", "   ");
+        assert_eq!(cfg.resolved_effort(), Some(Effort::High));
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
     }
 
     #[test]

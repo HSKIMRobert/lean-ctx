@@ -67,6 +67,13 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     if cfg.proxy.ccr_inband_enabled() {
         modified |= super::ccr::splice_inband_in_place(&mut doc);
     }
+    // #834: cache-safe cross-provider effort control. Default off → no-op. The
+    // value is a constant, so it never perturbs the prompt-cache prefix; it sets
+    // `reasoning.effort` only on reasoning models and never overrides a
+    // client-set value.
+    if let Some(effort) = cfg.proxy.resolved_effort() {
+        modified |= super::effort::apply_openai_responses(&mut doc, effort);
+    }
     // Meter-only (#481): live compression off and history pruning off → forward
     // the body unchanged while upstream usage metering still runs. A pending
     // in-band splice (`modified`) opts out: the body did change this turn.
@@ -478,5 +485,23 @@ mod tests {
                 len,
             );
         }
+    }
+
+    #[test]
+    fn effort_control_sets_nested_reasoning_effort() {
+        // #834 end-to-end through the Responses request path.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.effort = Some("low".into());
+        })
+        .unwrap();
+        let body = serde_json::json!({"model": "gpt-5.5", "input": []});
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        assert_eq!(
+            serde_json::from_slice::<Value>(&out).unwrap()["reasoning"]["effort"],
+            "low"
+        );
     }
 }
