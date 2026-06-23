@@ -227,6 +227,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `raw` and state that the allowlist still holds.
 
 ### Fixed
+- **`lean-ctx -c` no longer kills hook-running `git commit`/`git push` at the
+  2-minute default (#854).** The shell wrapper enforces `DEFAULT_TIMEOUT` (2 min)
+  on ordinary commands and `HEAVY_TIMEOUT` (10 min) on build/test commands, but
+  `git commit`/`git push` were treated as ordinary — even though, in a repo with
+  hooks, `git commit` fans out into `cargo clippy` (pre-commit) and `git push`
+  into the full `scripts/preflight.sh` (pre-push), each of which routinely runs
+  3–10 min. The wrapper SIGKILLed git mid-hook, leaving the tree
+  staged-but-uncommitted or the push half-done. `is_heavy_command` now classifies
+  `git commit` and `git push` as heavy (10-min ceiling, 32 MB buffer); read-only
+  verbs (`git status`/`log`/`diff`) stay on the default ceiling because matching
+  is on the full `git <verb>` prefix.
 - **Hybrid/dense cold-start no longer re-embeds the whole corpus inline (#512).**
   On a large repo, the *first* `ctx_semantic_search mode=hybrid` (or `dense`) call on
   an MCP server that started *before* the on-disk dense index existed would embed the
