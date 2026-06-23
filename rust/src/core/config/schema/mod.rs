@@ -213,4 +213,40 @@ mod tests {
             );
         }
     }
+
+    /// `config set` resolves keys via [`ConfigSchema::lookup`] — the hand-written
+    /// schema only, NOT `known_keys()` (which also folds in `config_derived_keys`).
+    /// An `Option<_>` scalar field defaults to `None`, so serde omits it from
+    /// `Config::default()` and it never appears in `config_derived_keys`: such a
+    /// field is settable via `config set` **only** if it was hand-added to a
+    /// `sections_*.rs` schema. Forgetting that is the `Unknown config key: <x>`
+    /// regression a user hit for `path_jail` before #507 (and `persona` /
+    /// `bypass_hints` here). Guard the whole class so a new `Option` knob can't
+    /// silently become un-settable again — if you add an `Option` scalar to
+    /// `Config`, register it in `sections_*.rs` and list it here.
+    #[test]
+    fn option_scalar_keys_are_cli_settable() {
+        let schema = ConfigSchema::generate();
+        for key in [
+            "path_jail",
+            "persona",
+            "bypass_hints",
+            "shell_security",
+            "cache_policy",
+            "profile",
+            "tool_profile",
+            "rules_scope",
+            "rules_injection",
+            "permission_inheritance",
+            "proxy_enabled",
+            "proxy_port",
+            "proxy_timeout_ms",
+        ] {
+            assert!(
+                schema.lookup(key).is_some(),
+                "`lean-ctx config set {key} <v>` fails with 'Unknown config key' — \
+                 add `{key}` to a sections_*.rs schema"
+            );
+        }
+    }
 }

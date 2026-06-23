@@ -194,6 +194,19 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "persona".into(),
+        key_with_env(
+            "string",
+            serde_json::json!("coding"),
+            "Active context persona (persona-spec-v1): selects the domain bundle — \
+             tool surface, read-mode/compressor/chunker defaults, intent taxonomy, \
+             sensitivity floor. Built-ins: coding (default), research, lead-gen, \
+             support, data-analysis; or a custom <name>.toml from the personas dir. \
+             Override via LEAN_CTX_PERSONA",
+            "LEAN_CTX_PERSONA",
+        ),
+    );
+    root.insert(
         "extra_ignore_patterns".into(),
         key(
             "string[]",
@@ -347,6 +360,18 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
                 "LEAN_CTX_CACHE_POLICY",
             ),
         );
+    root.insert(
+        "bypass_hints".into(),
+        key_enum_with_env(
+            &["on", "off", "aggressive"],
+            "on",
+            "Bypass-hint mode: when agents use native Read/Grep instead of lean-ctx \
+             tools, a hint is appended to the next tool response. on (default), off, \
+             aggressive (hint on every call, no cooldown). Override via \
+             LEAN_CTX_BYPASS_HINTS",
+            "LEAN_CTX_BYPASS_HINTS",
+        ),
+    );
     root.insert(
         "cache_max_tokens".into(),
         key_with_env(

@@ -227,6 +227,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `raw` and state that the allowlist still holds.
 
 ### Fixed
+- **`config set` now accepts every valid `Option` config key (`persona`,
+  `bypass_hints`) instead of rejecting them as "Unknown config key" (#856).**
+  `config set` resolves keys via the hand-written schema (`ConfigSchema::lookup`)
+  only. An `Option<_>` scalar field defaults to `None`, so serde omits it from
+  `Config::default()` and it never appears in `config_derived_keys()` (which feeds
+  only `config validate`/`apply`). Any such field that wasn't hand-registered was
+  therefore accepted from `config.toml` but rejected by `config set` and flagged
+  "unknown" by `config validate` — the class behind the `path_jail` report (fixed
+  earlier in #507). Auditing all 17 root-level `Option` fields found two more:
+  `persona` and `bypass_hints` are now registered in the root schema (`persona`
+  as an open `string` so custom `<name>.toml` personas stay valid; `bypass_hints`
+  as `enum(on|off|aggressive)` so `config set` validates the value). A new
+  regression test (`option_scalar_keys_are_cli_settable`) asserts the
+  `Option`-scalar knobs resolve via schema lookup, guarding the whole class.
 - **`lean-ctx -c` no longer kills hook-running `git commit`/`git push` at the
   2-minute default (#854).** The shell wrapper enforces `DEFAULT_TIMEOUT` (2 min)
   on ordinary commands and `HEAVY_TIMEOUT` (10 min) on build/test commands, but
