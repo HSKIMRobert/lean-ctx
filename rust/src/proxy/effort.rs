@@ -18,8 +18,11 @@
 //!   only dials an *existing* adaptive request, so it never adds thinking tokens
 //!   (or a 400) where the client wanted none. OpenAI reasoning models always
 //!   reason, so setting the level only ever caps/redirects existing reasoning.
+//!   The Gemini applier excludes 2.5 *flash-lite* (thinking off by default) for
+//!   the same reason, and never sends both `thinkingLevel` and `thinkingBudget`.
 //! - **Model-gated:** models that would reject the parameter are skipped, so the
-//!   feature can never turn a working request into a 400.
+//!   feature can never turn a working request into a 400. Gemini's generation is
+//!   read from the URL path (`thinkingLevel` on 3.x, `thinkingBudget` on 2.5).
 //! - **Deterministic:** the rewrite is a pure function of `(document, level)`, so
 //!   identical requests stay byte-identical across turns.
 
@@ -166,6 +169,116 @@ pub fn apply_anthropic(doc: &mut Value, effort: Effort) -> bool {
     true
 }
 
+/// Gemini's two mutually-exclusive thinking controls. Sending both in one
+/// request is a 400, so each applier path sets exactly one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GeminiStyle {
+    /// `generationConfig.thinkingConfig.thinkingLevel` — Gemini 3.x and later.
+    /// A string enum that maps 1:1 onto [`Effort`].
+    Level,
+    /// `generationConfig.thinkingConfig.thinkingBudget` — Gemini 2.5 (pro/flash).
+    /// An integer token budget.
+    Budget,
+}
+
+/// Map a Gemini model name (from the request URL path) to its thinking-control
+/// style. `3.x`+ → `thinkingLevel` (the go-forward API, also used by future
+/// majors); `2.5` pro/flash → `thinkingBudget`. Everything else returns `None`
+/// so the applier is a safe no-op: 2.5 *flash-lite* (thinking off by default, so
+/// a budget would switch on reasoning the client never asked for), `2.0`/`1.5`
+/// (no comparable control), and any unknown name (never risk a 400).
+fn gemini_style(model: &str) -> Option<GeminiStyle> {
+    let bare = model
+        .rsplit('/')
+        .next()
+        .unwrap_or(model)
+        .trim()
+        .to_ascii_lowercase();
+    let rest = bare.strip_prefix("gemini-")?;
+    let major: u32 = rest
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()?;
+    if major >= 3 {
+        Some(GeminiStyle::Level)
+    } else if rest.starts_with("2.5") && !rest.contains("flash-lite") {
+        Some(GeminiStyle::Budget)
+    } else {
+        None
+    }
+}
+
+/// Gemini 3.x `thinkingLevel` for an [`Effort`] — a 1:1 enum mapping.
+fn google_level(effort: Effort) -> &'static str {
+    match effort {
+        Effort::Minimal => "minimal",
+        Effort::Low => "low",
+        Effort::Medium => "medium",
+        Effort::High => "high",
+    }
+}
+
+/// Gemini 2.5 `thinkingBudget` (thinking tokens) for an [`Effort`]. Every value
+/// lies in `[512, 24576]`, which is valid for both 2.5 *pro* (128–32768) and
+/// *flash* (1–24576), so the applier can never send an out-of-range budget that
+/// 400s. A constant per level keeps the request prefix byte-stable across turns.
+fn google_budget(effort: Effort) -> i64 {
+    match effort {
+        Effort::Minimal => 512,
+        Effort::Low => 4096,
+        Effort::Medium => 8192,
+        Effort::High => 24576,
+    }
+}
+
+/// Set the Gemini thinking control that matches `model`'s generation on a
+/// `generateContent` request (`thinkingLevel` for 3.x, `thinkingBudget` for
+/// 2.5). `model` comes from the request URL path — Gemini carries it there, not
+/// in the body — threaded in by the Google handler. No-op when the model is
+/// unknown/excluded, when the client already pinned either thinking field (never
+/// override, and never end up with both → 400), or on an unexpected body shape.
+pub fn apply_google(doc: &mut Value, effort: Effort, model: Option<&str>) -> bool {
+    let Some(style) = model.and_then(gemini_style) else {
+        return false;
+    };
+    let Some(obj) = doc.as_object_mut() else {
+        return false;
+    };
+    let gen_cfg = obj
+        .entry("generationConfig")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(gen_cfg) = gen_cfg.as_object_mut() else {
+        return false; // client sent a non-object generationConfig — leave it alone
+    };
+    let tc = gen_cfg
+        .entry("thinkingConfig")
+        .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    let Some(tc) = tc.as_object_mut() else {
+        return false;
+    };
+    if tc.contains_key("thinkingLevel") || tc.contains_key("thinkingBudget") {
+        return false; // respect the client's value; never send both fields
+    }
+    match style {
+        GeminiStyle::Level => {
+            tc.insert(
+                "thinkingLevel".to_string(),
+                Value::String(google_level(effort).to_string()),
+            );
+        }
+        GeminiStyle::Budget => {
+            tc.insert(
+                "thinkingBudget".to_string(),
+                Value::Number(google_budget(effort).into()),
+            );
+        }
+    }
+    record(Provider::Google);
+    true
+}
+
 // --- Telemetry -------------------------------------------------------------
 
 /// Provider whose request had an effort level applied.
@@ -173,15 +286,18 @@ pub fn apply_anthropic(doc: &mut Value, effort: Effort) -> bool {
 enum Provider {
     OpenAi,
     Anthropic,
+    Google,
 }
 
 static OPENAI_STEERED: AtomicU64 = AtomicU64::new(0);
 static ANTHROPIC_STEERED: AtomicU64 = AtomicU64::new(0);
+static GOOGLE_STEERED: AtomicU64 = AtomicU64::new(0);
 
 fn record(provider: Provider) {
     match provider {
         Provider::OpenAi => &OPENAI_STEERED,
         Provider::Anthropic => &ANTHROPIC_STEERED,
+        Provider::Google => &GOOGLE_STEERED,
     }
     .fetch_add(1, Ordering::Relaxed);
 }
@@ -199,6 +315,8 @@ pub struct EffortStats {
     pub openai_steered: u64,
     /// Anthropic requests steered, cumulative.
     pub anthropic_steered: u64,
+    /// Gemini requests steered, cumulative.
+    pub google_steered: u64,
 }
 
 /// Snapshot the counters together with the currently resolved effort level
@@ -209,6 +327,7 @@ pub fn snapshot(active: Option<Effort>) -> EffortStats {
         mode: active.map_or("off", Effort::label).to_string(),
         openai_steered: OPENAI_STEERED.load(Ordering::Relaxed),
         anthropic_steered: ANTHROPIC_STEERED.load(Ordering::Relaxed),
+        google_steered: GOOGLE_STEERED.load(Ordering::Relaxed),
     }
 }
 
@@ -367,6 +486,150 @@ mod tests {
         });
         assert!(!apply_anthropic(&mut doc, Effort::Low));
         assert_eq!(doc["output_config"]["effort"], "high");
+    }
+
+    #[test]
+    fn gemini_style_detection() {
+        use GeminiStyle::{Budget, Level};
+        // 3.x and later → thinkingLevel (incl. vendor-prefixed + future majors).
+        for m in [
+            "gemini-3-pro",
+            "gemini-3.5-flash",
+            "google/gemini-3-pro",
+            "gemini-4-pro",
+        ] {
+            assert_eq!(gemini_style(m), Some(Level), "{m} → Level");
+        }
+        // 2.5 pro/flash → thinkingBudget.
+        for m in [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "openrouter/google/gemini-2.5-flash",
+        ] {
+            assert_eq!(gemini_style(m), Some(Budget), "{m} → Budget");
+        }
+        // Excluded: flash-lite (thinking off by default), older gens, unknowns.
+        for m in [
+            "gemini-2.5-flash-lite",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gpt-5",
+            "",
+        ] {
+            assert_eq!(gemini_style(m), None, "{m} → None");
+        }
+    }
+
+    #[test]
+    fn google_3x_sets_thinking_level() {
+        let mut doc = serde_json::json!({"contents": []});
+        assert!(apply_google(&mut doc, Effort::Medium, Some("gemini-3-pro")));
+        assert_eq!(
+            doc["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "medium"
+        );
+    }
+
+    #[test]
+    fn google_3x_minimal_maps_directly() {
+        let mut doc = serde_json::json!({"contents": []});
+        assert!(apply_google(
+            &mut doc,
+            Effort::Minimal,
+            Some("gemini-3.5-flash")
+        ));
+        assert_eq!(
+            doc["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "minimal"
+        );
+    }
+
+    #[test]
+    fn google_25_sets_thinking_budget_in_range() {
+        let mut doc = serde_json::json!({"contents": []});
+        assert!(apply_google(&mut doc, Effort::Low, Some("gemini-2.5-pro")));
+        assert_eq!(
+            doc["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            4096
+        );
+    }
+
+    #[test]
+    fn google_preserves_existing_generation_config() {
+        let mut doc = serde_json::json!({
+            "contents": [],
+            "generationConfig": {"temperature": 0.2}
+        });
+        assert!(apply_google(&mut doc, Effort::High, Some("gemini-3-pro")));
+        assert_eq!(doc["generationConfig"]["temperature"], 0.2);
+        assert_eq!(
+            doc["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "high"
+        );
+    }
+
+    #[test]
+    fn google_skips_flash_lite_to_avoid_enabling_thinking() {
+        // flash-lite has thinking OFF by default — adding a budget would switch on
+        // reasoning the client never asked for.
+        let mut doc = serde_json::json!({"contents": []});
+        assert!(!apply_google(
+            &mut doc,
+            Effort::Low,
+            Some("gemini-2.5-flash-lite")
+        ));
+        assert!(doc.get("generationConfig").is_none());
+    }
+
+    #[test]
+    fn google_skips_unknown_model_and_missing_model() {
+        let mut a = serde_json::json!({"contents": []});
+        assert!(!apply_google(&mut a, Effort::Low, Some("gemini-2.0-flash")));
+        assert!(a.get("generationConfig").is_none());
+        let mut b = serde_json::json!({"contents": []});
+        assert!(!apply_google(&mut b, Effort::Low, None));
+        assert!(b.get("generationConfig").is_none());
+    }
+
+    #[test]
+    fn google_respects_client_thinking_level() {
+        let mut doc = serde_json::json!({
+            "contents": [],
+            "generationConfig": {"thinkingConfig": {"thinkingLevel": "high"}}
+        });
+        assert!(!apply_google(&mut doc, Effort::Low, Some("gemini-3-pro")));
+        assert_eq!(
+            doc["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "high"
+        );
+    }
+
+    #[test]
+    fn google_never_sends_both_fields() {
+        // Client pinned a (legacy) budget on a 3.x model → adding thinkingLevel
+        // would 400. The applier must bail.
+        let mut doc = serde_json::json!({
+            "contents": [],
+            "generationConfig": {"thinkingConfig": {"thinkingBudget": 1024}}
+        });
+        assert!(!apply_google(&mut doc, Effort::Low, Some("gemini-3-pro")));
+        assert!(
+            doc["generationConfig"]["thinkingConfig"]
+                .get("thinkingLevel")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn google_is_deterministic_across_turns() {
+        let mk = || serde_json::json!({"contents": []});
+        let (mut a, mut b) = (mk(), mk());
+        apply_google(&mut a, Effort::Medium, Some("gemini-3-pro"));
+        apply_google(&mut b, Effort::Medium, Some("gemini-3-pro"));
+        assert_eq!(
+            serde_json::to_vec(&a).unwrap(),
+            serde_json::to_vec(&b).unwrap()
+        );
     }
 
     #[test]

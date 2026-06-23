@@ -18,19 +18,26 @@ pub async fn handler(
     req: Request<Body>,
 ) -> Result<Response, StatusCode> {
     let upstream = state.gemini_upstream();
+    // Gemini carries the model in the URL path, not the body — capture it here so
+    // the effort applier can pick the right thinking control (#840).
+    let model = super::usage::gemini_model_from_path(req.uri().path());
     forward::forward_request(
         State(state),
         req,
         &upstream,
         "/",
-        compress_request_body,
+        move |body, size| compress_request_body(body, size, model.as_deref()),
         "Gemini",
         &["application/x-ndjson"],
     )
     .await
 }
 
-fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize, usize) {
+fn compress_request_body(
+    parsed: Value,
+    original_size: usize,
+    model: Option<&str>,
+) -> (Vec<u8>, usize, usize) {
     let mut doc = parsed;
     let mut modified = false;
 
@@ -47,6 +54,14 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // honored even when the proxy is otherwise byte-passthrough.
     if cfg.proxy.ccr_inband_enabled() {
         modified |= super::ccr::splice_inband_in_place(&mut doc);
+    }
+    // #834/#840: cache-safe cross-provider effort control. Default off → no-op.
+    // The level is a constant, so it never perturbs the prompt-cache prefix; it
+    // sets generationConfig.thinkingConfig (thinkingLevel on 3.x, thinkingBudget
+    // on 2.5 pro/flash) only for models that accept it and only when the client
+    // didn't pin its own thinking field. `model` is read from the URL path.
+    if let Some(effort) = cfg.proxy.resolved_effort() {
+        modified |= super::effort::apply_google(&mut doc, effort, model);
     }
     // Meter-only (#481): no live compression, no history pruning, no prose → the
     // body is forwarded unchanged while usage metering still runs. A pending
@@ -241,7 +256,7 @@ mod tests {
             ]
         });
         let bytes = serde_json::to_vec(&body).unwrap();
-        let (out, orig, comp) = compress_request_body(body, bytes.len());
+        let (out, orig, comp) = compress_request_body(body, bytes.len(), None);
         assert!(comp < orig, "recent response must be compressed");
         let parsed: Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(
@@ -261,7 +276,7 @@ mod tests {
         let n = contents.len();
         let body = serde_json::json!({ "contents": contents });
         let bytes = serde_json::to_vec(&body).unwrap();
-        let (out, orig, comp) = compress_request_body(body, bytes.len());
+        let (out, orig, comp) = compress_request_body(body, bytes.len(), None);
         assert!(comp < orig, "old reads must be pruned for savings");
 
         let parsed: Value = serde_json::from_slice(&out).unwrap();
@@ -296,7 +311,7 @@ mod tests {
             ]
         });
         let bytes = serde_json::to_vec(&body).unwrap();
-        let (out, orig, comp) = compress_request_body(body.clone(), bytes.len());
+        let (out, orig, comp) = compress_request_body(body.clone(), bytes.len(), None);
         assert_eq!(comp, orig);
         let reparsed: Value = serde_json::from_slice(&out).unwrap();
         assert_eq!(reparsed, body);
@@ -312,8 +327,8 @@ mod tests {
             serde_json::to_vec(&a).unwrap().len(),
             serde_json::to_vec(&b).unwrap().len(),
         );
-        let (out_a, _, _) = compress_request_body(a, la);
-        let (out_b, _, _) = compress_request_body(b, lb);
+        let (out_a, _, _) = compress_request_body(a, la, None);
+        let (out_b, _, _) = compress_request_body(b, lb, None);
         assert_eq!(out_a, out_b, "identical input must yield identical bytes");
     }
 
@@ -341,7 +356,7 @@ mod tests {
             ]
         });
         let bytes = serde_json::to_vec(&body).unwrap();
-        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let (out, _o, _c) = compress_request_body(body, bytes.len(), None);
         let parsed: Value = serde_json::from_slice(&out).unwrap();
 
         assert!(
@@ -377,8 +392,8 @@ mod tests {
         let la = serde_json::to_vec(&a).unwrap().len();
         let lb = serde_json::to_vec(&b).unwrap().len();
         assert_eq!(
-            compress_request_body(a, la).0,
-            compress_request_body(b, lb).0,
+            compress_request_body(a, la, None).0,
+            compress_request_body(b, lb, None).0,
             "identical input must yield byte-identical output (#498)"
         );
     }
@@ -395,7 +410,7 @@ mod tests {
             let len = contents.len();
             let body = serde_json::json!({ "contents": contents });
             let bytes = serde_json::to_vec(&body).unwrap();
-            let (out, _, _) = compress_request_body(body, bytes.len());
+            let (out, _, _) = compress_request_body(body, bytes.len(), None);
             let parsed: Value = serde_json::from_slice(&out).unwrap();
             let items: Vec<String> = parsed["contents"]
                 .as_array()
@@ -415,5 +430,32 @@ mod tests {
                 len,
             );
         }
+    }
+
+    #[test]
+    fn effort_control_sets_thinking_config_by_generation() {
+        // #840 end-to-end: the model is taken from the URL path, so the handler
+        // threads it in. 3.x → thinkingLevel; off / unknown model → byte no-op.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_EFFORT");
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.effort = Some("low".into());
+        })
+        .unwrap();
+
+        let body = serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hi"}]}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body.clone(), bytes.len(), Some("gemini-3-pro"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&out).unwrap()["generationConfig"]["thinkingConfig"]["thinkingLevel"],
+            "low"
+        );
+
+        // No model (path didn't resolve) → strict no-op, body byte-unchanged.
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body.clone(), bytes.len(), None);
+        assert_eq!(serde_json::from_slice::<Value>(&out).unwrap(), body);
     }
 }

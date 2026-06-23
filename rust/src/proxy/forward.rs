@@ -22,17 +22,17 @@ fn max_body_bytes() -> usize {
         .saturating_mul(1024 * 1024)
 }
 
-/// Receives the already-parsed JSON value, avoiding a redundant
-/// `serde_json::from_slice` on every request. Returns the serialized (possibly
-/// compressed) body, original size, and compressed size.
-pub type CompressFn = fn(serde_json::Value, usize) -> (Vec<u8>, usize, usize);
-
+/// Transforms the already-parsed JSON request body (parsed once upstream, so the
+/// compressor never re-parses) into the serialized — possibly compressed — body,
+/// its original size, and its compressed size. A plain `fn` from the static
+/// providers or a closure that captures request-derived context (e.g. Gemini's
+/// path-encoded model) both satisfy this bound.
 pub async fn forward_request(
     State(state): State<ProxyState>,
     req: Request<Body>,
     upstream_base: &str,
     default_path: &str,
-    compress_body: CompressFn,
+    compress_body: impl FnOnce(serde_json::Value, usize) -> (Vec<u8>, usize, usize),
     provider_label: &str,
     extra_stream_types: &[&str],
 ) -> Result<Response, StatusCode> {
