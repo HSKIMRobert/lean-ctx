@@ -185,7 +185,7 @@ wire path:   AI tool  →  lean-ctx proxy        →  model provider   (every re
 
 - **MCP server** *(read path)*: exposes `ctx_*` tools (read modes, caching, deltas, search, memory, multi-agent)
 - **Shell hook** *(read path)*: transparently compresses common commands so the LLM sees less noise
-- **Request proxy** *(wire path, opt-in)*: `lean-ctx proxy enable` puts a local proxy between your agent and the model that compresses **every request** — system prompt, full history and tool results — prompt-cache-safe, with measured USD spend. Same layer as a standalone request-compression proxy (e.g. Headroom) — you don't need one on top.
+- **Request proxy** *(wire path, opt-in)*: `lean-ctx proxy enable` puts a local proxy between your agent and the model that compresses **every request** — system prompt, full history and tool results — prompt-cache-safe, with measured USD spend. It can also pin **one reasoning-effort level across OpenAI, Anthropic & Gemini** (`proxy.effort`) without breaking that cache. Same layer as a standalone request-compression proxy (e.g. Headroom) — you don't need one on top.
 - **Property Graph**: multi-edge code graph powers impact analysis, related file discovery, and search ranking
 - **Session memory**: persists state with structured recovery so long-running work never "cold starts"
 - **Context Manager**: browser dashboard for real-time visibility into what's in your context window

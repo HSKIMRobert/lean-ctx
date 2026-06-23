@@ -6,6 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Cache-safe cross-provider reasoning-effort control — `proxy.effort` (#834).**
+  One opt-in setting (`off` | `minimal` | `low` | `medium` | `high`) pins a single
+  reasoning-effort level across **all three providers** without breaking the provider
+  prompt cache. lean-ctx translates the constant level to each provider's native
+  parameter — OpenAI `reasoning_effort` / `reasoning.effort`, Anthropic
+  `output_config.effort`, and Gemini `thinkingConfig` (`thinkingLevel` on 3.x,
+  `thinkingBudget` on 2.5 pro/flash) — only on models that accept it and only when the
+  client didn't set its own value. Unlike per-turn "effort routing" (which flips
+  effort between turns and invalidates the cache — OpenAI lists effort changes as a
+  cache-invalidation cause; Anthropic breaks its message-cache breakpoints), the level
+  is a *constant*, so the cached prefix stays byte-stable (#448/#498) and only the
+  model's reasoning depth changes. Conservative by design: `off` is a strict no-op, it
+  never overrides a client value, never enables reasoning the client didn't ask for
+  (Anthropic adaptive-only; Gemini skips 2.5 flash-lite and never sends both thinking
+  fields), is model-gated (never turns a working `200` into a `400`) and deterministic.
+  `lean-ctx proxy status` surfaces the active level plus per-provider steer counts. Set
+  via `proxy.effort` or the `LEAN_CTX_PROXY_EFFORT` env (env wins).
 - **Unified security posture + `lean-ctx yolo` / `secure` master switches (#507).**
   Decouples lean-ctx's two independent security planes and makes them discoverable:
   **containment** (path jail + shell gating — protects the machine from the agent)
