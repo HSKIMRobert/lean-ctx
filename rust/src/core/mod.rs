@@ -29,6 +29,7 @@ pub mod protect;
 pub mod rabin_karp;
 pub mod rules_canonical;
 pub mod rules_channel;
+pub mod rules_overhead;
 pub mod structural_tokenizer;
 pub mod structured_read;
 
@@ -459,6 +460,7 @@ pub mod theme;
 pub mod threshold_learning;
 pub mod tokenizer_translation_driver;
 pub mod tokens;
+pub mod tool_health;
 pub mod tool_lifecycle;
 pub mod tool_profiles;
 pub mod transcript_compact;

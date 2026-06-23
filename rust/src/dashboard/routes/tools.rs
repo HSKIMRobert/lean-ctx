@@ -12,6 +12,17 @@ pub(super) fn handle(
     _body: &str,
 ) -> Option<(&'static str, &'static str, String)> {
     match path {
+        "/api/tools-health" => {
+            // Token-budget / rot report (#848): same deterministic, local-only
+            // computation the `lean-ctx tools health` CLI renders.
+            let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("~"));
+            let root_s = detect_project_root_for_dashboard();
+            let report = crate::core::tool_health::compute(&home, Path::new(&root_s));
+            let json = serde_json::to_string(&report).unwrap_or_else(|_| {
+                "{\"error\":\"failed to serialize tools-health report\"}".to_string()
+            });
+            Some(("200 OK", "application/json", json))
+        }
         "/api/search-index" => {
             let root_s = detect_project_root_for_dashboard();
             let root = Path::new(&root_s);

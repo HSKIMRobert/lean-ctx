@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Tool & rule budget — `lean-ctx tools health` (#848).** A deterministic,
+  local-only "rot" report answering whether every always-on token earns its
+  place. Cross-references the *fixed cost* of each advertised MCP tool schema,
+  the MCP instructions, and every auto-loaded rules file with *recorded usage*
+  (the post-dispatch cost ledger) to flag: tools that cost schema tokens every
+  session but are never called (`unused`), heavy-schema tools used for <1% of
+  calls (`low-use`), rules files that bill the same guidance to a client more
+  than once, and stale knowledge facts (>30d, never retrieved). Reuses existing
+  telemetry and adds **no** new hot-path cost — per-tool `last_used` rides the
+  cost-attribution write that already happens. Text (rot candidates only; `--all`
+  for the full list), `--json` for scripting, and a **Tool Budget** panel in the
+  dashboard health view (`/api/tools-health`). Never auto-applies: every finding
+  is a suggestion (`lean-ctx tools lean`, `lean-ctx rules dedup --apply`).
 - **Cache-safe cross-provider reasoning-effort control — `proxy.effort` (#834).**
   One opt-in setting (`off` | `minimal` | `low` | `medium` | `high`) pins a single
   reasoning-effort level across **all three providers** without breaking the provider

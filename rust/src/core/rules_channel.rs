@@ -21,8 +21,8 @@ pub const COMPRESSION_BLOCK_START: &str = "<!-- lean-ctx-compression -->";
 pub const COMPRESSION_BLOCK_END: &str = "<!-- /lean-ctx-compression -->";
 
 /// The agents that auto-load the shared project `AGENTS.md`. Kept in sync with
-/// `doctor::overhead::collect_rules_files`, which attributes `AGENTS.md` to the
-/// same set.
+/// `core::rules_overhead::collect_rules_files`, which attributes `AGENTS.md` to
+/// the same set.
 pub const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
 
 /// True when `content` carries a *full* lean-ctx payload — the canonical rule

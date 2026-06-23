@@ -43,6 +43,11 @@ pub struct ToolCost {
     #[serde(default)]
     pub avg_cached_tokens: f64,
     pub cost_usd: f64,
+    /// RFC3339 timestamp of the most recent call to this tool. Set on the
+    /// existing post-dispatch write path, so the tool-health "rot" report
+    /// (#848) gets an honest last-used signal at no new hot-path cost.
+    #[serde(default)]
+    pub last_used: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +135,7 @@ impl CostStore {
         tool.total_cached_tokens += cached_tokens;
         tool.total_calls += 1;
         tool.cost_usd += cost;
+        tool.last_used = Some(now.clone());
         if tool.total_calls > 0 {
             tool.avg_input_tokens = tool.total_input_tokens as f64 / tool.total_calls as f64;
             tool.avg_output_tokens = tool.total_output_tokens as f64 / tool.total_calls as f64;

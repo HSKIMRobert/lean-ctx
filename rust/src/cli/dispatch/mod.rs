@@ -486,6 +486,12 @@ pub fn run() {
                 return;
             }
             "tools" => {
+                // `tools health` is the token-budget / rot report (#848); it is
+                // distinct from tool *profiles* and routed before the forward.
+                if rest.first().map(String::as_str) == Some("health") {
+                    super::cmd_tools_health(&rest[1..]);
+                    return;
+                }
                 // Canonical, unambiguous entry point for MCP *tool* profiles
                 // (how many tools the agent sees). Disambiguates from
                 // `lean-ctx profile`, which manages *context* profiles.

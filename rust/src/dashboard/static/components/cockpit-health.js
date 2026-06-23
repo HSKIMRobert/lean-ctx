@@ -6,6 +6,7 @@ var CKH_TABS = [
   { id: 'anomalies', label: 'Anomalies' },
   { id: 'verification', label: 'Verification' },
   { id: 'bugmemory', label: 'Bug Memory' },
+  { id: 'toolbudget', label: 'Tool Budget' },
 ];
 
 function ckhApi() {
@@ -36,6 +37,7 @@ class CockpitHealth extends HTMLElement {
     this._anomalyData = null;
     this._verificationData = null;
     this._gotchaData = null;
+    this._toolBudgetData = null;
     this._onRefresh = this._onRefresh.bind(this);
   }
 
@@ -93,15 +95,19 @@ class CockpitHealth extends HTMLElement {
       fetchJson('/api/gotchas', { timeoutMs: 10000 }).catch(function (e) {
         return { __error: e && e.error ? e.error : String(e || 'error') };
       }),
+      fetchJson('/api/tools-health', { timeoutMs: 10000 }).catch(function (e) {
+        return { __error: e && e.error ? e.error : String(e || 'error') };
+      }),
     ]);
 
     this._sloData = results[0] && !results[0].__error ? results[0] : null;
     this._anomalyData = results[1] && !results[1].__error ? results[1] : null;
     this._verificationData = results[2] && !results[2].__error ? results[2] : null;
     this._gotchaData = results[3] && !results[3].__error ? results[3] : null;
+    this._toolBudgetData = results[4] && !results[4].__error ? results[4] : null;
 
     if (!this._sloData && !this._anomalyData &&
-        !this._verificationData && !this._gotchaData) {
+        !this._verificationData && !this._gotchaData && !this._toolBudgetData) {
       this._error = 'Could not load health data';
     }
 
@@ -151,6 +157,7 @@ class CockpitHealth extends HTMLElement {
     if (this._tab === 'anomalies') return this._renderAnomalies(esc);
     if (this._tab === 'verification') return this._renderVerification(esc);
     if (this._tab === 'bugmemory') return this._renderBugMemory(esc);
+    if (this._tab === 'toolbudget') return this._renderToolBudget(esc);
     return '';
   }
 
@@ -416,6 +423,117 @@ class CockpitHealth extends HTMLElement {
       '<th>Resolution</th><th class="r">Occurrences</th><th>First Seen</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>'
     );
+  }
+
+  /* ============ Tool Budget (#848) ============ */
+
+  _renderToolBudget(esc) {
+    var F = ckhFmt();
+    var ff = F.ff || function (n) { return String(n); };
+    var d = this._toolBudgetData;
+
+    if (!d) {
+      return (
+        '<div class="card"><div class="empty-state">' +
+        '<h2>No Tool Budget Data</h2>' +
+        '<p>Could not load <code>/api/tools-health</code>.</p>' +
+        '</div></div>'
+      );
+    }
+
+    var summary =
+      '<div class="hero r4 stagger" style="margin-bottom:16px">' +
+      '<div class="hc"><span class="hl">Advertised tools</span>' +
+      '<div class="hv">' + esc(ff(d.advertised_tools || 0)) + '</div></div>' +
+      '<div class="hc"><span class="hl">Fixed cost / session</span>' +
+      '<div class="hv">' + esc(ff(d.fixed_total_tokens || 0)) + ' tok</div></div>' +
+      '<div class="hc"><span class="hl">Unused tools</span>' +
+      '<div class="hv" style="color:' +
+      ((d.unused_tools || 0) > 0 ? 'var(--red)' : 'var(--green)') + '">' +
+      esc(ff(d.unused_tools || 0)) + '</div></div>' +
+      '<div class="hc"><span class="hl">Recorded calls</span>' +
+      '<div class="hv">' + esc(ff(d.total_recorded_calls || 0)) + '</div></div></div>';
+
+    if (!d.has_usage_data) {
+      summary +=
+        '<div class="card"><p class="hs" style="padding:16px">' +
+        'No usage telemetry yet — run lean-ctx-backed sessions to populate per-tool usage, ' +
+        'then rot detection (unused / low-use tools) activates.</p></div>';
+    }
+
+    var tools = Array.isArray(d.tools) ? d.tools : [];
+    var flagged = tools.filter(function (t) {
+      return t.status === 'unused' || t.status === 'low_use';
+    });
+    flagged.sort(function (a, b) {
+      if (a.status !== b.status) return a.status === 'unused' ? -1 : 1;
+      return (b.schema_tokens || 0) - (a.schema_tokens || 0);
+    });
+
+    var rotCard = '';
+    if (d.has_usage_data) {
+      if (flagged.length === 0) {
+        rotCard =
+          '<div class="card"><p class="hs" style="text-align:center;padding:20px;color:var(--green)">' +
+          'No rot — every advertised tool was used at least once.</p></div>';
+      } else {
+        var rows = '';
+        for (var i = 0; i < flagged.length; i++) {
+          var t = flagged[i];
+          var cls = t.status === 'unused' ? 'td' : 'ty';
+          rows +=
+            '<tr><td>' + esc(t.name || '\u2014') + '</td>' +
+            '<td><span class="tag ' + cls + '">' + esc(String(t.status).replace('_', '-')) + '</span></td>' +
+            '<td class="r">' + esc(ff(t.schema_tokens || 0)) + '</td>' +
+            '<td class="r">' + esc(ff(t.calls || 0)) + '</td>' +
+            '<td>' + esc(t.action || '\u2014') + '</td></tr>';
+        }
+        rotCard =
+          '<div class="card">' +
+          '<div class="card-header"><h3>Rot candidates</h3>' +
+          '<span class="badge">' + esc(ff(d.unused_tool_tokens || 0)) + ' tok wasted/session</span></div>' +
+          '<div class="table-scroll"><table>' +
+          '<thead><tr><th>Tool</th><th>Status</th><th class="r">Schema tok</th>' +
+          '<th class="r">Calls</th><th>Suggested action</th></tr></thead>' +
+          '<tbody>' + rows + '</tbody></table></div></div>';
+      }
+    }
+
+    var dups = Array.isArray(d.duplicate_clients) ? d.duplicate_clients : [];
+    var rulesCard = '';
+    if (dups.length > 0) {
+      var dupRows = '';
+      for (var j = 0; j < dups.length; j++) {
+        dupRows +=
+          '<tr><td>' + esc(dups[j][0]) + '</td>' +
+          '<td class="r">' + esc(String(dups[j][1])) + '\u00d7</td></tr>';
+      }
+      rulesCard =
+        '<div class="card" style="margin-top:14px">' +
+        '<div class="card-header"><h3>Duplicate rules</h3></div>' +
+        '<p class="hs" style="padding:0 4px 8px">Same lean-ctx guidance billed multiple times — ' +
+        '<code>lean-ctx rules dedup --apply</code>.</p>' +
+        '<div class="table-scroll"><table>' +
+        '<thead><tr><th>Client</th><th class="r">Full sources</th></tr></thead>' +
+        '<tbody>' + dupRows + '</tbody></table></div></div>';
+    }
+
+    var k = d.knowledge || {};
+    var knowCard = '';
+    if ((k.total_facts || 0) > 0) {
+      var staleColor = (k.stale_facts || 0) > 0 ? 'var(--yellow)' : 'var(--green)';
+      knowCard =
+        '<div class="card" style="margin-top:14px">' +
+        '<div class="card-header"><h3>Knowledge</h3>' +
+        '<span class="badge">' + esc(ff(k.total_facts || 0)) + ' facts</span></div>' +
+        '<div class="sr"><span class="sl">Active</span>' +
+        '<span class="sv">' + esc(ff(k.active_facts || 0)) + '</span></div>' +
+        '<div class="sr"><span class="sl">Stale (>30d, never retrieved)</span>' +
+        '<span class="sv" style="color:' + staleColor + '">' + esc(ff(k.stale_facts || 0)) + '</span></div>' +
+        '</div>';
+    }
+
+    return summary + rotCard + rulesCard + knowCard;
   }
 }
 

@@ -64,6 +64,8 @@ EVERYDAY COMMANDS:
     lean-ctx dashboard             Open the web dashboard (localhost:3333)
     lean-ctx tools <profile>       Choose how many MCP tools your agent sees
                                    (minimal · standard · power)
+    lean-ctx tools health          Token-budget & rot report (unused tools,
+                                   duplicate rules, stale knowledge)
 
 MANAGE:
     lean-ctx status                Am I connected? (quick check)
