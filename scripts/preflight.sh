@@ -8,10 +8,25 @@
 # e.g. a private intra-doc link (Documentation job) or test-only code that is
 # dead on Windows (Test job) — both invisible to `cargo test` / plain clippy.
 #
+# Change-aware (#850): the Rust gates can only be broken by Rust/Cargo changes,
+# so a docs-only push (README, CHANGELOG, *.md, website, …) skips them and the
+# pre-push gate finishes in a second. CI still runs every job unconditionally —
+# it stays the source of truth — but a docs-only diff cannot turn a Rust gate
+# red, so skipping it locally can never produce a local-green / CI-red split.
+# `gen_docs --check` additionally guards the committed generated reference, so it
+# also runs whenever a file under docs/reference/generated/** changed by hand.
+# `full` (release parity) ignores classification and runs everything + tests.
+#
+# No-test policy (#849): a change to contract code (proxy / tools / config
+# schema — anything feeding deterministic output, #498) that carries no test
+# signal is flagged. Advisory by default; LEAN_CTX_PREFLIGHT_STRICT_TESTS=1
+# makes it blocking.
+#
 # Usage:
 #   scripts/preflight.sh [fast|full]      (default: fast)
-#     fast   fmt + clippy + doc + gen_docs drift + Windows cross-compile
-#     full   fast + `cargo test --lib`
+#     fast   change-aware: fmt + clippy + doc + gen_docs drift + Windows
+#            cross-compile, each skipped when no Rust/generated-doc file changed
+#     full   force everything regardless of the diff, plus `cargo test --lib`
 #
 # Bypass: not from here — use `SKIP_PREFLIGHT=1 git push` / `git push --no-verify`.
 #
@@ -32,6 +47,69 @@ case "$LEVEL" in
 esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Base ref for changed-file detection. Overridable for forks/CI that track a
+# different upstream; defaults to the branch CI gates against.
+BASE_REF="${PREFLIGHT_BASE:-origin/main}"
+
+# ── Change classification (#850/#849) ─────────────────────────────────
+# Sets: RUST_CHANGED, GENERATED_DOCS_CHANGED, CONTRACT_CHANGED, TEST_SIGNAL,
+# CHANGED_COUNT, CLASSIFY_OK. When the base ref is unreachable (fresh clone,
+# detached history) CLASSIFY_OK=0 → callers fall back to running everything.
+classify_changes() {
+  RUST_CHANGED=0
+  GENERATED_DOCS_CHANGED=0
+  CONTRACT_CHANGED=0
+  TEST_SIGNAL=0
+  CHANGED_COUNT=0
+  CLASSIFY_OK=1
+  BASE_SHA=""
+
+  local base
+  base="$(git -C "$REPO_ROOT" merge-base "$BASE_REF" HEAD 2>/dev/null || true)"
+  if [[ -z "$base" ]]; then
+    CLASSIFY_OK=0
+    return
+  fi
+  BASE_SHA="$base"
+
+  # base..working-tree (committed + staged + unstaged) ∪ untracked.
+  local files
+  files="$( {
+      git -C "$REPO_ROOT" diff --name-only "$base"
+      git -C "$REPO_ROOT" ls-files --others --exclude-standard
+    } 2>/dev/null | sed 's#\\#/#g' | sort -u | sed '/^$/d' )"
+
+  CHANGED_COUNT="$(printf '%s\n' "$files" | sed '/^$/d' | grep -c '' || true)"
+
+  local f
+  while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    case "$f" in
+      rust/*) RUST_CHANGED=1 ;;
+    esac
+    case "$f" in
+      docs/reference/generated/*) GENERATED_DOCS_CHANGED=1 ;;
+    esac
+    case "$f" in
+      rust/src/proxy/*|rust/src/tools/*|rust/src/core/config/schema/*) CONTRACT_CHANGED=1 ;;
+    esac
+    case "$f" in
+      rust/tests/*|*/tests/*|*test*.rs|*tests.rs) TEST_SIGNAL=1 ;;
+    esac
+  done <<< "$files"
+
+  # Inline tests live in the same .rs file as the code (#[cfg(test)] mod tests),
+  # so a filename check misses them. If no test *file* changed, look for test
+  # signal inside the Rust diff itself.
+  if [[ "$TEST_SIGNAL" -eq 0 ]]; then
+    if git -C "$REPO_ROOT" diff "$base" -- rust 2>/dev/null \
+        | grep -Eq '^[+-].*(#\[test\]|#\[cfg\(test\)\]|assert(_eq|_ne)?!|proptest!)'; then
+      TEST_SIGNAL=1
+    fi
+  fi
+}
+
 cd "$REPO_ROOT/rust"
 
 # Match CI's environment. RUSTFLAGS=-Dwarnings is applied *per step* (only where
@@ -55,6 +133,7 @@ YELLOW="\033[1;33m"; RESET="\033[0m"
 PASSED=()
 FAILED=()
 SKIPPED=()
+WARNED=()
 
 step() { # step "Label" cmd...
   local label="$1"; shift
@@ -72,32 +151,92 @@ skip() { # skip "Label" "reason"
   SKIPPED+=("$1: $2")
 }
 
-printf "${BOLD}preflight (%s) — CI-parity gate${RESET}\n" "$LEVEL"
+# ── Classify + decide what to run ─────────────────────────────────────
+classify_changes
 
-step "Format (cargo fmt --check)" \
-  cargo fmt --check
+FORCE_ALL=0
+[[ "$LEVEL" == "full" ]] && FORCE_ALL=1
+[[ "$CLASSIFY_OK" -eq 0 ]] && FORCE_ALL=1
 
-step "Clippy (--all-features -D warnings)" \
-  cargo clippy --all-features -- -D warnings
-
-step "Docs (rustdoc -D warnings)" \
-  cargo doc --no-deps --all-features
-
-step "Generated-docs drift (gen_docs --check)" \
-  cargo run --quiet --example gen_docs --features dev-tools -- --check
-
-if rustup target list --installed 2>/dev/null | grep -qx "$WIN_TARGET"; then
-  step "Windows cross-compile ($WIN_TARGET)" \
-    env RUSTFLAGS=-Dwarnings cargo check --target "$WIN_TARGET" --lib --tests \
-      --no-default-features --features "$WIN_FEATURES"
+if [[ "$FORCE_ALL" -eq 1 ]]; then
+  RUN_RUST=1
+  RUN_GEN_DOCS=1
 else
-  skip "Windows cross-compile ($WIN_TARGET)" \
-    "target not installed — run: rustup target add $WIN_TARGET"
+  RUN_RUST="$RUST_CHANGED"
+  RUN_GEN_DOCS=0
+  { [[ "$RUST_CHANGED" -eq 1 ]] || [[ "$GENERATED_DOCS_CHANGED" -eq 1 ]]; } && RUN_GEN_DOCS=1
 fi
 
-if [ "$LEVEL" = "full" ]; then
+printf "${BOLD}preflight (%s) — CI-parity gate${RESET}\n" "$LEVEL"
+if [[ "$CLASSIFY_OK" -eq 1 ]]; then
+  printf "  changed files vs %s: %s  (rust=%s, generated-docs=%s, contract=%s)\n" \
+    "$BASE_REF" "$CHANGED_COUNT" "$RUST_CHANGED" "$GENERATED_DOCS_CHANGED" "$CONTRACT_CHANGED"
+else
+  printf "  ${YELLOW}change classification unavailable (no %s) — running full gate${RESET}\n" "$BASE_REF"
+fi
+
+# Always-on cheap gate: whitespace errors + leftover conflict markers. Checks
+# the pushed range (base..HEAD) when known, else the working tree.
+if [[ -n "$BASE_SHA" ]]; then
+  step "Whitespace / conflict markers (git diff --check)" \
+    git -C "$REPO_ROOT" diff --check "$BASE_SHA" HEAD
+else
+  step "Whitespace / conflict markers (git diff --check)" \
+    git -C "$REPO_ROOT" diff --check
+fi
+
+if [[ "$RUN_RUST" -eq 1 ]]; then
+  step "Format (cargo fmt --check)" \
+    cargo fmt --check
+
+  step "Clippy (--all-features -D warnings)" \
+    cargo clippy --all-features -- -D warnings
+
+  step "Docs (rustdoc -D warnings)" \
+    cargo doc --no-deps --all-features
+else
+  skip "Format / Clippy / Docs" "no Rust/Cargo files changed (docs-only)"
+fi
+
+if [[ "$RUN_GEN_DOCS" -eq 1 ]]; then
+  step "Generated-docs drift (gen_docs --check)" \
+    cargo run --quiet --example gen_docs --features dev-tools -- --check
+else
+  skip "Generated-docs drift (gen_docs --check)" "no Rust or generated-doc files changed"
+fi
+
+if [[ "$RUN_RUST" -eq 1 ]]; then
+  if rustup target list --installed 2>/dev/null | grep -qx "$WIN_TARGET"; then
+    step "Windows cross-compile ($WIN_TARGET)" \
+      env RUSTFLAGS=-Dwarnings cargo check --target "$WIN_TARGET" --lib --tests \
+        --no-default-features --features "$WIN_FEATURES"
+  else
+    skip "Windows cross-compile ($WIN_TARGET)" \
+      "target not installed — run: rustup target add $WIN_TARGET"
+  fi
+else
+  skip "Windows cross-compile ($WIN_TARGET)" "no Rust/Cargo files changed (docs-only)"
+fi
+
+if [[ "$LEVEL" = "full" ]]; then
   step "Unit tests (cargo test --lib)" \
     env RUSTFLAGS=-Dwarnings cargo test --lib --all-features
+fi
+
+# ── No-test policy (#849) ─────────────────────────────────────────────
+# Contract code changed but the diff carries no test signal → flag it. Advisory
+# unless LEAN_CTX_PREFLIGHT_STRICT_TESTS=1. Never triggers for docs/metadata-only
+# changes (CONTRACT_CHANGED stays 0).
+if [[ "$CLASSIFY_OK" -eq 1 && "$CONTRACT_CHANGED" -eq 1 && "$TEST_SIGNAL" -eq 0 ]]; then
+  MSG="contract code changed (proxy/tools/config-schema) but the diff adds no test signal — add/adjust tests or justify"
+  if [[ "${LEAN_CTX_PREFLIGHT_STRICT_TESTS:-0}" == "1" ]]; then
+    printf "\n${RED}▶ No-test policy (#849)${RESET}\n  ${RED}%s${RESET}\n" "$MSG"
+    FAILED+=("No-test policy: $MSG")
+  else
+    printf "\n${YELLOW}▶ No-test policy (#849) — advisory${RESET}\n  ${YELLOW}%s${RESET}\n" "$MSG"
+    printf "  ${YELLOW}(set LEAN_CTX_PREFLIGHT_STRICT_TESTS=1 to make this blocking)${RESET}\n"
+    WARNED+=("No-test policy: $MSG")
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────
@@ -106,6 +245,10 @@ printf "${GREEN}  ok passed:  %d${RESET}\n" "${#PASSED[@]}"
 if [ "${#SKIPPED[@]}" -gt 0 ]; then
   printf "${YELLOW}  -- skipped: %d${RESET}\n" "${#SKIPPED[@]}"
   for s in "${SKIPPED[@]}"; do printf "${YELLOW}      - %s${RESET}\n" "$s"; done
+fi
+if [ "${#WARNED[@]}" -gt 0 ]; then
+  printf "${YELLOW}  !! warned:  %d${RESET}\n" "${#WARNED[@]}"
+  for w in "${WARNED[@]}"; do printf "${YELLOW}      - %s${RESET}\n" "$w"; done
 fi
 if [ "${#FAILED[@]}" -gt 0 ]; then
   printf "${RED}  XX failed:  %d${RESET}\n" "${#FAILED[@]}"

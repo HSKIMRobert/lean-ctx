@@ -30,6 +30,20 @@ cargo test --all-features
 cargo test --release
 ```
 
+### Pre-push gate (CI parity)
+
+`make setup-hooks` wires a pre-push hook that runs `scripts/preflight.sh fast` —
+the deterministic CI jobs (fmt, clippy, rustdoc, generated-docs drift, Windows
+cross-compile) mirrored locally so you catch them in seconds, not after a 50-min
+matrix. It is **change-aware**: a docs-only push (README, CHANGELOG, `*.md`,
+website, …) skips the Rust gates entirely, while CI still runs every job as the
+source of truth. Run the full gate (everything + `cargo test --lib`, ignoring the
+diff) with `make preflight`. Bypass once with `SKIP_PREFLIGHT=1 git push`.
+
+A change to contract code (`proxy/`, `tools/`, `config/schema/`) that ships no
+test signal triggers a **no-test advisory**; export
+`LEAN_CTX_PREFLIGHT_STRICT_TESTS=1` to make it blocking.
+
 ## Building across worktrees & disk usage
 
 lean-ctx pulls in a **heavy native-dependency tree** (jemalloc, an `aws-lc`

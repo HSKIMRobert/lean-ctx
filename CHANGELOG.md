@@ -154,6 +154,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   can opt in via `LEAN_CTX_TRUST_WORKSPACE=1` or `LEAN_CTX_TRUSTED_ROOTS`.
 
 ### Changed
+- **Change-aware pre-push gate + no-test advisory (#850/#849).** `scripts/preflight.sh`
+  now classifies the diff against `origin/main`: a docs-only push (README, CHANGELOG,
+  `*.md`, website, scripts) skips the Rust gates (fmt/clippy/rustdoc/Windows
+  cross-compile) and the pre-push hook finishes in ~0.1 s instead of ~140 s.
+  `gen_docs --check` still runs whenever Rust **or** a committed file under
+  `docs/reference/generated/**` changed. CI is unchanged and remains the source of
+  truth (a docs-only diff cannot turn a Rust gate red, so the local skip can never
+  cause a local-green / CI-red split); `make preflight` forces the full gate. A change
+  to contract code (`proxy/`, `tools/`, `config/schema/`) with no test signal in the
+  diff prints a no-test advisory — blocking under `LEAN_CTX_PREFLIGHT_STRICT_TESTS=1`.
 - **Faster semantic search on a native ONNX Runtime (#497).** The
   embedding/index stack moves from the pure-Rust `rten` backend to native `ort`
   (ONNX Runtime 2.0), with a rebuilt indexing pipeline (int8-quantized vectors,
