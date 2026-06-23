@@ -155,7 +155,7 @@ impl ResponseVerbosity {
 }
 
 /// Each level maps to specific component settings via `to_components()`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum CompressionLevel {
     Off,
@@ -222,7 +222,7 @@ impl CompressionLevel {
             return env_level;
         }
         if config.compression_level != Self::Off {
-            return config.compression_level.clone();
+            return config.compression_level;
         }
         if config.ultra_compact {
             return Self::Max;
