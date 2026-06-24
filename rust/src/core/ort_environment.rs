@@ -8,7 +8,8 @@
 //!
 //! 1. `ORT_DYLIB_PATH` env var (resolved relative to the executable directory)
 //! 2. Nix profile paths — `/run/current-system/sw/lib/`, `~/.nix-profile/lib/` (Linux)
-//! 3. Well-known system directories per platform
+//! 3. Well-known system directories per platform, including the active
+//!    `HOMEBREW_PREFIX` and the standard Homebrew/Linuxbrew lib dirs
 //! 4. `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH`
 //!
 //! If no copy is found, [`ensure_ort_env`] returns an eager error — session
@@ -157,7 +158,14 @@ fn nix_profile_search(name: &str) -> Option<PathBuf> {
 fn well_known_paths(name: &str) -> Option<PathBuf> {
     // Platform-specific hints.
     let dirs: &[&str] = if cfg!(target_os = "linux") {
-        &["/usr/lib", "/usr/lib64", "/usr/local/lib"]
+        &[
+            "/usr/lib",
+            "/usr/lib64",
+            "/usr/local/lib",
+            // Linuxbrew default prefix (the `onnxruntime` formula symlinks its
+            // dylib here). A custom prefix is covered by HOMEBREW_PREFIX below.
+            "/home/linuxbrew/.linuxbrew/lib",
+        ]
     } else if cfg!(target_os = "macos") {
         &["/usr/local/lib", "/opt/homebrew/lib", "/opt/local/lib"]
     } else if cfg!(target_os = "windows") {
@@ -190,6 +198,18 @@ fn well_known_paths(name: &str) -> Option<PathBuf> {
     };
     if let Some(path) = exe_relative() {
         return Some(path);
+    }
+
+    // Honor an active Homebrew environment. `brew shellenv` exports
+    // HOMEBREW_PREFIX, so a binary launched from a brew-configured shell can
+    // locate the dylib regardless of platform or custom prefix — Apple Silicon
+    // (/opt/homebrew), Intel (/usr/local) and Linuxbrew
+    // (/home/linuxbrew/.linuxbrew) all symlink `onnxruntime` into <prefix>/lib.
+    if let Ok(prefix) = std::env::var("HOMEBREW_PREFIX") {
+        let candidate = Path::new(&prefix).join("lib").join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
     }
 
     for dir in dirs {
@@ -255,6 +275,24 @@ mod tests {
     #[test]
     fn well_known_paths_returns_none_for_nonsense() {
         assert!(well_known_paths("this-library-surely-does-not-exist.so").is_none());
+    }
+
+    #[test]
+    fn homebrew_prefix_lib_is_searched() {
+        // A dylib under $HOMEBREW_PREFIX/lib is discovered (covers Homebrew on
+        // any platform / custom prefix, incl. Linuxbrew). See issue #544.
+        let tmp = std::env::temp_dir().join(format!("lc-ort-hb-{}", std::process::id()));
+        let libdir = tmp.join("lib");
+        std::fs::create_dir_all(&libdir).unwrap();
+        let name = "libonnxruntime-test-marker.dylib";
+        std::fs::write(libdir.join(name), b"marker").unwrap();
+
+        crate::test_env::set_var("HOMEBREW_PREFIX", tmp.to_str().unwrap());
+        let found = well_known_paths(name);
+        crate::test_env::remove_var("HOMEBREW_PREFIX");
+        std::fs::remove_dir_all(&tmp).ok();
+
+        assert_eq!(found, Some(libdir.join(name)));
     }
 
     #[cfg(target_os = "linux")]
