@@ -212,6 +212,8 @@ lean-ctx gain             # savings appear after your AI's first lean-ctx call
 
 After onboarding, restart your shell and your editor/AI tool once so the MCP + hooks are active. `lean-ctx gain` is empty until your AI tool makes its first lean-ctx call — that's expected, not a misconfiguration.
 
+**Building from source on Windows?** Clone the repo and run `./install.ps1` in PowerShell — it builds the release binary and installs it into Cargo's bin directory (pass `-BuildOnly` to build without installing).
+
 <details>
 <summary><strong>Troubleshooting / Safety</strong></summary>
 
