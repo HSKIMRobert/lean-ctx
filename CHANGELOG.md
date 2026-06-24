@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Addon security hardening — trust, policy, signing, sandbox, audit (#863).**
+  Because an addon is executable trust (a stdio addon runs code on your machine;
+  an http addon receives your context; its output enters the model), the
+  ecosystem ships with defense-in-depth across three tiers:
+  - **Trust tier + risk review.** A registry-controlled `addon.verified` flag
+    splits the catalog into *verified* (maintainer-audited) and *community*, shown
+    in `addon list`/`info` and the install preview. `core::addons::trust::assess`
+    statically reviews the `[mcp]` wiring (remote endpoint, non-HTTPS, inline
+    shell, fetch-and-exec, unpinned upstream, secret-bearing env) at info/warn/
+    danger severity. The same logic backs a **registry CI validator**
+    (`registry::validate_entries`, run by `cargo test`): unique slugs, required
+    provenance for installable entries, no shell/fetch/non-HTTPS/unpinned wiring,
+    and zero findings for verified entries.
+  - **Install policy floor — `[addons]`.** A global-only config block (never
+    merged from a project-local file): `policy` (`open`/`verified_only`/
+    `allowlist`/`locked`), `allowlist`, `require_signature`, `sandbox`,
+    `block_risky`. `policy::gate` enforces it in `install` before any gateway
+    mutation. Fully permissive by default; distribute via MDM or pin through the
+    signed org-policy floor.
+  - **Registry signing.** A user-override registry can shadow trusted names; with
+    `require_signature = true` it is honoured only if a sidecar
+    `addon_registry.json.sig` carries a valid Ed25519 signature by a trusted org
+    key (same anchor as `policy org trust`).
+  - **Opt-in OS sandbox.** `addons.sandbox = auto|strict` wraps spawned stdio
+    servers in `sandbox-exec` (macOS) / `bwrap` (Linux) at the single spawn point
+    — outbound-network isolation in `auto`, read-only fs + refuse-if-no-launcher
+    in `strict`. Off by default.
+  - **Runtime redaction + audit.** Downstream tool output is run through the
+    shell-layer secret redaction and audit-tagged as untrusted before it reaches
+    the model (`runtime::scrub_output`).
+  New small, unit-tested modules `core::addons::{trust,policy,signing,sandbox,
+  runtime}`; binding registry-review checklist in `CONTRIBUTING.md`.
+
 ### Changed
 - **Leaderboard — no top-50 cap, real pagination, everyone findable.** The
   community leaderboard previously truncated to the top 50 accounts, so most

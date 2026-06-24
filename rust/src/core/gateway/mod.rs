@@ -60,7 +60,10 @@ pub async fn proxy(
     let resolved = server.resolve()?;
     let timeout = std::time::Duration::from_secs(cfg.call_timeout_secs.max(1));
     let result = client::proxy_call(&resolved, tool, arguments, timeout).await?;
-    let text = client::result_to_text(&result);
+    // Downstream output is untrusted content (#866): redact secrets + audit it
+    // before it enters the model context.
+    let text =
+        crate::core::addons::runtime::scrub_output(server_name, &client::result_to_text(&result));
     if result.is_error.unwrap_or(false) {
         return Err(format!("downstream `{handle}` reported an error:\n{text}"));
     }

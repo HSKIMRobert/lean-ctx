@@ -121,6 +121,48 @@ appears on the website's Addons page.
 - Everything is local and deterministic: no network calls or telemetry in the
   add/list/search/info/remove paths.
 
+## Security & trust
+
+An addon runs real code with your privileges (stdio) or sends context to a remote
+endpoint (http), so lean-ctx makes installing one a disclosed, policy-gated
+action. Full model: the [contract](../contracts/addon-manifest-v1.md#security-model).
+
+- **Trust tier.** Catalog entries are **verified** (maintainer-audited) or
+  **community** (installable, unaudited). The tier shows in `addon list`,
+  `addon info` and the install preview.
+- **Risk review.** Before install, lean-ctx prints a security review of the
+  wiring — remote endpoints, shelling out, unpinned upstreams, secret-bearing env
+  — so you see what an addon can do before you say yes.
+- **Untrusted output.** An addon's tool output is redacted for secrets and
+  audit-tagged as untrusted before it reaches the model.
+
+### Lock it down (teams / enterprise)
+
+The global-only `[addons]` block sets a floor an untrusted repo can't loosen:
+
+```bash
+# only install maintainer-verified addons
+lean-ctx config set addons.policy verified_only
+
+# or restrict to an explicit allowlist
+lean-ctx config set addons.policy allowlist
+lean-ctx config set addons.allowlist my-addon,other-addon
+
+# refuse anything with a high-risk capability
+lean-ctx config set addons.block_risky true
+
+# sandbox spawned addon servers (macOS sandbox-exec / Linux bwrap)
+lean-ctx config set addons.sandbox strict
+
+# require a signed user-override registry (trusted org key)
+lean-ctx config set addons.require_signature true
+
+lean-ctx config schema addons   # inspect every key
+```
+
+Distribute these via MDM / config-management, or pin them through the signed
+org-policy floor (`policy org`) to make them un-bypassable.
+
 ## Troubleshooting
 
 ```bash

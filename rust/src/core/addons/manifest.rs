@@ -37,6 +37,11 @@ pub struct AddonMeta {
     pub keywords: Vec<String>,
     /// Minimum lean-ctx version the addon targets (informational).
     pub min_lean_ctx: String,
+    /// Trust tier. `true` **only** for entries audited and vouched by
+    /// maintainers in the curated registry; community submissions stay `false`.
+    /// Author-set in a local manifest is meaningless — trust is conferred by the
+    /// registry the entry ships in, not by the entry claiming it.
+    pub verified: bool,
 }
 
 /// `[mcp]` — how lean-ctx launches/connects to the addon's MCP server.

@@ -87,6 +87,16 @@ Top-level configuration keys
 - `ultra_compact` (bool, default `false`) — Legacy flag for maximum compression (use compression_level instead)
 - `update_check_disabled` (bool, default `false` — env `LEAN_CTX_NO_UPDATE_CHECK`) — Disable the daily version check
 
+## `[addons]`
+
+Addon ecosystem security floor: install policy, signature requirement, sandbox (#863). Global-only.
+
+- `allowlist` (array, default `[]`) — Addon slugs permitted when policy = allowlist
+- `block_risky` (bool, default `false`) — Refuse to install an addon that has a high-risk (Danger) capability
+- `policy` (enum: open | verified_only | allowlist | locked, default `open`) — Addon install policy: open (any) | verified_only | allowlist | locked
+- `require_signature` (bool, default `false`) — Honour a user-override registry only if signed by a trusted org key
+- `sandbox` (enum: off | auto | strict, default `off`) — Sandbox spawned addon stdio servers: off | auto (block network) | strict (read-only fs + refuse if no launcher)
+
 ## `[archive]`
 
 Settings for the zero-loss compression archive (large tool outputs saved to disk)

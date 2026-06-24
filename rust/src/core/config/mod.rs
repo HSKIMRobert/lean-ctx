@@ -454,6 +454,11 @@ pub struct Config {
     /// no-op until `gateway.enabled = true`.
     #[serde(default)]
     pub gateway: crate::core::gateway::GatewayConfig,
+    /// Addon ecosystem security floor (#863): install policy, registry-signature
+    /// requirement and sandboxing for spawned addon servers. Global-only (never
+    /// merged from project-local config) and fully permissive by default.
+    #[serde(default)]
+    pub addons: crate::core::addons::AddonsConfig,
     /// Allow automatic project-root re-rooting when absolute paths outside the jail are seen.
     /// When false (default), absolute paths outside the jail are rejected without re-rooting.
     /// Override via LEAN_CTX_ALLOW_REROOT env var.
@@ -626,6 +631,7 @@ impl Default for Config {
             secret_detection: SecretDetectionConfig::default(),
             sensitivity: crate::core::sensitivity::SensitivityConfig::default(),
             gateway: crate::core::gateway::GatewayConfig::default(),
+            addons: crate::core::addons::AddonsConfig::default(),
             allow_auto_reroot: false,
             path_jail: None,
             sandbox_level: 0,

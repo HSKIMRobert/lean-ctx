@@ -34,6 +34,12 @@ pub fn install(manifest: &AddonManifest, source: &str) -> Result<InstallOutcome,
         )
     })?;
 
+    // Security floor (#865): enforce the global-only install policy before any
+    // gateway mutation, so a blocked addon never touches config.
+    let cfg = Config::load();
+    let findings = super::trust::assess(manifest);
+    super::policy::gate(manifest, &cfg.addons, &findings)?;
+
     let name = manifest.addon.name.clone();
     let server_name = server.name.clone();
     let mut enabled_gateway = false;

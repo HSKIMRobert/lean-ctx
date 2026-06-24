@@ -85,8 +85,9 @@ fn cmd_list() {
             } else {
                 " · listed (no published endpoint yet)"
             };
+            let badge = if m.addon.verified { " [verified]" } else { "" };
             println!(
-                "  • {} — {}{status}{installed_flag}",
+                "  • {}{badge} — {}{status}{installed_flag}",
                 m.addon.name,
                 first_line(&m.addon.description)
             );
@@ -298,6 +299,10 @@ fn cmd_remove(name: &str, args: &[String]) {
 
 fn print_install_preview(manifest: &AddonManifest) {
     let mcp = &manifest.mcp;
+    println!(
+        "  trust:     {}",
+        crate::core::addons::TrustTier::of(manifest).label()
+    );
     println!("  transport: {}", mcp.transport.as_str());
     match mcp.transport {
         crate::core::gateway::TransportKind::Stdio => {
@@ -317,6 +322,25 @@ fn print_install_preview(manifest: &AddonManifest) {
                 println!("  headers:   {}", keys.join(", "));
             }
         }
+    }
+    print_security_review(manifest);
+}
+
+/// Static risk review shown before install — disclosure, not a verdict (the
+/// install policy gate enforces; see [`crate::core::addons::policy`]).
+fn print_security_review(manifest: &AddonManifest) {
+    let findings = crate::core::addons::trust::assess(manifest);
+    if findings.is_empty() {
+        return;
+    }
+    println!("\n  Security review:");
+    for f in &findings {
+        println!(
+            "    {} [{}] {}",
+            f.level.glyph(),
+            f.level.as_str(),
+            f.message
+        );
     }
 }
 

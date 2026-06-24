@@ -31,8 +31,11 @@ pub async fn open(
     let connect = async {
         match transport {
             ResolvedTransport::Stdio { command, args, env } => {
-                let mut cmd = tokio::process::Command::new(command);
-                cmd.args(args);
+                // Opt-in OS sandbox (#865): may wrap the invocation with
+                // sandbox-exec / bwrap, or refuse to spawn in strict mode.
+                let (spawn_cmd, spawn_args) = crate::core::addons::sandbox::apply(command, args)?;
+                let mut cmd = tokio::process::Command::new(&spawn_cmd);
+                cmd.args(&spawn_args);
                 for (k, v) in env {
                     cmd.env(k, v);
                 }

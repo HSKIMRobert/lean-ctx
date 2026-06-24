@@ -11,11 +11,26 @@
 //! - [`registry`] — the curated catalog (bundled, with optional user override).
 //! - [`store`]    — what is installed locally (`<data_dir>/addons/installed.json`).
 //! - [`install`]  — wires an addon into the gateway and records it in the store.
+//!
+//! Security (#863):
+//! - [`trust`]    — trust tier (`verified`) + static risk assessment of the wiring.
+//! - [`policy`]   — the global-only `[addons]` install policy floor + the gate.
+//! - [`signing`]  — Ed25519 signing for the user-override registry.
+//! - [`sandbox`]  — opt-in OS sandbox for spawned stdio servers.
+//! - [`runtime`]  — redaction + audit of untrusted addon tool output.
 
 pub mod install;
 pub mod manifest;
+pub mod policy;
 pub mod registry;
+pub mod runtime;
+pub mod sandbox;
+pub mod signing;
 pub mod store;
+pub mod trust;
 
 pub use manifest::{AddonManifest, AddonMcp, AddonMeta};
+pub use policy::{AddonPolicy, AddonsConfig};
+pub use sandbox::SandboxMode;
 pub use store::{InstalledAddon, InstalledStore};
+pub use trust::{RiskFinding, RiskLevel, TrustTier};

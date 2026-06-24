@@ -37,10 +37,37 @@ fn local() -> Option<&'static [AddonManifest]> {
     PARSED_LOCAL
         .get_or_init(|| {
             let dir = crate::core::data_dir::lean_ctx_data_dir().ok()?;
-            let content = std::fs::read_to_string(dir.join("addon_registry.json")).ok()?;
+            let path = dir.join("addon_registry.json");
+            let content = std::fs::read_to_string(&path).ok()?;
+            // Signature gate (#865): a user-override registry can shadow trusted
+            // addon names with attacker-controlled wiring. When
+            // `addons.require_signature` is on, honour it only if it carries a
+            // valid signature by a trusted org key; otherwise fall back to the
+            // bundled catalog.
+            let require_sig = crate::core::config::Config::load().addons.require_signature;
+            if let super::signing::OverrideVerdict::Reject(reason) =
+                gate_override_file(&path, &content, require_sig)
+            {
+                tracing::warn!("[SECURITY] ignoring user addon registry override: {reason}");
+                return None;
+            }
             Some(parse(&content))
         })
         .as_deref()
+}
+
+/// Apply the override signature policy to the file at `path` with `content`.
+fn gate_override_file(
+    path: &std::path::Path,
+    content: &str,
+    require_sig: bool,
+) -> super::signing::OverrideVerdict {
+    let sig = std::fs::read_to_string(super::signing::sidecar_path(path))
+        .ok()
+        .and_then(|t| super::signing::RegistrySignature::from_json(&t).ok());
+    super::signing::gate_override(content, sig.as_ref(), require_sig, |pk| {
+        crate::core::policy::org::trust::is_trusted(pk)
+    })
 }
 
 /// Every known registry addon, sorted by name. A user-override entry replaces
@@ -93,9 +120,145 @@ fn matches_query(m: &AddonManifest, q: &str) -> bool {
         .any(|k| k.to_ascii_lowercase().contains(q))
 }
 
+/// Lint registry entries against the security bar (#864). Returns one
+/// human-readable problem per violation; empty = clean. Pure + reusable: the
+/// bundled-registry CI test runs it, and `addon registry validate` can too.
+///
+/// Rules: unique valid slugs; listed entries need a homepage; **installable**
+/// entries need author/homepage/license/description and must not shell out,
+/// fetch-and-exec, use a non-HTTPS endpoint, or pull an unpinned upstream;
+/// **verified** entries additionally must be free of any `Warn`/`Danger`
+/// finding (the curated, vouched-for tier).
+#[must_use]
+pub fn validate_entries(entries: &[AddonManifest]) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for m in entries {
+        let slug = m.addon.name.to_ascii_lowercase();
+        if !seen.insert(slug) {
+            problems.push(format!("duplicate slug `{}`", m.addon.name));
+        }
+        if m.validate().is_err() {
+            problems.push(format!("`{}`: invalid slug/metadata", m.addon.name));
+        }
+
+        if !m.is_installable() {
+            if m.addon.homepage.trim().is_empty() {
+                problems.push(format!("listed `{}`: missing homepage", m.addon.name));
+            }
+            continue;
+        }
+
+        for (field, val) in [
+            ("author", &m.addon.author),
+            ("homepage", &m.addon.homepage),
+            ("license", &m.addon.license),
+            ("description", &m.addon.description),
+        ] {
+            if val.trim().is_empty() {
+                problems.push(format!("installable `{}`: missing `{field}`", m.addon.name));
+            }
+        }
+
+        let findings = super::trust::assess(m);
+        for f in &findings {
+            match f.code {
+                "shell_exec" | "fetch_exec" => {
+                    problems.push(format!(
+                        "installable `{}`: {} ({})",
+                        m.addon.name, f.message, f.code
+                    ));
+                }
+                "insecure_url" => {
+                    problems.push(format!(
+                        "installable `{}`: non-HTTPS endpoint",
+                        m.addon.name
+                    ));
+                }
+                "unpinned" => {
+                    problems.push(format!("installable `{}`: unpinned upstream", m.addon.name));
+                }
+                _ => {}
+            }
+        }
+
+        if m.addon.verified
+            && let Some(level) = super::trust::max_level(&findings)
+            && level >= super::trust::RiskLevel::Warn
+        {
+            problems.push(format!(
+                "verified `{}`: a verified entry must have no risk findings (found {})",
+                m.addon.name,
+                level.as_str()
+            ));
+        }
+    }
+
+    problems
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_registry_passes_security_validator() {
+        let problems = validate_entries(bundled());
+        assert!(
+            problems.is_empty(),
+            "bundled registry violates the security bar (#864): {problems:?}"
+        );
+    }
+
+    #[test]
+    fn validator_flags_insecure_unpinned_and_shell() {
+        let insecure = AddonManifest::from_toml(
+            "[addon]\nname = \"insecure\"\nauthor = \"a\"\nhomepage = \"https://h\"\nlicense = \"MIT\"\ndescription = \"d\"\n\
+             [mcp]\ntransport = \"http\"\nurl = \"http://x/mcp\"\n",
+        )
+        .expect("parse");
+        assert!(
+            validate_entries(&[insecure])
+                .iter()
+                .any(|p| p.contains("non-HTTPS"))
+        );
+
+        let shell = AddonManifest::from_toml(
+            "[addon]\nname = \"shell\"\nauthor = \"a\"\nhomepage = \"https://h\"\nlicense = \"MIT\"\ndescription = \"d\"\n\
+             [mcp]\ntransport = \"stdio\"\ncommand = \"bash\"\nargs = [\"-c\", \"x\"]\n",
+        )
+        .expect("parse");
+        assert!(
+            validate_entries(&[shell])
+                .iter()
+                .any(|p| p.contains("shell_exec"))
+        );
+    }
+
+    #[test]
+    fn validator_requires_provenance_for_installable() {
+        let bare = AddonManifest::from_toml(
+            "[addon]\nname = \"bare\"\n[mcp]\ntransport = \"stdio\"\ncommand = \"bare-mcp\"\n",
+        )
+        .expect("parse");
+        let problems = validate_entries(&[bare]);
+        assert!(problems.iter().any(|p| p.contains("missing `author`")));
+        assert!(problems.iter().any(|p| p.contains("missing `license`")));
+    }
+
+    #[test]
+    fn validator_detects_duplicate_slugs() {
+        let one = AddonManifest::from_toml("[addon]\nname = \"dup\"\nhomepage = \"https://h\"\n")
+            .unwrap();
+        let two = AddonManifest::from_toml("[addon]\nname = \"DUP\"\nhomepage = \"https://h\"\n")
+            .unwrap();
+        assert!(
+            validate_entries(&[one, two])
+                .iter()
+                .any(|p| p.contains("duplicate slug"))
+        );
+    }
 
     #[test]
     fn bundled_registry_parses() {
