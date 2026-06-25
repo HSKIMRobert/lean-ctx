@@ -251,6 +251,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "allow_ide_config_dirs".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.allow_ide_config_dirs),
+            "Allow jailed ctx_* tools to read home-level IDE config dirs (registry-derived; covers all editors). Off by default — exposes other agents' sessions/credentials",
+            "LEAN_CTX_ALLOW_IDE_DIRS",
+        ),
+    );
+    root.insert(
         "extra_roots".into(),
         key_with_env(
             "string[]",
