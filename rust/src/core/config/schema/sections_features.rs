@@ -578,10 +578,26 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Refuse to install an addon that has a high-risk (Danger) capability",
         ),
     );
+    addons.insert(
+        "enforce_capabilities".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.addons.enforce_capabilities),
+            "Fail closed when an addon declares restricted [capabilities] but no OS sandbox launcher is available to enforce them",
+        ),
+    );
+    addons.insert(
+        "metering".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.addons.metering),
+            "Record per-addon / per-tool gateway usage to <data_dir>/addons/usage.json (analytics + billing base)",
+        ),
+    );
     sections.insert(
         "addons".into(),
         SectionSchema {
-            description: "Addon ecosystem security floor: install policy, signature requirement, sandbox (#863). Global-only.".into(),
+            description: "Addon ecosystem security floor: install policy, signature requirement, per-addon capability sandbox (#863, P1). Global-only.".into(),
             keys: addons,
         },
     );

@@ -90,10 +90,12 @@ Top-level configuration keys
 
 ## `[addons]`
 
-Addon ecosystem security floor: install policy, signature requirement, sandbox (#863). Global-only.
+Addon ecosystem security floor: install policy, signature requirement, per-addon capability sandbox (#863, P1). Global-only.
 
 - `allowlist` (array, default `[]`) — Addon slugs permitted when policy = allowlist
 - `block_risky` (bool, default `false`) — Refuse to install an addon that has a high-risk (Danger) capability
+- `enforce_capabilities` (bool, default `false`) — Fail closed when an addon declares restricted [capabilities] but no OS sandbox launcher is available to enforce them
+- `metering` (bool, default `true`) — Record per-addon / per-tool gateway usage to <data_dir>/addons/usage.json (analytics + billing base)
 - `policy` (enum: open | verified_only | allowlist | locked, default `open`) — Addon install policy: open (any) | verified_only | allowlist | locked
 - `require_signature` (bool, default `false`) — Honour a user-override registry only if signed by a trusted org key
 - `sandbox` (enum: off | auto | strict, default `off`) — Sandbox spawned addon stdio servers: off | auto (block network) | strict (read-only fs + refuse if no launcher)

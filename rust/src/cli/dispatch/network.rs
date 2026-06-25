@@ -1232,6 +1232,7 @@ fn provider_usage() {
     eprintln!(
         "Usage: lean-ctx provider <command>\n\n\
          Commands:\n  \
+         init <id> [--force]                Scaffold a config provider in .lean-ctx/providers/\n  \
          auth jira [--data-source <id>]     Connect a Jira Cloud site via OAuth 2.0 (3LO)\n  \
          logout jira [--data-source <id>]   Remove stored Jira OAuth credentials\n  \
          list                               List connected Jira OAuth data sources\n\n\
@@ -1242,11 +1243,53 @@ fn provider_usage() {
     );
 }
 
+/// `provider init <id>` — scaffold a config-provider TOML in the project-local
+/// `.lean-ctx/providers/` directory the discovery layer auto-loads (P4 DX).
+fn provider_init(args: &[String]) {
+    use crate::core::providers::scaffold;
+
+    let force = args.iter().any(|a| a == "--force" || a == "-f");
+    let Some(raw) = args
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .map(String::as_str)
+    else {
+        eprintln!("Usage: lean-ctx provider init <id> [--force]");
+        std::process::exit(1);
+    };
+    // Provider ids share the addon slug shape (`[a-z0-9-]`).
+    let Some(id) = crate::core::addons::scaffold::slugify(raw) else {
+        eprintln!("`{raw}` has no usable id characters ([a-z0-9-]).");
+        std::process::exit(1);
+    };
+
+    let dir = std::path::Path::new(scaffold::PROVIDERS_SUBDIR);
+    let path = dir.join(format!("{id}.toml"));
+    if path.exists() && !force {
+        eprintln!("{} already exists. Re-run with --force.", path.display());
+        std::process::exit(1);
+    }
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("Error creating {}: {e}", dir.display());
+        std::process::exit(1);
+    }
+    if let Err(e) = std::fs::write(&path, scaffold::provider_config(&id)) {
+        eprintln!("Error writing {}: {e}", path.display());
+        std::process::exit(1);
+    }
+    println!("✓ Wrote {} (provider `{id}`).", path.display());
+    println!("\nNext:");
+    println!("  1. Edit base_url, [auth] and [resources] for your API.");
+    println!("  2. Export the token env var referenced under [auth].");
+    println!("  3. It is auto-discovered — query it via ctx_provider / ctx_semantic_search.");
+}
+
 pub(super) fn cmd_provider(rest: &[String]) {
     use crate::core::providers::jira_oauth;
 
     let sub = rest.first().map_or("help", std::string::String::as_str);
     match sub {
+        "init" | "new" => provider_init(&rest[1..]),
         "auth" | "login" | "connect" => {
             let target = rest.get(1).map_or("", std::string::String::as_str);
             if !target.eq_ignore_ascii_case("jira") {

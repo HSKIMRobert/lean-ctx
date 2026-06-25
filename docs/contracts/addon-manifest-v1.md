@@ -41,8 +41,88 @@ Mirrors a `[[gateway.servers]]` entry — installation is a direct translation.
 | `command` | string | `""` | stdio | Executable to spawn. |
 | `args` | string[] | `[]` | stdio | Arguments passed to `command`. |
 | `env` | table | `{}` | stdio | Extra environment variables for the child process. |
+| `sha256` | string | `""` | stdio | Optional SHA-256 pin of the `command` binary (the value `shasum -a 256` prints). When set, the gateway hashes the resolved binary before spawn and refuses a mismatch (fail-closed). Empty = unpinned. |
 | `url` | string | `""` | http | Streamable-HTTP endpoint (must be `http(s)://`). |
 | `headers` | table | `{}` | http | Extra request headers (e.g. auth). |
+
+### `[capabilities]` (optional, additive in v1)
+
+Declares the permissions a `stdio` addon needs. The declaration is
+**secure-by-default** and *enforced* per-addon at the spawn point — it is not a
+disclosure-only hint. Absent (`None`) → the addon keeps the legacy global
+`addons.sandbox` behaviour, so existing manifests are unaffected.
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `network` | `none` \| `full` | `none` | Outbound network. `none` → the OS sandbox blocks egress. |
+| `filesystem` | `read_only` \| `read_write` | `read_only` | `read_only` → writes denied except a scratch tmp. |
+| `env` | string[] | `[]` | Host environment variable names the child may receive, on top of a minimal base allowlist. Names must match `[A-Za-z0-9_]`. |
+| `exec` | `none` \| `full` \| string[] | `none` | Child-process execution. `none` → may spawn nothing; `full` → any binary; a string array → an allowlist of binary names/paths (e.g. `["lean-ctx"]`). |
+
+A present-but-empty `[capabilities]` block resolves to the strictest profile (no
+network, read-only filesystem, scrubbed env, no exec). The declared block drives
+three enforced controls at `core::gateway::client`:
+
+1. a **per-addon OS sandbox** (`sandbox-exec` / `bwrap`) derived from
+   `network` + `filesystem`,
+2. an **environment allowlist** — the child's env is cleared and re-populated
+   with the base allowlist + the declared `env` names + the addon's own
+   `[mcp.env]`, so ambient host secrets never leak, and
+3. an **exec restriction** (see the platform matrix below).
+
+```toml
+[capabilities]
+network = "full"          # talks to a remote API
+filesystem = "read_only"  # never writes outside tmp
+env = ["GITHUB_TOKEN"]    # may read this one host variable
+exec = ["lean-ctx"]       # may spawn only `lean-ctx` (e.g. callback addons)
+```
+
+#### `exec` enforcement is platform-asymmetric (by necessity)
+
+`exec` is **declared, surfaced for consent, and audited on every platform**. OS
+enforcement differs because the primitives differ:
+
+| Platform | Launcher | `exec` enforcement |
+|----------|----------|--------------------|
+| **macOS** | `sandbox-exec` | **Precise.** SBPL denies all `process-exec` except the addon's own binary + the resolved allowlist paths. `none` → the addon runs but spawns nothing. |
+| **Linux** | `bwrap` | **Not OS-enforceable.** seccomp cannot allowlist `execve` by path (the filename is a pointer it can't dereference) nor "allow once" for the addon's own start. So a restricted `exec` is **disclosed**; under `addons.enforce_capabilities = true` the spawn **fails closed** rather than running unenforced. `network`/`filesystem` are still enforced. |
+| **Other / no launcher** | — | Disclosed; fail-closed under `enforce_capabilities`. |
+
+This is deliberate: we never fake enforcement. An addon that needs precise
+child-exec gating gets it on macOS; on Linux the honest options are
+"disclose-and-run" (default) or "refuse" (`enforce_capabilities`). The audit
+(below) reasons about `exec` identically on all platforms.
+
+The capabilities the user consents to at install are recorded in
+`installed.json` as `granted_capabilities`.
+
+### `[pricing]` (optional — sellable addons, Track B)
+
+Generalises the ctxpkg paid-artifact model to addons. Absent (`None`) → the
+addon is **free**. A paid entry must clear the [paid-listing gate](#paid-listing-gate-track-b)
+before it can be listed or sold.
+
+| Field | Type | Default | Meaning |
+|-------|------|---------|---------|
+| `price_cents` | int | `0` | One-time price in the smallest currency unit. `0` = free under the one-time model. |
+| `currency` | string | `usd` | 3-letter lowercase ISO-4217 code. |
+| `model` | `one_time` \| `usage` | `one_time` | Billing model. `usage` is metered per tool call via the P5 usage meter. |
+| `usage_price_per_1k_cents` | int | `0` | Usage model only: price per 1,000 tool calls. Required (non-zero) when `model = usage`. |
+
+```toml
+[pricing]
+price_cents = 1900        # $19.00 one-time
+currency = "usd"
+# or, usage-metered:
+# model = "usage"
+# usage_price_per_1k_cents = 200   # $2.00 per 1,000 tool calls
+```
+
+The artifact-side model lives in `core::addons::commerce`. Payment **execution**
+(checkout, 402 download gating, Stripe Connect publisher payouts — GL #532)
+reuses the live ctxpkg billing rails, generalised to `artifact_type = addon` in
+the billing service.
 
 ### Installable vs. listed
 
@@ -96,7 +176,9 @@ listed-only entries). Getting listed = a merge request adding an entry here.
    set `gateway.enabled = true` if it was off, then upsert a `[[gateway.servers]]`
    entry named after the addon (idempotent — replaces any same-named entry).
 7. **Record** in `<data_dir>/addons/installed.json` (`name`, `version`, `source`,
-   `gateway_server`) and invalidate the gateway catalog cache.
+   `gateway_server`, `granted_capabilities` when the manifest declared a
+   `[capabilities]` block, and `content_hash` — the integrity lock over the
+   installed wiring) and invalidate the gateway catalog cache.
 
 `lean-ctx addon remove <name>` reverses 4–5: drop the gateway server it owns and
 the store entry. It leaves `gateway.enabled` untouched (disable explicitly with
@@ -163,8 +245,10 @@ permissive by default.
 | `policy` | `open` \| `verified_only` \| `allowlist` \| `locked` | `open` | What may be installed. `verified_only` requires the verified tier; `allowlist` restricts to `addons.allowlist`; `locked` disables installs. |
 | `allowlist` | string[] | `[]` | Permitted slugs when `policy = allowlist`. |
 | `require_signature` | bool | `false` | Honour a user-override registry only if signed by a trusted org key. |
-| `sandbox` | `off` \| `auto` \| `strict` | `off` | Sandbox spawned stdio servers (see below). |
+| `sandbox` | `off` \| `auto` \| `strict` | `off` | Legacy global sandbox for addons **without** a `[capabilities]` block (see below). |
 | `block_risky` | bool | `false` | Refuse to install an addon that has a `danger` finding. |
+| `enforce_capabilities` | bool | `false` | Fail closed when an addon declares restricted `[capabilities]` but no OS sandbox launcher is available to honour them. Off → best-effort (warn + run). |
+| `metering` | bool | `true` | Record per-addon / per-tool gateway usage to `<data_dir>/addons/usage.json` (local; analytics + billing base). |
 
 `core::addons::policy::gate` enforces this in `install` before any gateway
 mutation, so a blocked addon never touches `config.toml`.
@@ -181,12 +265,121 @@ falling back to the bundled catalog.
 
 ### Sandboxing
 
-With `addons.sandbox = auto|strict`, lean-ctx wraps each spawned stdio server in
-an OS-native sandbox at the single spawn point (`core::gateway::client`):
-`sandbox-exec` (macOS) or `bwrap` (Linux). Local tools rarely need the network,
-so the default control is **outbound-network isolation** (`auto`); `strict` also
-makes the filesystem read-only except a scratch tmp and **refuses to spawn** if
-no launcher exists. Off by default — zero behavioural change unless enabled.
+lean-ctx wraps each spawned stdio server in an OS-native sandbox at the single
+spawn point (`core::gateway::client`): `sandbox-exec` (macOS) or `bwrap` (Linux).
+Two paths, one mechanism:
+
+- **Per-addon capabilities (preferred).** When the manifest declares a
+  `[capabilities]` block, the sandbox profile + environment allowlist are derived
+  from exactly that declaration (secure-by-default). `network = none` blocks
+  egress; `filesystem = read_only` makes the filesystem read-only except a
+  scratch tmp; the env is scrubbed to the base allowlist + declared `env`. If a
+  restrictive profile cannot be enforced because no launcher is available, the
+  spawn fails closed only when `addons.enforce_capabilities = true`, otherwise it
+  warns and runs.
+- **Legacy global mode.** For addons **without** a `[capabilities]` block,
+  `addons.sandbox = auto|strict` applies the historical global control: `auto`
+  blocks outbound network; `strict` also makes the filesystem read-only and
+  **refuses to spawn** if no launcher exists. Off by default — zero behavioural
+  change unless enabled.
+
+Both paths share the plugin environment allowlist, so addon and plugin
+subprocesses converge on one trust model.
+
+### Capability audit + publish gate (`core::addons::audit`)
+
+`assess` answers *what does the wiring do?*; `audit` answers the two questions
+that gate **listing** and **paid** entries (the mandatory gate before any paid
+listing). It composes three checks into one deterministic report:
+
+1. **Wiring risk** — every `assess` finding (remote endpoint, shell-exec,
+   unpinned upstream, …).
+2. **Capability coherence** — does the declared `[capabilities]` match the
+   wiring? An addon that performs network I/O (HTTP transport, or a stdio
+   `command` that fetches/runs remote code) but declares `network = none` is
+   **under-declaring** (`cap_net_underdeclared`, blocking). Declaring `full`
+   when the wiring shows no network use is a least-privilege hint
+   (`cap_net_overdeclared`, info). The same applies to `exec`: a wiring that
+   shells out / fetch-execs but grants no `exec` capability is
+   `cap_exec_underdeclared` (blocking); a blanket `exec = full` with no static
+   subprocess evidence is `cap_exec_overdeclared` (info — an explicit allowlist
+   is never flagged, since runtime spawning such as a callback into
+   `lean-ctx call` is invisible to a static check).
+3. **Malware heuristics** — content scan of command/args/env-values/url for
+   pipe-to-shell (`… | sh`), base64-decode→exec, persistence writes (shell rc /
+   launch-agent / cron paths), and embedded encoded blobs. This is the check the
+   ctxpkg `trust_report` lists as `skipped` today.
+
+The findings fold into one **verdict**:
+
+| Verdict | Meaning |
+|---------|---------|
+| `pass` | No risk findings — eligible for the verified/paid tier. |
+| `review` | Legitimate but high-capability (remote endpoint, unpinned) — installable, needs human review before verified/paid. |
+| `fail` | A blocking finding — malware heuristic, under-declared capability, shell/fetch-exec, or non-HTTPS. Must not be listed. |
+
+**Paid/verified eligibility** (`paid_eligible`) requires *all* of: a `pass`
+verdict, a declared `[capabilities]` block, capabilities coherent with the
+wiring, and — for stdio — a pinned `sha256` binary. The registry validator
+(`validate_entries`) enforces the blocking subset for every installable entry and
+requires a `verified` entry to be finding-free. Run it ad hoc with
+`lean-ctx addon audit <name|path>` (non-zero exit on `fail`).
+
+### Paid-listing gate (Track B)
+
+The mandatory gate before an addon may be **listed or sold for money**
+(`core::addons::commerce::paid_listing_gate`). It is a no-op for free addons; for
+a `[pricing]` entry that charges, it requires *all* of:
+
+1. **Audit paid-eligible** — the `paid_eligible` conditions above (clean audit,
+   declared + coherent capabilities, pinned stdio binary).
+2. **Verified publisher** — `addon.verified` (the curated, vouched tier, #516).
+3. **Well-formed pricing** — valid ISO-4217 currency; a `usage` entry sets a
+   non-zero per-1k rate.
+
+`validate_entries` enforces this gate, so the registry can never carry a paid
+listing that has not cleared it. `lean-ctx addon audit` prints the gate result
+and, when blocked, the exact remaining blockers. This is the artifact-side half
+of paid distribution; payment execution + Connect payouts (#532) live in the
+billing service.
+
+### Integrity lock (lockfile + re-verify)
+
+`installed.json` doubles as a lockfile: install pins a `content_hash` of the
+exact gateway wiring (transport/command/args/env/url/headers/capabilities).
+`lean-ctx addon verify` (`core::addons::integrity`) re-computes the hash from the
+live `[[gateway.servers]]` config and reports drift — a swapped command, an extra
+arg, or a widened capability after install is caught (`DRIFT`, non-zero exit).
+This is the positive-integrity counterpart to the revocation deny-list. Pulling a
+newer signed version (the "updater") reuses the ctxpkg remote rails.
+
+### Revocation / kill-switch
+
+A revocation immediately **blocks an addon from running**, without waiting for the
+user to uninstall it. `core::addons::revocation` enforces it at three points:
+
+1. **install** — a revoked addon refuses to install,
+2. **gateway catalog build** — a revoked server is dropped (its tools disappear,
+   with a surfaced `revoked — <reason>` error),
+3. **every proxy call** — a call to a revoked server is refused.
+
+The local list lives at `<data_dir>/addons/revocations.json` (managed by
+`lean-ctx addon revoke <name> [--reason …] [--version X]`). An unpinned entry
+blocks all versions; a `--version`-pinned entry blocks only that version. An org
+revocation feed layers in through the same signed-override trust anchor as the
+registry (verified before it can block). `lean-ctx addon unrevoke <name>` lifts a
+local revocation.
+
+### Usage metering (`core::addons::meter`)
+
+Every gateway proxy call ([`crate::core::gateway::proxy`]) is attributed to its
+owning server and tool and counted in `<data_dir>/addons/usage.json`
+(`{ servers: { <name>: { calls, errors, tools: { <tool>: { calls, errors } } } } }`).
+A transport failure or a downstream `is_error` counts as an error. Metering is a
+**side-channel** — it never alters the proxied tool output, so output determinism
+(#498) holds — and is local-only, controlled by `addons.metering` (default on).
+It is the honest basis for marketplace "most-used" discovery, builder analytics
+and usage-metered billing (Track B). Surfaced via `lean-ctx addon usage`.
 
 ### Runtime redaction + audit
 
@@ -206,7 +399,16 @@ published endpoint, advise affected users to `lean-ctx addon remove <name>`.
 | Command | Effect |
 |---------|--------|
 | `lean-ctx addon list` | Installed addons + the registry. |
+| `lean-ctx addon init [name] [--http] [--force]` | Scaffold a `lean-ctx-addon.toml` in the cwd. |
+| `lean-ctx addon registry validate [path]` | Validate a registry file (or the installed registry) against the security + quality bar. |
 | `lean-ctx addon search [query]` | Search the registry (empty = all). |
+| `lean-ctx addon categories` | Browse the registry by category (with counts). |
+| `lean-ctx addon usage` | Per-addon / per-tool call counters from the meter. |
 | `lean-ctx addon info <name\|path>` | Details + MCP wiring for one addon. |
 | `lean-ctx addon add <name\|path> [-y]` | Install (registry or local manifest). |
 | `lean-ctx addon remove <name> [-y]` | Uninstall. |
+| `lean-ctx addon audit <name\|path>` | Publish/list gate: wiring risk + capability coherence + malware heuristics (non-zero exit on `fail`). |
+| `lean-ctx addon verify` | Re-check installed wiring against its integrity lock. |
+| `lean-ctx addon revoke <name> [--reason …] [--version X]` | Kill-switch: block an addon from running. |
+| `lean-ctx addon unrevoke <name> [-y]` | Lift a revocation. |
+| `lean-ctx addon revocations` | List active revocations. |

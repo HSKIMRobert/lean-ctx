@@ -93,6 +93,13 @@ impl RiskFinding {
             message: message.into(),
         }
     }
+
+    /// Construct a finding from a sibling auditor (the capability/malware audit
+    /// in [`super::audit`]) so all findings share one type + rendering.
+    #[must_use]
+    pub fn audit(level: RiskLevel, code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(level, code, message)
+    }
 }
 
 /// Executables that hand an addon an arbitrary-code primitive.
@@ -205,6 +212,40 @@ pub fn assess(manifest: &AddonManifest) -> Vec<RiskFinding> {
 #[must_use]
 pub fn max_level(findings: &[RiskFinding]) -> Option<RiskLevel> {
     findings.iter().map(|f| f.level).max()
+}
+
+/// Whether the wiring inherently performs outbound network I/O — an HTTP
+/// transport, or a stdio command that fetches/executes remote code or runs an
+/// unpinned package from a remote registry. The capability audit
+/// ([`super::audit`]) uses this to flag an addon that declares `network = none`
+/// but actually needs the network (an under-declared capability).
+#[must_use]
+pub fn wiring_uses_network(manifest: &AddonManifest) -> bool {
+    match manifest.mcp.transport {
+        TransportKind::Http => true,
+        TransportKind::Stdio => {
+            let base = basename(manifest.mcp.command.trim());
+            FETCH_BINS.contains(&base) || RUNNER_BINS.contains(&base)
+        }
+    }
+}
+
+/// Whether the wiring evidences spawning child processes — the command is a
+/// shell run with `-c`, a fetch/eval primitive, or any argument carries shell
+/// metacharacters that chain to another program. The capability audit
+/// ([`super::audit`]) uses this to flag an addon that declares no `exec`
+/// permission yet clearly shells out (an under-declared capability). HTTP
+/// addons run no local child, so this is stdio-only.
+#[must_use]
+pub fn wiring_spawns_subprocess(manifest: &AddonManifest) -> bool {
+    if manifest.mcp.transport != TransportKind::Stdio {
+        return false;
+    }
+    let base = basename(manifest.mcp.command.trim());
+    let shell_with_c = SHELL_BINS.contains(&base) && manifest.mcp.args.iter().any(|a| a == "-c");
+    shell_with_c
+        || FETCH_BINS.contains(&base)
+        || manifest.mcp.args.iter().any(|a| has_shell_meta(a))
 }
 
 fn keys<'a>(it: impl Iterator<Item = &'a String>) -> String {

@@ -63,10 +63,20 @@ pub struct AddonsConfig {
     /// Honour a user-override registry (`<data_dir>/addon_registry.json`) only
     /// when it carries a valid signature by a trusted org key.
     pub require_signature: bool,
-    /// Sandbox spawned stdio servers: `off` | `auto` | `strict`.
+    /// Sandbox spawned stdio servers without a declared `[capabilities]` block:
+    /// `off` | `auto` | `strict` (the legacy global mode).
     pub sandbox: String,
     /// Refuse to install an addon that has a high-risk (`Danger`) capability.
     pub block_risky: bool,
+    /// Fail closed when an addon declares restricted `[capabilities]` but no OS
+    /// sandbox launcher (sandbox-exec / bwrap) is available to enforce them. Off
+    /// by default → best-effort (warn + run) so a missing launcher never blocks
+    /// a spawn; orgs that require real enforcement set this to `true`.
+    pub enforce_capabilities: bool,
+    /// Record per-addon / per-tool gateway usage counters to
+    /// `<data_dir>/addons/usage.json` (local-only; basis for analytics + billing,
+    /// P5). On by default; set `false` to disable all usage accounting.
+    pub metering: bool,
 }
 
 impl Default for AddonsConfig {
@@ -77,6 +87,8 @@ impl Default for AddonsConfig {
             require_signature: false,
             sandbox: SandboxMode::Off.as_str().to_string(),
             block_risky: false,
+            enforce_capabilities: false,
+            metering: true,
         }
     }
 }
