@@ -948,6 +948,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "LEAN_CTX_EMBEDDINGS_AUTO_DOWNLOAD",
         ),
     );
+    embedding.insert(
+        "deterministic".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(null),
+            "Pin embedding inference to a single CPU thread with no GPU provider so vectors are bit-identical across machines (default: off, multi-threaded GPU-capable path). Extractive prose ranking is already deterministic via score quantization; enable this only for cross-machine reproducibility, at a throughput cost.",
+            "LEAN_CTX_EMBEDDING_DETERMINISTIC",
+        ),
+    );
     sections.insert(
         "embedding".into(),
         SectionSchema {

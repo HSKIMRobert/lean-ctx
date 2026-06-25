@@ -30,9 +30,9 @@ pub use enums::{
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use provenance::{ConfigProvenance, EnvOverride};
 pub use proxy::{
-    HistoryMode, ProseRole, ProxyConfig, ProxyProvider, RoleAggressiveness, UpstreamDrift,
-    Upstreams, diagnose_drift, env_upstream_override, is_local_proxy_url, normalize_url,
-    normalize_url_opt,
+    HistoryMode, ProseRanker, ProseRole, ProxyConfig, ProxyProvider, RoleAggressiveness,
+    UpstreamDrift, Upstreams, diagnose_drift, env_upstream_override, is_local_proxy_url,
+    normalize_url, normalize_url_opt,
 };
 pub use shell_activation::ShellActivation;
 

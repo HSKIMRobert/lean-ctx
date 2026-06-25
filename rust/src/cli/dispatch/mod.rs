@@ -122,6 +122,12 @@ pub fn run() {
                 super::cmd_roi(&rest);
                 return;
             }
+            "output-savings" | "output_savings" => {
+                // #895 Track B: measured (A/B holdout) or estimated output-token
+                // reduction. Local + free, like `roi`.
+                super::cmd_output_savings(&rest);
+                return;
+            }
             "token-report" | "report-tokens" => {
                 let code = token_report::run_cli(&rest);
                 if code != 0 {

@@ -92,8 +92,22 @@ impl EmbeddingEngine {
         let tokenizer = load_tokenizer(&model_dir, &config)?;
         let model_path = model_dir.join("model.onnx");
 
-        let eps = crate::core::ort_execution_providers::gpu_execution_providers();
-        let num_cpus = std::thread::available_parallelism().map_or(4, |n| n.get().max(1));
+        // Deterministic mode (#895): single CPU thread + no GPU EP makes the
+        // model's output bit-identical across machines (reproducible embeddings),
+        // at the cost of throughput. Off by default — the normal path keeps the
+        // multi-threaded, GPU-capable providers. Extractive ranking stays
+        // deterministic regardless via score quantization; this is extra hardening.
+        let deterministic = deterministic_inference();
+        let eps = if deterministic {
+            Vec::new()
+        } else {
+            crate::core::ort_execution_providers::gpu_execution_providers()
+        };
+        let num_cpus = if deterministic {
+            1
+        } else {
+            std::thread::available_parallelism().map_or(4, |n| n.get().max(1))
+        };
         crate::core::ort_environment::ensure_ort_env(&eps)?;
         let mut session = ort::session::Session::builder()
             .map_err(|e| anyhow::anyhow!("ORT builder: {e}"))?
@@ -668,6 +682,23 @@ pub fn shared_engine() -> Option<&'static EmbeddingEngine> {
 #[cfg(feature = "embeddings")]
 pub fn try_shared_engine() -> Option<&'static EmbeddingEngine> {
     SHARED_ENGINE.get()?.as_ref().ok()
+}
+
+/// Resolve the deterministic-inference policy (#895): the
+/// `LEAN_CTX_EMBEDDING_DETERMINISTIC` env var wins in either direction,
+/// otherwise `[embedding].deterministic` from config, otherwise `false`.
+#[cfg(feature = "embeddings")]
+fn deterministic_inference() -> bool {
+    if let Ok(v) = std::env::var("LEAN_CTX_EMBEDDING_DETERMINISTIC") {
+        return matches!(
+            v.trim().to_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+    }
+    crate::core::config::Config::load()
+        .embedding
+        .deterministic
+        .unwrap_or(false)
 }
 
 /// Whether this process may load the ONNX model on a **detached background
