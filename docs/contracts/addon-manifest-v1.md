@@ -57,18 +57,21 @@ disclosure-only hint. Absent (`None`) → the addon keeps the legacy global
 | `network` | `none` \| `full` | `none` | Outbound network. `none` → the OS sandbox blocks egress. |
 | `filesystem` | `read_only` \| `read_write` | `read_only` | `read_only` → writes denied except a scratch tmp. |
 | `env` | string[] | `[]` | Host environment variable names the child may receive, on top of a minimal base allowlist. Names must match `[A-Za-z0-9_]`. |
-| `exec` | `none` \| `full` \| string[] | `none` | Child-process execution. `none` → may spawn nothing; `full` → any binary; a string array → an allowlist of binary names/paths (e.g. `["lean-ctx"]`). |
+| `exec` | `none` \| `full` \| string[] | `none` | **Declared** child-process execution (disclosure + audit, *not* OS-enforced — see below). `none` → declares it spawns nothing; `full` → any binary; a string array → an allowlist of binary names/paths it may spawn (e.g. `["lean-ctx"]`). |
 
 A present-but-empty `[capabilities]` block resolves to the strictest profile (no
 network, read-only filesystem, scrubbed env, no exec). The declared block drives
-three enforced controls at `core::gateway::client`:
+two **OS-enforced** controls at `core::gateway::client`, plus one **declared +
+audited** control:
 
 1. a **per-addon OS sandbox** (`sandbox-exec` / `bwrap`) derived from
-   `network` + `filesystem`,
+   `network` + `filesystem` — and **inherited by child processes**, so a
+   subprocess the addon spawns is bound by the same egress/write limits,
 2. an **environment allowlist** — the child's env is cleared and re-populated
    with the base allowlist + the declared `env` names + the addon's own
    `[mcp.env]`, so ambient host secrets never leak, and
-3. an **exec restriction** (see the platform matrix below).
+3. `exec` — **declared, surfaced for consent, and audited** (see below); not an
+   OS control.
 
 ```toml
 [capabilities]
@@ -78,21 +81,28 @@ env = ["GITHUB_TOKEN"]    # may read this one host variable
 exec = ["lean-ctx"]       # may spawn only `lean-ctx` (e.g. callback addons)
 ```
 
-#### `exec` enforcement is platform-asymmetric (by necessity)
+#### `exec` is declared + audited, not OS-enforced
 
-`exec` is **declared, surfaced for consent, and audited on every platform**. OS
-enforcement differs because the primitives differ:
+`exec` is **declared, surfaced for consent, and audited on every platform** — but
+it is deliberately **not** an OS-sandbox control, for two reasons:
 
-| Platform | Launcher | `exec` enforcement |
-|----------|----------|--------------------|
-| **macOS** | `sandbox-exec` | **Precise.** SBPL denies all `process-exec` except the addon's own binary + the resolved allowlist paths. `none` → the addon runs but spawns nothing. |
-| **Linux** | `bwrap` | **Not OS-enforceable.** seccomp cannot allowlist `execve` by path (the filename is a pointer it can't dereference) nor "allow once" for the addon's own start. So a restricted `exec` is **disclosed**; under `addons.enforce_capabilities = true` the spawn **fails closed** rather than running unenforced. `network`/`filesystem` are still enforced. |
-| **Other / no launcher** | — | Disclosed; fail-closed under `enforce_capabilities`. |
+- **It isn't portable.** Linux `bwrap`/seccomp cannot allowlist `execve` by path
+  (the filename is a pointer it can't dereference), so any "macOS-only" exec
+  gating would be a guarantee we can't keep cross-platform.
+- **It breaks real servers.** Path-denying `process-exec` blocks the very
+  interpreter chain an addon needs to *start*: a Python/Node MCP server execs
+  `env` → the interpreter (often a re-exec'd stub) before any of its own code
+  runs, and a deny-all `process-exec` profile rejects all of it — so the addon
+  never launches (verified: `execvp … Operation not permitted`).
 
-This is deliberate: we never fake enforcement. An addon that needs precise
-child-exec gating gets it on macOS; on Linux the honest options are
-"disclose-and-run" (default) or "refuse" (`enforce_capabilities`). The audit
-(below) reasons about `exec` identically on all platforms.
+Crucially, the data-safety guarantees don't depend on exec gating: the OS
+sandbox **network** and **filesystem** profiles are **inherited by child
+processes**, so any subprocess an addon spawns is bound by the same egress and
+write restrictions — it still cannot exfiltrate or tamper. `exec` therefore earns
+its keep as **honest disclosure**: an addon whose wiring shells out must declare
+it (`cap_exec_underdeclared` blocks a listing that doesn't), and the user sees
+the declaration at install. The audit (below) reasons about `exec` identically on
+all platforms.
 
 The capabilities the user consents to at install are recorded in
 `installed.json` as `granted_capabilities`.

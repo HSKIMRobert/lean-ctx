@@ -15,7 +15,10 @@
 //!    addon explicitly lists the variable name,
 //!
 //! and is surfaced to the user for explicit consent at install time
-//! ([`crate::cli::addon_cmd`]).
+//! ([`crate::cli::addon_cmd`]). Child processes inherit the OS sandbox, so a
+//! subprocess an addon spawns is bound by the same network/filesystem limits;
+//! the declared `exec` capability is therefore disclosed + audited rather than
+//! OS-enforced (see [`super::sandbox`]).
 //!
 //! Unlike the legacy blanket `addons.sandbox` mode, this is *per addon* and
 //! bound to the manifest, so a marketplace addon is granted exactly what it
@@ -97,13 +100,14 @@ impl FilesystemAccess {
 /// exec = ["lean-ctx", "git"] # may execute exactly these binaries (by name/path)
 /// ```
 ///
-/// Enforcement is platform-asymmetric by necessity (see [`super::sandbox`]):
-/// macOS `sandbox-exec` enforces the allowlist precisely via SBPL `process-exec`
-/// literals; Linux `bwrap`/seccomp cannot path-filter `execve`, so a restricted
-/// declaration is **disclosed + audited** and, under
-/// `addons.enforce_capabilities`, **fails closed** rather than running
-/// unenforced. The declaration is always recorded for consent + audit on every
-/// platform.
+/// `exec` is a **declared, audited and consented** capability — it is *not*
+/// OS-enforced (see [`super::sandbox`]): path-allowlisting `execve` is not
+/// portable (`bwrap`/seccomp cannot do it) and breaks interpreted servers,
+/// whose own interpreter chain is itself a `process-exec`. The real data-safety
+/// guarantees come from the network/filesystem sandbox, which child processes
+/// inherit — so a subprocess an addon spawns still cannot exfiltrate or tamper.
+/// Declaring `exec` keeps the audit honest (an addon that shells out must say
+/// so) and is surfaced for consent at install on every platform.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ExecAccess {
@@ -145,8 +149,8 @@ impl ExecAccess {
         }
     }
 
-    /// Whether the OS sandbox must emit an exec restriction. `full` needs
-    /// nothing; `none` and any allowlist (even empty) are restricted profiles.
+    /// Whether this is a restricted declaration (`none` or an allowlist) vs.
+    /// blanket `full`. Drives the audit/consent disclosure, not OS enforcement.
     #[must_use]
     pub fn is_restricted(&self) -> bool {
         !matches!(self, Self::Mode(ExecMode::Full))
@@ -209,7 +213,9 @@ impl AddonCapabilities {
         self.exec.allowed()
     }
 
-    /// Whether the OS sandbox must enforce an exec restriction for this addon.
+    /// Whether the addon declares a restricted exec profile (`none` or an
+    /// allowlist, vs. blanket `full`). Used by the audit + consent surface;
+    /// `exec` is not OS-enforced (see [`super::sandbox`]).
     #[must_use]
     pub fn exec_restricted(&self) -> bool {
         self.exec.is_restricted()
