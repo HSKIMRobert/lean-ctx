@@ -126,10 +126,12 @@ rather than ambient trust:
 
 - **Addons** declare `[capabilities]` (`network`, `filesystem`, `env`, `exec`).
   The declaration drives a **per-addon OS sandbox** (`sandbox-exec` on macOS,
-  `bwrap` on Linux) and an **environment allowlist** at the single gateway spawn
-  point — host secrets never reach a child unless the addon lists the variable
-  name, and child-process execution is gated by `exec` (precise on macOS,
-  disclosed/fail-closed on Linux). You see exactly what you grant at install. See
+  `bwrap` on Linux) for `network` + `filesystem` — inherited by any child process
+  — plus an **environment allowlist** at the single gateway spawn point, so host
+  secrets never reach a child unless the addon lists the variable name. `exec` is
+  a **declared + audited** capability (disclosure, not OS-enforced — child
+  processes are already bound by the inherited net/fs sandbox). You see exactly
+  what you grant at install. See
   [`addon-manifest-v1`](../contracts/addon-manifest-v1.md).
 - **Plugins** declare `[trust]` permissions (`network`, `fs_write`,
   `env_passthrough`) and share the same environment allowlist; subprocesses get a

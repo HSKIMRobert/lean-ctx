@@ -81,9 +81,10 @@ See the [contract](../contracts/addon-manifest-v1.md) for every field.
 ### Declare what your addon needs — `[capabilities]`
 
 Add a `[capabilities]` block to opt your stdio addon into a **per-addon,
-secure-by-default sandbox**. lean-ctx enforces exactly what you declare at the
-spawn point (`sandbox-exec` on macOS, `bwrap` on Linux) and shows the user the
-list before they install:
+secure-by-default sandbox**. lean-ctx enforces the `network`/`filesystem` profile
+you declare at the spawn point (`sandbox-exec` on macOS, `bwrap` on Linux — and
+child processes inherit it), scrubs the environment to your `env` allowlist, and
+shows the user the full list before they install:
 
 ```toml
 [capabilities]
@@ -234,8 +235,9 @@ lean-ctx call ctx_read --project-root /repo --json '{"path":"src/main.rs","mode"
 
 ### Declare it: the callback capability block
 
-Spawning `lean-ctx` is subprocess execution, so a callback addon must declare
-`exec`. Recommended block:
+Spawning `lean-ctx` is subprocess execution, so a callback addon should declare
+`exec` — it's how the audit and the install consent reflect what the addon does.
+Recommended block:
 
 ```toml
 [capabilities]
@@ -254,8 +256,11 @@ sandbox**:
 - **Write tools.** `ctx_refactor` and friends modify files; if your addon
   applies (not just previews) them, it needs `filesystem = "read_write"`.
 
-On macOS the `exec = ["lean-ctx"]` allowlist is OS-enforced; on Linux it is
-disclosed (see the platform matrix in
+`exec` is a **declared + audited** capability — not OS-enforced on any platform.
+What's enforced is the network/filesystem sandbox, which the spawned `lean-ctx`
+**inherits** (so the callback can't exfiltrate or tamper either). Declaring
+`exec = ["lean-ctx"]` keeps the audit honest and shows the user exactly what the
+addon does (see
 [`addon-manifest-v1`](../contracts/addon-manifest-v1.md)).
 
 ## How it works

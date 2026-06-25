@@ -751,7 +751,10 @@ fn print_install_preview(manifest: &AddonManifest) {
 fn print_capabilities(manifest: &AddonManifest) {
     match &manifest.capabilities {
         Some(caps) => {
-            println!("\n  Capabilities (enforced — sandbox + env scrub):");
+            println!(
+                "\n  Capabilities — network/filesystem/env enforced (sandbox + scrub, \
+                 inherited by children); exec declared + audited:"
+            );
             for line in caps.summary() {
                 println!("    • {line}");
             }
