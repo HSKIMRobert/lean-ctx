@@ -52,6 +52,12 @@ pub fn allow_paths_from_env_and_config() -> Vec<PathBuf> {
     // against — otherwise a guarded (lexical) root vs a resolved candidate would
     // break `is_under_prefix`. These entries are data_dir / IDE-config dirs /
     // user-configured paths, virtually never under ~/Documents.
+    //
+    // This is also lean-ctx's own state dir (sessions, knowledge, …) — always
+    // readable even while foreign editor dirs stay jailed. On a legacy install
+    // the resolver returns `~/.lean-ctx`; on a split install it returns the XDG
+    // data dir. Going through the resolver (not a hardcoded `~/.lean-ctx` join)
+    // is what keeps `home_allow_dirs` free of the legacy-path firewall trip.
     if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir() {
         out.push(canonicalize_secure(&data_dir));
     }
@@ -262,21 +268,18 @@ pub fn enforce_writable(candidate: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Home-level allow-dirs for the jail. `~/.lean-ctx` (own state) is always
-/// allowed; the *other* IDE config dirs (~/.cursor, ~/.claude, …) expose
-/// foreign projects' sessions, MCP configs and credentials to any agent, so
-/// they are opt-in only (config `allow_ide_config_dirs = true` or
-/// `LEAN_CTX_ALLOW_IDE_DIRS=1`).
+/// Foreign editor config dirs for the jail (~/.cursor, ~/.claude, VS Code, …).
+///
+/// These expose other projects' sessions, MCP configs and credentials to any
+/// agent, so they are opt-in only (config `allow_ide_config_dirs = true` or
+/// `LEAN_CTX_ALLOW_IDE_DIRS=1`). lean-ctx's *own* state dir is intentionally NOT
+/// handled here: the caller already adds it via the sanctioned `data_dir`
+/// resolver (the legacy `~/.lean-ctx` is just one resolution of it). Keeping this
+/// a pure foreign-editor list means no legacy `~/.lean-ctx` literal is built in
+/// this module, so the legacy-path firewall (tests/legacy_path_firewall) has
+/// nothing to flag.
 fn home_allow_dirs(home: &Path, ide_dirs_allowed: bool) -> Vec<PathBuf> {
     let mut out = Vec::new();
-
-    // lean-ctx's own home dir (sessions, rules, knowledge) is always readable,
-    // even while every foreign editor dir stays jailed.
-    let own = home.join(".lean-ctx");
-    if own.exists() {
-        out.push(canonicalize_secure(&own));
-    }
-
     if ide_dirs_allowed {
         let targets = crate::core::editor_registry::build_targets(home);
         collect_ide_allow_dirs(home, &targets, &mut out);
@@ -721,8 +724,10 @@ mod tests {
         );
     }
 
-    // P0-10 (#422): home-level IDE config dirs are opt-in; only ~/.lean-ctx
-    // is allowed unconditionally.
+    // P0-10 (#422): foreign editor config dirs are opt-in. lean-ctx's own state
+    // dir is added by the caller via the data_dir root, NOT by `home_allow_dirs`,
+    // so the default home allow-list is empty and `~/.lean-ctx` (not an editor)
+    // never appears here.
     #[test]
     fn ide_config_dirs_are_excluded_by_default() {
         let home = tempfile::tempdir().unwrap();
@@ -731,28 +736,23 @@ mod tests {
         }
 
         let denied = home_allow_dirs(home.path(), false);
-        assert_eq!(
-            denied.len(),
-            1,
-            "only ~/.lean-ctx may be allowed: {denied:?}"
+        assert!(
+            denied.is_empty(),
+            "foreign editor dirs must stay jailed by default: {denied:?}"
         );
-        assert!(denied[0].ends_with(".lean-ctx"));
 
         // Opt-in exposes the editor dirs that actually exist under this home.
-        // Entries are registry-derived; foreign real-$HOME paths are filtered
-        // out by the in-home guard, so the result stays hermetic.
+        // Entries are registry-derived (foreign real-$HOME paths are filtered out
+        // by the in-home guard), so the result stays hermetic — and `~/.lean-ctx`
+        // is never added here because it is not an editor.
         let allowed = home_allow_dirs(home.path(), true);
         assert!(
-            allowed.len() > denied.len(),
-            "opt-in must widen: {allowed:?}"
-        );
-        assert!(
-            allowed.iter().any(|p| p.ends_with(".lean-ctx")),
-            "{allowed:?}"
-        );
-        assert!(
             allowed.iter().any(|p| p.ends_with(".cursor")),
-            "{allowed:?}"
+            "opt-in must expose editor dirs: {allowed:?}"
+        );
+        assert!(
+            !allowed.iter().any(|p| p.ends_with(".lean-ctx")),
+            "lean-ctx's own dir is covered by the data_dir root, not home_allow_dirs: {allowed:?}"
         );
     }
 
