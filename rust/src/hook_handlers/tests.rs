@@ -744,6 +744,22 @@ fn classify_redirect_covers_copilot_view_and_rg() {
 }
 
 #[test]
+fn grep_content_mode_only_redirects_explicit_content() {
+    // GH #398 hook follow-up: the path-swap redirect is faithful only for
+    // `output_mode=content`. files_with_matches/count would surface the temp
+    // file itself, and an absent mode is host-dependent (Cursor=content,
+    // Claude Code=files_with_matches), so it must not be redirected blindly.
+    let mode = |m: &str| serde_json::json!({ "pattern": "x", "output_mode": m });
+    assert!(grep_content_mode(Some(&mode("content"))));
+    assert!(!grep_content_mode(Some(&mode("files_with_matches"))));
+    assert!(!grep_content_mode(Some(&mode("count"))));
+    assert!(!grep_content_mode(Some(
+        &serde_json::json!({ "pattern": "x" })
+    )));
+    assert!(!grep_content_mode(None));
+}
+
+#[test]
 fn classify_redirect_covers_existing_tool_names() {
     for n in ["Read", "read", "read_file"] {
         assert_eq!(classify_redirect(n), RedirectKind::Read, "{n}");

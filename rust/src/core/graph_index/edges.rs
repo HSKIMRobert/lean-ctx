@@ -34,6 +34,12 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
 
     const MAX_FILE_SIZE_FOR_EDGES: u64 = 2 * 1024 * 1024;
 
+    // Full analyses of C#/Java files, kept to derive cross-file type_ref edges
+    // after the import pass (GH #398). Those languages resolve same-namespace
+    // types without an import, so the import list alone is not enough.
+    let mut type_inputs: Vec<(String, String, crate::core::deep_queries::DeepAnalysis)> =
+        Vec::new();
+
     for (i, rel_path) in file_paths.iter().enumerate() {
         if i.is_multiple_of(1000) && crate::core::memory_guard::is_under_pressure() {
             tracing::warn!(
@@ -90,9 +96,16 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
                 content
             };
 
-            let imports =
-                crate::core::deep_queries::analyze(&analysis_content, resolve_ext).imports;
-            (resolve_ext, imports)
+            let analysis = crate::core::deep_queries::analyze(&analysis_content, resolve_ext);
+            // C#/Java need the full analysis for type_ref edges (GH #398);
+            // every other language uses only the resolved import list.
+            if matches!(resolve_ext, "cs" | "java") {
+                let imports = analysis.imports.clone();
+                type_inputs.push((rel_path.clone(), resolve_ext.to_string(), analysis));
+                (resolve_ext, imports)
+            } else {
+                (resolve_ext, analysis.imports)
+            }
         };
 
         if imports.is_empty() {
@@ -114,6 +127,29 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
                 });
             }
         }
+    }
+
+    // Cross-file type-reference edges for C#/Java same-namespace usage (GH #398).
+    // Emitted in the durable graph_index -> PropertyGraph mirror so a background
+    // reindex preserves the impact blast radius instead of clearing it; shares
+    // its resolution with the `ctx_impact` builder via `type_ref_edges`.
+    let type_ref_inputs: Vec<crate::core::type_ref_edges::FileAnalysis> = type_inputs
+        .iter()
+        .map(
+            |(path, file_ext, analysis)| crate::core::type_ref_edges::FileAnalysis {
+                path,
+                ext: file_ext,
+                analysis,
+            },
+        )
+        .collect();
+    for (from, to) in crate::core::type_ref_edges::cross_file_type_edges(&type_ref_inputs) {
+        index.edges.push(IndexEdge {
+            from,
+            to,
+            kind: "type_ref".to_string(),
+            weight: 0.5,
+        });
     }
 
     index.edges.sort_by(|a, b| {
@@ -165,90 +201,7 @@ fn build_implicit_edges_with_cache(
         }
     }
 
-    // C# namespace cohesion is computed in a single pass over all `.cs` files
-    // (grouping needs every file), rather than per-file inside the loop above.
-    collect_csharp_namespace_edges(&file_paths, index, &mut new_edges, content_cache);
-
     index.edges.extend(new_edges);
-}
-
-/// Link C# files that declare the same namespace so namespace-cohesive code
-/// (including `partial` classes split across files) forms a connected component
-/// even without a direct `using`. Files in a namespace are chained
-/// deterministically (`a -> b -> c`), yielding `n-1` edges per group.
-fn collect_csharp_namespace_edges(
-    file_paths: &[String],
-    index: &ProjectIndex,
-    edges: &mut Vec<IndexEdge>,
-    content_cache: &HashMap<String, String>,
-) {
-    let mut by_namespace: std::collections::BTreeMap<String, Vec<String>> =
-        std::collections::BTreeMap::new();
-
-    for file in file_paths {
-        if Path::new(file.as_str())
-            .extension()
-            .and_then(|e| e.to_str())
-            != Some("cs")
-        {
-            continue;
-        }
-
-        let content = if let Some(cached) = content_cache.get(file) {
-            std::borrow::Cow::Borrowed(cached.as_str())
-        } else {
-            let full_path = Path::new(&index.project_root).join(file);
-            match std::fs::read_to_string(&full_path) {
-                Ok(c) => std::borrow::Cow::Owned(c),
-                Err(_) => continue,
-            }
-        };
-
-        if let Some(namespace) = csharp_primary_namespace(&content) {
-            by_namespace
-                .entry(namespace)
-                .or_default()
-                .push(file.clone());
-        }
-    }
-
-    for (_namespace, mut files) in by_namespace {
-        files.sort();
-        files.dedup();
-        if files.len() < 2 {
-            continue;
-        }
-        for pair in files.windows(2) {
-            edges.push(IndexEdge {
-                from: pair[0].clone(),
-                to: pair[1].clone(),
-                kind: "namespace".to_string(),
-                weight: 0.6,
-            });
-        }
-    }
-}
-
-/// First namespace declared in a C# file — block `namespace X.Y { }` or
-/// file-scoped `namespace X.Y;`. Comment lines are skipped so a commented-out
-/// declaration is never mistaken for the real one.
-fn csharp_primary_namespace(content: &str) -> Option<String> {
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*") {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("namespace ") {
-            let namespace: String = rest
-                .chars()
-                .take_while(|c| !c.is_whitespace() && *c != '{' && *c != ';')
-                .collect();
-            if !namespace.is_empty() {
-                return Some(namespace);
-            }
-        }
-    }
-    None
 }
 
 fn collect_rust_mod_edges_cached(

@@ -68,7 +68,13 @@ fn migrate_if_needed(project_root: &str, new_dir: &Path) {
 /// transparently rebuilt on the next query instead of being served without the
 /// new edges. Graphs whose `graph.meta.json` predates this stamp deserialize to
 /// engine version `0`, so the first query after an upgrade rebuilds once.
-pub const GRAPH_ENGINE_VERSION: u32 = 2;
+///
+/// History:
+/// - `2`: `type_ref` edges added to the `ctx_impact` builder (v3.8.3).
+/// - `3`: `type_ref` edges moved into the durable `graph_index` mirror so a
+///   background reindex can no longer wipe the C# blast radius (GH #398); every
+///   graph stamped by an engine that predates the mirror fix must rebuild.
+pub const GRAPH_ENGINE_VERSION: u32 = 3;
 
 /// `true` when the persisted graph was built by an engine older than
 /// [`GRAPH_ENGINE_VERSION`] — or predates the version stamp entirely (missing or

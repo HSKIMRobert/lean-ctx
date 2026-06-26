@@ -734,6 +734,20 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
 }
 
 /// Redirect Grep through lean-ctx for compressed results.
+/// The Grep redirect rewrites `path` to a temp file the host re-greps, which is
+/// only faithful for `output_mode=content` (see [`redirect_grep`]). For
+/// `files_with_matches` the host would report the temp file itself as the match,
+/// and for `count` it would count lines in the temp file — both wrong. The hook
+/// is host-agnostic (Cursor defaults to `content`, Claude Code to
+/// `files_with_matches`), so an absent mode cannot be assumed safe: only an
+/// explicit `content` mode is redirectable. (GH #398 hook follow-up)
+fn grep_content_mode(tool_input: Option<&serde_json::Value>) -> bool {
+    tool_input
+        .and_then(|ti| ti.get("output_mode"))
+        .and_then(|m| m.as_str())
+        == Some("content")
+}
+
 fn redirect_grep(tool_input: Option<&serde_json::Value>) {
     let pattern = tool_input
         .and_then(|ti| ti.get("pattern"))
@@ -752,6 +766,21 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
             "<none>",
             "no pattern in tool input",
         );
+        print!("{}", build_dual_allow_output());
+        return;
+    }
+
+    if !grep_content_mode(tool_input) {
+        debug_log::log_hook_decision(
+            "redirect",
+            "Grep",
+            Route::Native,
+            &format!("{pattern} in {search_path}"),
+            "non-content output_mode — native passthrough (path-swap only valid for content)",
+        );
+        if is_shadow_mode_active() {
+            log_shadow_intercept("Grep", &format!("{pattern} in {search_path}"));
+        }
         print!("{}", build_dual_allow_output());
         return;
     }

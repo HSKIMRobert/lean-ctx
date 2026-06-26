@@ -527,17 +527,22 @@ fn safe_scan_root_accepts_multi_repo_parent() {
 #[test]
 fn csharp_graph_edges_end_to_end() {
     // Full edge pipeline for a small C# project: `using` resolution (import
-    // edges) + namespace cohesion (namespace edges). Regression for the empty
-    // C# Call Graph / sparse graph report (NINA).
+    // edges) + same-namespace type usage (type_ref edges, GH #398). Regression
+    // for the empty C# Call Graph / sparse graph report (NINA) and the false
+    // "leaf node" blast radius that the old alphabetical namespace chain caused.
     const USER_SERVICE: &str = "namespace App.Services;\n\
 using App.Data;\n\
 \n\
 public class UserService\n{\n    \
 private readonly OrderRepository _repo = new OrderRepository();\n    \
 public void Save() { _repo.Persist(); }\n}\n";
+    // Consumes a same-namespace type with no `using` and no `new` — exactly the
+    // dependency that only a type_ref edge can capture.
     const ORDER_SERVICE: &str = "namespace App.Services;\n\
 \n\
-public class OrderService { public void Process() {} }\n";
+public class OrderService\n{\n    \
+private readonly UserService _users;\n    \
+public void Process() {}\n}\n";
     const ORDER_REPO: &str = "namespace App.Data;\n\
 \n\
 public class OrderRepository { public void Persist() {} }\n";
@@ -568,15 +573,77 @@ public class OrderRepository { public void Persist() {} }\n";
         index.edges
     );
 
-    // Two files in `App.Services` are linked by a namespace cohesion edge.
+    // Same-namespace type usage without `using` yields a precise type_ref edge
+    // (consumer -> definer), the durable signal a background reindex preserves.
     assert!(
-        index.edges.iter().any(|e| e.kind == "namespace"
-            && (e.from == "src/App/Services/OrderService.cs"
-                && e.to == "src/App/Services/UserService.cs"
-                || e.from == "src/App/Services/UserService.cs"
-                    && e.to == "src/App/Services/OrderService.cs")),
-        "expected a C# namespace cohesion edge, got {:?}",
+        index.edges.iter().any(|e| e.kind == "type_ref"
+            && e.from == "src/App/Services/OrderService.cs"
+            && e.to == "src/App/Services/UserService.cs"),
+        "expected a C# same-namespace type_ref edge, got {:?}",
         index.edges
+    );
+}
+
+/// GH #398 regression — the durable mirror must carry the C# same-namespace
+/// blast radius. The bug every previous fix missed: `ctx_impact` wrote precise
+/// `type_ref` edges into the PropertyGraph, but every `ProjectIndex::save()`
+/// (daemon reindex, dashboard, `ctx_graph`) mirrors graph_index over it via
+/// `clear_code_graph()` — and graph_index emitted none, silently wiping the
+/// blast radius and leaving the consumer a false-negative leaf. With type_ref
+/// edges now produced here, the mirrored graph keeps the consumer reachable.
+#[cfg(feature = "tree-sitter")]
+#[test]
+fn csharp_same_namespace_type_ref_survives_mirror() {
+    use crate::core::property_graph::{CodeGraph, populate_from_project_index};
+
+    const ENGINE: &str = "namespace App.Core;\n\npublic class Engine { public int Power; }\n";
+    // DI-style consumer: field + ctor param, no `using`, never `new Engine()`.
+    const MOTOR: &str = "namespace App.Core;\n\
+\n\
+public class Motor\n{\n    \
+private readonly Engine _engine;\n    \
+public Motor(Engine engine) { _engine = engine; }\n}\n";
+    // Unrelated same-namespace file in its own directory: it neither uses Engine
+    // nor shares a directory with a connected file, so the directory-local
+    // "sibling" orphan-rescue heuristic cannot pull it in either — its absence
+    // proves the blast radius comes from the precise type_ref edge, not noise.
+    const LOGGER: &str = "namespace App.Core;\n\npublic class Logger { public void Log() {} }\n";
+
+    let files = [
+        ("Models/Engine.cs", ENGINE),
+        ("Services/Motor.cs", MOTOR),
+        ("Utils/Logger.cs", LOGGER),
+    ];
+    let mut index = ProjectIndex::new("/proj-mirror-398");
+    let mut cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (path, content) in files {
+        index
+            .files
+            .insert(path.to_string(), fe(path, content, "cs"));
+        cache.insert(path.to_string(), content.to_string());
+    }
+    build_edges_cached(&mut index, &cache);
+
+    // Mirror exactly as the daemon/dashboard reindex does.
+    let pg = CodeGraph::open_in_memory().expect("in-memory graph");
+    populate_from_project_index(&pg, &index).expect("mirror index");
+
+    let impact = pg
+        .impact_analysis("Models/Engine.cs", 5)
+        .expect("impact analysis");
+    assert!(
+        impact
+            .affected_files
+            .contains(&"Services/Motor.cs".to_string()),
+        "DI consumer must survive the graph_index mirror; got {:?}",
+        impact.affected_files
+    );
+    assert!(
+        !impact
+            .affected_files
+            .contains(&"Utils/Logger.cs".to_string()),
+        "unrelated same-namespace file must NOT be in the blast radius; got {:?}",
+        impact.affected_files
     );
 }
 

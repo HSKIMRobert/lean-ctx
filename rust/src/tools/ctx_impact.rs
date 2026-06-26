@@ -5,6 +5,7 @@
 
 use crate::core::property_graph::{CodeGraph, DependencyChain, Edge, EdgeKind, ImpactResult, Node};
 use crate::core::tokens::count_tokens;
+use crate::core::type_ref_edges::{DefIndex, ExtMethodIndex};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -678,16 +679,6 @@ type AnalyzedFile<'a> = (
     crate::core::deep_queries::DeepAnalysis,
 );
 
-/// Definition sites per symbol name: `name -> [(file, namespace, line_start,
-/// line_end)]`. The namespace (C# only; `None` for other languages) lets
-/// resolution disambiguate homonyms declared in different namespaces (GH #398).
-type DefIndex = std::collections::HashMap<String, Vec<(String, Option<String>, usize, usize)>>;
-
-/// Extension-method definition sites: `method_name -> [(file, line_start,
-/// line_end)]`. Drives host resolution for `value.Foo()` extension calls where
-/// the definer's type is never named at the call site (GH #398).
-type ExtMethodIndex = std::collections::HashMap<String, Vec<(String, usize, usize)>>;
-
 /// Analyze every walked source file once (parallel) and build the global
 /// symbol-definition index and the extension-method index. Shared by full
 /// build and incremental update on both builder paths.
@@ -707,95 +698,25 @@ fn analyze_all(
         })
         .collect();
 
-    let mut def_index = DefIndex::new();
-    let mut ext_method_index = ExtMethodIndex::new();
-    for (p, _, _, analysis) in &per_file {
-        for t in &analysis.types {
-            def_index.entry(t.name.clone()).or_default().push((
-                (*p).to_string(),
-                t.namespace.clone(),
-                t.line,
-                t.end_line,
-            ));
-        }
-        for m in &analysis.ext_methods {
-            ext_method_index.entry(m.name.clone()).or_default().push((
-                (*p).to_string(),
-                m.line,
-                m.end_line,
-            ));
-        }
-    }
+    // Single source of truth for the #398 indexes (shared with the graph_index
+    // mirror so both builders resolve identical type-usage edges).
+    let def_index =
+        crate::core::type_ref_edges::build_def_index(per_file.iter().map(|(p, _, _, a)| (*p, a)));
+    let ext_method_index = crate::core::type_ref_edges::build_ext_method_index(
+        per_file.iter().map(|(p, _, _, a)| (*p, a)),
+    );
 
     (per_file, def_index, ext_method_index)
 }
 
-/// Definition sites of types this file *uses* (field/param/base/generic/cast),
-/// resolved against the project-wide definition index: `(defining_file,
-/// type_name, line_start, line_end)`. This is what connects C#/Java
-/// same-namespace consumers that have no import statement (GH #398).
-///
-/// Hybrid, failsafe resolution:
-/// - A definer whose namespace is **visible** to the consumer (its own
-///   namespace + enclosing namespaces + `using`s) is always linked — even past
-///   the fallback cap — because the match is unambiguous evidence, and any
-///   homonym in a non-visible namespace is dropped (no cross-namespace leak).
-/// - With no visible match the global fallback links every definer, but drops
-///   names with more than `MAX_FALLBACK_DEF_SITES` definers as too generic to
-///   attribute (e.g. `Config` in a monorepo). Languages without namespaces
-///   (Java; C# global namespace) always take this path.
-fn type_ref_targets(
-    def_index: &DefIndex,
-    type_uses: &[crate::core::deep_queries::TypeUse],
-    rel_path: &str,
-    visible_ns: &std::collections::HashSet<String>,
-) -> Vec<(String, String, usize, usize)> {
-    const MAX_FALLBACK_DEF_SITES: usize = 5;
-
-    let mut targets: Vec<(String, String, usize, usize)> = Vec::new();
-    for type_use in type_uses {
-        let Some(sites) = def_index.get(&type_use.name) else {
-            continue;
-        };
-        // Defined in this very file -> self-reference, not a dependency.
-        let mut external: Vec<&(String, Option<String>, usize, usize)> =
-            sites.iter().filter(|(f, _, _, _)| f != rel_path).collect();
-        external.sort_unstable();
-        external.dedup();
-        if external.is_empty() {
-            continue;
-        }
-
-        // Namespace-confirmed matches win and bypass the cap.
-        let visible: Vec<&(String, Option<String>, usize, usize)> = external
-            .iter()
-            .copied()
-            .filter(|(_, ns, _, _)| ns.as_deref().is_some_and(|n| visible_ns.contains(n)))
-            .collect();
-
-        let chosen = if !visible.is_empty() {
-            visible
-        } else if external.len() <= MAX_FALLBACK_DEF_SITES {
-            external
-        } else {
-            continue;
-        };
-
-        targets.extend(
-            chosen
-                .into_iter()
-                .map(|(f, _ns, ls, le)| (f.clone(), type_use.name.clone(), *ls, *le)),
-        );
-    }
-    targets.sort();
-    targets.dedup();
-    targets
-}
-
 /// Insert `TypeRef` edges for every resolved type usage:
-/// - file -> defining file (drives `impact_analysis` blast radius),
-/// - file -> defined type symbol (clears the symbol from `dead_code`,
-///   whose query already exempts `type_ref` targets).
+/// - file -> defining file (drives `impact_analysis` blast radius; the
+///   `graph_index` mirror produces the identical file edge via
+///   [`crate::core::type_ref_edges::cross_file_type_edges`] so a reindex cannot
+///   drop it — GH #398),
+/// - file -> defined type symbol (clears the symbol from `dead_code`, whose
+///   query already exempts `type_ref` targets; symbol-level edges live only on
+///   this builder path).
 fn insert_type_ref_edges(
     graph: &CodeGraph,
     file_node_id: i64,
@@ -806,7 +727,7 @@ fn insert_type_ref_edges(
 ) -> usize {
     let mut added = 0usize;
     for (target_file, type_name, line_start, line_end) in
-        type_ref_targets(def_index, type_uses, rel_path, visible_ns)
+        crate::core::type_ref_edges::type_ref_targets(def_index, type_uses, rel_path, visible_ns)
     {
         let Ok(target_id) = graph.upsert_node(&Node::file(&target_file)) else {
             continue;
@@ -841,34 +762,10 @@ fn insert_ext_method_edges(
     calls: &[crate::core::deep_queries::CallSite],
     ext_method_index: &ExtMethodIndex,
 ) -> usize {
-    const MAX_EXT_DEF_SITES: usize = 5;
-
-    let mut targets: Vec<(String, String, usize, usize)> = Vec::new();
-    for call in calls {
-        if !call.is_method {
-            continue;
-        }
-        let Some(sites) = ext_method_index.get(&call.callee) else {
-            continue;
-        };
-        let mut external: Vec<&(String, usize, usize)> =
-            sites.iter().filter(|(f, _, _)| f != rel_path).collect();
-        external.sort_unstable();
-        external.dedup();
-        if external.is_empty() || external.len() > MAX_EXT_DEF_SITES {
-            continue;
-        }
-        targets.extend(
-            external
-                .into_iter()
-                .map(|(f, ls, le)| (f.clone(), call.callee.clone(), *ls, *le)),
-        );
-    }
-    targets.sort();
-    targets.dedup();
-
     let mut added = 0usize;
-    for (target_file, method_name, line_start, line_end) in targets {
+    for (target_file, method_name, line_start, line_end) in
+        crate::core::type_ref_edges::ext_method_targets(ext_method_index, calls, rel_path)
+    {
         let Ok(target_id) = graph.upsert_node(&Node::file(&target_file)) else {
             continue;
         };
@@ -887,32 +784,6 @@ fn insert_ext_method_edges(
         }
     }
     added
-}
-
-/// Namespaces a C# file can resolve unqualified types from: its own type
-/// namespaces, every enclosing namespace (dot-prefix), and each `using`
-/// target. Used to confirm namespace-aware type matches (GH #398). Empty for
-/// other languages, which then always take the global fallback path.
-fn csharp_visible_namespaces(
-    analysis: &crate::core::deep_queries::DeepAnalysis,
-) -> std::collections::HashSet<String> {
-    let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for t in &analysis.types {
-        if let Some(ns) = &t.namespace {
-            // Own namespace + every enclosing one: `A.B.C` -> A.B.C, A.B, A.
-            let segs: Vec<&str> = ns.split('.').filter(|s| !s.is_empty()).collect();
-            for i in 1..=segs.len() {
-                set.insert(segs[..i].join("."));
-            }
-        }
-    }
-    for imp in &analysis.imports {
-        let src = imp.source.trim();
-        if !src.is_empty() {
-            set.insert(src.to_string());
-        }
-    }
-    set
 }
 
 fn normalize_git_path(line: &str) -> String {
@@ -1102,7 +973,7 @@ fn index_graph_file_embeddings(
     // a file consuming a project type without importing it still depends on
     // the defining file. Resolution is namespace-aware for C#.
     let visible_ns = if ext == "cs" {
-        csharp_visible_namespaces(analysis)
+        crate::core::type_ref_edges::csharp_visible_namespaces(analysis)
     } else {
         std::collections::HashSet::new()
     };
@@ -1188,7 +1059,7 @@ fn index_graph_file_minimal(
     // Same-namespace type consumption (C#/Java, GH #398) — see the
     // embeddings-path counterpart in `index_graph_file_embeddings`.
     let visible_ns = if ext == "cs" {
-        csharp_visible_namespaces(analysis)
+        crate::core::type_ref_edges::csharp_visible_namespaces(analysis)
     } else {
         std::collections::HashSet::new()
     };
@@ -1724,101 +1595,6 @@ mod tests {
         assert!(result.contains("Unknown action"));
     }
 
-    /// GH #398 (+ #641 namespace-aware): the TypeRef target resolution —
-    /// unique definers connect, self-references are skipped, over-generic names
-    /// (> fallback cap of 5 with no namespace match) are dropped, a definer in
-    /// the consumer's visible namespace is linked even past the cap while its
-    /// homonyms are discarded, and output is sorted + deduped (determinism,
-    /// #498).
-    #[test]
-    fn type_ref_targets_resolution_rules() {
-        type Sites = Vec<(String, Option<String>, usize, usize)>;
-        let mut def_index: std::collections::HashMap<String, Sites> =
-            std::collections::HashMap::new();
-        def_index.insert(
-            "Engine".into(),
-            vec![("Models/Engine.cs".into(), Some("App.Core".into()), 1, 5)],
-        );
-        def_index.insert(
-            "Motor".into(),
-            vec![("Services/Motor.cs".into(), Some("App.Core".into()), 1, 9)],
-        );
-        // Six definers, no namespace info -> exceeds the fallback cap (5).
-        def_index.insert(
-            "Config".into(),
-            (0..6)
-                .map(|i| (format!("p{i}/Config.cs"), None, 1usize, 2usize))
-                .collect(),
-        );
-        // Same name, two namespaces — one visible to the consumer, one not.
-        def_index.insert(
-            "Widget".into(),
-            vec![
-                ("Foo/Widget.cs".into(), Some("App.Foo".into()), 1, 4),
-                ("Bar/Widget.cs".into(), Some("App.Bar".into()), 1, 4),
-            ],
-        );
-        // Seven definers, one of them in the visible namespace -> cap bypass.
-        let mut crowded: Sites = (0..6)
-            .map(|i| (format!("n{i}/Gadget.cs"), Some(format!("App.N{i}")), 1, 3))
-            .collect();
-        crowded.push(("Foo/Gadget.cs".into(), Some("App.Foo".into()), 1, 3));
-        def_index.insert("Gadget".into(), crowded);
-
-        let uses = |names: &[&str]| -> Vec<crate::core::deep_queries::TypeUse> {
-            names
-                .iter()
-                .map(|n| crate::core::deep_queries::TypeUse {
-                    name: (*n).to_string(),
-                    line: 1,
-                })
-                .collect()
-        };
-        let visible: std::collections::HashSet<String> = ["App.Foo".to_string(), "App".to_string()]
-            .into_iter()
-            .collect();
-        let none = std::collections::HashSet::new();
-
-        // Unique definer in another file -> edge target with symbol site.
-        assert_eq!(
-            type_ref_targets(&def_index, &uses(&["Engine"]), "Services/Motor.cs", &none),
-            vec![("Models/Engine.cs".to_string(), "Engine".to_string(), 1, 5)]
-        );
-        // Using one's own type -> no self edge.
-        assert!(
-            type_ref_targets(&def_index, &uses(&["Motor"]), "Services/Motor.cs", &none).is_empty()
-        );
-        // Defined in 6 files, no namespace match -> too generic, skipped.
-        assert!(
-            type_ref_targets(&def_index, &uses(&["Config"]), "Services/Motor.cs", &none).is_empty()
-        );
-        // Unknown / external types -> nothing.
-        assert!(type_ref_targets(&def_index, &uses(&["String"]), "x.cs", &none).is_empty());
-        // Duplicate uses collapse into one sorted target list.
-        assert_eq!(
-            type_ref_targets(&def_index, &uses(&["Engine", "Engine"]), "x.cs", &none),
-            vec![("Models/Engine.cs".to_string(), "Engine".to_string(), 1, 5)]
-        );
-        // Namespace disambiguation: only the visible-namespace definer links.
-        assert_eq!(
-            type_ref_targets(&def_index, &uses(&["Widget"]), "Foo/Garage.cs", &visible),
-            vec![("Foo/Widget.cs".to_string(), "Widget".to_string(), 1, 4)]
-        );
-        // Without a visible namespace, both homonyms link (<= cap fallback).
-        assert_eq!(
-            type_ref_targets(&def_index, &uses(&["Widget"]), "Foo/Garage.cs", &none),
-            vec![
-                ("Bar/Widget.cs".to_string(), "Widget".to_string(), 1, 4),
-                ("Foo/Widget.cs".to_string(), "Widget".to_string(), 1, 4),
-            ]
-        );
-        // Cap bypass: 7 definers, but the one in the visible namespace links.
-        assert_eq!(
-            type_ref_targets(&def_index, &uses(&["Gadget"]), "Foo/Garage.cs", &visible),
-            vec![("Foo/Gadget.cs".to_string(), "Gadget".to_string(), 1, 3)]
-        );
-    }
-
     #[test]
     fn graph_target_key_normalizes_windows_styles() {
         let target = graph_target_key(r"C:/repo/src/main.rs", r"C:\repo");
@@ -1985,6 +1761,68 @@ mod tests {
             dead.iter().any(|s| s == "Logger"),
             "never-referenced class `Logger` should still be flagged (non-vacuous); \
              findings: {dead:?}"
+        );
+    }
+
+    /// GH #398 end-to-end regression for the wipe every prior fix missed:
+    /// `ctx_impact` builds precise `type_ref` edges, but a routine background
+    /// reindex (`graph_index::scan` -> `ProjectIndex::save` -> `mirror_index`)
+    /// clears the PropertyGraph and repopulates it from graph_index. Before the
+    /// fix, graph_index emitted no type-usage edges, so the C# same-namespace
+    /// consumer was silently dropped to a false-negative leaf right after the
+    /// first dashboard/daemon reindex. The mirror must now preserve the blast
+    /// radius. Gated on `tree-sitter`: needs the C# grammar, not embeddings.
+    #[cfg(feature = "tree-sitter")]
+    #[test]
+    fn csharp_blast_radius_survives_background_reindex() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        // A project marker so graph_index accepts the root as safe to scan.
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("Models")).unwrap();
+        std::fs::create_dir_all(root.join("Services")).unwrap();
+
+        std::fs::write(
+            root.join("Models/Engine.cs"),
+            "namespace App.Core;\n\n\
+             public class Engine\n{\n    public int Power { get; set; }\n}\n",
+        )
+        .unwrap();
+        // DI-style consumer: field + ctor param, no `using`, no `new Engine()`.
+        std::fs::write(
+            root.join("Services/Motor.cs"),
+            "namespace App.Core;\n\n\
+             public class Motor\n{\n    private readonly Engine _engine;\n\n\
+             \x20   public Motor(Engine engine)\n    {\n        _engine = engine;\n    }\n}\n",
+        )
+        .unwrap();
+
+        let root_str = root.to_string_lossy().to_string();
+
+        // 1) ctx_impact's own builder writes the type_ref edges.
+        let out = handle("build", None, &root_str, None, Some("text"));
+        assert!(!out.contains("ERROR"), "graph build failed: {out}");
+
+        // 2) A background reindex mirrors graph_index over the PropertyGraph,
+        //    clearing it first — exactly what the daemon / dashboard / ctx_graph
+        //    trigger via ProjectIndex::save(). If the mirror dropped type_ref the
+        //    consumer would vanish; an aborted (empty) scan would clear the graph
+        //    entirely. Either failure mode makes the assertion below fail loudly.
+        let _ = crate::core::graph_index::scan(&root_str);
+
+        // 3) The blast radius must survive the mirror (the actual GH #398 bug).
+        let graph =
+            crate::core::property_graph::CodeGraph::open(&root_str).expect("open property graph");
+        let impact = graph
+            .impact_analysis("Models/Engine.cs", 5)
+            .expect("impact analysis");
+        assert!(
+            impact
+                .affected_files
+                .contains(&"Services/Motor.cs".to_string()),
+            "same-namespace consumer must survive a background reindex; got: {:?}",
+            impact.affected_files
         );
     }
 

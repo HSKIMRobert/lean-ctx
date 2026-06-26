@@ -506,4 +506,5 @@ pub mod signatures;
 pub mod signatures_ts;
 pub mod storage_maintenance;
 pub mod structured_compact;
+pub mod type_ref_edges;
 pub mod workspace_trust;
