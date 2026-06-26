@@ -346,7 +346,7 @@ fn import_hotspots_from_edges(gp: &GraphProvider, limit: usize) -> Vec<(String, 
     v
 }
 
-fn build_wakeup_briefing(project_root: &str, task: Option<&str>) -> String {
+pub fn build_wakeup_briefing(project_root: &str, task: Option<&str>) -> String {
     let mut parts = Vec::new();
 
     if let Some(knowledge) = crate::core::knowledge::ProjectKnowledge::load(project_root) {

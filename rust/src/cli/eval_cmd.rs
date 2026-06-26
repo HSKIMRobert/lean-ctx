@@ -8,15 +8,24 @@
 use std::path::{Path, PathBuf};
 
 use crate::core::eval_ab::artifact::{self, SignedAbReportV1};
-use crate::core::eval_ab::model::{OpenAiRunner, RecordedRunner, RecordingRunner};
+use crate::core::eval_ab::footprint::{
+    Footprint, FootprintConfig, FootprintReport, run_footprint_ab,
+};
+use crate::core::eval_ab::model::{ModelRunner, OpenAiRunner, RecordedRunner, RecordingRunner};
 use crate::core::eval_ab::report::ReportConfig;
 use crate::core::eval_ab::suite::EvalSuite;
 use crate::core::eval_ab::{AbRunConfig, run_ab};
 
 /// Entry point dispatched from `cli::dispatch`.
 pub fn cmd_eval(args: &[String]) {
+    // `eval --delta [opts]` is sugar for the footprint subcommand.
+    if args.iter().any(|a| a == "--delta") {
+        let rest: Vec<String> = args.iter().filter(|a| *a != "--delta").cloned().collect();
+        return cmd_footprint(&rest);
+    }
     match args.first().map(String::as_str) {
         Some("ab") => cmd_ab(&args[1..]),
+        Some("footprint" | "delta") => cmd_footprint(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),
         Some("init") => cmd_init(&args[1..]),
         Some("-h" | "--help") | None => print_help(),
@@ -34,6 +43,7 @@ fn print_help() {
 USAGE:\n\
   lean-ctx eval init <dir>                 Scaffold a runnable starter suite\n\
   lean-ctx eval ab --suite <file> [opts]   Run the A/B quality comparison\n\
+  lean-ctx eval footprint --suite <f> [o]  Ablate lean-ctx's OWN injected context (#959)\n\
   lean-ctx eval verify <artifact.json>     Verify signature + determinism digest\n\n\
 ab OPTIONS:\n\
   --suite <file>     NDJSON suite (required)\n\
@@ -43,6 +53,13 @@ ab OPTIONS:\n\
   --replay <file>    Replay a recording instead of calling a live model (deterministic CI)\n\
   --record <file>    Call the live model and save responses to a recording\n\
   --gate             Exit non-zero if the verdict is a regression\n\n\
+footprint OPTIONS (also: `eval --delta`):\n\
+  --suite <file>     Footprint-sensitive NDJSON suite (required)\n\
+  --margin <f>       Non-inferiority margin for the per-element gate (default 0.0)\n\
+  --floor <n>        Min marginal tokens before flagging an element to prune (default 50)\n\
+  --replay <file>    Replay a recording (deterministic); --record to capture live\n\
+  --json             Emit the full JSON report instead of the side-by-side table\n\
+  --gate             Exit non-zero if any injected element is actively harmful\n\n\
 LIVE MODEL (when not replaying) is read from the environment:\n\
   LEAN_CTX_EVAL_MODEL_URL   OpenAI-compatible base URL (e.g. https://api.openai.com/v1)\n\
   LEAN_CTX_EVAL_MODEL       Model id (e.g. gpt-4o-mini)\n\
@@ -170,6 +187,140 @@ fn run_or_exit(
             std::process::exit(1);
         }
     }
+}
+
+/// `eval footprint` (alias `eval --delta`): ablate each element of lean-ctx's own
+/// injected context (rules / tool schemas / wakeup) and report per-element
+/// pass-rate Δ + token Δ with a prune recommendation (#959).
+fn cmd_footprint(args: &[String]) {
+    let Some(suite_path) = flag_value(args, "--suite") else {
+        eprintln!("eval footprint: --suite <file> is required");
+        std::process::exit(2);
+    };
+    let suite_path = PathBuf::from(suite_path);
+    let suite = match EvalSuite::load(&suite_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("eval footprint: {e:#}");
+            std::process::exit(1);
+        }
+    };
+    let suite_name = suite_path.file_name().map_or_else(
+        || "footprint".to_string(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+
+    let margin = flag_value(args, "--margin")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+    let token_floor = flag_value(args, "--floor")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_else(|| FootprintConfig::default().token_floor);
+    let cfg = FootprintConfig {
+        report: ReportConfig {
+            noninferiority_margin: margin,
+            ..ReportConfig::default()
+        },
+        token_floor,
+    };
+
+    // The footprint under test is what this install actually injects.
+    let project_root = std::env::current_dir()
+        .map_or_else(|_| ".".to_string(), |p| p.to_string_lossy().into_owned());
+    let footprint = Footprint::live(&project_root);
+
+    let mut report = if let Some(replay) = flag_value(args, "--replay") {
+        let runner = match RecordedRunner::from_file(Path::new(replay)) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("eval footprint: {e:#}");
+                std::process::exit(1);
+            }
+        };
+        run_footprint_or_exit(&suite, &suite_name, &footprint, &runner, &cfg)
+    } else {
+        let live = match OpenAiRunner::from_env() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!(
+                    "eval footprint: no live model configured: {e:#}\n(use --replay <file> for an offline run)"
+                );
+                std::process::exit(1);
+            }
+        };
+        if let Some(record_path) = flag_value(args, "--record") {
+            let recorder = RecordingRunner::new(live);
+            let report = run_footprint_or_exit(&suite, &suite_name, &footprint, &recorder, &cfg);
+            if let Err(e) = recorder.into_recording().save(Path::new(record_path)) {
+                eprintln!("eval footprint: failed to save recording: {e:#}");
+                std::process::exit(1);
+            }
+            println!("Recording saved → {record_path}");
+            report
+        } else {
+            run_footprint_or_exit(&suite, &suite_name, &footprint, &live, &cfg)
+        }
+    };
+
+    let agent_id = crate::core::agent_identity::current_agent_id().to_string();
+    if let Err(e) = report.sign(&agent_id) {
+        eprintln!("eval footprint: signing failed: {e}");
+        std::process::exit(1);
+    }
+
+    let out = match flag_value(args, "--out") {
+        Some(p) => PathBuf::from(p),
+        None => match default_footprint_path() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("eval footprint: {e}");
+                std::process::exit(1);
+            }
+        },
+    };
+    if let Some(parent) = out.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&out, report.to_json()) {
+        eprintln!("eval footprint: write {}: {e}", out.display());
+        std::process::exit(1);
+    }
+
+    if has_flag(args, "--json") {
+        println!("{}", report.to_json());
+    } else {
+        println!("{}", report.render());
+        println!("artifact:           {}", out.display());
+    }
+
+    if has_flag(args, "--gate") && !report.gate_passes() {
+        eprintln!("\nfootprint gate FAILED: a harmful injected element is present");
+        std::process::exit(1);
+    }
+}
+
+fn run_footprint_or_exit(
+    suite: &EvalSuite,
+    suite_name: &str,
+    footprint: &Footprint,
+    runner: &dyn ModelRunner,
+    cfg: &FootprintConfig,
+) -> FootprintReport {
+    match run_footprint_ab(suite, suite_name, footprint, runner, cfg) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("eval footprint: run failed: {e:#}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Default footprint artifact location: `<data_dir>/eval/footprint-report-v1_<utc>.json`.
+fn default_footprint_path() -> Result<PathBuf, String> {
+    let dir = crate::core::data_dir::lean_ctx_data_dir()?.join("eval");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir eval: {e}"))?;
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
+    Ok(dir.join(format!("footprint-report-v1_{stamp}.json")))
 }
 
 fn cmd_verify(args: &[String]) {
