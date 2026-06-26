@@ -39,6 +39,10 @@ pub struct LoopDetector {
     recent_reads: HashMap<String, (Instant, String)>,
     recent_commands: HashMap<String, Instant>,
     total_calls: u32,
+    // CCR-learning (#941): timestamps of verbatim/original re-fetches
+    // (`ctx_expand`/`ctx_retrieve`). A high rate means the inline compressed form
+    // was too lossy, so compression is dialed back for the session.
+    retrieve_signals: Vec<Instant>,
 }
 
 /// Severity of throttling applied to a repeated call: normal, reduced, or blocked.
@@ -102,6 +106,7 @@ impl LoopDetector {
             recent_reads: HashMap::new(),
             recent_commands: HashMap::new(),
             total_calls: 0,
+            retrieve_signals: Vec::new(),
         }
     }
 
@@ -384,6 +389,22 @@ impl LoopDetector {
             .count() as u32
     }
 
+    /// Records one verbatim/original re-fetch (`ctx_expand`/`ctx_retrieve`) — the
+    /// CCR-learning signal (#941): the agent had to pull back content the inline
+    /// compressed form dropped.
+    pub fn record_retrieve(&mut self) {
+        self.retrieve_signals.push(Instant::now());
+    }
+
+    /// Returns the number of verbatim/original re-fetches in the sliding window.
+    pub fn retrieve_count(&self) -> u32 {
+        let now = Instant::now();
+        self.retrieve_signals
+            .iter()
+            .filter(|t| now.duration_since(**t) < CORRECTION_WINDOW)
+            .count() as u32
+    }
+
     /// Returns the correction rate: signals per minute within the window.
     pub fn correction_rate(&self) -> f64 {
         let count = self.correction_count();
@@ -403,6 +424,8 @@ impl LoopDetector {
             .retain(|_, (t, _)| now.duration_since(*t) < CORRECTION_WINDOW);
         self.recent_commands
             .retain(|_, t| now.duration_since(*t) < CORRECTION_WINDOW);
+        self.retrieve_signals
+            .retain(|t| now.duration_since(*t) < CORRECTION_WINDOW);
     }
 
     /// Clears all tracking state (call history, search patterns, counters).
@@ -415,6 +438,7 @@ impl LoopDetector {
         self.recent_reads.clear();
         self.recent_commands.clear();
         self.total_calls = 0;
+        self.retrieve_signals.clear();
     }
 
     fn prune_window(&mut self, now: Instant) {
@@ -771,6 +795,26 @@ mod tests {
         // Immediately bounce to full mode = correction
         detector.record_read_for_correction("src/cache.rs", "full", false);
         assert_eq!(detector.correction_count(), 1);
+    }
+
+    #[test]
+    fn retrieve_count_tracks_signals_and_resets() {
+        // #941: each ctx_expand/ctx_retrieve is a CCR-learning signal; the count is
+        // a sliding window that prune/reset clear.
+        let mut detector = LoopDetector::new();
+        assert_eq!(detector.retrieve_count(), 0);
+        detector.record_retrieve();
+        detector.record_retrieve();
+        detector.record_retrieve();
+        assert_eq!(detector.retrieve_count(), 3, "three re-fetches counted");
+        // Independent of the correction counter (separate signal).
+        assert_eq!(detector.correction_count(), 0);
+        detector.reset();
+        assert_eq!(
+            detector.retrieve_count(),
+            0,
+            "reset clears retrieve signals"
+        );
     }
 
     #[test]

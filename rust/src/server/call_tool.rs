@@ -328,21 +328,34 @@ impl LeanCtxServer {
             } else if name == "ctx_shell" {
                 let cmd = helpers::get_str(args, "command").unwrap_or_default();
                 detector.record_shell_for_correction(&cmd);
+            } else if name == "ctx_expand" || name == "ctx_retrieve" {
+                // CCR-learning (#941): a verbatim/original re-fetch means the inline
+                // compressed form was too lossy for this session.
+                detector.record_retrieve();
             }
             let correction_count = detector.correction_count();
+            let retrieve_count = detector.retrieve_count();
             if correction_count > 0 {
                 crate::core::anomaly::record_metric(
                     "correction_loop_rate",
                     f64::from(correction_count),
                 );
             }
-            // Auto-degrade: reduce compression when correction rate is high
+            if retrieve_count > 0 {
+                crate::core::anomaly::record_metric("ccr_retrieve_rate", f64::from(retrieve_count));
+            }
+            // Auto-degrade: reduce compression when the agent keeps re-fetching what
+            // we squeezed out. Correction loops (re-reads/re-runs) and CCR retrieves
+            // (ctx_expand/ctx_retrieve) are two views of the same "too aggressive"
+            // signal; degrade on the stronger of the two and clear only when neither
+            // fires. The level is server state, never part of any output body (#498).
             use crate::core::config::CompressionLevel;
-            if correction_count >= 5 {
+            let pressure = correction_count.max(retrieve_count);
+            if pressure >= 5 {
                 CompressionLevel::set_session_degrade(&CompressionLevel::Off);
-            } else if correction_count >= 3 {
+            } else if pressure >= 3 {
                 CompressionLevel::set_session_degrade(&CompressionLevel::Lite);
-            } else if correction_count == 0 {
+            } else if pressure == 0 {
                 CompressionLevel::clear_session_degrade();
             }
             detector.prune_corrections();

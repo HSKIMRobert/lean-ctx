@@ -58,6 +58,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   collected, sorted, and overlapping spans merged, so a full timestamp counts
   once). This is the honest precursor to an opt-in tail-relocate, which is
   deliberately deferred until the data shows it pays.
+- **Retrieve-coupled CCR learning (gitlab #941, Headroom CCR "learning" port).**
+  When an agent keeps pulling back originals the inline compressed form dropped,
+  that is direct evidence the compression was too aggressive. `LoopDetector` now
+  tracks `ctx_expand`/`ctx_retrieve` re-fetches in a dedicated sliding-window
+  counter (`retrieve_count`, alongside the existing correction counter), exposed
+  as the `ccr_retrieve_rate` anomaly metric. The session auto-degrade now reacts
+  to the stronger of the two pressures (correction loops and CCR retrieves) and
+  recovers only when neither fires — so a session that over-retrieves dials
+  compression down to `Lite` (>=3) then `Off` (>=5) for itself. The level is
+  server state that feeds future `CompressionLevel::effective()` decisions, never
+  part of any tool output body, so output determinism (#498) is preserved.
 
 ### Changed
 - **`json_schema::compress` is now crush-backed (gitlab #936).** The generic JSON
