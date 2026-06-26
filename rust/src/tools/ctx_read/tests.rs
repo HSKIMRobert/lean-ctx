@@ -999,6 +999,69 @@ fn auto_reread_of_fully_delivered_file_serves_unchanged_stub() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Conversation scoping (#954): the `[unchanged]` stub is only valid for a
+// re-read from the *same* conversation that received the full content. The
+// current conversation is injected via `try_stub_hit_readonly_scoped` so these
+// assertions are deterministic regardless of the host's `active_transcript.json`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn conversation_scoped_stub_served_for_same_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("warm.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(&path, "fn main() { let x = 1; }\n").unwrap();
+
+    let cache = primed_full_cache(&p);
+    // Re-reading from the very conversation the fixture delivered under must
+    // collapse to the cheap stub.
+    let delivered = cache.get(&p).unwrap().delivered_conversation.clone();
+    let out = try_stub_hit_readonly_scoped(&cache, &p, delivered.as_deref());
+    assert!(
+        out.is_some_and(|o| o.content.contains("[unchanged")),
+        "same-conversation re-read must serve the stub"
+    );
+}
+
+#[test]
+fn conversation_scoped_stub_withheld_for_other_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("warm.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(&path, "fn main() { let x = 1; }\n").unwrap();
+
+    let cache = primed_full_cache(&p);
+    let foreign = "conversation-that-never-read-this-file";
+    // Guard against the fixture (improbably) using this exact id.
+    assert_ne!(
+        cache.get(&p).unwrap().delivered_conversation.as_deref(),
+        Some(foreign),
+        "test fixture id collided with the foreign id"
+    );
+    let out = try_stub_hit_readonly_scoped(&cache, &p, Some(foreign));
+    assert!(
+        out.is_none(),
+        "a foreign conversation must get a full re-read, never a misleading [unchanged] stub"
+    );
+}
+
+#[test]
+fn conversation_scoped_stub_served_when_no_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("warm.rs");
+    let p = path.to_string_lossy().to_string();
+    std::fs::write(&path, "fn main() { let x = 1; }\n").unwrap();
+
+    let cache = primed_full_cache(&p);
+    // current = None (hooks absent) preserves legacy process-scoped behavior.
+    let out = try_stub_hit_readonly_scoped(&cache, &p, None);
+    assert!(
+        out.is_some_and(|o| o.content.contains("[unchanged")),
+        "absent conversation context must keep legacy stub behavior"
+    );
+}
+
 #[test]
 fn delta_explicit_changed_file_diverts_full_reread_to_diff() {
     let dir = tempfile::tempdir().unwrap();

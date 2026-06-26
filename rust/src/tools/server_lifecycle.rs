@@ -198,10 +198,12 @@ impl LeanCtxServer {
                 let _ = session.save();
             }
             let mut cache = self.cache.write().await;
+            let redelivered = cache.count_full_delivered();
             let count = cache.clear();
+            crate::core::cache_telemetry::record_idle(redelivered as u64);
             if count > 0 {
                 tracing::info!(
-                    "Cache auto-cleared after {}s idle ({count} file(s))",
+                    "Cache auto-cleared after {}s idle ({count} file(s), {redelivered} forced re-delivery)",
                     self.cache_ttl_secs
                 );
             }

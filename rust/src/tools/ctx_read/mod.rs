@@ -491,10 +491,27 @@ fn handle_with_options_resolved(
 /// dominant "re-read an unchanged file" case proceeds under a shared lock and
 /// parallel reads of distinct files no longer serialize on a global write lock.
 pub fn try_stub_hit_readonly(cache: &SessionCache, path: &str) -> Option<ReadOutput> {
+    let current_conversation = crate::core::conversation::current_conversation_id();
+    try_stub_hit_readonly_scoped(cache, path, current_conversation.as_deref())
+}
+
+/// Conversation-scoped core of [`try_stub_hit_readonly`]. The current
+/// conversation id is injected (not read from the global resolver) so the
+/// conversation gate can be tested deterministically without global state.
+fn try_stub_hit_readonly_scoped(
+    cache: &SessionCache,
+    path: &str,
+    current_conversation: Option<&str>,
+) -> Option<ReadOutput> {
     let file_ref = cache.get_file_ref_readonly(path)?;
-    let (cached_mtime, cached_hash, line_count) = {
+    let (cached_mtime, cached_hash, line_count, delivered_conv) = {
         let entry = cache.get(path)?;
-        (entry.stored_mtime, entry.hash.clone(), entry.line_count)
+        (
+            entry.stored_mtime,
+            entry.hash.clone(),
+            entry.line_count,
+            entry.delivered_conversation.clone(),
+        )
     };
 
     let no_deg = crate::core::config::Config::load().no_degrade_effective();
@@ -508,6 +525,19 @@ pub fn try_stub_hit_readonly(cache: &SessionCache, path: &str) -> Option<ReadOut
         || crate::core::cache::is_cache_entry_stale_verified(path, cached_mtime, &cached_hash)
         || !cache.is_full_delivered(path)
     {
+        return None;
+    }
+
+    // Conversation scoping (#954): the `[unchanged]` stub asserts the content is
+    // already in *this* conversation's context. If the entry was delivered to a
+    // different (or unknown) conversation, re-deliver in full rather than emit a
+    // misleading stub. `current == None` (hooks absent) preserves legacy
+    // process-scoped behavior, so single-chat hit rates are unchanged.
+    if !crate::core::conversation::conversation_allows_stub(
+        current_conversation,
+        delivered_conv.as_deref(),
+    ) {
+        crate::core::cache_telemetry::record_conversation_mismatch();
         return None;
     }
 

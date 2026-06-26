@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.8.14] — unreleased
 
 ### Added
+- **Read-cache re-delivery telemetry (gitlab #953).** Turns the subjective
+  "re-reads feel unreliable" signal into data: every event that drops a
+  *fully-delivered* cache entry — forcing the next read to re-send the whole file
+  instead of the cheap `[unchanged]` stub — increments a process-global counter
+  grouped by cause (`compaction`, `idle`, `eviction`, `conversation`), surfaced
+  as a `re-deliveries forced:` line in `ctx_cache status`. The counters live only
+  in that diagnostic, never in a cacheable tool-output body, so output
+  determinism (#498) is preserved. Pure measurement — no behavioral change.
 - **Deterministic JSON crusher core — `core::json_crush` (gitlab #934/#935,
   Headroom "Smart Crusher" port).** Real JSON payloads (API responses, `kubectl
   get -o json`, DB dumps, RAG chunks) are dominated by arrays of objects that
@@ -132,6 +140,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   first files still serve their cached compressed output on re-read — no wrong
   escalation to full. Regression test
   `auto_reread_of_fully_delivered_file_serves_unchanged_stub`.
+- **The `[unchanged]` re-read stub was not conversation-scoped — a file
+  delivered in one chat could be stubbed for a re-read in another (gitlab #954).**
+  The read `SessionCache` is shared across every chat served by one daemon, but
+  the stub asserts *"you already have this in context"* — true only within the
+  conversation that received the full content. A re-read from a different chat on
+  the same daemon could therefore receive `Fref=path [unchanged NL]` for content
+  it never saw (the idle-TTL clear only *incidentally* masked it). Each entry now
+  records the `delivered_conversation` (resolved from the live Cursor
+  `conversation_id` that hooks write to `active_transcript.json`), and
+  `try_stub_hit_readonly` serves the stub only when the current conversation
+  matches; a mismatch re-delivers in full and is counted by the new re-delivery
+  telemetry (#953). With no conversation context (hooks absent) it falls back to
+  the legacy process-scoped behavior, so single-chat hit rates are unchanged and
+  byte-stable (#498). The conversation gate is a pure, unit-tested function
+  (`conversation::conversation_allows_stub`) injected into the stub path for
+  deterministic, host-independent tests. Kill-switch
+  `LEAN_CTX_CONVERSATION_SCOPE=0`.
 - **`ctx_impact` missed Go and Kotlin same-package blast radius (#398 bug class).**
   The C#/Java fix in 3.8.13 closed one instance of a general gap: any language with
   implicit same-package visibility references project types with no import, so
