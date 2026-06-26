@@ -77,6 +77,11 @@ pub struct LifecycleConfig {
     /// (architecture/dependency/…) decays slower than *inference* (#802/cognition).
     /// Default false keeps the baseline tuning byte-for-byte.
     pub archetype_aware_decay: bool,
+    /// Archive facts untouched for this many days that were **never** retrieved —
+    /// dead weight that costs injection tokens regardless of confidence (#962).
+    /// `None` disables it (the default, so existing tuning is unchanged); the
+    /// production policy can opt in. Reversible: pruned facts go to the archive.
+    pub prune_unretrieved_after_days: Option<i64>,
 }
 
 impl Default for LifecycleConfig {
@@ -90,6 +95,7 @@ impl Default for LifecycleConfig {
             forgetting_model: ForgettingModel::default(),
             base_stability_days: DEFAULT_BASE_STABILITY_DAYS,
             archetype_aware_decay: false,
+            prune_unretrieved_after_days: None,
         }
     }
 }
@@ -289,6 +295,22 @@ pub fn compact(
         if fact.confidence < config.low_confidence_threshold {
             to_archive.push(i);
             continue;
+        }
+
+        // Real pruning (#962): a single-confirmation fact untouched for the
+        // configured horizon that was *never* retrieved is dead weight even at
+        // high confidence — archive it. Gated on `confirmation_count <= 1` so
+        // repeatedly-confirmed (structurally important) facts are always kept.
+        if let Some(days) = config.prune_unretrieved_after_days {
+            let cutoff = now - Duration::days(days);
+            if fact.last_confirmed < cutoff
+                && fact.retrieval_count == 0
+                && fact.last_retrieved.is_none()
+                && fact.confirmation_count <= 1
+            {
+                to_archive.push(i);
+                continue;
+            }
         }
 
         if fact.last_confirmed < stale_threshold
@@ -664,6 +686,49 @@ mod tests {
         assert_eq!(facts.len(), 1);
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].key, "cache");
+    }
+
+    #[test]
+    fn prune_unretrieved_archives_old_never_retrieved_facts() {
+        // Opt-in (#962): a 60-day-old, high-confidence, never-retrieved,
+        // single-confirmation fact is dead weight and must be archived even
+        // though its confidence is well above the low-confidence floor.
+        let config = LifecycleConfig {
+            prune_unretrieved_after_days: Some(30),
+            ..Default::default()
+        };
+        let mut facts = vec![make_old_fact("arch", "x", "still confident", 0.9, 60)];
+        let (count, archived) = compact(&mut facts, &config);
+        assert_eq!(count, 1);
+        assert_eq!(archived.len(), 1);
+        assert!(facts.is_empty());
+    }
+
+    #[test]
+    fn prune_unretrieved_is_off_by_default() {
+        // Default config (None) must not touch a high-confidence stale fact —
+        // existing tuning stays byte-for-byte.
+        let config = LifecycleConfig::default();
+        let mut facts = vec![make_old_fact("arch", "x", "still confident", 0.9, 60)];
+        let (count, _) = compact(&mut facts, &config);
+        assert_eq!(count, 0);
+        assert_eq!(facts.len(), 1);
+    }
+
+    #[test]
+    fn prune_unretrieved_keeps_retrieved_and_confirmed_facts() {
+        let config = LifecycleConfig {
+            prune_unretrieved_after_days: Some(30),
+            ..Default::default()
+        };
+        let mut retrieved = make_old_fact("arch", "used", "v", 0.9, 60);
+        retrieved.retrieval_count = 3;
+        let mut confirmed = make_old_fact("arch", "confirmed", "v", 0.9, 60);
+        confirmed.confirmation_count = 4;
+        let mut facts = vec![retrieved, confirmed];
+        let (count, _) = compact(&mut facts, &config);
+        assert_eq!(count, 0, "retrieved or repeatedly-confirmed facts are kept");
+        assert_eq!(facts.len(), 2);
     }
 
     #[test]

@@ -1,4 +1,20 @@
 use crate::core::session::SessionState;
+use crate::core::tokens::count_tokens;
+
+/// Default hard ceiling (tokens) on the re-injected ACTIVE SESSION block (#962).
+/// Generous: a true safety cap that normal sessions never hit, so default output
+/// is unchanged while a pathological session can no longer crowd out the task.
+pub const DEFAULT_ACTIVE_SESSION_BUDGET: usize = 800;
+
+/// Effective ACTIVE SESSION token budget (`LEAN_CTX_ACTIVE_SESSION_BUDGET` overrides).
+#[must_use]
+pub fn active_session_budget() -> usize {
+    std::env::var("LEAN_CTX_ACTIVE_SESSION_BUDGET")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(DEFAULT_ACTIVE_SESSION_BUDGET)
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct LitmProfile {
@@ -63,6 +79,36 @@ const _GAMMA: f64 = 0.85;
 pub struct PositionedOutput {
     pub begin_block: String,
     pub end_block: String,
+}
+
+impl PositionedOutput {
+    /// Deterministic hard cap on the re-injected ACTIVE SESSION block (#962).
+    /// Session memory rides every turn, so an unbounded block crowds out the
+    /// user's actual task. The begin block keeps priority over the end block;
+    /// within each, the least-critical lines (rendered last) drop first.
+    pub fn enforce_token_budget(&mut self, budget: usize) {
+        self.begin_block = trim_lines_to_budget(&self.begin_block, budget);
+        let remaining = budget.saturating_sub(count_tokens(&self.begin_block));
+        self.end_block = trim_lines_to_budget(&self.end_block, remaining);
+    }
+}
+
+/// Keeps whole leading lines until the next would exceed `budget`. Deterministic.
+fn trim_lines_to_budget(block: &str, budget: usize) -> String {
+    if block.is_empty() || count_tokens(block) <= budget {
+        return block.to_string();
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    let mut used = 0usize;
+    for line in block.lines() {
+        let cost = count_tokens(line);
+        if used + cost > budget {
+            break;
+        }
+        used += cost;
+        kept.push(line);
+    }
+    kept.join("\n")
 }
 
 /// Sorts session state fields by attention priority:
@@ -375,6 +421,48 @@ mod tests {
         assert_eq!(short_path("file.rs"), "file.rs");
         assert_eq!(short_path("src/file.rs"), "src/file.rs");
         assert_eq!(short_path("a/b/c/file.rs"), "file.rs");
+    }
+
+    #[test]
+    fn enforce_token_budget_caps_block_deterministically() {
+        let mut session = SessionState::new();
+        session.project_root = Some("/tmp/x".to_string());
+        session.task = Some(crate::core::session::TaskInfo {
+            description: "deploy ".repeat(200),
+            intent: None,
+            progress_pct: None,
+        });
+
+        let mut a = position_optimize(&session);
+        let before = count_tokens(&a.begin_block);
+        a.enforce_token_budget(8);
+        let after = count_tokens(&a.begin_block);
+        assert!(
+            after <= 8,
+            "begin block must respect the budget, got {after}"
+        );
+        assert!(after < before, "an oversized block must actually shrink");
+
+        let mut b = position_optimize(&session);
+        b.enforce_token_budget(8);
+        assert_eq!(
+            a.begin_block, b.begin_block,
+            "trimming must be deterministic"
+        );
+    }
+
+    #[test]
+    fn enforce_token_budget_is_noop_under_budget() {
+        let mut session = SessionState::new();
+        session.task = Some(crate::core::session::TaskInfo {
+            description: "small task".to_string(),
+            intent: None,
+            progress_pct: Some(50),
+        });
+        let mut out = position_optimize(&session);
+        let original = out.begin_block.clone();
+        out.enforce_token_budget(DEFAULT_ACTIVE_SESSION_BUDGET);
+        assert_eq!(out.begin_block, original, "a small block is left untouched");
     }
 
     #[test]

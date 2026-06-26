@@ -24,6 +24,7 @@ impl ProjectKnowledge {
             ),
             base_stability_days: policy.lifecycle.base_stability_days,
             archetype_aware_decay: policy.lifecycle.archetype_aware_decay,
+            prune_unretrieved_after_days: policy.lifecycle.prune_unretrieved_after_days,
         };
         crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
     }

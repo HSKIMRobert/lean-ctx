@@ -178,7 +178,10 @@ fn build_full_instructions(crp_mode: CrpMode, client_name: &str) -> String {
         Some(ref session) => {
             rotate_wakeup_manifest(session, profile.name);
             let share = crate::core::litm_calibration::begin_share(profile.name);
-            let positioned = crate::core::litm::position_optimize_with_share(session, share);
+            let mut positioned = crate::core::litm::position_optimize_with_share(session, share);
+            // #962: hard token ceiling so the re-injected ACTIVE SESSION block can
+            // never crowd out the user's task (deterministic, generous default).
+            positioned.enforce_token_budget(crate::core::litm::active_session_budget());
             let begin = format!(
                 "\n\n--- ACTIVE SESSION (LITM P1: begin position, profile: {}) ---\n{}\n---\n",
                 profile.name, positioned.begin_block

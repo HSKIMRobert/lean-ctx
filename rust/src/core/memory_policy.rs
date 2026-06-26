@@ -331,6 +331,10 @@ pub struct LifecyclePolicy {
     /// Scale Ebbinghaus stability by fact archetype so structural evidence decays
     /// slower than inference. Default false keeps the baseline tuning unchanged.
     pub archetype_aware_decay: bool,
+    /// Archive single-confirmation facts untouched for this many days that were
+    /// never retrieved — dead weight regardless of confidence (#962). `None`
+    /// (default) disables; opt in to curate injected memory aggressively.
+    pub prune_unretrieved_after_days: Option<i64>,
 }
 
 impl Default for LifecyclePolicy {
@@ -343,6 +347,7 @@ impl Default for LifecyclePolicy {
             forgetting_model: "ebbinghaus".to_string(),
             base_stability_days: crate::core::memory_lifecycle::DEFAULT_BASE_STABILITY_DAYS,
             archetype_aware_decay: false,
+            prune_unretrieved_after_days: None,
         }
     }
 }
@@ -379,6 +384,12 @@ impl LifecyclePolicy {
         }
         if let Ok(v) = std::env::var("LEAN_CTX_LIFECYCLE_ARCHETYPE_AWARE") {
             self.archetype_aware_decay = v == "1" || v.eq_ignore_ascii_case("true");
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_LIFECYCLE_PRUNE_UNRETRIEVED_DAYS") {
+            self.prune_unretrieved_after_days = match v.trim().to_lowercase().as_str() {
+                "" | "off" | "none" | "0" => None,
+                s => s.parse::<i64>().ok().filter(|&n| n > 0),
+            };
         }
     }
 
