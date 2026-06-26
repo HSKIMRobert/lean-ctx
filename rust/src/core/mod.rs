@@ -19,6 +19,7 @@ pub mod eval_harness;
 pub mod extractive;
 pub mod finops_export;
 pub mod information_bottleneck;
+pub mod json_crush;
 pub mod output_sanitizer;
 pub mod policy;
 pub mod pop_pruning;
@@ -43,6 +44,7 @@ pub mod compression {
     pub use super::compressor;
     pub use super::entropy;
     pub use super::information_bottleneck;
+    pub use super::json_crush;
     pub use super::pop_pruning;
     pub use super::preservation;
     pub use super::progressive_compression;
