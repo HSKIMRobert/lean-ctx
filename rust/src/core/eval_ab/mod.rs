@@ -272,6 +272,41 @@ mod accuracy_suite_tests {
         }
     }
 
+    /// #942: the dedicated `json_crush` condition must clear the same accuracy
+    /// floor (the gold answer survives the lossless array crush) while packing the
+    /// answer in strictly fewer tokens than the raw baseline — proving the crush is
+    /// a real, answer-preserving saving on a redundant JSON payload, model-free.
+    #[test]
+    fn json_crush_condition_preserves_answer_and_beats_baseline() {
+        let suite = load_accuracy_suite();
+        let budget = AbRunConfig::default().budget_tokens;
+        let task = suite
+            .tasks
+            .iter()
+            .find(|t| t.id == "jsonqa-operator-clearance")
+            .expect("json-qa fixture present");
+        let ws = task.workspace_path(&suite.dir);
+
+        let crushed = assemble(Condition::JsonCrush, &ws, task.query(), budget)
+            .unwrap_or_else(|e| panic!("assemble json_crush: {e:#}"));
+        let baseline = assemble(Condition::Baseline, &ws, task.query(), budget)
+            .unwrap_or_else(|e| panic!("assemble baseline: {e:#}"));
+
+        let score = score_task(task, &crushed.text, &ws)
+            .unwrap_or_else(|e| panic!("score {}: {e:#}", task.id));
+        assert!(
+            score.passed,
+            "json_crush dropped the answer for '{}' ({})",
+            task.id, score.detail
+        );
+        assert!(
+            crushed.tokens < baseline.tokens,
+            "json_crush ({}) must beat the raw baseline ({}) on a redundant array",
+            crushed.tokens,
+            baseline.tokens
+        );
+    }
+
     /// The code-edit task must be genuinely solvable: a correct reference solution
     /// passes the committed unit test and the shipped failing stub does not. Proves
     /// the harness end-to-end (sandbox copy + `test_cmd`) with zero model calls.

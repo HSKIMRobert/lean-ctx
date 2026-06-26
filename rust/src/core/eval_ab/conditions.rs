@@ -37,6 +37,12 @@ pub enum Condition {
     Baseline,
     /// Treatment — "with lean-ctx".
     LeanCtx,
+    /// Treatment variant that routes JSON/JSONL through the deduplicating
+    /// [`crate::core::json_crush`] core (lossless array crush) instead of the
+    /// whitespace-only compaction the generic [`aggressive_compress`] applies to
+    /// structured data. Used to measure json_crush's token savings and its
+    /// answer-preservation floor in isolation (#942).
+    JsonCrush,
 }
 
 impl Condition {
@@ -45,6 +51,7 @@ impl Condition {
         match self {
             Condition::Baseline => "baseline",
             Condition::LeanCtx => "lean_ctx",
+            Condition::JsonCrush => "json_crush",
         }
     }
 }
@@ -72,6 +79,7 @@ pub fn assemble(
     let entries = match condition {
         Condition::Baseline => baseline_entries(workspace),
         Condition::LeanCtx => lean_ctx_entries(workspace, query),
+        Condition::JsonCrush => json_crush_entries(workspace, query),
     };
     Ok(pack(&entries, budget))
 }
@@ -85,6 +93,30 @@ fn baseline_entries(workspace: &Path) -> Vec<(String, String)> {
 
 /// `(relpath, rendered_content)` in lean-ctx order: BM25-ranked by `query`, then compressed.
 fn lean_ctx_entries(workspace: &Path, query: &str) -> Vec<(String, String)> {
+    ranked_entries(workspace, query, |content, ext| {
+        aggressive_compress(content, ext)
+    })
+}
+
+/// Like [`lean_ctx_entries`], but JSON/JSONL files go through the deduplicating
+/// `json_crush` core (lossless) when it pays, instead of whitespace-only
+/// compaction. Every other file uses the same `aggressive_compress` path.
+fn json_crush_entries(workspace: &Path, query: &str) -> Vec<(String, String)> {
+    ranked_entries(workspace, query, |content, ext| match ext {
+        Some("json" | "jsonl") => crate::core::json_crush::crush_text_if_beneficial(content)
+            .unwrap_or_else(|| aggressive_compress(content, ext)),
+        _ => aggressive_compress(content, ext),
+    })
+}
+
+/// Shared BM25-ranked assembly: rank `workspace` files by `query`, render each
+/// with `render(content, ext)`, dedup by path. Falls back to baseline ordering
+/// when retrieval is empty so a treatment condition is never accidentally empty.
+fn ranked_entries(
+    workspace: &Path,
+    query: &str,
+    render: impl Fn(&str, Option<&str>) -> String,
+) -> Vec<(String, String)> {
     let index = BM25Index::build_from_directory(workspace);
     let ranked = index.search(query, 256);
     let mut out = Vec::new();
@@ -98,11 +130,8 @@ fn lean_ctx_entries(workspace: &Path, query: &str) -> Vec<(String, String)> {
             continue;
         };
         let ext = path.extension().and_then(|e| e.to_str());
-        let compressed = aggressive_compress(&content, ext);
-        out.push((rel_label(workspace, &path), compressed));
+        out.push((rel_label(workspace, &path), render(&content, ext)));
     }
-    // If retrieval found nothing (e.g. empty index), fall back to the baseline ordering so the
-    // treatment condition is never empty by accident.
     if out.is_empty() {
         return baseline_entries(workspace);
     }
@@ -236,6 +265,38 @@ mod tests {
         let first = assemble(Condition::LeanCtx, ws.path(), "consolidation", 4000).unwrap();
         let second = assemble(Condition::LeanCtx, ws.path(), "consolidation", 4000).unwrap();
         assert_eq!(first.digest, second.digest);
+    }
+
+    #[test]
+    fn json_crush_condition_beats_baseline_and_is_deterministic() {
+        let dir = tempfile::tempdir().unwrap();
+        let rows: Vec<String> = (0..30)
+            .map(|i| {
+                format!(
+                    "{{\"id\":{i},\"role\":\"operator\",\"status\":\"active\",\"region\":\"emea\"}}"
+                )
+            })
+            .collect();
+        fs::write(
+            dir.path().join("roster.json"),
+            format!("[{}]", rows.join(",")),
+        )
+        .unwrap();
+
+        let crushed = assemble(Condition::JsonCrush, dir.path(), "roster operator", 4000).unwrap();
+        let baseline = assemble(Condition::Baseline, dir.path(), "roster operator", 4000).unwrap();
+        assert!(
+            crushed.tokens < baseline.tokens,
+            "crush {} must beat baseline {}",
+            crushed.tokens,
+            baseline.tokens
+        );
+
+        let again = assemble(Condition::JsonCrush, dir.path(), "roster operator", 4000).unwrap();
+        assert_eq!(
+            crushed.digest, again.digest,
+            "json_crush assembly is deterministic"
+        );
     }
 
     #[test]

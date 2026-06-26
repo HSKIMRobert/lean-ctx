@@ -44,13 +44,16 @@ lean-ctx ls src/
 | `map` | Context-only (deps + exports) |
 | `signatures` | API surface only |
 | `diff` | After edits (changed lines) |
-| `aggressive` | Large files, syntax-stripped |
+| `aggressive` | Large files, syntax-stripped; JSON arrays row-deduped (lossless) |
 | `entropy` | Shannon filtering |
 | `task` | Task-relevant lines |
 | `lines:N-M` | Specific range |
 | `auto` | System selects optimal |
 
 Re-reads cost ~13 tokens. fresh=true bypasses cache.
+Redundant JSON (arrays of like objects) is crushed losslessly into a compact
+`_defaults` + per-row form; if a slice was dropped, recover it with
+`ctx_expand(id, json_path=… | search=…)`.
 
 ## File Editing
 

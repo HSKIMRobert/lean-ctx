@@ -44,6 +44,10 @@ OpenAI (50%) prompt-cache discounts survive compression.
 | LiteLLM hook | `LeanCtxLiteLLMHandler` | `HeadroomCallback` |
 | LangChain | `compress_messages` + retriever | wrap model |
 | ML / learned compression | No (deterministic by design) | Yes (Kompress, torch) |
+| JSON array crusher (row dedup) | `json_crush` — lossless + opt-in lossy with CCR, deterministic (#935) | Smart Crusher (statistical) |
+| Active prompt-cache breakpoints | Anthropic `cache_control` injection, opt-in (#939) | Cache aligner |
+| Volatile-field cache telemetry | Opt-in system-prompt scan, measurement-only (#940) | Cache aligner (relocate) |
+| Compression-learning loop | Retrieve-coupled session backoff, deterministic (#941) | CCR learning |
 | Cross-agent shared memory | Knowledge graph + handoff | `SharedContext` |
 | File-read compression | 10 modes, ~13-token cached re-reads | — |
 | Shell-output compression | 95+ patterns | — |
@@ -58,6 +62,18 @@ it is **reproducible and cache-stable**, but it does not learn — highly novel
 prose compresses modestly, while repetitive tool output, logs and RAG dumps
 compress heavily (the same engine reaches up to ~99% on file reads and powers 95+
 shell patterns).
+
+For the array-of-objects JSON that dominates API responses, DB dumps and RAG
+chunks, lean-ctx ships `json_crush` (#935) — the deterministic counterpart to
+Headroom's statistical Smart Crusher. It hoists every key shared across all rows
+to a single `_defaults` block and keeps only per-row deviations, so the lossless
+stage is **exactly reconstructible**; an opt-in lossy stage drops near-unique
+high-entropy columns (timestamps, UUIDs) only behind a content-addressed
+`ctx_expand` handle, so a dropped datum is never irrecoverable. Unlike a
+statistical crusher, the output is a pure function of the input (no mean/stddev
+sampling), so it stays byte-stable and cache-safe. The accuracy floor is
+CI-guarded: a model-free A/B gate (`Condition::JsonCrush`, #942) proves the crush
+keeps every gold answer while cutting tokens on a redundant payload.
 
 Headroom additionally offers an **ML** compressor (Kompress) for prose, at the
 cost of a `torch` dependency and non-deterministic output.
@@ -134,6 +150,10 @@ agent case — compress far more. See [`bench/compress/`](../../bench/compress/R
 
 - **Determinism & prompt-cache safety** — byte-stable output is a CI-guarded
   contract (#498); compression never breaks Anthropic/OpenAI cache discounts.
+- **Deterministic equivalents of Headroom's adaptive stages** — the JSON crusher
+  (#935), active Anthropic cache-breakpoint injection (#939) and retrieve-coupled
+  compression-learning loop (#941) deliver Smart-Crusher / cache-aligner / CCR-
+  learning behaviour *without* sampling, ML weights or non-deterministic output.
 - **It's a whole layer** — compression is 1 of 78 MCP tools alongside cached
   reads, shell compression, semantic search, code intelligence and memory.
 - **100% local, single Rust binary** — no Python runtime, no telemetry by default.

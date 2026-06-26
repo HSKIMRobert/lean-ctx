@@ -69,6 +69,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   compression down to `Lite` (>=3) then `Off` (>=5) for itself. The level is
   server state that feeds future `CompressionLevel::effective()` decisions, never
   part of any tool output body, so output determinism (#498) is preserved.
+- **Model-free JSON-crush accuracy gate (gitlab #942).** A new `Condition::JsonCrush`
+  arm in the deterministic A/B eval harness (`core::eval_ab`) routes JSON/JSONL
+  through `json_crush` instead of whitespace-only compaction, and a committed
+  JSON-QA fixture (a redundant operator roster with one outlier field) plus the
+  gate `json_crush_condition_preserves_answer_and_beats_baseline` prove — with no
+  live model — that the crush keeps every gold answer while packing it in strictly
+  fewer tokens than the raw baseline. This is the deterministic accuracy floor of
+  the "crushed >= raw" claim, guarding against a future over-aggressive change.
 
 ### Changed
 - **`json_schema::compress` is now crush-backed (gitlab #936).** The generic JSON
