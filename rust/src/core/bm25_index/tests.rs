@@ -616,3 +616,124 @@ fn max_bm25_cache_bytes_reads_env() {
     assert_eq!(bytes, 64 * 1024 * 1024);
     crate::test_env::remove_var("LEAN_CTX_BM25_MAX_CACHE_MB");
 }
+
+// ---- #933: parallel build determinism ----
+
+/// Write a varied corpus that exercises the multi-chunk symbol path, the
+/// fallback (prose) chunker, camelCase splitting and repeated-token `doc_freqs`
+/// dedup. Returns the sorted relative paths.
+fn write_parallel_corpus(root: &std::path::Path, n: usize) -> Vec<String> {
+    std::fs::create_dir_all(root.join("src")).expect("mkdir src");
+    std::fs::create_dir_all(root.join("docs")).expect("mkdir docs");
+    let mut files = Vec::new();
+    for i in 0..n {
+        let rel = format!("src/mod_{i:03}.rs");
+        let content = format!(
+            "pub fn process_item_{i}(item: Item) -> Result<Item> {{\n    \
+             let processedValue = transformItem(item);\n    \
+             validate(processedValue); validate(processedValue);\n    \
+             Ok(processedValue)\n}}\n\n\
+             pub struct DataHolder{i} {{\n    field_one: String,\n    field_two: usize,\n}}\n\n\
+             // shared keyword repeated repeated repeated across files\n"
+        );
+        std::fs::write(root.join(&rel), content).expect("write src");
+        files.push(rel);
+    }
+    let notes = "docs/notes.md".to_string();
+    std::fs::write(
+        root.join(&notes),
+        "# Notes\n\nProse with CamelCaseWords and snake_case_words.\n\
+         Repeated repeated tokens exercise document-frequency counting.\n",
+    )
+    .expect("write notes");
+    files.push(notes);
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Assert two indexes are logically identical: same chunk order, same inverted
+/// postings, same `doc_freqs`, same file set and corpus statistics. This is the
+/// determinism contract between the parallel and sequential builds (#933/#498).
+fn assert_same_index(a: &BM25Index, b: &BM25Index) {
+    assert_eq!(a.doc_count, b.doc_count, "doc_count");
+    assert_eq!(a.chunks, b.chunks, "chunk vector (order + content)");
+    assert_eq!(a.inverted, b.inverted, "inverted index");
+    assert_eq!(a.doc_freqs, b.doc_freqs, "doc_freqs");
+    assert_eq!(a.files, b.files, "tracked files");
+    assert_eq!(
+        a.avg_doc_len.to_bits(),
+        b.avg_doc_len.to_bits(),
+        "avg_doc_len"
+    );
+}
+
+#[test]
+fn parallel_build_matches_sequential() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    let files = write_parallel_corpus(root, 40);
+
+    let hint = HashMap::new();
+    let seq = BM25Index::build_sequential(root, &hint, &files);
+    let par = BM25Index::build_parallel(root, &hint, &files);
+
+    assert!(par.doc_count > files.len(), "expected multiple chunks/file");
+    assert_same_index(&seq, &par);
+}
+
+#[test]
+fn parallel_build_is_deterministic_across_runs() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    let files = write_parallel_corpus(root, 48);
+    let hint = HashMap::new();
+
+    let a = BM25Index::build_parallel(root, &hint, &files);
+    let b = BM25Index::build_parallel(root, &hint, &files);
+    assert_same_index(&a, &b);
+}
+
+#[test]
+fn build_from_directory_dispatches_parallel_and_matches_sequential() {
+    // >= PARALLEL_MIN_FILES files so the public entry point takes the parallel
+    // path; its result must equal an explicit sequential build over the same set.
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    write_parallel_corpus(root, 40);
+
+    let files = list_code_files(root);
+    assert!(
+        files.len() >= super::build::PARALLEL_MIN_FILES,
+        "corpus must trigger the parallel path"
+    );
+
+    let public = BM25Index::build_from_directory(root);
+    let seq = BM25Index::build_sequential(root, &HashMap::new(), &files);
+    assert_same_index(&seq, &public);
+}
+
+#[test]
+fn parallel_build_search_parity() {
+    // End-to-end: the parallel index must rank a query identically to the
+    // sequential one (same scores, same order).
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    let files = write_parallel_corpus(root, 40);
+    let hint = HashMap::new();
+
+    let seq = BM25Index::build_sequential(root, &hint, &files);
+    let par = BM25Index::build_parallel(root, &hint, &files);
+
+    let q = "process item transform";
+    let rs = seq.search(q, 10);
+    let rp = par.search(q, 10);
+    assert!(!rp.is_empty(), "query should return hits");
+    assert_eq!(rs.len(), rp.len(), "result count");
+    for (s, p) in rs.iter().zip(rp.iter()) {
+        assert_eq!(s.file_path, p.file_path);
+        assert_eq!(s.symbol_name, p.symbol_name);
+        assert_eq!(s.start_line, p.start_line);
+        assert_eq!(s.score.to_bits(), p.score.to_bits(), "score parity");
+    }
+}

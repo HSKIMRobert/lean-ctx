@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+mod build;
 mod chunking;
 pub use chunking::*;
 mod coordinator;
@@ -66,7 +67,7 @@ pub enum SaveOutcome {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CodeChunk {
     pub file_path: String,
     pub symbol_name: String,
@@ -279,96 +280,22 @@ impl BM25Index {
             tracing::warn!("[bm25: scan aborted for unsafe root {root_str}]");
             return Self::new();
         }
-        let mut index = Self::new();
         let files = list_code_files(root);
-        const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
-        let mut cache_hits = 0usize;
 
-        for (i, rel) in files.iter().enumerate() {
-            if i.is_multiple_of(500) && crate::core::memory_guard::is_under_pressure() {
-                tracing::warn!(
-                    "[bm25: stopping build at file {i}/{} due to memory pressure]",
-                    files.len()
-                );
-                break;
-            }
-            if crate::core::memory_guard::abort_requested() {
-                tracing::warn!("[bm25: aborting build due to critical memory pressure]");
-                break;
-            }
-
-            let abs = root.join(rel);
-            let Some(state) = IndexedFileState::from_path(&abs) else {
-                continue;
-            };
-            if state.size_bytes > MAX_FILE_SIZE_BYTES {
-                continue;
-            }
-
-            // Content sources, cheapest first: an explicit per-build hint, then
-            // the shared resident content cache (populated by the search-index
-            // build / ctx_search, issue #148) validated by `(mtime, size)`, then
-            // a one-time disk read that also publishes into the shared cache.
-            let cache_state = crate::core::content_cache::FileState {
-                mtime_ms: state.mtime_ms,
-                size_bytes: state.size_bytes,
-            };
-            let content = if crate::core::extractors::is_binary_document(&abs) {
-                // Binary document (PDF, …): extract clean text from raw bytes.
-                // Skipped if extraction yields nothing (e.g. scanned/image-only).
-                // Never populates the shared UTF-8 content cache (not text).
-                match std::fs::read(&abs) {
-                    Ok(bytes) => {
-                        let text = crate::core::extractors::extract(&abs, &bytes).text;
-                        if text.is_empty() {
-                            continue;
-                        }
-                        std::borrow::Cow::Owned(text)
-                    }
-                    Err(_) => continue,
-                }
-            } else if let Some(cached) = content_hint.get(rel) {
-                cache_hits += 1;
-                std::borrow::Cow::Borrowed(cached.as_str())
-            } else if let Some(arc) = crate::core::content_cache::get(&abs, cache_state) {
-                cache_hits += 1;
-                std::borrow::Cow::Owned(arc.to_string())
-            } else {
-                match std::fs::read_to_string(&abs) {
-                    Ok(c) => {
-                        crate::core::content_cache::insert(
-                            &abs,
-                            cache_state,
-                            std::sync::Arc::from(c.as_str()),
-                        );
-                        std::borrow::Cow::Owned(c)
-                    }
-                    Err(_) => continue,
-                }
-            };
-
-            let mut chunks = extract_chunks(rel, &content);
-            chunks.sort_by(|a, b| {
-                a.start_line
-                    .cmp(&b.start_line)
-                    .then_with(|| a.end_line.cmp(&b.end_line))
-                    .then_with(|| a.symbol_name.cmp(&b.symbol_name))
-            });
-            for chunk in chunks {
-                index.add_chunk(chunk);
-            }
-            index.files.insert(rel.clone(), state);
+        // #933: parallel fast path for the common case. The per-file parse +
+        // tokenize work is pure and thread-safe, so we fan it across a rayon pool
+        // and merge sequentially in file order — measured 2.85 s → 0.69 s (~4x) on
+        // the lean-ctx repo. Under memory pressure (or for tiny corpora, where pool
+        // setup is not worth it) we fall back to the sequential build, which carries
+        // the incremental early-break. Both paths produce an identical index (see
+        // `build` module + determinism tests).
+        if files.len() >= build::PARALLEL_MIN_FILES
+            && !crate::core::memory_guard::is_under_pressure()
+            && !crate::core::memory_guard::abort_requested()
+        {
+            return Self::build_parallel(root, content_hint, &files);
         }
-
-        if cache_hits > 0 {
-            tracing::info!(
-                "[bm25: reused {cache_hits}/{} file contents from graph scan cache]",
-                files.len()
-            );
-        }
-
-        index.finalize();
-        index
+        Self::build_sequential(root, content_hint, &files)
     }
 
     pub fn rebuild_incremental(root: &Path, prev: &BM25Index) -> Self {
