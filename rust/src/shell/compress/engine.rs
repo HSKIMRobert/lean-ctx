@@ -58,6 +58,27 @@ pub(crate) fn compress_for_outcome(command: &str, output: &str, exit_code: i32) 
     compress_if_beneficial(command, output)
 }
 
+/// Opt-in (#936) lossless crush of a *verbatim* data command's JSON. Returns a
+/// savings-footer'd, fully reconstructible reshape only when `enabled` and the
+/// crush both pays (at least halves the bytes, via `crush_verbatim`) and clears
+/// the output-token floor; otherwise `None`, so the caller keeps the output
+/// verbatim. Kept pure (env read stays in the caller) so the gate is unit-tested
+/// without mutating the process environment.
+pub(crate) fn verbatim_json_crush(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let crushed = patterns::json_schema::crush_verbatim(output)?;
+    let crushed_tokens = count_tokens(&crushed);
+    (crushed_tokens >= min_output_tokens && crushed_tokens < original_tokens)
+        .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
+}
+
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if output.trim().is_empty() {
         return String::new();
@@ -114,6 +135,20 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if policy == crate::shell::output_policy::OutputPolicy::Verbatim
         || policy == crate::shell::output_policy::OutputPolicy::Passthrough
     {
+        // Opt-in (#936): a verbatim *data* command emitting array-heavy JSON
+        // (gh api, jq, kubectl get -o json, curl) can be losslessly crushed —
+        // reconstructible, never a dropped datum — when it at least halves the
+        // payload. Passthrough (auth/dev servers/streaming) is never touched.
+        if policy == crate::shell::output_policy::OutputPolicy::Verbatim
+            && let Some(crushed) = verbatim_json_crush(
+                output,
+                original_tokens,
+                min_output_tokens,
+                cfg.crush_verbatim_json_enabled(),
+            )
+        {
+            return crushed;
+        }
         return truncate_verbatim(output, original_tokens);
     }
 

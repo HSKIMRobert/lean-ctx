@@ -83,6 +83,21 @@ fn compress_large_text(output: &str) -> String {
 
 fn compress_json(output: &str) -> Option<String> {
     let val: serde_json::Value = serde_json::from_str(output).ok()?;
+
+    // A top-level array of repeated objects (paginated list responses) is the
+    // one shape where the redacting schema below collapses to a useless
+    // `[object(NK); N]`. Defer to the shared generic core (#936): the lossless
+    // crusher keeps every datum in a reconstructible form when it at least
+    // halves the payload. Objects keep curl's redacting, value-previewing schema
+    // (secret keys, short-string previews) — the crusher is value-preserving and
+    // must never be used where redaction is the contract.
+    if matches!(val, serde_json::Value::Array(_))
+        && let Some(crushed) = crate::core::json_crush::crush_lossless(&val)
+        && crushed.text.len().saturating_mul(2) <= output.len()
+    {
+        return Some(format!("JSON ({} bytes):\n{}", output.len(), crushed.text));
+    }
+
     let schema = extract_schema(&val, 0);
     let size = output.len();
 
@@ -237,6 +252,36 @@ mod tests {
         let result = compress(json);
         assert!(result.is_some());
         assert!(result.unwrap().contains("JSON"));
+    }
+
+    #[test]
+    fn json_array_of_objects_uses_lossless_crush() {
+        // Top-level array with a field constant across all rows: the shared
+        // `json_crush` core compacts it losslessly instead of curl's useless
+        // `[object(NK); N]` summary (#936).
+        let mut json = String::from("[");
+        for i in 0..12 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(r#"{{"status":"active","plan":"pro","id":{i}}}"#));
+        }
+        json.push(']');
+        let result = compress(&json).expect("array json compresses");
+        assert!(
+            result.contains("JSON ("),
+            "keeps curl JSON banner: {result}"
+        );
+        assert!(
+            result.contains("_lc_crush"),
+            "expected shared crushed core output: {result}"
+        );
+        let body = result.split_once('\n').unwrap().1;
+        let restored = crate::core::json_crush::reconstruct(body).expect("reconstructs");
+        assert_eq!(
+            restored,
+            serde_json::from_str::<serde_json::Value>(&json).unwrap()
+        );
     }
 
     #[test]

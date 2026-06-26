@@ -3,6 +3,66 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.8.14] — unreleased
+
+### Added
+- **Deterministic JSON crusher core — `core::json_crush` (gitlab #934/#935,
+  Headroom "Smart Crusher" port).** Real JSON payloads (API responses, `kubectl
+  get -o json`, DB dumps, RAG chunks) are dominated by arrays of objects that
+  repeat the same keys and values on every row. The new single-source module
+  factors that redundancy out: `crush_lossless` hoists every key present in *all*
+  items of an array to its dominant value (a `_defaults` block) and keeps only
+  per-item deviations, so it is **exactly** reconstructible via `reconstruct`;
+  `crush_lossy` additionally records near-unique high-entropy columns
+  (timestamps/UUIDs) in `_dropped` for out-of-band CCR recovery. Output is a pure
+  function of the input `Value` — no timestamps, counters, randomness, or hash-map
+  order leakage (candidate keys walk a `BTreeSet`, value frequencies a `BTreeMap`)
+  — and it never inflates (a no-op returns `None`). This is the deterministic,
+  byte-stable answer to Headroom's statistical crusher (#498).
+- **Opt-in lossless JSON crushing for verbatim data commands (gitlab #936).** A
+  new `crush_verbatim_json` config key (env `LEAN_CTX_CRUSH_VERBATIM_JSON`, default
+  **off**) lets the array-heavy JSON of otherwise byte-verbatim data commands
+  (`gh api`, `jq`, `kubectl get -o json`, `curl` JSON) flow through the lossless
+  crusher when it at least halves the payload. Off by default keeps those outputs
+  verbatim; on, they are reshaped into a compact, fully reconstructible form and
+  never lose a datum. The gate is a pure, unit-tested function and only ever
+  touches `Verbatim` data commands — `Passthrough` (auth flows, dev servers,
+  streaming) is never reshaped.
+
+### Changed
+- **`json_schema::compress` is now crush-backed (gitlab #936).** The generic JSON
+  fallback (and the `jq` route) prefers the lossless `json_crush` form over the
+  value-dropping schema outline whenever the array is redundant enough to at least
+  halve the payload — keeping every datum reconstructible instead of collapsing it
+  to a structure-only sketch. Heterogeneous or low-redundancy arrays still fall
+  through to the compact schema outline (unchanged), so there is no regression for
+  those. `curl`'s top-level array-of-objects path now defers to the same shared
+  core instead of its useless `[object(NK); N]` summary, converging the generic
+  JSON handling on **one** implementation (`docker inspect` and the `aws`
+  resource summarizers stay intentionally domain-specific). `PATTERN_ENGINE_VERSION`
+  is bumped (1→2) so determinism consumers detect the new output shape.
+
+### Fixed
+- **`ctx_impact` missed Go and Kotlin same-package blast radius (#398 bug class).**
+  The C#/Java fix in 3.8.13 closed one instance of a general gap: any language with
+  implicit same-package visibility references project types with no import, so
+  import edges alone leave the consumed type a false-negative leaf. For **Go** the
+  miss was total — same-package is same-directory and fully import-free, so changing
+  a struct used by a sibling file reported "no impact". `core::type_ref_edges` now
+  resolves Go usages *directory-scoped and strict* (a common name like
+  `Config`/`Server` declared in many packages still resolves to the one true
+  same-package definer, with no cross-package leak) and **Kotlin** usages by
+  declared package, both durable through the `graph_index` mirror and emitted by the
+  `ctx_impact` builder. The old coarse Go `package` heuristic — one arbitrary
+  same-directory edge per file, silently parsed as a top-weight `imports` edge in
+  the mirror — is **removed**: it both missed the real consumer and pulled
+  non-consumers (e.g. an unrelated `logger.go`) into the blast radius. Precise
+  `type_ref` edges replace it, and a genuinely unused file now falls to the standard
+  low-weight sibling rescue like every other language. Per-language scope is
+  centralized in one `resolve_scope` (previously the namespace logic was duplicated
+  across three call sites). `GRAPH_ENGINE_VERSION` is bumped (3→4) so stale graphs
+  self-heal. (gitlab #920–#924)
+
 ## [3.8.13] — 2026-06-26
 
 ### Added
@@ -143,25 +203,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   exact gap every prior #398 fix missed. (The grep hook also now redirects only
   `output_mode=content`, passing `files_with_matches`/`count` through untouched,
   since the path-swap returned wrong results for those.) (gitlab #915–#918)
-- **`ctx_impact` missed Go and Kotlin same-package blast radius (#398 bug class).**
-  The C#/Java fix above closed one instance of a general gap: any language with
-  implicit same-package visibility references project types with no import, so
-  import edges alone leave the consumed type a false-negative leaf. For **Go** the
-  miss was total — same-package is same-directory and fully import-free, so changing
-  a struct used by a sibling file reported "no impact". `core::type_ref_edges` now
-  resolves Go usages *directory-scoped and strict* (a common name like
-  `Config`/`Server` declared in many packages still resolves to the one true
-  same-package definer, with no cross-package leak) and **Kotlin** usages by
-  declared package, both durable through the `graph_index` mirror and emitted by the
-  `ctx_impact` builder. The old coarse Go `package` heuristic — one arbitrary
-  same-directory edge per file, silently parsed as a top-weight `imports` edge in
-  the mirror — is **removed**: it both missed the real consumer and pulled
-  non-consumers (e.g. an unrelated `logger.go`) into the blast radius. Precise
-  `type_ref` edges replace it, and a genuinely unused file now falls to the standard
-  low-weight sibling rescue like every other language. Per-language scope is
-  centralized in one `resolve_scope` (previously the namespace logic was duplicated
-  across three call sites). `GRAPH_ENGINE_VERSION` is bumped (3→4) so stale graphs
-  self-heal. (gitlab #920–#924)
 - **`ctx_read` left an empty ` []` metadata field on incompressible files (#509).**
   The `entropy` (and `density`) read modes append a ` [techniques…]` tag listing
   which compression techniques fired. On a file where none did (high-entropy, no

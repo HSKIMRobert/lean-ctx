@@ -85,6 +85,14 @@ pub struct Config {
     /// Default: `["toon"]`. Set to `[]` to disable and always recompress.
     #[serde(default = "serde_defaults::default_preserve_compact_formats")]
     pub preserve_compact_formats: Vec<String>,
+    /// Opt-in: apply the lossless JSON crusher to *verbatim* data commands
+    /// (`gh api`, `jq`, `kubectl get -o json`, `curl` JSON). Off by default, so
+    /// those outputs stay byte-for-byte verbatim. When on, an array-heavy JSON
+    /// payload the crusher can at least halve is reshaped into a compact, fully
+    /// reconstructible form; everything else stays verbatim. See
+    /// [`Config::crush_verbatim_json_enabled`] (#936).
+    #[serde(default)]
+    pub crush_verbatim_json: bool,
     /// Commands taking longer than this threshold (ms) are recorded in the slow log.
     /// Set to 0 to disable slow logging.
     pub slow_command_threshold_ms: u64,
@@ -553,6 +561,7 @@ impl Default for Config {
             passthrough_urls: Vec::new(),
             custom_aliases: Vec::new(),
             preserve_compact_formats: serde_defaults::default_preserve_compact_formats(),
+            crush_verbatim_json: false,
             slow_command_threshold_ms: 5000,
             theme: serde_defaults::default_theme(),
             cloud: CloudConfig::default(),
@@ -754,6 +763,13 @@ pub fn local_sensitive_overrides(local_toml: &str) -> Vec<&'static str> {
 }
 
 impl Config {
+    /// Whether opt-in lossless JSON crushing of verbatim data commands (#936) is
+    /// active. `LEAN_CTX_CRUSH_VERBATIM_JSON` (any value) wins, then the
+    /// `crush_verbatim_json` config flag, else `false`.
+    pub fn crush_verbatim_json_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_CRUSH_VERBATIM_JSON").is_ok() || self.crush_verbatim_json
+    }
+
     /// Returns the effective rules scope, preferring env var over config file.
     pub fn rules_scope_effective(&self) -> RulesScope {
         let raw = std::env::var("LEAN_CTX_RULES_SCOPE")

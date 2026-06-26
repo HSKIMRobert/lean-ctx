@@ -66,6 +66,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
                 "Already-compact output formats preserved verbatim instead of recompressed (e.g. [\"toon\"]). Set to [] to disable",
             ),
         );
+    root.insert(
+        "crush_verbatim_json".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.crush_verbatim_json),
+            "Opt-in: losslessly crush array-heavy JSON from verbatim data commands (gh api, jq, kubectl get -o json, curl). Off by default keeps them verbatim. Reshapes only when it at least halves the payload; fully reconstructible",
+            "LEAN_CTX_CRUSH_VERBATIM_JSON",
+        ),
+    );
     root.insert("slow_command_threshold_ms".into(), key("u64", serde_json::json!(cfg.slow_command_threshold_ms), "Commands taking longer than this (ms) are recorded in the slow log. Set to 0 to disable"));
     root.insert(
         "theme".into(),

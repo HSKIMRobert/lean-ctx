@@ -935,6 +935,39 @@ mod verbatim_output_tests {
     }
 
     #[test]
+    fn verbatim_json_crush_gate_is_opt_in_and_lossless() {
+        use super::super::engine::verbatim_json_crush;
+
+        // Redundant array: constant role/status/region, only id/name vary — a
+        // verbatim `gh api`-style payload the lossless crusher can halve.
+        let mut json = String::from("[");
+        for i in 0..24 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                r#"{{"role":"member","status":"active","region":"eu-central-1","id":{i},"name":"user_{i}"}}"#
+            ));
+        }
+        json.push(']');
+        let original_tokens = 1_000; // any value above the floor
+
+        // Off by default → never touched (output stays verbatim downstream).
+        assert!(verbatim_json_crush(&json, original_tokens, 5, false).is_none());
+
+        // Opt-in → reshaped into the crushed form (lossless body proven in the
+        // `json_schema`/`json_crush` roundtrip tests) and clearly smaller.
+        let crushed = verbatim_json_crush(&json, original_tokens, 5, true)
+            .expect("redundant json is crushed");
+        assert!(crushed.contains("_lc_crush"), "expected crushed form");
+        assert!(crushed.len() < json.len(), "crush must shrink the payload");
+
+        // Low-redundancy JSON: nothing to factor → None even when enabled.
+        let hetero = r#"[{"id":1,"k":"aaa"},{"id":2,"k":"bbb"},{"id":3,"k":"ccc"}]"#;
+        assert!(verbatim_json_crush(hetero, original_tokens, 5, true).is_none());
+    }
+
+    #[test]
     fn large_curl_output_gets_truncated_not_destroyed() {
         let mut json = String::from("[");
         for i in 0..500 {
