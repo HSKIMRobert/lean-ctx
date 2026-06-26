@@ -64,6 +64,9 @@ pub struct ToolEntry {
     pub last_used: Option<String>,
     pub status: ToolStatus,
     pub action: String,
+    /// Value-per-token signal: recorded calls per 1 000 always-on schema tokens.
+    /// The telemetry fallback for #961 when no per-tool outcome eval exists.
+    pub value_per_1k_tokens: f64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +101,15 @@ pub struct ToolHealthReport {
     pub unused_tools: usize,
     /// Schema tokens spent every session on tools that are never called.
     pub unused_tool_tokens: usize,
+    /// Low-value tools (unused or low-use) the operator should consider disabling.
+    pub disable_candidates: Vec<String>,
+    /// Schema tokens reclaimable by disabling every [`Self::disable_candidates`].
+    pub reclaimable_tokens: usize,
+    /// Aggregated, copy-pasteable "consider disabling X" recommendation.
+    pub disable_action: String,
+    /// Outcome signal from the latest `eval footprint` artifact (#959), if any:
+    /// whether the tool-schema element as a whole earns its tokens.
+    pub footprint_note: Option<String>,
     pub tools: Vec<ToolEntry>,
     pub rules: Vec<RuleEntry>,
     pub duplicate_clients: Vec<(String, usize)>,
@@ -117,6 +129,15 @@ fn classify(has_usage: bool, calls: u64, schema_tokens: usize, total_calls: u64)
         return ToolStatus::LowUse;
     }
     ToolStatus::Active
+}
+
+/// Recorded calls per 1 000 always-on schema tokens — higher = better value.
+fn value_per_1k(calls: u64, schema_tokens: usize) -> f64 {
+    if schema_tokens == 0 {
+        0.0
+    } else {
+        calls as f64 / schema_tokens as f64 * 1000.0
+    }
 }
 
 fn action_for(status: ToolStatus, calls: u64, schema_tokens: usize) -> String {
@@ -164,6 +185,7 @@ pub fn build_report(
                 last_used,
                 status,
                 action,
+                value_per_1k_tokens: value_per_1k(calls, schema_tokens),
             }
         })
         .collect();
@@ -179,6 +201,29 @@ pub fn build_report(
         .filter(|t| t.status == ToolStatus::Unused)
         .map(|t| t.schema_tokens)
         .sum();
+
+    // Low-value tools the operator should consider disabling: never-called or
+    // heavy-but-rarely-called. `tools` is already name-sorted → deterministic.
+    let low_value = |t: &&ToolEntry| matches!(t.status, ToolStatus::Unused | ToolStatus::LowUse);
+    let disable_candidates: Vec<String> = tools
+        .iter()
+        .filter(low_value)
+        .map(|t| t.name.clone())
+        .collect();
+    let reclaimable_tokens: usize = tools
+        .iter()
+        .filter(low_value)
+        .map(|t| t.schema_tokens)
+        .sum();
+    let disable_action = if disable_candidates.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "consider disabling {} low-value tool(s) to reclaim {reclaimable_tokens} tok/session: {} — apply via `tools_disabled` in config or a leaner `tool_profile`",
+            disable_candidates.len(),
+            disable_candidates.join(", ")
+        )
+    };
 
     let dup_clients: std::collections::HashSet<&str> =
         duplicates.iter().map(|(c, _)| c.as_str()).collect();
@@ -216,11 +261,63 @@ pub fn build_report(
         total_recorded_calls,
         unused_tools,
         unused_tool_tokens,
+        disable_candidates,
+        reclaimable_tokens,
+        disable_action,
+        footprint_note: None,
         tools,
         rules: rules_out,
         duplicate_clients: duplicates,
         knowledge,
     }
+}
+
+/// Reads the latest `eval footprint` artifact (#959) and summarises whether the
+/// tool-schema element earns its tokens — the per-outcome signal that complements
+/// the telemetry-based [`value_per_1k`]. Returns `None` when no run is on disk.
+fn latest_footprint_note() -> Option<String> {
+    use crate::core::eval_ab::footprint::{FootprintReport, InjectedElement};
+
+    let dir = crate::core::data_dir::lean_ctx_data_dir()
+        .ok()?
+        .join("eval");
+    let mut artifacts: Vec<(std::time::SystemTime, std::path::PathBuf)> = std::fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .filter_map(|e| {
+            let path = e.path();
+            let name = path.file_name()?.to_str()?.to_string();
+            let is_json = path
+                .extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("json"));
+            if name.starts_with("footprint-report-v1_") && is_json {
+                Some((e.metadata().ok()?.modified().ok()?, path))
+            } else {
+                None
+            }
+        })
+        .collect();
+    artifacts.sort_by_key(|a| a.0);
+    let (_, path) = artifacts.last()?;
+
+    let raw = std::fs::read_to_string(path).ok()?;
+    let report: FootprintReport = serde_json::from_str(&raw).ok()?;
+    let schemas = report
+        .elements
+        .iter()
+        .find(|e| e.element == InjectedElement::ToolSchemas)?;
+    let verdict = if schemas.prune_recommended {
+        "PRUNE-recommended"
+    } else {
+        "earns its cost"
+    };
+    Some(format!(
+        "footprint eval ({}): tool schemas {verdict} (Δpass {:+.0}%, cost {} tok)",
+        report.suite,
+        schemas.pass_rate_delta * 100.0,
+        schemas.token_cost
+    ))
 }
 
 fn resolve_tool_profile() -> String {
@@ -270,7 +367,7 @@ pub fn compute(home: &Path, project: &Path) -> ToolHealthReport {
     let instructions = crate::instructions::build_instructions(crate::tools::CrpMode::effective());
     let instruction_tokens = crate::core::tokens::count_tokens(&instructions);
     let knowledge = knowledge_health(project);
-    build_report(
+    let mut report = build_report(
         &advertised,
         &usage,
         &rules,
@@ -278,7 +375,9 @@ pub fn compute(home: &Path, project: &Path) -> ToolHealthReport {
         instruction_tokens,
         resolve_tool_profile(),
         knowledge,
-    )
+    );
+    report.footprint_note = latest_footprint_note();
+    report
 }
 
 #[cfg(test)]
@@ -368,6 +467,47 @@ mod tests {
             report.fixed_total_tokens,
             report.tool_schema_tokens + 100 + report.rules_tokens
         );
+    }
+
+    #[test]
+    fn value_per_1k_rewards_cheap_well_used_tools() {
+        assert!(value_per_1k(100, 50) > value_per_1k(100, 500));
+        assert_eq!(value_per_1k(0, 100), 0.0);
+        assert_eq!(value_per_1k(10, 0), 0.0, "no schema cost → no division");
+    }
+
+    #[test]
+    fn build_report_recommends_disabling_low_value_tools() {
+        let advertised = vec![tool("ctx_read"), tool("ctx_search"), tool("ctx_shell")];
+        // History exists; ctx_search + ctx_shell never called → disable candidates.
+        let usage = usage_with(&[("ctx_read", 40)]);
+        let report = build_report(
+            &advertised,
+            &usage,
+            &[],
+            Vec::new(),
+            0,
+            "lean (default)".to_string(),
+            KnowledgeHealth::default(),
+        );
+        assert!(
+            report
+                .disable_candidates
+                .contains(&"ctx_search".to_string())
+        );
+        assert!(report.disable_candidates.contains(&"ctx_shell".to_string()));
+        assert!(
+            !report.disable_candidates.contains(&"ctx_read".to_string()),
+            "an active tool is never a disable candidate"
+        );
+        assert!(report.reclaimable_tokens > 0);
+        assert!(report.disable_action.contains("consider disabling"));
+        assert!(
+            report.footprint_note.is_none(),
+            "the pure builder never reads disk artifacts"
+        );
+        let read = report.tools.iter().find(|t| t.name == "ctx_read").unwrap();
+        assert!(read.value_per_1k_tokens > 0.0);
     }
 
     #[test]

@@ -123,9 +123,21 @@ fn print_report(r: &ToolHealthReport, show_all: bool) {
         );
     }
 
+    // ── Value recommendation (#961) ───────────────────────────────────
+    if !r.disable_action.is_empty() {
+        println!("\n  {YELLOW}→ {}{RST}", r.disable_action);
+    }
+    if let Some(note) = &r.footprint_note {
+        println!("  {DIM}{note}{RST}");
+    } else {
+        println!(
+            "  {DIM}→ run `lean-ctx eval footprint --suite <f>` to prove the tool-schema element earns its tokens.{RST}"
+        );
+    }
+
     if show_all {
         println!(
-            "\n{BOLD}All advertised tools{RST} {DIM}(name · schema tok · calls · status){RST}"
+            "\n{BOLD}All advertised tools{RST} {DIM}(name · schema tok · calls · value/1k · status){RST}"
         );
         for t in &r.tools {
             let last = t
@@ -133,10 +145,11 @@ fn print_report(r: &ToolHealthReport, show_all: bool) {
                 .as_deref()
                 .map_or_else(|| "—".to_string(), |s| s.get(..10).unwrap_or(s).to_string());
             println!(
-                "  {:<22} {:>5} tok  {:>6} calls  {:<8} {DIM}{}{RST}",
+                "  {:<22} {:>5} tok  {:>6} calls  {:>7.1}  {:<8} {DIM}{}{RST}",
                 t.name,
                 t.schema_tokens,
                 t.calls,
+                t.value_per_1k_tokens,
                 t.status.label(),
                 last
             );
