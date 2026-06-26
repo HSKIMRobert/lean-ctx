@@ -308,6 +308,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   no ORT init) and only loads the ONNX Runtime once the files are present, so the
   cold bootstrap works again and the #519 teardown safety is preserved. The
   passive search path is unchanged.
+- **Copilot CLI hooks silently no-opped — wrong payload field names and missing
+  `modifiedArgs` (#551).** Copilot CLI sends camelCase `toolName` + `toolArgs`
+  (a JSON-encoded string), but the rewrite/redirect/observe handlers only read
+  snake_case `tool_name`/`tool_input`/`command`, so every Copilot tool call
+  passed through unchanged; even once parsed, the `preToolUse` output omitted
+  Copilot's `modifiedArgs` field, so rewrites/redirects would never have taken
+  effect. A new `hook_handlers::payload` resolves the tool name, args (a
+  `tool_input` object, a `toolArgs` object, or a `toolArgs` JSON-string) and
+  command across all handlers, `observe` gains a Copilot `postToolUse` branch so
+  its telemetry is recorded instead of dropped, and the hook now emits Copilot's
+  documented `permissionDecision` + `modifiedArgs` contract alongside Claude's
+  `hookSpecificOutput.updatedInput` and Cursor's `updated_input` in a single
+  response. Snake-case (Claude/Cursor) stays regression-tested. Thanks for the
+  detailed report.
+- **`CLAUDE.md`/`CODEBUDDY.md` pointer block duplicated on every `setup`/`doctor
+  --fix` (#549).** The block-detection constants pointed at the wrong marker:
+  `*_MD_BLOCK_START/END` referenced the canonical rules marker
+  (`<!-- lean-ctx-rules -->`) while the installer writes the AGENTS pointer block
+  (`<!-- lean-ctx -->`), so `existing.contains(START)` was always false — the
+  doctor reported the block as missing and every run appended a fresh copy,
+  accumulating duplicates. The constants now point at `AGENTS_BLOCK_START/END`
+  (one fix for both the doctor false-negative and the duplication), a new
+  `remove_all_blocks()` collapses any already-accumulated duplicates back to a
+  single canonical block in the installers and `strip_*_md_block`, and the doctor
+  fixtures seed the real pointer marker.
 
 ## [3.8.12] — 2026-06-24
 
