@@ -79,6 +79,43 @@ pub(crate) fn verbatim_json_crush(
         .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
 }
 
+/// Distinct-value ratio at/above which the lossy stage drops an all-present
+/// column. Conservative: only near-unique noise (timestamps, UUIDs) is dropped,
+/// so genuinely varying-but-meaningful columns are kept.
+const LOSSY_DROP_ENTROPY: f64 = 0.9;
+
+/// Opt-in (#936) **lossy** escalation for a verbatim data command's JSON, used
+/// only after [`verbatim_json_crush`] (lossless) did not pay. Drops near-unique
+/// high-entropy columns and — because data is then lost — persists the verbatim
+/// original to the shared CCR store, appending a `ctx_expand` handle so a dropped
+/// datum is always recoverable out-of-band (never from the text). Returns `None`
+/// unless enabled, the crush both drops a column and clears the token floor, and
+/// the original is large enough to persist. The embedded handle is content-
+/// addressed, so the rewritten output stays byte-stable across turns (#448/#498).
+pub(crate) fn verbatim_json_crush_lossy(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let res = crate::core::json_crush::crush_text_lossy_if_beneficial(output, LOSSY_DROP_ENTROPY)?;
+    let crushed_tokens = count_tokens(&res.text);
+    if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
+        return None;
+    }
+    // Dropped columns must be recoverable out-of-band; bail if we cannot persist
+    // (then the lossless/verbatim path keeps the data) rather than lose it.
+    let handle = crate::proxy::ccr::persist_json(output)?;
+    let body = shell_savings_footer(&res.text, original_tokens, crushed_tokens);
+    Some(format!(
+        "{body}\n[lean-ctx: high-entropy column(s) dropped — full data at {handle}, \
+         ctx_expand(id=\"{handle}\", json_path=\"…\"|search=\"…\") for a slice]"
+    ))
+}
+
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if output.trim().is_empty() {
         return String::new();
@@ -139,15 +176,21 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
         // (gh api, jq, kubectl get -o json, curl) can be losslessly crushed —
         // reconstructible, never a dropped datum — when it at least halves the
         // payload. Passthrough (auth/dev servers/streaming) is never touched.
-        if policy == crate::shell::output_policy::OutputPolicy::Verbatim
-            && let Some(crushed) = verbatim_json_crush(
-                output,
-                original_tokens,
-                min_output_tokens,
-                cfg.crush_verbatim_json_enabled(),
-            )
-        {
-            return crushed;
+        if policy == crate::shell::output_policy::OutputPolicy::Verbatim {
+            let enabled = cfg.crush_verbatim_json_enabled();
+            // Lossless first (fully reconstructible). Only if it does not pay does
+            // the lossy stage drop high-entropy noise — and always behind a CCR
+            // handle, so a dropped datum is never irrecoverable (#936).
+            if let Some(crushed) =
+                verbatim_json_crush(output, original_tokens, min_output_tokens, enabled)
+            {
+                return crushed;
+            }
+            if let Some(crushed) =
+                verbatim_json_crush_lossy(output, original_tokens, min_output_tokens, enabled)
+            {
+                return crushed;
+            }
         }
         return truncate_verbatim(output, original_tokens);
     }

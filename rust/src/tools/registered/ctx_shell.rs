@@ -186,7 +186,12 @@ impl McpTool for CtxShellTool {
                             if matches!(cfg.tee_mode, crate::core::config::TeeMode::HighCompression)
                             {
                                 let pct = crate::shell::tee_policy::savings_pct(original, sent);
-                                format!("\n[compressed {pct:.0}%: full output at {p} if needed]")
+                                // The tee is in the shared content-addressed store, so
+                                // ctx_expand can slice it surgically (head/search/json_path)
+                                // instead of re-reading the whole original (#936).
+                                format!(
+                                    "\n[compressed {pct:.0}%: full output at {p} — ctx_expand(id=\"{p}\", search=\"…\"|head=N|json_path=\"…\") for a slice]"
+                                )
                             } else {
                                 format!("\n[full output: {p}]")
                             }

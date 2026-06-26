@@ -69,12 +69,15 @@ fn handle_retrieve(args: &serde_json::Value) -> String {
         );
     }
 
-    // CCR proxy tee handle (#482): the proxy's prune / live-compression stubs
-    // carry a content-addressed tee handle. When the lean-ctx retrieve tool is
-    // attached the agent can pull back just the slice it needs (head / tail /
-    // search / json_path / range) instead of re-injecting the whole original —
-    // the surgical front-end the issue calls "preferred when available". The
-    // same path also works with a plain native file read for proxy-only setups.
+    // Unified tee-store handle (#482 / #936). One resolver, fixed precedence:
+    // the proxy's prune / live-compression stubs (`proxy_<hash>`), the JSON
+    // crusher's lossy originals (`json_<hash>`), AND every compressed shell
+    // command's already-teed verbatim output (`<slug>_<8hex>.log`) all live in
+    // the shared content-addressed store and resolve here, before the reference
+    // (`ref_`) and archive (hex) stores below. The agent pulls back just the
+    // slice it needs (head / tail / search / json_path / range) instead of
+    // re-injecting the whole original — the surgical front-end the issue calls
+    // "preferred when available". Works with a plain native file read too.
     if let Some(path) = crate::proxy::ccr::resolve_tee(id) {
         return expand_tee_file(&path, args);
     }
@@ -416,6 +419,56 @@ mod tests {
         assert!(head.contains("output row 001") && !head.contains("output row 010"));
         let search = handle(&json!({"id": hash, "search": "row 042"}));
         assert!(search.contains("output row 042") && !search.contains("output row 001"));
+    }
+
+    #[test]
+    fn ctx_expand_retrieves_shell_tee_output_surgically() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        // Every compressed shell command already tees its verbatim output to the
+        // shared store (#936). With the unified resolver, ctx_expand can slice
+        // that tee surgically — the agent no longer has to re-read the whole file.
+        let original = (1..=60)
+            .map(|i| format!("api response row {i:03}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let tee_path =
+            crate::shell::save_tee("gh api /repos/foo/bar", &original).expect("shell tee saved");
+        let name = std::path::Path::new(&tee_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
+
+        // Full content via the bare shell-tee basename the footer advertises.
+        let full = handle(&json!({ "id": name.clone() }));
+        assert!(full.contains("api response row 001") && full.contains("api response row 060"));
+
+        // Surgical slices: head and search, same ladder as proxy/archive handles.
+        let head = handle(&json!({ "id": name.clone(), "head": 2 }));
+        assert!(head.contains("api response row 001") && !head.contains("api response row 010"));
+        let search = handle(&json!({ "id": name, "search": "row 042" }));
+        assert!(search.contains("api response row 042") && !search.contains("row 001"));
+    }
+
+    #[test]
+    fn ctx_expand_retrieves_json_crush_original() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        // The lossy JSON crusher persists its verbatim original under json_<hash>
+        // (#936). The dropped columns must be recoverable through the same
+        // ctx_expand path the stub/footer advertises.
+        let original = (1..=50)
+            .map(|i| format!(r#"{{"id":{i},"ts":"2026-06-22T10:00:{i:02}Z"}}"#))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(original.len() >= crate::proxy::ccr::MIN_TEE_BYTES);
+        let handle_path = crate::proxy::ccr::persist_json(&original).expect("json tee handle");
+        assert!(handle_path.contains("json_"), "json_ prefix: {handle_path}");
+
+        let out = handle(&json!({ "id": handle_path }));
+        assert!(
+            out.contains("2026-06-22T10:00:42Z"),
+            "dropped column recoverable: {out}"
+        );
     }
 
     #[test]

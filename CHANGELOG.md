@@ -51,6 +51,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   gate is centralized in `json_crush::{crush_value_if_beneficial,
   crush_text_if_beneficial}` (one `KEEP_DATA_DIVISOR`), so the shell (`json_schema`,
   `curl`) and read paths can never drift.
+- **Unified, surgical CCR retrieve path across the whole tee store (gitlab #938).**
+  `ctx_expand` now resolves every content-addressed original through one resolver
+  with a fixed precedence: proxy prune/live stubs (`proxy_<hash>`), the JSON
+  crusher's lossy originals (`json_<hash>`), AND every compressed shell command's
+  already-teed verbatim output (`<slug>_<8hex>.log`) — before the reference
+  (`ref_`) and archive (hex) stores. So an agent can pull back just the slice it
+  needs (`head`/`tail`/`search`/`json_path`/`range`) from any of them instead of
+  re-reading the whole file; the high-compression shell footer now advertises the
+  `ctx_expand` slice form. The resolver trusts only the file name and always
+  rebuilds the path under `{state}/tee/` (no traversal). Opt-in verbatim JSON
+  crushing (`crush_verbatim_json`) gains a lossy stage 2: when the lossless reshape
+  does not pay, it drops near-unique high-entropy columns (timestamps, UUIDs) and
+  persists the verbatim original under `json_<hash>`, embedding a content-addressed
+  `ctx_expand` handle so a dropped datum is never irrecoverable.
 
 ### Fixed
 - **`ctx_impact` missed Go and Kotlin same-package blast radius (#398 bug class).**

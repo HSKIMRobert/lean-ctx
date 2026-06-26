@@ -42,13 +42,21 @@ pub(crate) const MIN_TEE_BYTES: usize = 512;
 /// idempotent, so steady-state cost is a single `stat`).
 const CLEANUP_INTERVAL_SECS: u64 = 600;
 
+/// Length of the content hash in a proxy/json tee name ([`hash_short`]).
+const TEE_HASH_LEN: usize = 16;
+/// Length of the command hash in a shell tee name (`shell::redact::save_tee`).
+const SHELL_TEE_HASH_LEN: usize = 8;
+
 /// Deterministic tee path for `content`:
-/// `{state}/tee/proxy_{blake3(content)[..16]}.log`. Pure (no I/O) so a stub
-/// embedding it stays byte-stable regardless of filesystem state.
-fn tee_path(content: &str) -> Option<PathBuf> {
+/// `{state}/tee/{prefix}_{blake3(content)[..16]}.log`. Pure (no I/O) so a stub
+/// embedding it stays byte-stable regardless of filesystem state. `prefix`
+/// segregates the producer (`proxy` for history-prune / live-compression stubs,
+/// `json` for the JSON crusher's lossy originals, #936) yet keeps one shared
+/// store + one resolver ([`resolve_tee`]).
+fn tee_path(content: &str, prefix: &str) -> Option<PathBuf> {
     let dir = crate::core::paths::state_dir().ok()?.join("tee");
     let hash = crate::core::hasher::hash_short(content);
-    Some(dir.join(format!("proxy_{hash}.log")))
+    Some(dir.join(format!("{prefix}_{hash}.log")))
 }
 
 /// Run the shared 24h TTL cleanup at most once per [`CLEANUP_INTERVAL_SECS`].
@@ -79,10 +87,24 @@ fn maybe_cleanup(tee_dir: &Path) {
 /// stays deterministic. Re-persisting identical content is idempotent: same
 /// content → same path → the existing file is left untouched.
 pub(crate) fn persist(content: &str) -> Option<String> {
+    persist_with(content, "proxy")
+}
+
+/// Persist a JSON crusher's verbatim original (#936) under the `json_` prefix and
+/// return its `{state}/tee/json_{hash}.log` handle. Used by the lossy crush stage
+/// so a dropped column is always recoverable out-of-band via [`resolve_tee`] /
+/// `ctx_expand`, never reconstructed from the (lossy) text. Shares the
+/// content-address and best-effort write contract of [`persist`], so the embedded
+/// handle stays deterministic (cache-safe).
+pub(crate) fn persist_json(content: &str) -> Option<String> {
+    persist_with(content, "json")
+}
+
+fn persist_with(content: &str, prefix: &str) -> Option<String> {
     if content.len() < MIN_TEE_BYTES {
         return None;
     }
-    let path = tee_path(content)?;
+    let path = tee_path(content, prefix)?;
     let handle = path.to_string_lossy().to_string();
 
     if !path.exists() {
@@ -106,28 +128,69 @@ pub(crate) fn persist(content: &str) -> Option<String> {
     Some(handle)
 }
 
-/// Resolve a CCR retrieval `id` (as carried in a proxy stub) back to the
-/// existing tee file. Accepts any of the forms an agent might copy out of a
-/// stub: the absolute tee path, the bare file name `proxy_<hash>.log`,
-/// `proxy_<hash>`, or the bare `<hash>`.
+fn is_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Canonical `{prefix}_{16hex}.log` name for a proxy / json / bare-hash id, or
+/// `None`. A bare 16-hex id defaults to the `proxy_` store (back-compat: that is
+/// the only form pre-#936 stubs carry).
+fn canonical_tee_name(name: &str) -> Option<String> {
+    let stem = name.strip_suffix(".log").unwrap_or(name);
+    if let Some(hash) = stem.strip_prefix("proxy_") {
+        return is_hex(hash, TEE_HASH_LEN).then(|| format!("proxy_{hash}.log"));
+    }
+    if let Some(hash) = stem.strip_prefix("json_") {
+        return is_hex(hash, TEE_HASH_LEN).then(|| format!("json_{hash}.log"));
+    }
+    is_hex(stem, TEE_HASH_LEN).then(|| format!("proxy_{stem}.log"))
+}
+
+/// True for a shell tee basename `<slug>_<8hex>.log` (`shell::redact::save_tee`):
+/// ends in `.log`, the whole basename is safe (`[A-Za-z0-9_-]`), and the **last**
+/// `_`-segment is exactly 8 hex. The slug itself may contain `_`, so the hash is
+/// matched as the suffix — never the first segment (the documented parsing trap).
+fn is_shell_tee_name(name: &str) -> bool {
+    let Some(stem) = name.strip_suffix(".log") else {
+        return false;
+    };
+    if !stem
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    {
+        return false;
+    }
+    match stem.rsplit_once('_') {
+        Some((slug, hash)) => !slug.is_empty() && is_hex(hash, SHELL_TEE_HASH_LEN),
+        None => false,
+    }
+}
+
+/// Resolve a retrieval `id` back to a file in the shared `{state}/tee/` store.
+/// Accepts every handle form a stub or footer can carry, with a fixed precedence
+/// so the forms can never collide (#936):
 ///
-/// Security: only the *file name* is trusted — the path is always rebuilt from
-/// the canonical `{state}/tee/` dir, so a crafted `id` can never escape the tee
-/// store (no path traversal) and a non-tee id simply resolves to `None`.
+/// 1. **Prefix forms** — `proxy_<16hex>(.log)`, `json_<16hex>(.log)`, or a bare
+///    `<16hex>` (→ `proxy_`, back-compat). The proxy history-prune / live stubs
+///    and the JSON crusher's lossy originals.
+/// 2. **Shell-tee form** — `<slug>_<8hex>.log` (`save_tee`), so every compressed
+///    shell command's already-teed verbatim output is surgically retrievable.
+///
+/// The 16-vs-8 hex length already disambiguates the two classes; the explicit
+/// order documents intent. Security: only the *file name* is trusted — the path
+/// is always rebuilt under `{state}/tee/`, so a crafted `id` can never escape the
+/// store (no path traversal) and a non-tee id resolves to `None`.
 pub(crate) fn resolve_tee(id: &str) -> Option<PathBuf> {
     let name = Path::new(id)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(id);
-    let hash = name.strip_prefix("proxy_").unwrap_or(name);
-    let hash = hash.strip_suffix(".log").unwrap_or(hash);
-    if hash.len() != 16 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
+    let canon =
+        canonical_tee_name(name).or_else(|| is_shell_tee_name(name).then(|| name.to_string()))?;
     let path = crate::core::paths::state_dir()
         .ok()?
         .join("tee")
-        .join(format!("proxy_{hash}.log"));
+        .join(canon);
     path.is_file().then_some(path)
 }
 
@@ -327,6 +390,78 @@ mod tests {
         assert!(resolve_tee("proxy_nothex0000000.log").is_none());
         // Right shape but no such file in the store.
         assert!(resolve_tee("deadbeefdeadbeef").is_none());
+    }
+
+    #[test]
+    fn persist_json_is_distinct_prefix_and_resolvable() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let content = big("json crusher original");
+        let proxy = persist(&content).expect("proxy persisted");
+        let json = persist_json(&content).expect("json persisted");
+        assert!(
+            json.contains("json_"),
+            "json handle uses json_ prefix: {json}"
+        );
+        assert_ne!(
+            proxy, json,
+            "same content gets distinct files per producer prefix"
+        );
+
+        // The json_ handle resolves through the unified resolver in every form a
+        // stub / footer can carry: full path, bare file name, and bare json_id.
+        let hash = crate::core::hasher::hash_short(&content);
+        for form in [
+            json.clone(),
+            format!("json_{hash}.log"),
+            format!("json_{hash}"),
+        ] {
+            assert_eq!(
+                resolve_tee(&form)
+                    .expect("json form resolves")
+                    .to_string_lossy(),
+                json,
+                "json form {form} -> {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_tee_resolves_shell_tee_with_underscored_slug() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        // A real shell command whose slug contains underscores: the hash is the
+        // last `_`-segment (8 hex), never the first — the parsing trap. The full
+        // verbatim output the shell already teed is now surgically retrievable.
+        let path = crate::shell::save_tee("gh api /repos/foo/bar", &big("api row"))
+            .expect("shell tee saved");
+        let name = std::path::Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
+        assert!(
+            is_shell_tee_name(&name),
+            "save_tee name must be recognized as a shell tee: {name}"
+        );
+        for form in [path.clone(), name] {
+            assert_eq!(
+                resolve_tee(&form)
+                    .expect("shell tee form resolves")
+                    .to_string_lossy(),
+                path,
+                "shell tee form -> {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_tee_does_not_capture_reference_ids() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        // A reference-store id (`ref_<16hex>`, no `.log`) must fall through the
+        // tee resolver so ctx_expand routes it to the reference store, not the
+        // tee store — the precedence guard for the unified retrieve ladder.
+        assert!(resolve_tee("ref_deadbeefcafef00d").is_none());
+        // A bare 16-hex archive id with no backing tee file also stays None.
+        assert!(resolve_tee("0123456789abcdef").is_none());
     }
 
     #[test]

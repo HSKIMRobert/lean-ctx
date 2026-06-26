@@ -968,6 +968,47 @@ mod verbatim_output_tests {
     }
 
     #[test]
+    fn verbatim_json_crush_lossy_drops_noise_behind_recoverable_handle() {
+        use super::super::engine::verbatim_json_crush_lossy;
+        let _lock = crate::core::data_dir::test_env_lock();
+
+        // A near-unique high-entropy column (`ts`) the lossless stage cannot
+        // factor. The opt-in lossy stage drops it — but only behind a CCR handle
+        // that still recovers the verbatim original (incl. the dropped column).
+        let mut json = String::from("[");
+        for i in 0..60 {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!(
+                r#"{{"status":"ok","ts":"2026-06-22T10:{i:02}:{i:02}.{i:09}Z","id":{i}}}"#
+            ));
+        }
+        json.push(']');
+        let original_tokens = 1_000;
+
+        // Off by default → no lossy drop.
+        assert!(verbatim_json_crush_lossy(&json, original_tokens, 5, false).is_none());
+
+        let out = verbatim_json_crush_lossy(&json, original_tokens, 5, true)
+            .expect("high-entropy json escalates to lossy");
+        assert!(out.contains("_lc_crush"), "expected crushed form: {out}");
+        assert!(
+            out.contains("ctx_expand(id="),
+            "lossy output must advertise a recovery handle: {out}"
+        );
+
+        // The handle resolves to the verbatim original, dropped column included —
+        // the safety contract: lossy is never irrecoverable.
+        let handle = crate::proxy::ccr::persist_json(&json).expect("same content -> same handle");
+        let recovered = std::fs::read_to_string(&handle).expect("tee readable");
+        assert!(
+            recovered.contains("2026-06-22T10:42:42.000000042Z"),
+            "dropped column must survive in the recoverable original"
+        );
+    }
+
+    #[test]
     fn large_curl_output_gets_truncated_not_destroyed() {
         let mut json = String::from("[");
         for i in 0..500 {
