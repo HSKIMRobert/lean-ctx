@@ -3,9 +3,21 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.8.13] — 2026-06-26
 
 ### Added
+- **`ctx_explore` — delegated, deterministic repository exploration (gitlab #907).**
+  A new multi-turn explorer — MCP tool #78 plus a `lean-ctx explore` CLI — that
+  answers "where does X live / how does Y work" in a single call instead of the
+  agent's usual read→grep→read loop. It seeds with BM25 lexical retrieval, expands
+  along a bounded graph BFS grounded in the hit set, then selects citations by
+  coverage, returning byte-stable `path:start-end` ranges (with a citation-only
+  mode for minimal token spend). Wired into the tool registry, the standard and
+  read-only tool profiles, and the heavy-index warm-need; `eval_harness` gains a
+  `SearchArm::Explore` (output-token metric plus new "exploration" queries in
+  `rust/eval/search-suite.ndjson`) so A/B runs can compare explore vs hybrid vs
+  bm25 on recall/MRR/tokens. Output is a deterministic function of repo content
+  (#498).
 - **Codex ChatGPT subscription auth now routes through the proxy (#568).**
   Completes the #554 fix: instead of skipping config when a Codex ChatGPT login
   is detected (which left subscription users at 0 savings), `install_codex_env`
@@ -114,6 +126,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (gitlab #868–#871)
 
 ### Fixed
+- **`ctx_impact` dropped C# same-namespace blast radius after the first reindex
+  (#398).** A C# class used within its own namespace (no `using`, DI-injected)
+  reappeared as a leaf node after the first background reindex. The private
+  `ctx_impact` builder wrote precise `type_ref` edges into the `PropertyGraph`, but
+  every `ProjectIndex::save()` mirrors `graph_index` over the graph via
+  `clear_code_graph()` — and `graph_index` emitted no type-usage edges, so the
+  reindex silently wiped the blast radius (a dual-writer bug). A new
+  `core::type_ref_edges` module is now the single source of truth for C#/Java
+  consumer→definer file resolution (namespace-aware, failsafe-capped), shared by
+  both the durable `graph_index` mirror and the `ctx_impact` builder; `graph_index`
+  now emits these precise edges instead of the old coarse alphabetical
+  namespace-chain heuristic, so a reindex reproduces the blast radius instead of
+  dropping it. `GRAPH_ENGINE_VERSION` is bumped (2→3) so stale graphs self-heal on
+  the next query, and the regression tests now run through the index mirror — the
+  exact gap every prior #398 fix missed. (The grep hook also now redirects only
+  `output_mode=content`, passing `files_with_matches`/`count` through untouched,
+  since the path-swap returned wrong results for those.) (gitlab #915–#918)
 - **`ctx_read` left an empty ` []` metadata field on incompressible files (#509).**
   The `entropy` (and `density`) read modes append a ` [techniques…]` tag listing
   which compression techniques fired. On a file where none did (high-entropy, no
