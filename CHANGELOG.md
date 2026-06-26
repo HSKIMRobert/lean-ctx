@@ -38,10 +38,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   char-boundary excerpt bound; `mode`/`pattern` ride the IR `pattern` slot; the
   read's `original_tokens` and the search's raw matched-line estimate are the IR
   input so the stored compression ratio is accurate — no fabricated values). The
-  remaining two deferred items from #550 — the in-memory loop/correction
-  detectors and the bounce/adaptive-threshold signals — stay deferred: both need
-  cross-call state a single-shot process cannot hold, so they are gated on the
-  "connect-only daemon routing for hooks" design decision (tracked in #566).
+  two remaining MCP read side effects from #550 — the in-memory loop/correction
+  detectors and the bounce/adaptive-threshold signals — are now delivered via
+  **connect-only daemon routing**: when an MCP daemon is already running, a
+  shadow-mode `lean-ctx read`/`grep` routes the call through it
+  (`/v1/tools/call` → `call_tool_guarded`), so loop detection, correction-loop
+  auto-degrade, bounce tracking and adaptive thresholds all fire on the daemon's
+  long-lived state — full MCP parity, for free. The hook child *connects only*: it
+  reuses a live daemon but never auto-starts one (a per-call subprocess
+  auto-starting daemons would proliferate them, the #453 class of bug), falling
+  back to the enriched standalone path (disk-backed learning sinks + the Context
+  IR above) when no daemon is reachable or on Windows. This resolves the design
+  decision #566 was gated on; the connect-only invariant is documented in
+  `daemon_client::try_daemon_tool_call_blocking` and regression-guarded by
+  `hook_connect_only_566`.
 - **PowerShell-native cmdlets route through lean-ctx (#561).** Follow-up to #556:
   shadow/harden mode already recognised the Windows `powershell` shell tool, covering
   the Unix-style PS *aliases* (`cat`/`ls`/`rg`). The command-rewrite layer now also

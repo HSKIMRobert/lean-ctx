@@ -159,9 +159,24 @@ pub fn notify_cache_clear() -> bool {
     })
 }
 
-/// Blocking helper for CLI commands: calls a daemon tool if the daemon is running.
-/// Returns `None` if the daemon is not running or the call fails.
-/// Attempts to auto-start the daemon if it's not already running.
+/// Blocking helper for CLI commands: routes a tool call through the daemon.
+///
+/// Returns `None` if no daemon can serve the call (caller then renders the tool
+/// locally / standalone). Behaviour splits on caller identity:
+///
+/// - **Normal CLI invocation**: connects to a running daemon, and *auto-starts*
+///   one if none is listening (so the long-lived `LeanCtxServer` state — caches,
+///   indexes, detectors — is reused across commands).
+/// - **Shadow-mode hook child** (`LEAN_CTX_HOOK_CHILD` set): *connect-only*. It
+///   reuses an already-running daemon for full parity (the `ready` fast-path
+///   below routes straight through `/v1/tools/call` → `call_tool_guarded`, so the
+///   in-memory `LoopDetector`, correction-loop auto-degrade, bounce tracker and
+///   adaptive thresholds all fire on the daemon's long-lived state — #566), but
+///   it MUST NEVER auto-start a daemon. A hook fires once per intercepted
+///   read/grep as a fresh process; auto-starting from there would spawn daemons
+///   uncontrollably. With no live daemon it returns `None` and the caller falls
+///   back to the enriched standalone path (disk-backed learning sinks + Context
+///   IR from #550/#569).
 #[allow(clippy::needless_pass_by_value)]
 pub fn try_daemon_tool_call_blocking(
     name: &str,
@@ -175,6 +190,12 @@ pub fn try_daemon_tool_call_blocking(
     let mut ready = addr.is_listening() && rt.block_on(async { daemon_health_check().await });
 
     if !ready {
+        // Connect-only for shadow-mode hooks (#566): a hook child reaches a live
+        // daemon via the `ready` fast-path above (full detector parity), but when
+        // none is listening it must bail to the standalone fallback instead of
+        // auto-starting one. This guard MUST stay inside `if !ready` — hoisting it
+        // to the top of the function would also block hooks from reusing a running
+        // daemon, silently regressing loop/bounce/adaptive parity.
         if std::env::var("LEAN_CTX_HOOK_CHILD").is_ok() {
             return None;
         }
