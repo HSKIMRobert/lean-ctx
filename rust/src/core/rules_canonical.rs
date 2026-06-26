@@ -100,7 +100,6 @@ Anti-patterns — do NOT:\n\
 /// Encourages parallel tool calls to reduce round-trips.
 pub const PARALLEL: &str = "\
 PARALLEL tool calls: fire independent calls in the SAME turn — don't sequence them.\n\
-One turn with 5 parallel ctx_read calls completes faster than 5 sequential turns.\n\
 ctx_compose bundles multiple lookups into one call; for anything it doesn't\n\
 cover, batch independent reads/searches together.";
 
@@ -120,6 +119,15 @@ pub const INTELLIGENCE: &str =
 /// LITM end-of-instructions preference line.
 pub const LITM_END: &str = "TOOL PREFERENCE (END): ctx_compose>chain ctx_read>Read ctx_shell>Shell \
      ctx_search>Grep ctx_glob>Glob ctx_tree>ls | Edit/Write/Delete=native";
+
+/// Minimal rules body for shadow mode (#963). Under shadow-mode interception
+/// native Read/Grep/Shell/Glob calls are transparently routed to ctx_*, so the
+/// tool-mapping and "use ctx_* instead of native" guidance is dead weight — the
+/// enforcement happens at the call layer, not in the prompt. Only the lean-ctx
+/// tools that have *no* native trigger to intercept still need advertising.
+pub const SHADOW_MINIMAL: &str = "\
+lean-ctx shadow mode: native file/search/shell calls auto-route to ctx_* — no tool-mapping needed.\n\
+Exclusive tools (no native trigger): ctx_compose (understand code, call first), ctx_symbol (exact symbol), ctx_callgraph (callers), ctx_semantic_search (by meaning), ctx_knowledge / ctx_session (memory).";
 
 // ── Output-style compression prompts ───────────────────────────
 
@@ -174,11 +182,15 @@ const FULL_NON_SHADOW: &[&str] = &[
     LITM_END,
 ];
 
-const FULL_SHADOW: &[&str] = &[INTENT, ANTI, PARALLEL, AUTO, CEP, INTELLIGENCE, LITM_END];
+// #963: shadow profiles collapse to the irreducible minimum. Every routing
+// section (INTENT/ANTI/PARALLEL/AUTO/CEP/LITM_END) is redundant once native
+// calls are intercepted; only SHADOW_MINIMAL (exclusive tools) plus the output
+// style survive. Footprint reduction is provable via the #959 delta harness.
+const FULL_SHADOW: &[&str] = &[SHADOW_MINIMAL, INTELLIGENCE];
 
 const COMPACT_NON_SHADOW: &[&str] = &[CRITICAL, BULLETS, NEVER, INTENT, ANTI, PARALLEL];
 
-const COMPACT_SHADOW: &[&str] = &[INTENT, ANTI, PARALLEL];
+const COMPACT_SHADOW: &[&str] = &[SHADOW_MINIMAL];
 
 /// Selects the profile (FULL vs COMPACT) and the wrapping style (markers,
 /// headers, footers) for `render()`.
@@ -476,21 +488,40 @@ mod tests {
     }
 
     #[test]
-    fn dedicated_shadow_omits_mapping() {
+    fn dedicated_shadow_is_minimal() {
+        // #963: shadow drops the whole tool-mapping AND routing playbook —
+        // interception makes them redundant. Only the exclusive-tool advert and
+        // the output style remain.
         let out = render(true, Wrapper::Dedicated, CompressionLevel::Off);
         assert!(out.contains(START_MARK));
+        assert!(!out.contains("MANDATORY MAPPING"), "no BULLETS in shadow");
+        assert!(!out.contains(NEVER), "no NEVER in shadow");
+        assert!(!out.contains("CRITICAL"), "no CRITICAL banner in shadow");
         assert!(
-            !out.contains("MANDATORY MAPPING"),
-            "shadow must not contain BULLETS"
-        );
-        assert!(!out.contains(NEVER), "shadow must not contain NEVER");
-        assert!(
-            !out.contains("CRITICAL"),
-            "shadow must not contain CRITICAL"
+            !out.contains("Tool selection by intent"),
+            "routing INTENT block is redundant under interception"
         );
         assert!(
-            out.contains(INTENT),
-            "shadow must keep non-mapping sections"
+            !out.contains("Anti-patterns") && !out.contains("PARALLEL tool calls"),
+            "ANTI/PARALLEL routing guidance is dropped in shadow"
+        );
+        assert!(
+            out.contains("shadow mode") && out.contains("ctx_compose"),
+            "shadow keeps the exclusive-tool advert"
+        );
+        assert!(out.contains(INTELLIGENCE), "shadow keeps the output style");
+    }
+
+    #[test]
+    fn shadow_is_smaller_than_non_shadow() {
+        // The whole point of #963: the shadow body must be a strict reduction.
+        let shadow = render(true, Wrapper::Dedicated, CompressionLevel::Off);
+        let full = render(false, Wrapper::Dedicated, CompressionLevel::Off);
+        assert!(
+            shadow.len() < full.len(),
+            "shadow ({}) must be smaller than non-shadow ({})",
+            shadow.len(),
+            full.len()
         );
     }
 
