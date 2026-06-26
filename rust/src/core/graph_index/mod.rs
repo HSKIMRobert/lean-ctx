@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::import_resolver;
@@ -231,7 +232,7 @@ pub struct ProjectIndex {
     pub symbols: HashMap<String, SymbolEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FileEntry {
     pub path: String,
     pub hash: String,
@@ -242,7 +243,7 @@ pub struct FileEntry {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SymbolEntry {
     pub file: String,
     pub name: String,
@@ -252,7 +253,7 @@ pub struct SymbolEntry {
     pub is_exported: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexEdge {
     pub from: String,
     pub to: String,
@@ -726,23 +727,22 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
     let existing = ProjectIndex::load(&project_root);
     let mut index = ProjectIndex::new(&project_root);
 
-    let old_files: HashMap<String, (String, Vec<(String, SymbolEntry)>)> =
-        if let Some(ref prev) = existing {
-            prev.files
-                .iter()
-                .map(|(path, entry)| {
-                    let syms: Vec<(String, SymbolEntry)> = prev
-                        .symbols
-                        .iter()
-                        .filter(|(_, s)| s.file == *path)
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect();
-                    (path.clone(), (entry.hash.clone(), syms))
-                })
-                .collect()
-        } else {
-            HashMap::new()
-        };
+    let old_files: OldFileSymbols = if let Some(ref prev) = existing {
+        prev.files
+            .iter()
+            .map(|(path, entry)| {
+                let syms: Vec<(String, SymbolEntry)> = prev
+                    .symbols
+                    .iter()
+                    .filter(|(_, s)| s.file == *path)
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                (path.clone(), (entry.hash.clone(), syms))
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
 
     let walker = ignore::WalkBuilder::new(&project_root)
         .hidden(true)
@@ -774,13 +774,21 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
     const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024; // 2 MB per file
     let scan_deadline = std::time::Instant::now() + std::time::Duration::from_mins(5);
 
+    // #934: two-phase scan. Phase 1 walks the tree sequentially (cheap; it
+    // carries the traversal caps / timeout / memory early-breaks) and collects
+    // the files to index. Phase 2 fans the expensive per-file signature
+    // extraction across a rayon pool — pure and thread-safe (the tree-sitter
+    // parser is `thread_local!`; `old_files`/`existing` are read-only). Phase 3
+    // merges sequentially: `files`/`symbols` are keyed per file, so the result is
+    // identical to a sequential scan (edges are built and sorted afterwards).
+    let mut targets: Vec<(String, String, String)> = Vec::new();
     for entry in walker.filter_map(std::result::Result::ok) {
         entries_visited += 1;
         if entries_visited > MAX_ENTRIES_VISITED {
             tracing::warn!(
                 "[graph_index: walked {entries_visited} entries — aborting scan to prevent \
                  runaway traversal. Indexed {} files so far.]",
-                index.files.len()
+                targets.len()
             );
             break;
         }
@@ -789,7 +797,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
                 tracing::warn!(
                     "[graph_index: scan timeout (120s) after {entries_visited} entries — \
                      saving partial index with {} files]",
-                    index.files.len()
+                    targets.len()
                 );
                 break;
             }
@@ -797,7 +805,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
                 tracing::warn!(
                     "[graph_index: memory pressure abort after {entries_visited} entries — \
                      saving partial index with {} files]",
-                    index.files.len()
+                    targets.len()
                 );
                 break;
             }
@@ -805,7 +813,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
                 tracing::warn!(
                     "[graph_index: memory pressure detected at {entries_visited} entries — \
                      stopping scan with {} files]",
-                    index.files.len()
+                    targets.len()
                 );
                 break;
             }
@@ -855,7 +863,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
             continue;
         }
 
-        if max_files != usize::MAX && index.files.len() >= max_files {
+        if max_files != usize::MAX && targets.len() >= max_files {
             tracing::info!(
                 "[graph_index: reached configured limit of {} files. Set graph_index_max_files = 0 for unlimited.]",
                 max_files
@@ -863,71 +871,26 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
             break;
         }
 
-        let Ok(content) = std::fs::read_to_string(&file_path) else {
-            continue;
-        };
+        // Own `ext` before moving `file_path` (it borrows from it).
+        let ext = ext.to_string();
+        targets.push((file_path, rel, ext));
+    }
 
-        let hash = compute_hash(&content);
-        let rel_path = make_relative(&file_path, &project_root);
-
-        if let Some((old_hash, old_syms)) = old_files.get(&rel_path)
-            && *old_hash == hash
-            && let Some(old_entry) = existing.as_ref().and_then(|p| p.files.get(&rel_path))
-        {
-            index.files.insert(rel_path.clone(), old_entry.clone());
-            for (key, sym) in old_syms {
-                index.symbols.insert(key.clone(), sym.clone());
-            }
-            content_cache.insert(rel_path, content);
+    // Memory pressure is the only reason to stay single-threaded here; otherwise
+    // fan out. The merge order is the `targets` (walk) order in both cases.
+    let parallel = !crate::core::memory_guard::is_under_pressure();
+    let results = process_scan_targets(&targets, &old_files, existing.as_ref(), parallel);
+    for r in results {
+        if r.reused {
             reused += 1;
-            continue;
+        } else {
+            scanned += 1;
         }
-
-        let sigs = signatures::extract_signatures(&content, ext);
-        let line_count = content.lines().count();
-        let token_count = crate::core::tokens::count_tokens(&content);
-        let summary = extract_summary(&content);
-
-        let exports: Vec<String> = sigs
-            .iter()
-            .filter(|s| s.is_exported)
-            .map(|s| s.name.clone())
-            .collect();
-
-        index.files.insert(
-            rel_path.clone(),
-            FileEntry {
-                path: rel_path.clone(),
-                hash,
-                language: ext.to_string(),
-                line_count,
-                token_count,
-                exports,
-                summary,
-            },
-        );
-
-        for sig in &sigs {
-            let (start, end) = sig
-                .start_line
-                .zip(sig.end_line)
-                .unwrap_or_else(|| find_symbol_range(&content, sig));
-            let key = format!("{}::{}", rel_path, sig.name);
-            index.symbols.insert(
-                key,
-                SymbolEntry {
-                    file: rel_path.clone(),
-                    name: sig.name.clone(),
-                    kind: sig.kind.to_string(),
-                    start_line: start,
-                    end_line: end,
-                    is_exported: sig.is_exported,
-                },
-            );
+        index.files.insert(r.rel.clone(), r.file_entry);
+        for (key, sym) in r.symbols {
+            index.symbols.insert(key, sym);
         }
-
-        content_cache.insert(rel_path, content);
-        scanned += 1;
+        content_cache.insert(r.rel, r.content);
     }
 
     build_edges_cached(&mut index, &content_cache);
@@ -946,6 +909,128 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
     );
 
     (index, content_cache)
+}
+
+/// Previous-scan symbols per file: `rel -> (content_hash, [(symbol_key, symbol)])`.
+/// Used to reuse unchanged files without re-parsing.
+type OldFileSymbols = HashMap<String, (String, Vec<(String, SymbolEntry)>)>;
+
+/// One file's contribution to the scan, produced off-thread by
+/// [`process_scan_file`] and merged sequentially by [`scan_inner`].
+#[derive(Debug, PartialEq)]
+struct ScanFileResult {
+    rel: String,
+    file_entry: FileEntry,
+    /// `(key, symbol)` pairs in signature order; `key` is `"<rel>::<name>"`.
+    symbols: Vec<(String, SymbolEntry)>,
+    content: String,
+    reused: bool,
+}
+
+/// Pure, thread-safe per-file scan work: read, hash, reuse-check against the
+/// previous index, then extract signatures + file metadata. Returns `None` when
+/// the file cannot be read (the sequential scan would `continue` past it).
+fn process_scan_file(
+    file_path: &str,
+    rel: &str,
+    ext: &str,
+    old_files: &OldFileSymbols,
+    existing: Option<&ProjectIndex>,
+) -> Option<ScanFileResult> {
+    let content = std::fs::read_to_string(file_path).ok()?;
+    let hash = compute_hash(&content);
+
+    // Unchanged file with a prior entry: reuse verbatim (no re-parse).
+    if let Some((old_hash, old_syms)) = old_files.get(rel)
+        && *old_hash == hash
+        && let Some(old_entry) = existing.and_then(|p| p.files.get(rel))
+    {
+        return Some(ScanFileResult {
+            rel: rel.to_string(),
+            file_entry: old_entry.clone(),
+            symbols: old_syms.clone(),
+            content,
+            reused: true,
+        });
+    }
+
+    let sigs = signatures::extract_signatures(&content, ext);
+    let line_count = content.lines().count();
+    let token_count = crate::core::tokens::count_tokens(&content);
+    let summary = extract_summary(&content);
+
+    let exports: Vec<String> = sigs
+        .iter()
+        .filter(|s| s.is_exported)
+        .map(|s| s.name.clone())
+        .collect();
+
+    let file_entry = FileEntry {
+        path: rel.to_string(),
+        hash,
+        language: ext.to_string(),
+        line_count,
+        token_count,
+        exports,
+        summary,
+    };
+
+    let symbols: Vec<(String, SymbolEntry)> = sigs
+        .iter()
+        .map(|sig| {
+            let (start, end) = sig
+                .start_line
+                .zip(sig.end_line)
+                .unwrap_or_else(|| find_symbol_range(&content, sig));
+            let key = format!("{rel}::{}", sig.name);
+            (
+                key,
+                SymbolEntry {
+                    file: rel.to_string(),
+                    name: sig.name.clone(),
+                    kind: sig.kind.to_string(),
+                    start_line: start,
+                    end_line: end,
+                    is_exported: sig.is_exported,
+                },
+            )
+        })
+        .collect();
+
+    Some(ScanFileResult {
+        rel: rel.to_string(),
+        file_entry,
+        symbols,
+        content,
+        reused: false,
+    })
+}
+
+/// Run [`process_scan_file`] over every target. `par_iter().collect()` preserves
+/// input order, so the [`scan_inner`] merge is order-stable whether or not the
+/// pool is used; the sequential branch is the memory-pressure fallback and an
+/// equivalence anchor for the determinism tests.
+fn process_scan_targets(
+    targets: &[(String, String, String)],
+    old_files: &OldFileSymbols,
+    existing: Option<&ProjectIndex>,
+    parallel: bool,
+) -> Vec<ScanFileResult> {
+    if parallel {
+        targets
+            .par_iter()
+            .filter_map(|(file_path, rel, ext)| {
+                process_scan_file(file_path, rel, ext, old_files, existing)
+            })
+            .collect()
+    } else {
+        targets
+            .iter()
+            .filter_map(|(file_path, rel, ext)| {
+                process_scan_file(file_path, rel, ext, old_files, existing)
+            })
+            .collect()
+    }
 }
 
 fn find_symbol_range(content: &str, sig: &signatures::Signature) -> (usize, usize) {

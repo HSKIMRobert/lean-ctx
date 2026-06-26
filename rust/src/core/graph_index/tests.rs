@@ -991,3 +991,124 @@ fn safe_scan_root_rejects_broad_dir_without_repos() {
         "Broad dir without project markers should be rejected"
     );
 }
+
+// ---- #934: parallel scan determinism ----
+
+/// Write a varied multi-language corpus and return the sorted scan targets
+/// `(absolute_path, rel, ext)`.
+fn write_scan_corpus(root: &std::path::Path, n: usize) -> Vec<(String, String, String)> {
+    std::fs::create_dir_all(root.join("src")).expect("mkdir src");
+    let mut targets: Vec<(String, String, String)> = Vec::new();
+    for i in 0..n {
+        let rel = format!("src/m{i:02}.rs");
+        let body = format!(
+            "pub fn handler_{i}(x: u32) -> u32 {{ x + {i} }}\n\
+             pub struct State{i} {{ n: usize }}\n\
+             impl State{i} {{ pub fn run(&self) {{}} }}\n\
+             fn helper() {{}}\n"
+        );
+        std::fs::write(root.join(&rel), &body).expect("write rs");
+        targets.push((
+            root.join(&rel).to_string_lossy().to_string(),
+            rel.clone(),
+            "rs".to_string(),
+        ));
+    }
+    let ts = "src/api.ts".to_string();
+    std::fs::write(
+        root.join(&ts),
+        "export function getUser(id: string) { return id; }\nexport class Client {}\n",
+    )
+    .expect("write ts");
+    targets.push((
+        root.join(&ts).to_string_lossy().to_string(),
+        ts,
+        "ts".to_string(),
+    ));
+
+    let py = "src/util.py".to_string();
+    std::fs::write(root.join(&py), "def compute(a, b):\n    return a + b\n").expect("write py");
+    targets.push((
+        root.join(&py).to_string_lossy().to_string(),
+        py,
+        "py".to_string(),
+    ));
+
+    targets.sort();
+    targets
+}
+
+#[test]
+fn scan_targets_parallel_matches_sequential() {
+    let td = tempdir().expect("tempdir");
+    let targets = write_scan_corpus(td.path(), 40);
+    let old = OldFileSymbols::new();
+
+    let seq = process_scan_targets(&targets, &old, None, false);
+    let par = process_scan_targets(&targets, &old, None, true);
+
+    assert_eq!(par.len(), targets.len(), "all files processed");
+    assert!(par.iter().all(|r| !r.reused), "cold scan parses every file");
+    assert!(
+        par.iter().any(|r| r.symbols.len() >= 3),
+        "multi-symbol files expected"
+    );
+    assert_eq!(seq, par, "parallel scan must equal sequential scan");
+}
+
+#[test]
+fn scan_targets_parallel_reuse_path_matches_sequential() {
+    let td = tempdir().expect("tempdir");
+    let targets = write_scan_corpus(td.path(), 36);
+
+    // Cold scan, then synthesize the prior-index state it would have produced.
+    let cold = process_scan_targets(&targets, &OldFileSymbols::new(), None, false);
+    let mut existing = ProjectIndex::new(&td.path().to_string_lossy());
+    let mut old: OldFileSymbols = HashMap::new();
+    for r in &cold {
+        existing.files.insert(r.rel.clone(), r.file_entry.clone());
+        for (k, s) in &r.symbols {
+            existing.symbols.insert(k.clone(), s.clone());
+        }
+        old.insert(
+            r.rel.clone(),
+            (r.file_entry.hash.clone(), r.symbols.clone()),
+        );
+    }
+
+    // Unchanged files must be reused identically on both paths.
+    let seq = process_scan_targets(&targets, &old, Some(&existing), false);
+    let par = process_scan_targets(&targets, &old, Some(&existing), true);
+    assert!(par.iter().all(|r| r.reused), "unchanged files are reused");
+    assert_eq!(seq, par, "parallel reuse must equal sequential reuse");
+}
+
+#[test]
+fn build_edges_cached_is_deterministic_across_runs() {
+    // Cross-file imports so the (now parallel) import pass produces edges; run it
+    // twice on identical inputs and assert byte-identical edge vectors. Edges are
+    // sorted + deduped, so any parallel nondeterminism would surface here.
+    let files = [
+        (
+            "src/a.rs",
+            "mod b;\nuse crate::b::go;\npub fn a() { go(); }\n",
+        ),
+        ("src/b.rs", "pub fn go() {}\n"),
+        ("src/c.rs", "use crate::b::go;\npub fn c() { go(); }\n"),
+    ];
+
+    let build = || {
+        let mut index = ProjectIndex::new("/proj-does-not-need-to-exist");
+        let mut cache: HashMap<String, String> = HashMap::new();
+        for (path, content) in files {
+            index
+                .files
+                .insert(path.to_string(), fe(path, content, "rs"));
+            cache.insert(path.to_string(), content.to_string());
+        }
+        build_edges_cached(&mut index, &cache);
+        index.edges
+    };
+
+    assert_eq!(build(), build(), "edge build must be deterministic");
+}

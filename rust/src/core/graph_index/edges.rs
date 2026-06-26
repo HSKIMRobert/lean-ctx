@@ -9,9 +9,16 @@ pub(crate) fn build_edges_cached(
     index: &mut ProjectIndex,
     content_cache: &HashMap<String, String>,
 ) {
+    // Co-change history is a single `git log` subprocess that is I/O bound on the
+    // git object store, whereas the import/deep-analysis pass below is CPU bound.
+    // Spawn git up front so its ~1s overlaps that CPU work, then consume its
+    // output when the co-change layer is built. The output is a pure function of
+    // repo state, so overlapping it does not change the result (#934).
+    let cochange_git = spawn_cochange_git(&index.project_root);
+
     build_edges_with_cache(index, content_cache);
     build_implicit_edges_with_cache(index, content_cache);
-    build_cochange_edges(index);
+    build_cochange_edges(index, cochange_git);
     build_sibling_edges(index);
 }
 
@@ -32,7 +39,35 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
     let resolver_ctx =
         import_resolver::ResolverContext::new(root_path, file_paths.clone(), content_cache);
 
-    const MAX_FILE_SIZE_FOR_EDGES: u64 = 2 * 1024 * 1024;
+    // #934: the per-file deep analysis (a second tree-sitter parse) dominates the
+    // edge-build cost and is pure + thread-safe (thread_local parser, read-only
+    // resolver context). Fan it out, collecting in file order; the sequential
+    // branch keeps the memory-pressure early-break. Edges are sorted + deduped
+    // below, so per-file insertion order never affects the result.
+    let per_file: Vec<FileEdges> = if crate::core::memory_guard::is_under_pressure() {
+        let mut acc = Vec::with_capacity(file_paths.len());
+        for (i, rel_path) in file_paths.iter().enumerate() {
+            if i.is_multiple_of(1000) && crate::core::memory_guard::is_under_pressure() {
+                tracing::warn!(
+                    "[graph_index: stopping edge-building at file {i}/{} due to memory pressure]",
+                    file_paths.len()
+                );
+                break;
+            }
+            acc.push(resolve_file_edges(
+                rel_path,
+                content_cache,
+                &resolver_ctx,
+                root_path,
+            ));
+        }
+        acc
+    } else {
+        file_paths
+            .par_iter()
+            .map(|rel_path| resolve_file_edges(rel_path, content_cache, &resolver_ctx, root_path))
+            .collect()
+    };
 
     // Full analyses of C#/Java/Go/Kotlin files, kept to derive cross-file
     // type_ref edges after the import pass (GH #398). Those languages resolve
@@ -40,94 +75,10 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
     // is not enough.
     let mut type_inputs: Vec<(String, String, crate::core::deep_queries::DeepAnalysis)> =
         Vec::new();
-
-    for (i, rel_path) in file_paths.iter().enumerate() {
-        if i.is_multiple_of(1000) && crate::core::memory_guard::is_under_pressure() {
-            tracing::warn!(
-                "[graph_index: stopping edge-building at file {i}/{} due to memory pressure]",
-                file_paths.len()
-            );
-            break;
-        }
-
-        let content = if let Some(cached) = content_cache.get(rel_path) {
-            std::borrow::Cow::Borrowed(cached.as_str())
-        } else {
-            let abs_path = root_path.join(rel_path.trim_start_matches(['/', '\\']));
-            if let Ok(meta) = abs_path.metadata()
-                && meta.len() > MAX_FILE_SIZE_FOR_EDGES
-            {
-                continue;
-            }
-            match std::fs::read_to_string(&abs_path) {
-                Ok(c) => std::borrow::Cow::Owned(c),
-                Err(_) => continue,
-            }
-        };
-
-        let ext = Path::new(rel_path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-
-        // Godot scenes carry their dependencies in `[ext_resource]` headers, not
-        // in source-code import statements, so they bypass tree-sitter analysis
-        // and use the dedicated PackedScene parser. `res://` paths resolve via
-        // the GDScript resolver. (#316)
-        let (resolve_ext, imports) = if ext == "tscn" {
-            (
-                "tscn",
-                crate::core::godot::scene::extract_scene_imports(&content),
-            )
-        } else {
-            let resolve_ext = match ext {
-                "vue" | "svelte" => "ts",
-                _ => ext,
-            };
-
-            let analysis_content = if ext == "vue" || ext == "svelte" {
-                if let Some(script) =
-                    crate::core::signatures_ts::sfc::extract_script_block(&content)
-                {
-                    std::borrow::Cow::Owned(script)
-                } else {
-                    content
-                }
-            } else {
-                content
-            };
-
-            let analysis = crate::core::deep_queries::analyze(&analysis_content, resolve_ext);
-            // C#/Java/Go/Kotlin need the full analysis for type_ref edges
-            // (GH #398); every other language uses only the resolved import
-            // list. Go/Kotlin still get their import edges from `imports` too.
-            if matches!(resolve_ext, "cs" | "java" | "go" | "kt" | "kts") {
-                let imports = analysis.imports.clone();
-                type_inputs.push((rel_path.clone(), resolve_ext.to_string(), analysis));
-                (resolve_ext, imports)
-            } else {
-                (resolve_ext, analysis.imports)
-            }
-        };
-
-        if imports.is_empty() {
-            continue;
-        }
-
-        let resolved =
-            import_resolver::resolve_imports(&imports, rel_path, resolve_ext, &resolver_ctx);
-        for r in resolved {
-            if r.is_external {
-                continue;
-            }
-            if let Some(to) = r.resolved_path {
-                index.edges.push(IndexEdge {
-                    from: rel_path.clone(),
-                    to,
-                    kind: "import".to_string(),
-                    weight: 1.0,
-                });
-            }
+    for fe in per_file {
+        index.edges.extend(fe.edges);
+        if let Some(ti) = fe.type_input {
+            type_inputs.push(ti);
         }
     }
 
@@ -163,6 +114,108 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
     index
         .edges
         .dedup_by(|a, b| a.from == b.from && a.to == b.to && a.kind == b.kind);
+}
+
+/// One file's edge contribution from the import pass, plus the full analysis kept
+/// for the cross-file `type_ref` pass (C#/Java/Go/Kotlin only).
+struct FileEdges {
+    edges: Vec<IndexEdge>,
+    type_input: Option<(String, String, crate::core::deep_queries::DeepAnalysis)>,
+}
+
+/// Pure, thread-safe per-file import resolution: read content (cache or a
+/// size-capped disk read), run the deep analysis, and resolve imports into
+/// `import` edges. Returns no edges for files that are missing, oversized, or
+/// import-free — matching the sequential build's `continue` cases.
+fn resolve_file_edges(
+    rel_path: &str,
+    content_cache: &HashMap<String, String>,
+    resolver_ctx: &import_resolver::ResolverContext,
+    root_path: &Path,
+) -> FileEdges {
+    const MAX_FILE_SIZE_FOR_EDGES: u64 = 2 * 1024 * 1024;
+    let mut out = FileEdges {
+        edges: Vec::new(),
+        type_input: None,
+    };
+
+    let content = if let Some(cached) = content_cache.get(rel_path) {
+        std::borrow::Cow::Borrowed(cached.as_str())
+    } else {
+        let abs_path = root_path.join(rel_path.trim_start_matches(['/', '\\']));
+        if let Ok(meta) = abs_path.metadata()
+            && meta.len() > MAX_FILE_SIZE_FOR_EDGES
+        {
+            return out;
+        }
+        match std::fs::read_to_string(&abs_path) {
+            Ok(c) => std::borrow::Cow::Owned(c),
+            Err(_) => return out,
+        }
+    };
+
+    let ext = Path::new(rel_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    // Godot scenes carry their dependencies in `[ext_resource]` headers, not in
+    // source-code import statements, so they bypass tree-sitter analysis and use
+    // the dedicated PackedScene parser. `res://` paths resolve via the GDScript
+    // resolver. (#316)
+    let (resolve_ext, imports) = if ext == "tscn" {
+        (
+            "tscn",
+            crate::core::godot::scene::extract_scene_imports(&content),
+        )
+    } else {
+        let resolve_ext = match ext {
+            "vue" | "svelte" => "ts",
+            _ => ext,
+        };
+
+        let analysis_content = if ext == "vue" || ext == "svelte" {
+            if let Some(script) = crate::core::signatures_ts::sfc::extract_script_block(&content) {
+                std::borrow::Cow::Owned(script)
+            } else {
+                content
+            }
+        } else {
+            content
+        };
+
+        let analysis = crate::core::deep_queries::analyze(&analysis_content, resolve_ext);
+        // C#/Java/Go/Kotlin need the full analysis for type_ref edges (GH #398);
+        // every other language uses only the resolved import list. Go/Kotlin still
+        // get their import edges from `imports` too.
+        if matches!(resolve_ext, "cs" | "java" | "go" | "kt" | "kts") {
+            let imports = analysis.imports.clone();
+            out.type_input = Some((rel_path.to_string(), resolve_ext.to_string(), analysis));
+            (resolve_ext, imports)
+        } else {
+            (resolve_ext, analysis.imports)
+        }
+    };
+
+    if imports.is_empty() {
+        return out;
+    }
+
+    let resolved = import_resolver::resolve_imports(&imports, rel_path, resolve_ext, resolver_ctx);
+    for r in resolved {
+        if r.is_external {
+            continue;
+        }
+        if let Some(to) = r.resolved_path {
+            out.edges.push(IndexEdge {
+                from: rel_path.to_string(),
+                to,
+                kind: "import".to_string(),
+                weight: 1.0,
+            });
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -388,10 +441,12 @@ fn collect_barrel_edges_cached(
 // Layer 3: Co-Change Edges (weight 0.5)
 // ---------------------------------------------------------------------------
 
-fn build_cochange_edges(index: &mut ProjectIndex) {
-    let project_root = &index.project_root;
-
-    let output = match std::process::Command::new("git")
+/// Spawn the co-change `git log` as a detached child so it runs concurrently with
+/// the CPU-bound edge passes. Returns `None` when git is unavailable; the caller
+/// then skips the co-change layer (same as a failed invocation). See
+/// [`build_edges_cached`] for the overlap rationale (#934).
+fn spawn_cochange_git(project_root: &str) -> Option<std::process::Child> {
+    std::process::Command::new("git")
         .args([
             "log",
             "--name-only",
@@ -401,9 +456,15 @@ fn build_cochange_edges(index: &mut ProjectIndex) {
             ".",
         ])
         .current_dir(project_root)
-        .output()
-    {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()
+}
+
+fn build_cochange_edges(index: &mut ProjectIndex, git: Option<std::process::Child>) {
+    let output = match git.and_then(|c| c.wait_with_output().ok()) {
+        Some(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
         _ => return,
     };
 
