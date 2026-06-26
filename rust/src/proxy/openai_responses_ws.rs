@@ -39,17 +39,46 @@ use super::ProxyState;
 const FORWARDED_UPGRADE_HEADERS: &[&str] = &[
     "authorization",
     "x-api-key",
+    "chatgpt-account-id",
+    "x-openai-fedramp",
+    "x-openai-internal-codex-residency",
+    "x-openai-internal-codex-responses-lite",
+    "x-openai-product-sku",
+    "oai-product-sku",
+    "x-oai-attestation",
+    "x-client-request-id",
+    "x-codex-beta-features",
+    "x-codex-installation-id",
+    "x-codex-parent-thread-id",
+    "x-openai-subagent",
+    "x-codex-turn-state",
+    "x-codex-turn-metadata",
+    "x-codex-window-id",
+    "x-openai-memgen-request",
+    "x-responsesapi-include-timing-metrics",
     "openai-organization",
     "openai-project",
     "openai-beta",
+    "originator",
     "user-agent",
 ];
 
 /// Upgrades a Responses WebSocket and bridges it to the HTTP/SSE upstream.
 pub fn upgrade(state: ProxyState, ws: WebSocketUpgrade, headers: &HeaderMap) -> Response {
     let upstream = state.openai_upstream();
+    upgrade_to(state, ws, headers, upstream, "/v1/responses")
+}
+
+/// Upgrades a Responses WebSocket and bridges it to a selected HTTP/SSE target.
+pub fn upgrade_to(
+    state: ProxyState,
+    ws: WebSocketUpgrade,
+    headers: &HeaderMap,
+    upstream: String,
+    path: &'static str,
+) -> Response {
     let fwd = capture_forward_headers(headers);
-    ws.on_upgrade(move |socket| bridge(socket, state, upstream, fwd))
+    ws.on_upgrade(move |socket| bridge(socket, state, upstream, path, fwd))
 }
 
 fn capture_forward_headers(headers: &HeaderMap) -> Vec<(HeaderName, HeaderValue)> {
@@ -67,6 +96,7 @@ async fn bridge(
     mut socket: WebSocket,
     state: ProxyState,
     upstream: String,
+    path: &'static str,
     fwd_headers: Vec<(HeaderName, HeaderValue)>,
 ) {
     // The Responses WS protocol runs turns sequentially: one in-flight response
@@ -76,9 +106,16 @@ async fn bridge(
         let Ok(msg) = msg else { break };
         match msg {
             Message::Text(text) => {
-                if run_turn(&mut socket, &state, &upstream, &fwd_headers, text.as_str())
-                    .await
-                    .is_break()
+                if run_turn(
+                    &mut socket,
+                    &state,
+                    &upstream,
+                    path,
+                    &fwd_headers,
+                    text.as_str(),
+                )
+                .await
+                .is_break()
                 {
                     break;
                 }
@@ -99,6 +136,7 @@ async fn run_turn(
     socket: &mut WebSocket,
     state: &ProxyState,
     upstream: &str,
+    path: &str,
     fwd_headers: &[(HeaderName, HeaderValue)],
     text: &str,
 ) -> ControlFlow<()> {
@@ -112,18 +150,20 @@ async fn run_turn(
         .await;
     };
 
-    state.stats.record_request();
     let original_size = text.len();
     // Same two-stage path as the HTTP handler: cache-aware prune of the frozen
     // OLD region, then compress the recent outputs.
     let mut modified = super::openai_responses::prune_responses_input(&mut doc);
     modified |= super::openai_responses::compress_responses_input(&mut doc);
     let payload = serde_json::to_vec(&doc).unwrap_or_default();
-    if modified && payload.len() < original_size {
-        state.stats.record_compression(original_size, payload.len());
-    }
+    let compressed_size = if modified {
+        payload.len()
+    } else {
+        original_size
+    };
+    state.stats.record_request(original_size, compressed_size);
 
-    let url = format!("{upstream}/v1/responses");
+    let url = format!("{upstream}{path}");
     let mut req = state
         .client
         .post(&url)

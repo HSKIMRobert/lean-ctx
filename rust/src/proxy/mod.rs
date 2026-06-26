@@ -1,6 +1,8 @@
 pub mod anthropic;
 pub mod cache_safety;
 pub mod ccr;
+pub mod chatgpt;
+pub mod chatgpt_cookies;
 pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
@@ -65,6 +67,11 @@ impl ProxyState {
         self.upstreams.borrow().openai.clone()
     }
 
+    /// Current ChatGPT upstream (live).
+    pub fn chatgpt_upstream(&self) -> String {
+        self.upstreams.borrow().chatgpt.clone()
+    }
+
     /// Current Gemini upstream (live).
     pub fn gemini_upstream(&self) -> String {
         self.upstreams.borrow().gemini.clone()
@@ -92,17 +99,17 @@ impl Default for ProxyStats {
 }
 
 impl ProxyStats {
-    pub fn record_request(&self) {
+    pub fn record_request(&self, original: usize, compressed: usize) {
         self.requests_total.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn record_compression(&self, original: usize, compressed: usize) {
-        self.requests_compressed.fetch_add(1, Ordering::Relaxed);
         self.bytes_original
             .fetch_add(original as u64, Ordering::Relaxed);
+        let effective_compressed = compressed.min(original);
         self.bytes_compressed
-            .fetch_add(compressed as u64, Ordering::Relaxed);
-        let saved_tokens = (original.saturating_sub(compressed) / 4) as u64;
+            .fetch_add(effective_compressed as u64, Ordering::Relaxed);
+        if compressed < original {
+            self.requests_compressed.fetch_add(1, Ordering::Relaxed);
+        }
+        let saved_tokens = (original.saturating_sub(effective_compressed) / 4) as u64;
         self.tokens_saved.fetch_add(saved_tokens, Ordering::Relaxed);
     }
 
@@ -113,6 +120,37 @@ impl ProxyStats {
         }
         let compressed = self.bytes_compressed.load(Ordering::Relaxed);
         (1.0 - compressed as f64 / original as f64) * 100.0
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn compression_ratio_includes_uncompressed_requests() {
+        let stats = ProxyStats::default();
+
+        stats.record_request(1_000, 500);
+        stats.record_request(1_000, 1_000);
+
+        assert_eq!(stats.requests_total.load(Ordering::Relaxed), 2);
+        assert_eq!(stats.requests_compressed.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.tokens_saved.load(Ordering::Relaxed), 125);
+        assert_eq!(stats.compression_ratio(), 25.0);
+    }
+
+    #[test]
+    fn expanded_requests_count_as_zero_savings() {
+        let stats = ProxyStats::default();
+
+        stats.record_request(1_000, 1_500);
+
+        assert_eq!(stats.requests_total.load(Ordering::Relaxed), 1);
+        assert_eq!(stats.requests_compressed.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.tokens_saved.load(Ordering::Relaxed), 0);
+        assert_eq!(stats.compression_ratio(), 0.0);
     }
 }
 
@@ -184,6 +222,9 @@ fn log_upstream_change(old: &Upstreams, new: &Upstreams) {
     if old.openai != new.openai {
         println!("  ↻ OpenAI upstream → {}", new.openai);
     }
+    if old.chatgpt != new.chatgpt {
+        println!("  ↻ ChatGPT upstream → {}", new.chatgpt);
+    }
     if old.gemini != new.gemini {
         println!("  ↻ Gemini upstream → {}", new.gemini);
     }
@@ -213,7 +254,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     // a big refactor) mid-response. Use a connect timeout plus a read (idle)
     // timeout instead: a genuinely hung upstream still fails, but a slow-but-
     // alive stream is never cut off. Both are configurable for edge networks.
-    let client = reqwest::Client::builder()
+    let client = chatgpt_cookies::with_chatgpt_cloudflare_cookie_store(reqwest::Client::builder())
         .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs()))
         .read_timeout(std::time::Duration::from_secs(read_idle_timeout_secs()))
         .build()?;
@@ -240,6 +281,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     let Upstreams {
         anthropic: anthropic_upstream,
         openai: openai_upstream,
+        chatgpt: chatgpt_upstream,
         gemini: gemini_upstream,
     } = initial;
 
@@ -276,6 +318,18 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
             post(openai_responses::handler).get(openai_responses::ws_handler),
         )
         .route("/responses/{*rest}", any(openai_responses::handler))
+        .route(
+            "/backend-api/codex/responses",
+            post(chatgpt::codex_responses_handler).get(chatgpt::codex_responses_ws_handler),
+        )
+        .route(
+            "/backend-api/codex/responses/{*rest}",
+            any(chatgpt::codex_responses_handler),
+        )
+        // Non-model ChatGPT backend calls (including codex_apps MCP) are not
+        // prompt JSON. Keep them as credential-preserving passthrough traffic.
+        .route("/backend-api", any(chatgpt::backend_api_handler))
+        .route("/backend-api/{*rest}", any(chatgpt::backend_api_handler))
         .route("/v1/references/{id}", get(v1_resolve_reference))
         // Drop-in `compress(messages, model)` contract (#739): deterministic
         // messages-in / messages-out compression for SDK clients.
@@ -304,6 +358,8 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     println!(
         "  OpenAI:    POST /v1/responses → {openai_upstream}  (bare /responses also accepted)"
     );
+    println!("  ChatGPT:   POST /backend-api/codex/responses → {chatgpt_upstream}");
+    println!("  ChatGPT:   any  /backend-api/* → {chatgpt_upstream}");
     println!("  Gemini:    POST /v1beta/models/... → {gemini_upstream}");
     println!("  Compress:  POST /v1/compress (deterministic messages-in/out, local)");
     // Codex defaults to a WebSocket Responses transport (ws://…/responses). The
@@ -407,6 +463,7 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "upstreams": {
             "anthropic": up.anthropic.clone(),
             "openai": up.openai.clone(),
+            "chatgpt": up.chatgpt.clone(),
             "gemini": up.gemini.clone(),
         },
         "requests_total": s.requests_total.load(Relaxed),
@@ -532,6 +589,7 @@ fn is_provider_route(path: &str) -> bool {
         || path.starts_with("/chat/completions")
         || path.starts_with("/responses")
         || path.starts_with("/messages")
+        || path.starts_with("/backend-api")
 }
 
 /// Decides whether a request authenticates via a provider API key alone, without
@@ -697,6 +755,18 @@ mod auth_tests {
     #[test]
     fn is_provider_route_chat() {
         assert!(is_provider_route("/chat/completions"));
+    }
+
+    #[test]
+    fn is_provider_route_chatgpt_backend_api() {
+        assert!(is_provider_route("/backend-api/codex/responses"));
+        assert!(is_provider_route("/backend-api/codex/responses/resp_123"));
+        assert!(is_provider_route("/backend-api/wham/session"));
+        assert!(is_provider_route("/backend-api/ps/mcp"));
+        assert!(is_provider_route("/backend-api/codex_apps"));
+        assert!(is_provider_route("/backend-api/codex_apps/mcp"));
+        assert!(is_provider_route("/backend-api/mcp/codex_apps"));
+        assert!(is_provider_route("/backend-api/apps/codex_apps/mcp"));
     }
 
     #[test]
@@ -917,6 +987,7 @@ mod upstream_tests {
         Upstreams {
             anthropic: "https://api.anthropic.com".into(),
             openai: openai.into(),
+            chatgpt: "https://chatgpt.com".into(),
             gemini: "https://generativelanguage.googleapis.com".into(),
         }
     }

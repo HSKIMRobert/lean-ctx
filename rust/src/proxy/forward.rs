@@ -5,6 +5,10 @@ use axum::{
     response::Response,
 };
 
+use flate2::{Compression, read::GzDecoder, write::GzEncoder};
+use std::borrow::Cow;
+use std::io::{Read, Write};
+
 use super::ProxyState;
 
 /// Default request-body ceiling (MiB). A large-codebase refactor with several
@@ -13,7 +17,7 @@ use super::ProxyState;
 /// `LEAN_CTX_PROXY_MAX_BODY_MB`.
 const DEFAULT_MAX_BODY_MB: usize = 64;
 
-fn max_body_bytes() -> usize {
+pub(super) fn max_body_bytes() -> usize {
     std::env::var("LEAN_CTX_PROXY_MAX_BODY_MB")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
@@ -41,14 +45,12 @@ pub async fn forward_request(
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
 
-    state.stats.record_request();
-
-    let original_size = body_bytes.len();
-
-    // Parse once; the parsed value is shared between introspection, cost
-    // attribution, and compression — eliminating the redundant re-parse that
-    // each compress_body function previously performed internally.
-    let parsed = serde_json::from_slice::<serde_json::Value>(&body_bytes).ok();
+    let prepared = prepare_request_body(&parts, &body_bytes, compress_body)?;
+    let original_size = prepared.original_size;
+    let compressed_size = prepared.compressed_size;
+    let compression_candidate = prepared.compression_candidate;
+    let preserve_content_encoding = prepared.preserve_content_encoding;
+    let parsed = prepared.parsed;
     if let Some(ref parsed) = parsed {
         let provider = match provider_label {
             "Anthropic" => super::introspect::Provider::Anthropic,
@@ -59,23 +61,14 @@ pub async fn forward_request(
         state.introspect.record(breakdown);
     }
 
-    // #895 Track B: recompute the output-savings arm from the same pristine body
-    // each provider's compress_body keys on, so the metered arm matches the arm
-    // that decided output-shaping. Only when a holdout is active (fraction > 0).
+    // #895 Track B: assign output-savings holdout from the same pristine parsed
+    // body that each provider's compressor receives. Only when active.
     let cohort = parsed
         .as_ref()
         .and_then(|p| cohort_arm(p, provider_label, default_path));
 
-    let (compressed_body, _, compressed_size) = if let Some(value) = parsed.clone() {
-        compress_body(value, original_size)
-    } else {
-        (body_bytes.to_vec(), original_size, original_size)
-    };
-
-    if compressed_size < original_size {
-        state
-            .stats
-            .record_compression(original_size, compressed_size);
+    if compression_candidate {
+        state.stats.record_request(original_size, compressed_size);
     }
 
     let tokens_saved = original_size.saturating_sub(compressed_size) as u64 / 4;
@@ -97,8 +90,9 @@ pub async fn forward_request(
         &state,
         &parts,
         &upstream_url,
-        compressed_body,
+        prepared.body,
         provider_label,
+        preserve_content_encoding,
     )
     .await?;
 
@@ -149,6 +143,75 @@ fn cohort_arm(
     Some(super::holdout::assign(&key, holdout))
 }
 
+struct PreparedRequestBody {
+    body: Vec<u8>,
+    parsed: Option<serde_json::Value>,
+    original_size: usize,
+    compressed_size: usize,
+    compression_candidate: bool,
+    preserve_content_encoding: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RequestBodyEncoding {
+    Identity,
+    Gzip,
+    Zstd,
+    Passthrough,
+}
+
+fn prepare_request_body(
+    parts: &Parts,
+    body_bytes: &[u8],
+    compress_body: impl FnOnce(serde_json::Value, usize) -> (Vec<u8>, usize, usize),
+) -> Result<PreparedRequestBody, StatusCode> {
+    let encoding = request_body_encoding(parts);
+    let decoded = match encoding {
+        RequestBodyEncoding::Identity => Cow::Borrowed(body_bytes),
+        RequestBodyEncoding::Gzip => Cow::Owned(decode_gzip_bounded(body_bytes, max_body_bytes())?),
+        RequestBodyEncoding::Zstd => Cow::Owned(decode_zstd_bounded(body_bytes, max_body_bytes())?),
+        RequestBodyEncoding::Passthrough => {
+            return Ok(PreparedRequestBody {
+                body: body_bytes.to_vec(),
+                parsed: None,
+                original_size: body_bytes.len(),
+                compressed_size: body_bytes.len(),
+                compression_candidate: false,
+                preserve_content_encoding: true,
+            });
+        }
+    };
+
+    let Some(parsed) = serde_json::from_slice::<serde_json::Value>(&decoded).ok() else {
+        return Ok(PreparedRequestBody {
+            body: body_bytes.to_vec(),
+            parsed: None,
+            original_size: body_bytes.len(),
+            compressed_size: body_bytes.len(),
+            compression_candidate: false,
+            preserve_content_encoding: encoding != RequestBodyEncoding::Identity,
+        });
+    };
+
+    let original_size = decoded.len();
+    let (logical_body, _, compressed_size) = compress_body(parsed.clone(), original_size);
+    let body = match encoding {
+        RequestBodyEncoding::Identity => logical_body,
+        RequestBodyEncoding::Gzip => encode_gzip(&logical_body)?,
+        RequestBodyEncoding::Zstd => encode_zstd(&logical_body)?,
+        RequestBodyEncoding::Passthrough => unreachable!("passthrough returned above"),
+    };
+
+    Ok(PreparedRequestBody {
+        body,
+        parsed: Some(parsed),
+        original_size,
+        compressed_size,
+        compression_candidate: true,
+        preserve_content_encoding: encoding != RequestBodyEncoding::Identity,
+    })
+}
+
 fn build_upstream_url(parts: &Parts, base: &str, default_path: &str) -> String {
     format!(
         "{base}{}",
@@ -166,21 +229,120 @@ fn build_upstream_url(parts: &Parts, base: &str, default_path: &str) -> String {
 /// the OpenAI SDK send the project scope via this header for project-scoped API
 /// keys when calling the Responses API (`/responses`). Dropping it makes OpenAI
 /// reject the request with `Missing scopes: api.responses.write` (#366).
-const ALLOWED_REQUEST_HEADERS: &[&str] = &[
+pub(super) const ALLOWED_REQUEST_HEADERS: &[&str] = &[
     "authorization",
     "x-api-key",
     "content-type",
     "accept",
     "user-agent",
+    "originator",
     "anthropic-version",
     "anthropic-beta",
     "anthropic-dangerous-direct-browser-access",
     "openai-organization",
     "openai-project",
     "openai-beta",
+    "chatgpt-account-id",
+    "x-openai-fedramp",
+    "x-openai-internal-codex-residency",
+    "x-openai-internal-codex-responses-lite",
+    "x-openai-product-sku",
+    "oai-product-sku",
+    "x-oai-attestation",
+    "x-client-request-id",
+    "x-codex-beta-features",
+    "x-codex-installation-id",
+    "x-codex-parent-thread-id",
+    "x-openai-subagent",
+    "x-codex-turn-state",
+    "x-codex-turn-metadata",
+    "x-codex-window-id",
+    "x-openai-memgen-request",
+    "x-responsesapi-include-timing-metrics",
+    "mcp-session-id",
+    "last-event-id",
+    "cache-control",
     "x-goog-api-key",
     "x-goog-api-client",
 ];
+
+pub(super) fn is_allowed_request_header(name: &str) -> bool {
+    ALLOWED_REQUEST_HEADERS.contains(&name)
+}
+
+fn should_forward_request_header(name: &str, preserve_content_encoding: bool) -> bool {
+    is_allowed_request_header(name)
+        || (preserve_content_encoding && name.eq_ignore_ascii_case("content-encoding"))
+}
+
+fn request_body_encoding(parts: &Parts) -> RequestBodyEncoding {
+    let Some(value) = parts
+        .headers
+        .get(axum::http::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return RequestBodyEncoding::Identity;
+    };
+
+    let encodings = value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !part.eq_ignore_ascii_case("identity"))
+        .collect::<Vec<_>>();
+    match encodings.as_slice() {
+        [] => RequestBodyEncoding::Identity,
+        [encoding] if encoding.eq_ignore_ascii_case("gzip") => RequestBodyEncoding::Gzip,
+        [encoding] if encoding.eq_ignore_ascii_case("zstd") => RequestBodyEncoding::Zstd,
+        _ => RequestBodyEncoding::Passthrough,
+    }
+}
+
+fn decode_zstd_bounded(data: &[u8], max_bytes: usize) -> Result<Vec<u8>, StatusCode> {
+    let decoder = zstd::Decoder::new(data).map_err(|e| {
+        tracing::warn!("lean-ctx proxy: invalid zstd request body: {e}");
+        StatusCode::BAD_REQUEST
+    })?;
+    read_bounded(decoder, max_bytes).inspect_err(|e| {
+        tracing::warn!("lean-ctx proxy: zstd request decode failed: {e}");
+    })
+}
+
+fn encode_zstd(data: &[u8]) -> Result<Vec<u8>, StatusCode> {
+    zstd::encode_all(data, 3).map_err(|e| {
+        tracing::error!("lean-ctx proxy: zstd request encode failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
+fn decode_gzip_bounded(data: &[u8], max_bytes: usize) -> Result<Vec<u8>, StatusCode> {
+    read_bounded(GzDecoder::new(data), max_bytes).inspect_err(|e| {
+        tracing::warn!("lean-ctx proxy: gzip request decode failed: {e}");
+    })
+}
+
+fn encode_gzip(data: &[u8]) -> Result<Vec<u8>, StatusCode> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data).map_err(|e| {
+        tracing::error!("lean-ctx proxy: gzip request encode failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    encoder.finish().map_err(|e| {
+        tracing::error!("lean-ctx proxy: gzip request encode failed: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
+fn read_bounded<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u8>, StatusCode> {
+    let mut limited = reader.take(max_bytes as u64 + 1);
+    let mut out = Vec::new();
+    limited
+        .read_to_end(&mut out)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if out.len() > max_bytes {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+    Ok(out)
+}
 
 async fn send_upstream(
     state: &ProxyState,
@@ -188,12 +350,13 @@ async fn send_upstream(
     url: &str,
     body: Vec<u8>,
     provider_label: &str,
+    preserve_content_encoding: bool,
 ) -> Result<reqwest::Response, StatusCode> {
     let mut req = state.client.request(parts.method.clone(), url);
 
     for (key, value) in &parts.headers {
         let k = key.as_str().to_lowercase();
-        if ALLOWED_REQUEST_HEADERS.contains(&k.as_str()) {
+        if should_forward_request_header(&k, preserve_content_encoding) {
             req = req.header(key.clone(), value.clone());
         }
     }
@@ -204,13 +367,21 @@ async fn send_upstream(
     })
 }
 
-const FORWARDED_HEADERS: &[&str] = &[
+pub(super) const FORWARDED_HEADERS: &[&str] = &[
     "content-type",
     "content-encoding",
+    "mcp-session-id",
     "x-request-id",
+    "x-oai-request-id",
+    "cf-ray",
+    "x-openai-authorization-error",
+    "x-error-json",
     "openai-organization",
+    "openai-model",
     "openai-processing-ms",
     "openai-version",
+    "x-models-etag",
+    "x-reasoning-included",
     "anthropic-ratelimit-requests-limit",
     "anthropic-ratelimit-requests-remaining",
     "anthropic-ratelimit-tokens-limit",
@@ -222,6 +393,12 @@ const FORWARDED_HEADERS: &[&str] = &[
     "x-ratelimit-remaining-tokens",
     "cache-control",
 ];
+
+pub(super) fn is_forwarded_response_header(name: &str) -> bool {
+    FORWARDED_HEADERS.contains(&name)
+        || name.starts_with("x-codex-")
+        || name.starts_with("x-ratelimit-")
+}
 
 async fn build_response(
     response: reqwest::Response,
@@ -250,7 +427,7 @@ async fn build_response(
         let mut resp = Response::builder().status(status);
         for (k, v) in &resp_headers {
             let ks = k.as_str().to_lowercase();
-            if FORWARDED_HEADERS.contains(&ks.as_str()) {
+            if is_forwarded_response_header(&ks) {
                 resp = resp.header(k, v);
             }
         }
@@ -274,7 +451,7 @@ async fn build_response(
     let mut resp = Response::builder().status(status);
     for (k, v) in &resp_headers {
         let ks = k.as_str().to_lowercase();
-        if FORWARDED_HEADERS.contains(&ks.as_str()) {
+        if is_forwarded_response_header(&ks) {
             resp = resp.header(k, v);
         }
     }
@@ -288,6 +465,129 @@ mod tests {
 
     fn parts_for(uri: &str) -> Parts {
         Request::builder().uri(uri).body(()).unwrap().into_parts().0
+    }
+
+    fn add_test_marker(
+        mut value: serde_json::Value,
+        original_size: usize,
+    ) -> (Vec<u8>, usize, usize) {
+        value["lean_ctx_touched"] = serde_json::Value::Bool(true);
+        let out = serde_json::to_vec(&value).unwrap();
+        let compressed_size = out.len();
+        (out, original_size, compressed_size)
+    }
+
+    #[test]
+    fn zstd_request_bodies_are_rewritten_and_reencoded() {
+        let body = serde_json::json!({"model": "gpt-5", "input": []});
+        let json = serde_json::to_vec(&body).unwrap();
+        let encoded = encode_zstd(&json).unwrap();
+        let parts = Request::builder()
+            .uri("/backend-api/codex/responses")
+            .header(axum::http::header::CONTENT_ENCODING, "zstd")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        let prepared = prepare_request_body(&parts, &encoded, add_test_marker).unwrap();
+        assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Zstd);
+        assert_eq!(prepared.original_size, json.len());
+        assert!(prepared.compression_candidate);
+        assert!(prepared.preserve_content_encoding);
+        assert!(should_forward_request_header("content-encoding", true));
+        assert!(!should_forward_request_header("content-encoding", false));
+
+        let decoded = zstd::decode_all(prepared.body.as_slice()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        assert_eq!(parsed["lean_ctx_touched"], true);
+        assert_eq!(parsed["model"], "gpt-5");
+    }
+
+    #[test]
+    fn gzip_request_bodies_are_rewritten_and_reencoded() {
+        let body = serde_json::json!({"model": "gpt-5", "input": []});
+        let json = serde_json::to_vec(&body).unwrap();
+        let encoded = encode_gzip(&json).unwrap();
+        let parts = Request::builder()
+            .uri("/backend-api/codex/responses")
+            .header(axum::http::header::CONTENT_ENCODING, "gzip")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        let prepared = prepare_request_body(&parts, &encoded, add_test_marker).unwrap();
+        assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Gzip);
+        assert_eq!(prepared.original_size, json.len());
+        assert!(prepared.compression_candidate);
+        assert!(prepared.preserve_content_encoding);
+
+        let decoded = decode_gzip_bounded(&prepared.body, max_body_bytes()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
+        assert_eq!(parsed["lean_ctx_touched"], true);
+        assert_eq!(parsed["model"], "gpt-5");
+    }
+
+    #[test]
+    fn identity_content_encoding_can_be_rewritten_as_json() {
+        let parts = Request::builder()
+            .uri("/v1/responses")
+            .header(axum::http::header::CONTENT_ENCODING, "identity")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Identity);
+    }
+
+    #[test]
+    fn unknown_encoded_request_bodies_stay_passthrough() {
+        let parts = Request::builder()
+            .uri("/v1/responses")
+            .header(axum::http::header::CONTENT_ENCODING, "br")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        let body = b"not-json";
+
+        let prepared = prepare_request_body(&parts, body, |_, _| {
+            panic!("unknown encodings must not be JSON-rewritten")
+        })
+        .unwrap();
+
+        assert_eq!(
+            request_body_encoding(&parts),
+            RequestBodyEncoding::Passthrough
+        );
+        assert_eq!(prepared.body, body);
+        assert!(prepared.parsed.is_none());
+        assert!(!prepared.compression_candidate);
+        assert!(prepared.preserve_content_encoding);
+    }
+
+    #[test]
+    fn invalid_json_request_bodies_are_not_compression_candidates() {
+        let parts = Request::builder()
+            .uri("/v1/responses")
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+        let body = b"not-json";
+
+        let prepared = prepare_request_body(&parts, body, |_, _| {
+            panic!("invalid JSON must not enter the compression pipeline")
+        })
+        .unwrap();
+
+        assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Identity);
+        assert_eq!(prepared.body, body);
+        assert!(prepared.parsed.is_none());
+        assert!(!prepared.compression_candidate);
+        assert!(!prepared.preserve_content_encoding);
     }
 
     #[test]
@@ -339,6 +639,63 @@ mod tests {
             assert!(
                 ALLOWED_REQUEST_HEADERS.contains(&required),
                 "request header `{required}` must be forwarded upstream"
+            );
+        }
+    }
+
+    #[test]
+    fn forwards_chatgpt_codex_oauth_headers() {
+        for required in [
+            "authorization",
+            "chatgpt-account-id",
+            "x-openai-fedramp",
+            "x-openai-internal-codex-residency",
+            "x-openai-product-sku",
+            "oai-product-sku",
+            "x-client-request-id",
+            "x-codex-installation-id",
+            "x-codex-turn-metadata",
+            "x-openai-subagent",
+            "x-codex-turn-state",
+            "originator",
+        ] {
+            assert!(
+                is_allowed_request_header(required),
+                "request header `{required}` must be forwarded upstream"
+            );
+        }
+    }
+
+    #[test]
+    fn forwards_streamable_http_mcp_headers() {
+        for required in ["mcp-session-id", "last-event-id"] {
+            assert!(
+                ALLOWED_REQUEST_HEADERS.contains(&required),
+                "request header `{required}` must be forwarded upstream"
+            );
+        }
+        assert!(
+            is_forwarded_response_header("mcp-session-id"),
+            "MCP session id response header must be forwarded downstream"
+        );
+    }
+
+    #[test]
+    fn forwards_codex_state_response_headers() {
+        for required in [
+            "x-codex-turn-state",
+            "x-codex-primary-used-percent",
+            "openai-model",
+            "x-models-etag",
+            "x-reasoning-included",
+            "x-oai-request-id",
+            "cf-ray",
+            "x-openai-authorization-error",
+            "x-error-json",
+        ] {
+            assert!(
+                is_forwarded_response_header(required),
+                "response header `{required}` must be forwarded downstream"
             );
         }
     }
