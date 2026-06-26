@@ -1,4 +1,5 @@
 pub mod anthropic;
+pub mod cache_aligner;
 pub mod cache_breakpoint;
 pub mod cache_safety;
 pub mod ccr;

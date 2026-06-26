@@ -71,6 +71,14 @@ pub struct ProxyConfig {
     /// Anthropic's minimum cacheable size. `None`/`false` (the default) leaves the
     /// request untouched. See [`ProxyConfig::cache_breakpoint_enabled`].
     pub cache_breakpoint: Option<bool>,
+    /// Opt-in cache-aligner volatile-field telemetry (#940). When enabled, the
+    /// proxy scans each *unanchored* Anthropic system prompt for volatile,
+    /// cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and records how
+    /// many it found on `/status` `cache_safety` — purely to quantify how much
+    /// prompt-cache the client is leaking. **Measurement only**: the request body
+    /// is never mutated, so it is strictly cache-safe. `None`/`false` (the default)
+    /// skips the scan entirely. See [`ProxyConfig::cache_aligner_enabled`].
+    pub cache_aligner: Option<bool>,
     /// Cache-safe, cross-provider reasoning-effort control (#834). One of
     /// `minimal|low|medium|high` pins the model's reasoning depth across every
     /// provider; `None`/`"off"` (the default) is a strict no-op. The value is a
@@ -276,6 +284,14 @@ impl ProxyConfig {
     pub fn cache_breakpoint_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CACHE_BREAKPOINT").is_ok()
             || self.cache_breakpoint.unwrap_or(false)
+    }
+
+    /// Whether opt-in cache-aligner volatile-field telemetry (#940) is enabled.
+    /// Off by default: it adds a per-request scan of the system prompt (pure
+    /// measurement, no body mutation). `LEAN_CTX_PROXY_CACHE_ALIGNER` (any value)
+    /// wins, then `[proxy] cache_aligner` in config.toml, else `false`.
+    pub fn cache_aligner_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_PROXY_CACHE_ALIGNER").is_ok() || self.cache_aligner.unwrap_or(false)
     }
 
     /// Resolved cross-provider reasoning effort (#834), or `None` when the
@@ -732,6 +748,24 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.cache_breakpoint_enabled());
+    }
+
+    #[test]
+    fn cache_aligner_is_opt_in_and_config_enables() {
+        // #940: off by default (it adds a per-request system-prompt scan, even
+        // though it never mutates the body). Isolate from a developer shell that
+        // may export the env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGNER");
+        assert!(
+            !ProxyConfig::default().cache_aligner_enabled(),
+            "cache-aligner telemetry must be opt-in (off by default)"
+        );
+        let cfg = ProxyConfig {
+            cache_aligner: Some(true),
+            ..Default::default()
+        };
+        assert!(cfg.cache_aligner_enabled());
     }
 
     #[test]

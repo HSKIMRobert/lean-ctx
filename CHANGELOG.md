@@ -45,6 +45,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   sanctioned mutation), and every injection is counted on a dedicated
   `breakpoints_injected` gauge in `/status` `cache_safety` — a pure win signal,
   never against the cache-safe ratio.
+- **Cache-aligner volatile-field telemetry (gitlab #940, Headroom "cache aligner"
+  stage 1, telemetry-first).** A single volatile token in an otherwise-stable
+  system prompt — today's date, a fresh UUID, a git SHA — shifts the prefix bytes
+  and busts the provider cache on every turn. A new opt-in `cache_aligner` proxy
+  config key (env `LEAN_CTX_PROXY_CACHE_ALIGNER`, default **off**) makes the proxy
+  scan each *unanchored* Anthropic system prompt for those fields and report how
+  many it found on `/status` `cache_safety` (`volatile_system_requests`,
+  `volatile_fields_detected`), so a user can quantify how much prompt-cache their
+  prompt leaks. The scan is **measurement only** — the request body is never
+  mutated, so it stays strictly cache-safe — and deterministic (matches are
+  collected, sorted, and overlapping spans merged, so a full timestamp counts
+  once). This is the honest precursor to an opt-in tail-relocate, which is
+  deliberately deferred until the data shows it pays.
 
 ### Changed
 - **`json_schema::compress` is now crush-backed (gitlab #936).** The generic JSON

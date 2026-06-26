@@ -28,6 +28,13 @@ static COLD_PREFIX_REPACKS: AtomicU64 = AtomicU64::new(0);
 /// client set no `cache_control` and the proxy added one on `system` so an
 /// otherwise-uncached prefix bills at the cached rate. Pure win signal.
 static BREAKPOINTS_INJECTED: AtomicU64 = AtomicU64::new(0);
+/// Requests whose unanchored system prompt carried at least one volatile,
+/// cache-busting field (#940, cache-aligner telemetry). A measurement-only
+/// signal — the body is never mutated — that quantifies how much cache the
+/// client's system prompt leaks before any opt-in relocate.
+static VOLATILE_SYSTEM_REQUESTS: AtomicU64 = AtomicU64::new(0);
+/// Cumulative volatile fields detected across those requests (#940).
+static VOLATILE_FIELDS_DETECTED: AtomicU64 = AtomicU64::new(0);
 
 /// Record one request's frozen-region prose activity.
 ///
@@ -55,6 +62,16 @@ pub fn record_cold_repack() {
 /// Record one actively-injected prompt-cache breakpoint (#939).
 pub fn record_breakpoint_injected() {
     BREAKPOINTS_INJECTED.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Record one unanchored-system scan that found `fields` volatile fields (#940).
+/// A no-op when none were found, so the gauges count only cache-leaking requests.
+pub fn record_volatile_system(fields: u64) {
+    if fields == 0 {
+        return;
+    }
+    VOLATILE_SYSTEM_REQUESTS.fetch_add(1, Ordering::Relaxed);
+    VOLATILE_FIELDS_DETECTED.fetch_add(fields, Ordering::Relaxed);
 }
 
 /// Cache-preservation ratio: `safe / total`, or `1.0` when nothing has been
@@ -89,6 +106,14 @@ pub struct CacheSafety {
     /// breakpoint for a client that set none — a pure cache win, not a regression.
     #[serde(default)]
     pub breakpoints_injected: u64,
+    /// Requests whose unanchored system prompt leaked at least one volatile field
+    /// (#940), cumulative. Measurement-only (the body is never mutated); non-zero
+    /// only when the opt-in `cache_aligner` telemetry is enabled.
+    #[serde(default)]
+    pub volatile_system_requests: u64,
+    /// Volatile fields detected across those requests (#940), cumulative.
+    #[serde(default)]
+    pub volatile_fields_detected: u64,
 }
 
 #[must_use]
@@ -101,6 +126,8 @@ pub fn snapshot() -> CacheSafety {
         cache_safe_ratio: ratio(safe, prose_requests),
         cold_prefix_repacks: COLD_PREFIX_REPACKS.load(Ordering::Relaxed),
         breakpoints_injected: BREAKPOINTS_INJECTED.load(Ordering::Relaxed),
+        volatile_system_requests: VOLATILE_SYSTEM_REQUESTS.load(Ordering::Relaxed),
+        volatile_fields_detected: VOLATILE_FIELDS_DETECTED.load(Ordering::Relaxed),
     }
 }
 

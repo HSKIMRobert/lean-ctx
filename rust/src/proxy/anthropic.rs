@@ -46,6 +46,11 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // one mutation this mode performs — its whole point is to add a cache anchor
     // to an otherwise byte-passthrough request.
     let inject_breakpoint = cfg.proxy.cache_breakpoint_enabled();
+    // #940: cache-aligner volatile-field telemetry (opt-in, measurement-only).
+    // Also resolved up front so a meter-only proxy still reaches the scan slot —
+    // it never mutates the body, it only records how much cache the system prompt
+    // leaks.
+    let align_volatile = cfg.proxy.cache_aligner_enabled();
     // #895 Track B: output-savings holdout arm, from the pristine body (before any
     // mutation below) so it matches the arm the response meter records. Control
     // conversations skip output-shaping (effort + verbosity steer) but are still
@@ -87,6 +92,7 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
         && user_aggr.is_none()
         && !modified
         && !inject_breakpoint
+        && !align_volatile
     {
         let out = serde_json::to_vec(&doc).unwrap_or_default();
         return (out, original_size, original_size);
@@ -202,6 +208,20 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
 
     if prose_segments > 0 {
         modified = true;
+    }
+    // #940: cache-aligner telemetry. On an unanchored system prompt (the prefix a
+    // provider would cache), count the volatile fields that would bust that cache
+    // turn-to-turn. Pure measurement — runs before any breakpoint injection and
+    // never mutates the body — so it is strictly cache-safe. Skipped once the
+    // client has anchored the prefix itself.
+    if align_volatile
+        && cached == 0
+        && let Some(system) = doc.get("system")
+        && !prose::value_has_cache_control(system)
+        && let Some(text) = super::cache_aligner::system_text(system)
+    {
+        let scan = super::cache_aligner::scan_volatile(&text);
+        cache_safety::record_volatile_system(scan.fields as u64);
     }
     // #939: active prompt-cache breakpoint injection (Anthropic-only). When the
     // client anchored no prefix of its own — no message `cache_control` (`cached
@@ -904,6 +924,28 @@ mod tests {
         assert!(
             v["system"].is_string(),
             "with a client anchor present, system must be left untouched (no second breakpoint)"
+        );
+    }
+
+    #[test]
+    fn cache_aligner_measures_without_mutating_body() {
+        // #940: the volatile-field scan is telemetry-only — enabling it must leave
+        // the request byte-identical (measurement, not a rewrite), even on a
+        // volatile-field-rich system prompt.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGNER");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": "Today is 2026-06-22. Session 550e8400-e29b-41d4-a716-446655440000.",
+            "messages": [{"role": "user", "content": "Hello."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| c.proxy.cache_aligner = Some(true)).unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        assert_eq!(
+            out, bytes,
+            "cache-aligner telemetry must never mutate the request body"
         );
     }
 }
