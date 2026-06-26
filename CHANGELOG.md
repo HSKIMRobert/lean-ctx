@@ -28,6 +28,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   never lose a datum. The gate is a pure, unit-tested function and only ever
   touches `Verbatim` data commands — `Passthrough` (auth flows, dev servers,
   streaming) is never reshaped.
+- **Active prompt-cache breakpoint injection for Anthropic (gitlab #939,
+  Headroom "cache aligner" adjacent).** A new opt-in `cache_breakpoint` proxy
+  config key (env `LEAN_CTX_PROXY_CACHE_BREAKPOINT`, default **off**) makes the
+  proxy add a single `cache_control: {type:"ephemeral"}` breakpoint to the
+  `system` field of Anthropic requests **only** when the client set none of its
+  own — so a raw API client's large, stable system prompt bills later turns at
+  the cached rate instead of full price every turn (the cache win it left on the
+  table). It is Anthropic-only by construction: OpenAI and Gemini cache prefixes
+  automatically and ignore the marker, so those paths stay byte-unchanged. The
+  injection is deterministic (a pure function of the body, so the prefix it
+  creates is itself byte-stable, #498), never adds a second breakpoint (it defers
+  to any client `cache_control` and to a client-cached message prefix), and is
+  skipped below Anthropic's minimum cacheable size so it never churns bytes for no
+  cache. It runs even on an otherwise meter-only/byte-passthrough proxy (the one
+  sanctioned mutation), and every injection is counted on a dedicated
+  `breakpoints_injected` gauge in `/status` `cache_safety` — a pure win signal,
+  never against the cache-safe ratio.
 
 ### Changed
 - **`json_schema::compress` is now crush-backed (gitlab #936).** The generic JSON

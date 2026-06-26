@@ -41,6 +41,11 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     let user_aggr = cfg.proxy.resolved_role_aggressiveness(ProseRole::User);
     let live_compress = cfg.proxy.live_compresses();
     let mode = cfg.proxy.resolved_history_mode();
+    // #939: active prompt-cache breakpoint injection (opt-in, Anthropic-only).
+    // Resolved up front so the meter-only short-circuit below does not skip the
+    // one mutation this mode performs — its whole point is to add a cache anchor
+    // to an otherwise byte-passthrough request.
+    let inject_breakpoint = cfg.proxy.cache_breakpoint_enabled();
     // #895 Track B: output-savings holdout arm, from the pristine body (before any
     // mutation below) so it matches the arm the response meter records. Control
     // conversations skip output-shaping (effort + verbosity steer) but are still
@@ -81,6 +86,7 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
         && system_aggr.is_none()
         && user_aggr.is_none()
         && !modified
+        && !inject_breakpoint
     {
         let out = serde_json::to_vec(&doc).unwrap_or_default();
         return (out, original_size, original_size);
@@ -196,6 +202,24 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
 
     if prose_segments > 0 {
         modified = true;
+    }
+    // #939: active prompt-cache breakpoint injection (Anthropic-only). When the
+    // client anchored no prefix of its own — no message `cache_control` (`cached
+    // == 0`) and no breakpoint already on `system` — add one ephemeral breakpoint
+    // to `system` so the large, stable system prompt bills later turns at the
+    // cached rate (the win a raw API client leaves on the table). Runs after every
+    // frozen-region rewrite so the marker anchors the final system bytes and the
+    // prefix it creates stays byte-stable across turns (#498). Counted on its own
+    // gauge — a pure win, never against the cache-safe ratio.
+    if inject_breakpoint
+        && cached == 0
+        && doc
+            .get("system")
+            .is_some_and(|s| !prose::value_has_cache_control(s))
+        && super::cache_breakpoint::inject_anthropic_system(&mut doc)
+    {
+        modified = true;
+        cache_safety::record_breakpoint_injected();
     }
     // A deliberate cold-prefix repack (#480) is the one sanctioned exception to
     // the frozen-window rule; count it on its own gauge so it never dilutes the
@@ -795,6 +819,91 @@ mod tests {
                 .unwrap()
                 .contains(crate::proxy::verbosity::STEER),
             "control arm must NOT be steered (measurement baseline)"
+        );
+    }
+
+    /// A system prompt comfortably over Anthropic's minimum cacheable size, so
+    /// the #939 breakpoint gate fires.
+    fn cacheable_system() -> String {
+        "You are a careful, senior software engineer who writes maintainable code. ".repeat(400)
+    }
+
+    #[test]
+    fn cache_breakpoint_injected_on_unanchored_system_when_opt_in() {
+        // #939: opt-in on AND the client set no cache_control of its own → exactly
+        // one ephemeral breakpoint lands on `system`, wrapping the verbatim text.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+
+        crate::core::config::Config::update_global(|c| c.proxy.cache_breakpoint = Some(true))
+            .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+
+        assert_eq!(
+            v["system"][0]["cache_control"]["type"], "ephemeral",
+            "an unanchored system prompt must receive one ephemeral breakpoint"
+        );
+        assert!(
+            v["system"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("senior software engineer"),
+            "the system text must be preserved verbatim under the marker"
+        );
+    }
+
+    #[test]
+    fn cache_breakpoint_off_by_default_is_byte_unchanged() {
+        // Default off → the request must be byte-identical (no system reshape),
+        // preserving the meter-only / cache-stable contract.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        assert_eq!(
+            out, bytes,
+            "default-off must leave the request byte-identical"
+        );
+    }
+
+    #[test]
+    fn cache_breakpoint_respects_client_anchor() {
+        // #939 safety: a client cache_control on a message means `system` is part
+        // of the already-cached prefix — never add a second, prefix-shifting anchor.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system(),
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "hello",
+                    "cache_control": {"type": "ephemeral"}
+                }]
+            }]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| c.proxy.cache_breakpoint = Some(true))
+            .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert!(
+            v["system"].is_string(),
+            "with a client anchor present, system must be left untouched (no second breakpoint)"
         );
     }
 }

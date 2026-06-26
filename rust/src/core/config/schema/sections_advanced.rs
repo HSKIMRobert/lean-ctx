@@ -102,6 +102,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     proxy.insert(
+        "cache_breakpoint".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.proxy.cache_breakpoint_enabled()),
+            "Opt-in active prompt-cache breakpoint injection for Anthropic (#939). When on and the client set no cache_control of its own, the proxy adds one cache_control: {type:ephemeral} marker to the system field so an otherwise-uncached, stable system prompt bills later turns at the cached rate (the win a raw API client leaves on the table). Anthropic-only: OpenAI/Gemini cache prefixes automatically and ignore the marker, so those paths stay byte-unchanged. Deterministic, never adds a second breakpoint, and skipped below Anthropic's minimum cacheable size. Default false",
+            "LEAN_CTX_PROXY_CACHE_BREAKPOINT",
+        ),
+    );
+    proxy.insert(
         "effort".into(),
         key_enum_with_env(
             &["off", "minimal", "low", "medium", "high"],

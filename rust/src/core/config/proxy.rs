@@ -61,6 +61,16 @@ pub struct ProxyConfig {
     /// provider cache prefix unless the model explicitly asked to expand. See
     /// [`ProxyConfig::ccr_inband_enabled`].
     pub ccr_inband: Option<bool>,
+    /// Opt-in active prompt-cache breakpoint injection for Anthropic (#939). When
+    /// enabled and the client set no `cache_control` of its own, the proxy adds a
+    /// single `cache_control: {type:"ephemeral"}` breakpoint to the `system`
+    /// field so an otherwise-uncached, stable system prompt bills later turns at
+    /// the cached rate. Anthropic-only: OpenAI/Gemini cache prefixes automatically
+    /// and ignore the marker, so those paths stay byte-unchanged. The injection is
+    /// deterministic, never adds a second breakpoint, and is skipped below
+    /// Anthropic's minimum cacheable size. `None`/`false` (the default) leaves the
+    /// request untouched. See [`ProxyConfig::cache_breakpoint_enabled`].
+    pub cache_breakpoint: Option<bool>,
     /// Cache-safe, cross-provider reasoning-effort control (#834). One of
     /// `minimal|low|medium|high` pins the model's reasoning depth across every
     /// provider; `None`/`"off"` (the default) is a strict no-op. The value is a
@@ -256,6 +266,16 @@ impl ProxyConfig {
     /// config.toml, else `false`.
     pub fn ccr_inband_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CCR_INBAND").is_ok() || self.ccr_inband.unwrap_or(false)
+    }
+
+    /// Whether opt-in Anthropic prompt-cache breakpoint injection (#939) is
+    /// enabled. Off by default: it mutates the provider-visible `system` shape
+    /// (string → cache-marked block array), so it must be an explicit opt-in.
+    /// `LEAN_CTX_PROXY_CACHE_BREAKPOINT` (any value) wins, then `[proxy]
+    /// cache_breakpoint` in config.toml, else `false`.
+    pub fn cache_breakpoint_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_PROXY_CACHE_BREAKPOINT").is_ok()
+            || self.cache_breakpoint.unwrap_or(false)
     }
 
     /// Resolved cross-provider reasoning effort (#834), or `None` when the
@@ -694,6 +714,24 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.ccr_inband_enabled());
+    }
+
+    #[test]
+    fn cache_breakpoint_is_opt_in_and_config_enables() {
+        // #939: off by default (it reshapes the provider-visible system field),
+        // enabled via config. Isolate from a developer shell that may export the
+        // env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        assert!(
+            !ProxyConfig::default().cache_breakpoint_enabled(),
+            "cache-breakpoint injection must be opt-in (off by default)"
+        );
+        let cfg = ProxyConfig {
+            cache_breakpoint: Some(true),
+            ..Default::default()
+        };
+        assert!(cfg.cache_breakpoint_enabled());
     }
 
     #[test]

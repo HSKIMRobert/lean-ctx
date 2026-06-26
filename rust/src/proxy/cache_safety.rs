@@ -24,6 +24,10 @@ static CACHE_SAFE_REQUESTS: AtomicU64 = AtomicU64::new(0);
 /// separately so an *intentional* prefix rewrite never dilutes the
 /// `cache_safe_ratio`, whose job is to catch *accidental* #448 regressions.
 static COLD_PREFIX_REPACKS: AtomicU64 = AtomicU64::new(0);
+/// Prompt-cache breakpoints the proxy actively injected (#939): requests where a
+/// client set no `cache_control` and the proxy added one on `system` so an
+/// otherwise-uncached prefix bills at the cached rate. Pure win signal.
+static BREAKPOINTS_INJECTED: AtomicU64 = AtomicU64::new(0);
 
 /// Record one request's frozen-region prose activity.
 ///
@@ -46,6 +50,11 @@ pub fn record(segments: u64, all_safe: bool) {
 /// never against [`record`]'s cache-safe ratio.
 pub fn record_cold_repack() {
     COLD_PREFIX_REPACKS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Record one actively-injected prompt-cache breakpoint (#939).
+pub fn record_breakpoint_injected() {
+    BREAKPOINTS_INJECTED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Cache-preservation ratio: `safe / total`, or `1.0` when nothing has been
@@ -75,6 +84,11 @@ pub struct CacheSafety {
     /// regression.
     #[serde(default)]
     pub cold_prefix_repacks: u64,
+    /// Prompt-cache breakpoints the proxy actively injected (#939), cumulative.
+    /// Non-zero only when the opt-in `cache_breakpoint` mode added a `system`
+    /// breakpoint for a client that set none — a pure cache win, not a regression.
+    #[serde(default)]
+    pub breakpoints_injected: u64,
 }
 
 #[must_use]
@@ -86,6 +100,7 @@ pub fn snapshot() -> CacheSafety {
         prose_requests,
         cache_safe_ratio: ratio(safe, prose_requests),
         cold_prefix_repacks: COLD_PREFIX_REPACKS.load(Ordering::Relaxed),
+        breakpoints_injected: BREAKPOINTS_INJECTED.load(Ordering::Relaxed),
     }
 }
 
