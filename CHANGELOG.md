@@ -6,6 +6,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Codex ChatGPT subscription auth now routes through the proxy (#568).**
+  Completes the #554 fix: instead of skipping config when a Codex ChatGPT login
+  is detected (which left subscription users at 0 savings), `install_codex_env`
+  now writes a mode-specific config. ChatGPT subscription auth is pointed at the
+  proxy's Codex backend rail (`model_provider = leanctx-chatgpt`, `openai_base_url
+  = …/backend-api/codex`, `chatgpt_base_url = …/backend-api` for aux calls such as
+  the codex_apps streamable-HTTP MCP endpoint); API-key Codex keeps the `/v1`
+  path. The proxy gained `/backend-api/codex/responses` (compressed/metered via the
+  OpenAI Responses path to `chatgpt.com`) plus credential-preserving passthrough
+  for non-model `/backend-api/*` traffic. Header forwarding stays allowlist-based
+  both ways; a dedicated cookie store persists **only** Cloudflare anti-bot cookies
+  (`cf_clearance`/`__cf_bm`/`cf_chl_*`) and drops auth/session cookies; gzip/zstd
+  request bodies are decoded under a bounded reader (zip-bomb safe) before
+  compression and re-encoded. Thanks @ousatov-ua.
+- **`lean-ctx doctor` warns when the MCP server is launched from a directory
+  without a project root (#547).** When an MCP client spawns lean-ctx from an
+  IDE/agent config dir (`.lmstudio`, `.claude`, `.codex`, `.codebuddy`) or any
+  marker-less CWD, every out-of-tree `ctx_read` fails with "path escapes project
+  root". The new `MCP server CWD` doctor check (also surfaced in the structured
+  health report) explains the cause and the fix (`cwd` in the client config, or
+  `allow_auto_reroot`/`extra_roots`); `.lmstudio` is now also treated as a
+  suspicious persisted root. Thanks @albinekb.
 - **Shadow-mode CLI reads/searches now record Context IR lineage (#566).**
   Follow-up to #550. The MCP dispatcher records a Context IR provenance entry for
   every tool call (`server/call_tool.rs`), but the shadow-mode hook's single-shot
