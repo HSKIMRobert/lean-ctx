@@ -195,6 +195,7 @@ COMMANDS:
     knowledge remove --category <c> --key <k>             Remove a fact
     knowledge status               Knowledge base summary
     overview [task]                Project overview (task-contextualized if given)
+    explore <query> [--citation]   Iterative code exploration → file:line citations
     compress [--signatures]        Context compression checkpoint
     config                         Show/edit configuration (~/.lean-ctx/config.toml)
     security [status]              Show security posture (containment + secret defense)

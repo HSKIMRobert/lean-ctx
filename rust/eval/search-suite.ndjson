@@ -27,3 +27,9 @@
 {"query":"load and persist the configuration from a toml file","expected_files":["core/config/mod.rs"],"category":"config"}
 {"query":"attribute token cost between cooperating agents","expected_files":["core/a2a/cost_attribution.rs"],"category":"a2a"}
 {"query":"prove billed savings of a long-lived cache-aware session versus a cold one","expected_files":["core/scorecard/dual_arm.rs"],"category":"savings"}
+{"query":"iterative bounded code exploration returning file and line citations","expected_files":["tools/ctx_explore.rs"],"category":"exploration"}
+{"query":"where are the MCP tools registered into the server registry","expected_files":["server/registry.rs"],"category":"exploration"}
+{"query":"which built-in tool profile decides minimal versus standard versus power","expected_files":["core/tool_profiles.rs"],"category":"exploration"}
+{"query":"pre-warm the heavy search and graph indices a tool needs before dispatch","expected_files":["core/index_orchestrator.rs"],"category":"exploration"}
+{"query":"pick a minimal non-redundant set of spans that covers the query under a token budget","expected_files":["core/context_packing.rs"],"category":"exploration"}
+{"query":"parse a natural language task into keyword and file path hints","expected_files":["core/task_relevance.rs"],"category":"exploration"}

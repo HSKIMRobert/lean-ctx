@@ -193,6 +193,7 @@ pub fn is_readonly_tool(name: &str) -> bool {
             | "ctx_smells"
             | "ctx_index"
             | "ctx_semantic_search"
+            | "ctx_explore"
             | "ctx_artifacts"
             | "ctx_cost"
             | "ctx_gain"

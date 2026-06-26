@@ -18,6 +18,7 @@ pub mod ctx_discover;
 pub mod ctx_edit;
 pub mod ctx_execute;
 pub mod ctx_expand;
+pub mod ctx_explore;
 pub mod ctx_feedback;
 pub mod ctx_fill;
 pub mod ctx_gain;

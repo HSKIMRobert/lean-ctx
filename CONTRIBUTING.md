@@ -172,9 +172,21 @@ Tip: open a ticket via the [New Compression Pattern](.github/ISSUE_TEMPLATE/comp
 
 ### Add or update an MCP tool
 
-- Tool handlers live in `rust/src/tools/ctx_*.rs`
-- Tool schemas/registration live in `rust/src/tool_defs/` (keep names/counts in sync)
-- If you change the public tool surface, update `LEANCTX_FEATURE_CATALOG.md` (SSOT snapshot) and any affected docs
+- Core handler logic lives in `rust/src/tools/ctx_*.rs` — keep it pure and
+  deterministic (#498). See `ctx_explore.rs` for the citation-returning
+  exploration pattern (BM25 + static graph + AST, bounded turns, no session writes).
+- The MCP adapter (implements `McpTool`) lives in `rust/src/tools/registered/ctx_*.rs`:
+  schema via `tool_def`, arg parsing, `ToolOutput`. Register it in
+  `rust/src/server/registry.rs` and bump the count SSOT in `rust/src/server/mod.rs`
+  (`test_registry_tool_count_ssot`).
+- For a CLI surface, add `rust/src/cli/<name>_cmd.rs` and route it in
+  `rust/src/cli/dispatch/mod.rs` (+ `dispatch/help.rs`).
+- Regenerate and commit the SSOT artifacts:
+  `cargo run --example gen_mcp_manifest --features dev-tools` and
+  `cargo run --example gen_docs --features dev-tools`.
+- If you change the public tool surface, also update `LEANCTX_FEATURE_CATALOG.md`
+  (SSOT snapshot). The `entrypoints_wired`, `mcp_manifest_up_to_date` and
+  `reference_docs_drift` tests gate the wiring end to end.
 
 ### Add an addon to the registry
 

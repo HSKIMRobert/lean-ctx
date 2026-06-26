@@ -164,6 +164,7 @@ pub fn warm_need_for_tool(tool: &str) -> WarmNeed {
         | "ctx_semantic_search"
         | "ctx_provider"
         | "ctx_compose"
+        | "ctx_explore"
         | "ctx_review" => WarmNeed::Heavy,
         _ => WarmNeed::None,
     }
@@ -811,6 +812,7 @@ mod tests {
             "ctx_semantic_search",
             "ctx_provider",
             "ctx_compose",
+            "ctx_explore",
             "ctx_review",
         ] {
             assert_eq!(warm_need_for_tool(heavy), WarmNeed::Heavy, "{heavy}");

@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use crate::core::bm25_index::BM25Index;
 use crate::core::hybrid_search::HybridConfig;
+use crate::core::tokens::count_tokens;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EvalQuery {
@@ -139,6 +140,12 @@ pub enum SearchArm {
     /// reranking and SPLADE on top. If pure BM25 already matches hybrid, the real
     /// lean path is ≥ that, so flipping the default cannot regress quality.
     Bm25Only,
+    /// FastContext-style `ctx_explore`: a bounded multi-turn loop (BM25 anchor +
+    /// static graph BFS + AST symbols) returning `path:line` citations. Reported
+    /// as a peer arm so the scorecard shows its recall **and** its citation-level
+    /// token footprint — the value prop is locating the answer across files at a
+    /// fraction of the tokens a body-read would cost.
+    Explore,
 }
 
 impl SearchArm {
@@ -146,6 +153,7 @@ impl SearchArm {
         match self {
             SearchArm::Hybrid => "hybrid (dense on)",
             SearchArm::Bm25Only => "bm25-only (lean lower bound)",
+            SearchArm::Explore => "explore (citations)",
         }
     }
 }
@@ -158,30 +166,80 @@ fn hybrid_eval_search(
     index: &BM25Index,
     config: &HybridConfig,
 ) -> Vec<String> {
-    search_arm(project_root, query, index, config, SearchArm::Hybrid).0
+    search_arm(project_root, query, index, config, SearchArm::Hybrid).files
 }
 
-/// Runs one retrieval arm. Returns the ranked repo-relative file paths **and**
-/// whether the dense pipeline actually contributed — so an A/B run can flag an
+/// One arm's run: the ranked repo-relative files, whether the dense pipeline
+/// actually contributed, and the token footprint of the arm's native output (a
+/// newline-joined path list for the search arms; the `<final_answer>` citation
+/// block for the explore arm). The token field powers a *recall-per-token* view.
+struct ArmRun {
+    files: Vec<String>,
+    dense_active: bool,
+    output_tokens: usize,
+}
+
+/// Runs one retrieval arm. Returns the ranked repo-relative file paths, whether
+/// the dense pipeline actually contributed (so an A/B run can flag an
 /// environment without working embeddings instead of silently comparing BM25 to
-/// itself and reporting a misleading "flip is safe".
+/// itself), and the arm's output token footprint.
 fn search_arm(
     project_root: &Path,
     query: &str,
     index: &BM25Index,
     config: &HybridConfig,
     arm: SearchArm,
-) -> (Vec<String>, bool) {
+) -> ArmRun {
+    if arm == SearchArm::Explore {
+        return explore_arm(project_root, query);
+    }
     if arm == SearchArm::Hybrid {
         #[cfg(feature = "embeddings")]
         {
             if let Ok(results) = try_hybrid_search(project_root, query, index, config) {
-                return (results, true);
+                let output_tokens = count_tokens(&results.join("\n"));
+                return ArmRun {
+                    files: results,
+                    dense_active: true,
+                    output_tokens,
+                };
             }
         }
     }
     let _ = project_root;
-    (bm25_only_search(index, query, config), false)
+    let files = bm25_only_search(index, query, config);
+    let output_tokens = count_tokens(&files.join("\n"));
+    ArmRun {
+        files,
+        dense_active: false,
+        output_tokens,
+    }
+}
+
+/// Run the real `ctx_explore` tool and reduce it to (distinct cited files in
+/// citation order, citation-block token count). Uses citation-only mode so the
+/// token footprint is exactly what an agent would receive to locate the answer.
+fn explore_arm(project_root: &Path, query: &str) -> ArmRun {
+    use std::collections::HashSet;
+    let opts = crate::tools::ctx_explore::ExploreOptions::new(None, true);
+    let outcome = crate::tools::ctx_explore::handle(
+        query,
+        &project_root.to_string_lossy(),
+        crate::tools::CrpMode::Off,
+        &opts,
+    );
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    for c in &outcome.citations {
+        if seen.insert(c.file.clone()) {
+            files.push(c.file.clone());
+        }
+    }
+    ArmRun {
+        files,
+        dense_active: false,
+        output_tokens: outcome.tokens,
+    }
 }
 
 fn bm25_only_search(index: &BM25Index, query: &str, config: &HybridConfig) -> Vec<String> {
@@ -335,8 +393,11 @@ pub struct ArmScore {
     pub avg_mrr: f64,
     pub avg_latency_us: u64,
     /// Number of queries (of `total_queries`) where the dense pipeline actually
-    /// contributed. Always 0 for the BM25 arm.
+    /// contributed. Always 0 for the BM25 and explore arms.
     pub dense_active_queries: usize,
+    /// Average token footprint of the arm's native per-query output (path list
+    /// for the search arms; `<final_answer>` citation block for explore).
+    pub avg_output_tokens: u64,
 }
 
 /// Full dense-vs-lean A/B scorecard for the default-flip decision (#686).
@@ -346,6 +407,9 @@ pub struct AbReport {
     pub total_queries: usize,
     pub hybrid: ArmScore,
     pub bm25: ArmScore,
+    /// FastContext `ctx_explore` peer arm: recall at a citation-level token cost.
+    /// Informational — it does not change the #686 dense-vs-lean `verdict`.
+    pub explore: ArmScore,
     /// bm25 − hybrid. Negative ⇒ the lean lower bound trails the dense default.
     pub delta_recall_at_5: f64,
     pub delta_mrr: f64,
@@ -362,25 +426,29 @@ fn run_arm(
     let (mut r5, mut r10, mut mrr) = (0.0, 0.0, 0.0);
     let mut latency = 0u64;
     let mut dense_active = 0usize;
+    let mut tokens = 0u64;
     for q in queries {
         let start = Instant::now();
-        let (retrieved, dense) = search_arm(project_root, &q.query, index, config, arm);
+        let run = search_arm(project_root, &q.query, index, config, arm);
         latency += start.elapsed().as_micros() as u64;
-        r5 += recall_at_k(&retrieved, &q.expected_files, 5);
-        r10 += recall_at_k(&retrieved, &q.expected_files, 10);
-        mrr += mean_reciprocal_rank(&retrieved, &q.expected_files);
-        if dense {
+        r5 += recall_at_k(&run.files, &q.expected_files, 5);
+        r10 += recall_at_k(&run.files, &q.expected_files, 10);
+        mrr += mean_reciprocal_rank(&run.files, &q.expected_files);
+        if run.dense_active {
             dense_active += 1;
         }
+        tokens += run.output_tokens as u64;
     }
     let n = queries.len().max(1) as f64;
+    let denom = queries.len().max(1) as u64;
     ArmScore {
         arm: arm.label().to_string(),
         avg_recall_at_5: r5 / n,
         avg_recall_at_10: r10 / n,
         avg_mrr: mrr / n,
-        avg_latency_us: latency / queries.len().max(1) as u64,
+        avg_latency_us: latency / denom,
         dense_active_queries: dense_active,
+        avg_output_tokens: tokens / denom,
     }
 }
 
@@ -402,6 +470,7 @@ pub fn run_ab(
         .unwrap_or_else(|| "unknown".to_string());
     let hybrid = run_arm(project_root, queries, index, config, SearchArm::Hybrid);
     let bm25 = run_arm(project_root, queries, index, config, SearchArm::Bm25Only);
+    let explore = run_arm(project_root, queries, index, config, SearchArm::Explore);
     let delta_recall_at_5 = bm25.avg_recall_at_5 - hybrid.avg_recall_at_5;
     let delta_mrr = bm25.avg_mrr - hybrid.avg_mrr;
     let verdict = decide_verdict(delta_recall_at_5, delta_mrr, hybrid.dense_active_queries);
@@ -410,6 +479,7 @@ pub fn run_ab(
         total_queries: queries.len(),
         hybrid,
         bm25,
+        explore,
         delta_recall_at_5,
         delta_mrr,
         verdict,
@@ -452,23 +522,35 @@ impl std::fmt::Display for AbReport {
         )?;
         writeln!(
             f,
-            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs  dense:{}/{}",
+            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs  {:>5}tok  dense:{}/{}",
             self.hybrid.arm,
             self.hybrid.avg_recall_at_5 * 100.0,
             self.hybrid.avg_recall_at_10 * 100.0,
             self.hybrid.avg_mrr,
             self.hybrid.avg_latency_us,
+            self.hybrid.avg_output_tokens,
             self.hybrid.dense_active_queries,
             self.total_queries,
         )?;
         writeln!(
             f,
-            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs",
+            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs  {:>5}tok",
             self.bm25.arm,
             self.bm25.avg_recall_at_5 * 100.0,
             self.bm25.avg_recall_at_10 * 100.0,
             self.bm25.avg_mrr,
             self.bm25.avg_latency_us,
+            self.bm25.avg_output_tokens,
+        )?;
+        writeln!(
+            f,
+            "  {:<30} R@5={:>6.1}%  R@10={:>6.1}%  MRR={:>5.3}  {:>7}µs  {:>5}tok",
+            self.explore.arm,
+            self.explore.avg_recall_at_5 * 100.0,
+            self.explore.avg_recall_at_10 * 100.0,
+            self.explore.avg_mrr,
+            self.explore.avg_latency_us,
+            self.explore.avg_output_tokens,
         )?;
         writeln!(
             f,
@@ -719,8 +801,47 @@ mod tests {
             report.hybrid.dense_active_queries,
         );
         assert_eq!(report.verdict, expected);
-        // Serialization stays valid JSON.
+        // The explore peer arm ran and never reports dense activity.
+        assert_eq!(report.explore.arm, "explore (citations)");
+        assert_eq!(report.explore.dense_active_queries, 0);
+        // Serialization stays valid JSON and exposes the explore arm.
         let v: serde_json::Value = serde_json::from_str(&report.to_json()).unwrap();
         assert_eq!(v["total_queries"], 1);
+        assert!(v["explore"].is_object());
+    }
+
+    #[test]
+    fn explore_arm_reports_distinct_files_without_dense() {
+        // The explore arm builds its own on-disk index from the project root;
+        // give it real files so the loop has something to cite.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("cache.rs"),
+            "pub fn cache_lookup(key: &str) -> bool { !key.is_empty() }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("index.rs"),
+            "pub fn build_index(src: &str) -> usize { src.len() }\n",
+        )
+        .unwrap();
+
+        let run = search_arm(
+            dir.path(),
+            "where is cache lookup implemented",
+            &BM25Index::default(),
+            &HybridConfig::default(),
+            SearchArm::Explore,
+        );
+
+        assert!(!run.dense_active, "explore never uses the dense pipeline");
+        let mut distinct = run.files.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(
+            distinct.len(),
+            run.files.len(),
+            "cited files must be distinct"
+        );
     }
 }

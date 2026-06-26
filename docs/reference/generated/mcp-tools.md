@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **77 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **78 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -218,6 +218,17 @@ Zero-loss: original preserved.
 ANTIPATTERN: not for reading project files — use ctx_read or ctx_compose.
 
 Parameters: `action`, `end_line`, `head`, `id`, `json_keys`, `json_path`, `query`, `search`, `session_id`, `start_line`, `tail`
+
+## `ctx_explore`
+
+Iterative, deterministic code exploration → compact file:line citations.
+Runs a bounded multi-turn loop (BM25 + static call/import graph + AST symbols)
+and returns a <final_answer> block of `path:start-end` spans instead of bodies.
+USE WHEN: locating WHERE behavior lives across many files, cheaply.
+vs ctx_compose: compose inlines bodies in one shot; explore returns citations
+over N turns (far fewer tokens). citation=true emits only the block.
+
+Parameters: `citation`, `max_turns`, `path`, `query`*
 
 ## `ctx_feedback`
 

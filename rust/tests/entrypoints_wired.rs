@@ -61,6 +61,7 @@ fn mcp_entrypoint_tools_are_advertised() {
         "ctx_index",
         "ctx_proof",
         "ctx_verify",
+        "ctx_explore",
     ];
     for tool in required {
         assert!(

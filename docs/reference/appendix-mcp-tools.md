@@ -1,4 +1,4 @@
-# Appendix — MCP Tool Map (all 77 tools)
+# Appendix — MCP Tool Map (all 78 tools)
 
 Every tool lean-ctx registers via `rust/src/server/registry.rs`. Your AI editor
 calls these instead of its native file/search tools. The **Profile** column
@@ -17,7 +17,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | **power** | 75 | Everything (default for existing installs) |
 
 - **minimal (10):** `ctx_read`, `ctx_shell`, `shell`, `ctx_search`, `ctx_glob`, `ctx_tree`, `ctx_session`, `ctx_compose`, `ctx_knowledge`, `ctx_symbol`
-- **standard (+9):** + `ctx_callgraph`, `ctx_graph`, `ctx_semantic_search`, `ctx_delta`, `ctx_execute`, `ctx_expand`, `ctx_overview`, `ctx_multi_read`, `ctx_url_read`
+- **standard (+10):** + `ctx_callgraph`, `ctx_graph`, `ctx_semantic_search`, `ctx_explore`, `ctx_delta`, `ctx_execute`, `ctx_expand`, `ctx_overview`, `ctx_multi_read`, `ctx_url_read`
 - **power (+47):** all remaining tools.
 
 ---
@@ -42,6 +42,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_tree` | Compact directory tree with file counts | `path`, `depth`, `show_hidden` | M |
 | `ctx_semantic_search` | Semantic search (BM25 + embeddings / hybrid) | `query`*, `action` (search\|reindex\|find_related), `mode` (bm25\|dense\|hybrid), `top_k` | S |
 | `ctx_compose` | Task composer: keywords + ranked files + matches + top symbol | `task`*, `path` | P |
+| `ctx_explore` | Iterative, deterministic exploration → compact `path:start-end` citations (BM25 + static graph + AST symbols, bounded turns); cheaper than `ctx_compose` for locating code across files | `query`*, `path`, `max_turns`, `citation` | S |
 | `ctx_execute` | Sandboxed code execution (11 languages); only stdout enters context | `language`*, `code`*, `action`, `timeout` | S |
 | `ctx_multi_repo` | Multi-repo management + cross-repo search (RRF) | `action` (add_root\|remove_root\|list_roots\|search\|status\|save_config) | P |
 | `ctx_url_read` | Fetch a web page, PDF, RSS/Atom feed, or YouTube video as compressed, cited context (HTML→Markdown incl. GFM tables, PDF→text, feeds→dated items, transcript; GitHub blob/raw URLs auto-resolve to the raw file; facts/quotes carry confidence + source); SSRF-guarded | `url`*, `mode` (auto\|markdown\|text\|links\|facts\|quotes\|transcript), `query`, `max_tokens`, `max_items`, `timeout_secs` | S |
@@ -137,9 +138,9 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 ## Notes
 
-1. `power` enables all 77 tools; `ToolProfile::is_tool_enabled()` returns `true`
+1. `power` enables all 78 tools; `ToolProfile::is_tool_enabled()` returns `true`
    for everything under power.
 2. `ctx_load_tools` controls *dynamic* categories (`arch`, `debug`, `memory`,
    `metrics`, `session`) independently of the static profile filter.
 3. Lazy clients use `ctx_call` + `ctx_discover_tools` + `ctx_load_tools` to reach
-   tools not in their active profile without listing all 77 upfront.
+   tools not in their active profile without listing all 78 upfront.

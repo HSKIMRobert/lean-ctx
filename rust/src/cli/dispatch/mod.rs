@@ -207,6 +207,11 @@ pub fn run() {
                 core::stats::flush();
                 return;
             }
+            "explore" => {
+                crate::cli::explore_cmd::cmd_explore(&rest);
+                core::stats::flush();
+                return;
+            }
             "repomap" | "repo-map" => {
                 crate::cli::cmd_repomap(&rest);
                 core::stats::flush();

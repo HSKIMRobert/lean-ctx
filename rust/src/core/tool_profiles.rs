@@ -157,6 +157,7 @@ const STANDARD_TOOLS: &[&str] = &[
     "ctx_tree",
     "ctx_symbol",
     "ctx_compose",
+    "ctx_explore",
     "ctx_knowledge",
     "ctx_callgraph",
     "ctx_graph",
@@ -186,8 +187,8 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
         },
         ProfileInfo {
             name: "standard",
-            tool_count: "16",
-            description: "Balanced set — adds callgraph, execute, semantics, delta, more",
+            tool_count: "17",
+            description: "Balanced set — adds callgraph, execute, semantics, explore, delta, more",
         },
         ProfileInfo {
             name: "power",
@@ -316,6 +317,7 @@ mod tests {
         let profile = ToolProfile::Standard;
         assert!(profile.is_tool_enabled("ctx_read"));
         assert!(profile.is_tool_enabled("ctx_compose"));
+        assert!(profile.is_tool_enabled("ctx_explore"));
         assert!(profile.is_tool_enabled("ctx_symbol"));
         assert!(profile.is_tool_enabled("ctx_glob"));
         assert!(profile.is_tool_enabled("ctx_semantic_search"));
