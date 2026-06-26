@@ -31,10 +31,9 @@ fn committed_rule_artifacts_are_current() {
 
     for rel in RULE_ARTIFACTS {
         let path = root.join(rel);
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            // Minimal checkouts may exclude an artifact; skip what isn't present.
-            Err(_) => continue,
+        // Minimal checkouts may exclude an artifact; skip what isn't present.
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
         };
 
         let parsed = RulesFile::parse(&content);
