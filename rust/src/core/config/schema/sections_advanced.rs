@@ -93,6 +93,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     proxy.insert(
+        "compress_protect".into(),
+        key(
+            "string[]",
+            serde_json::json!(cfg.proxy.compress_protect.clone().unwrap_or_default()),
+            "File-path globs whose reads are never compressed (#1150): a matching path is returned verbatim (full) by the read tools, for files where exact bytes matter more than token savings (golden snapshots, byte-asserted fixtures, security-sensitive configs). Globs (*/**/?) match the path and its file name, so *.snap, **/golden/**, tests/fixtures/* all work. Empty (default) protects nothing — the lossless crushers and beneficial gate already keep compression safe; this is an explicit escape hatch",
+        ),
+    );
+    proxy.insert(
         "ccr_inband".into(),
         key_with_env(
             "bool",

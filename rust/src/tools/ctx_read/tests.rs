@@ -1441,3 +1441,50 @@ fn delta_explicit_decision_is_byte_stable() {
         "delta-explicit decision drifted between identical calls"
     );
 }
+
+#[test]
+fn compress_protect_glob_forces_full_verbatim_read() {
+    // #1150: a path matching a `compress_protect` glob is returned verbatim even
+    // when an aggressive mode is requested. Control + treatment in one test: the
+    // unprotected read strips comments, the protected read keeps every byte.
+    let _iso = crate::core::data_dir::isolated_data_dir();
+    crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("protected.rs");
+    let p = path.to_string_lossy().to_string();
+    // Large enough that aggressive compression genuinely strips the comments
+    // rather than falling back to raw via the anti-inflation cap.
+    let mut content = String::new();
+    for i in 0..60 {
+        content.push_str(&format!(
+            "// distinctive-comment-{i}\npub fn handler_{i}(x: u32) -> u32 {{ x + {i} }}\n"
+        ));
+    }
+    std::fs::write(&path, &content).unwrap();
+
+    // Control: with nothing protected, aggressive strips the comments.
+    crate::core::config::Config::update_global(|c| c.proxy.compress_protect = None).unwrap();
+    let mut cold = SessionCache::new();
+    let stripped = handle_with_task_resolved(&mut cold, &p, "aggressive", CrpMode::Off, None);
+    assert!(
+        !stripped.content.contains("// distinctive-comment-0"),
+        "control: aggressive must strip comments when the path is not protected"
+    );
+
+    // Treatment: protect *.rs → the same aggressive read returns the file in full.
+    crate::core::config::Config::update_global(|c| {
+        c.proxy.compress_protect = Some(vec!["*.rs".into()]);
+    })
+    .unwrap();
+    let mut warm = SessionCache::new();
+    let protected = handle_with_task_resolved(&mut warm, &p, "aggressive", CrpMode::Off, None);
+    assert!(
+        protected.content.contains("// distinctive-comment-0")
+            && protected.content.contains("// distinctive-comment-59"),
+        "a protected path must be returned verbatim with every comment intact"
+    );
+
+    crate::core::config::Config::update_global(|c| c.proxy.compress_protect = None).unwrap();
+    crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+}

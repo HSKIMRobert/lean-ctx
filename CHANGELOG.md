@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Never-compress path globs (#1150).** New `proxy.compress_protect` takes a list
+  of file-path globs (`*.snap`, `**/golden/**`, `tests/fixtures/*`) whose reads
+  are always returned verbatim (`full`), bypassing every lossy mode (`auto`,
+  `aggressive`, `signatures`, `density`, …) — for files where exact bytes matter
+  more than token savings: golden snapshots, byte-asserted fixtures,
+  security-sensitive configs. Each glob is matched against both the path and its
+  file name, so `*.snap` works anywhere while `**/golden/**` targets a directory;
+  explicit `raw` reads and `lines:` slices are left as requested. Empty by default
+  (the lossless crushers and beneficial gate already keep compression safe), so it
+  is a precise escape hatch, not a tax on the default fast path.
 - **Premium defaults: safe cache telemetry now ships on (#986).** Everything that
   is pure measurement or a strict safety improvement is enabled by default, so
   every install and every update delivers the best lean-ctx without flipping a

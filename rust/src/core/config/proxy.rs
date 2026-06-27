@@ -50,6 +50,16 @@ pub struct ProxyConfig {
     /// mis-bucketed as `Search` by name). Set an explicit list to narrow it, or
     /// `[]` to disable the exclusion. See [`ProxyConfig::is_tool_live_compress_excluded`].
     pub live_compress_exclude: Option<Vec<String>>,
+    /// File-path globs whose reads are never compressed (#1150). A read whose path
+    /// matches any of these is returned verbatim (`full`) by the read tools — for
+    /// files where exact bytes matter more than token savings: golden snapshots,
+    /// byte-asserted fixtures, security-sensitive configs. Globs (`*`/`**`/`?`,
+    /// the `glob` crate) are matched against the path and its file name, so
+    /// `*.snap`, `**/golden/**`, and `tests/fixtures/*` all work. `None`/empty (the
+    /// default) protects nothing — the lossless crushers and beneficial gate
+    /// already keep compression safe, so this is an explicit escape hatch, not a
+    /// default. See [`ProxyConfig::is_path_compress_protected`].
+    pub compress_protect: Option<Vec<String>>,
     /// Opt-in in-band CCR retrieval for a remote proxy with no shared filesystem
     /// (#493, follow-up to #482). When enabled, a lossy stub advertises a compact
     /// `<lc_expand:HASH>` marker (instead of a local tee path the remote agent
@@ -405,6 +415,35 @@ impl ProxyConfig {
             let p = p.trim().to_ascii_lowercase();
             !p.is_empty() && name.contains(p.as_str())
         })
+    }
+
+    /// Compiled `compress_protect` globs (#1150), skipping any that fail to parse
+    /// so one malformed entry never disables the rest. Empty when unset — the
+    /// default — which makes [`Self::is_path_compress_protected`] a fast no-op.
+    #[must_use]
+    pub fn compress_protect_globs(&self) -> Vec<glob::Pattern> {
+        self.compress_protect
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|p| glob::Pattern::new(p.trim()).ok())
+            .collect()
+    }
+
+    /// Whether `path` is on the never-compress list (#1150) and must be returned
+    /// verbatim. Each glob is tried against both the full path (with backslashes
+    /// normalised to `/`) and the bare file name, so `*.snap` matches anywhere
+    /// while `**/golden/**` can still target a directory. Empty list → always
+    /// `false` (today's behaviour), so a default proxy pays nothing.
+    #[must_use]
+    pub fn is_path_compress_protected(&self, path: &str) -> bool {
+        let patterns = self.compress_protect_globs();
+        if patterns.is_empty() {
+            return false;
+        }
+        let norm = path.replace('\\', "/");
+        let base = norm.rsplit('/').next().unwrap_or(norm.as_str());
+        patterns.iter().any(|p| p.matches(&norm) || p.matches(base))
     }
 
     /// Resolved prose-compression aggressiveness for `role`, clamped to `[0,1]`,
@@ -1283,5 +1322,46 @@ mod tests {
             ..Default::default()
         };
         assert!(!cfg.is_tool_live_compress_excluded("mcp__serena__find_symbol"));
+    }
+
+    #[test]
+    fn compress_protect_unset_is_a_noop() {
+        // #1150: the default protects nothing, so compression stays on for all.
+        let cfg = ProxyConfig::default();
+        assert!(!cfg.is_path_compress_protected("tests/golden/output.snap"));
+        assert!(cfg.compress_protect_globs().is_empty());
+    }
+
+    #[test]
+    fn compress_protect_matches_basename_and_path_globs() {
+        // `*.snap` matches by file name anywhere; `**/golden/**` targets a dir.
+        let cfg = ProxyConfig {
+            compress_protect: Some(vec!["*.snap".into(), "**/golden/**".into()]),
+            ..Default::default()
+        };
+        assert!(cfg.is_path_compress_protected("a/b/c/output.snap"));
+        assert!(cfg.is_path_compress_protected("output.snap"));
+        assert!(cfg.is_path_compress_protected("tests/golden/case1.txt"));
+        assert!(!cfg.is_path_compress_protected("src/main.rs"));
+    }
+
+    #[test]
+    fn compress_protect_normalises_backslashes() {
+        // A Windows-style path still matches a forward-slash glob.
+        let cfg = ProxyConfig {
+            compress_protect: Some(vec!["**/fixtures/*".into()]),
+            ..Default::default()
+        };
+        assert!(cfg.is_path_compress_protected("tests\\fixtures\\big.json"));
+    }
+
+    #[test]
+    fn compress_protect_skips_malformed_globs_without_disabling_rest() {
+        // One bad pattern must not take the valid ones down with it.
+        let cfg = ProxyConfig {
+            compress_protect: Some(vec!["[".into(), "*.lock".into()]),
+            ..Default::default()
+        };
+        assert!(cfg.is_path_compress_protected("Cargo.lock"));
     }
 }
