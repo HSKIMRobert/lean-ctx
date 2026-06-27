@@ -6,6 +6,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **`ctx_outline` levels up — directory outline, deterministic JSON, name filter,
+  verifiable AST backend (gitlab #981).** A public review (the ast-grep author,
+  comparing his new `ast-grep outline`) called our outline *"fishy"* — fair only as
+  a first impression: `ctx_outline` has always been real tree-sitter with
+  declarative per-language queries (`core/signatures_ts`, ~22 languages, real
+  multi-line spans), but the prominent file in the repo is the 790-line **regex
+  fallback** (`core/signatures.rs`) and the tool overclaimed "via tree-sitter"
+  without disclosing it. This release closes the gap and turns it into an advantage:
+  - **Directory outline.** `ctx_outline <dir>` now emits a deterministic, sorted,
+    gitignore/vendor-aware per-file table of contents (matching `ast-grep outline
+    src`); a directory used to be rejected. Bounded (≤ 600 files, ≤ 1.5 MB/file).
+  - **Stable JSON output.** `format=json` produces byte-stable JSON (#498) — fixed
+    field order, sorted files, no timestamps — for a file *or* a directory, each file
+    labelled with the extraction `backend` (`tree-sitter` | `regex`) so the
+    syntax-aware claim is **verifiable**, not asserted. (ast-grep lists stable JSON
+    as an open TODO.)
+  - **Name filter.** `match=<substr>` keeps only symbols whose name contains the
+    case-insensitive substring, composing with `kind=` — across file / dir / JSON.
+  - **Navigable by default.** The text outline now always carries `@Lstart-end`
+    line spans (located renderers), so it actually serves "navigate before a full
+    read", as advertised.
+  - **Honesty + correctness.** `core/signatures.rs` gained a module-doc pointing at
+    the tree-sitter primary path; Rust `impl` blocks render as `impl …`, not
+    `class …` (both backends); the tool description now states "tree-sitter primary,
+    regex fallback"; dead `handle_via_read` removed. New
+    `extract_signatures_with_backend` powers the per-file backend label.
 - **Active cache-aligner relocate — the opt-in tail-relocate the #940 detector
   was the precursor to (#974).** With `[proxy] cache_align_relocate` (env
   `LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE`) enabled, the proxy rewrites an

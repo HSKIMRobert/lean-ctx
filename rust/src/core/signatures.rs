@@ -1,3 +1,17 @@
+//! Signature extraction — **regex fallback** layer.
+//!
+//! IMPORTANT for readers skimming the repo: this file is the *fallback*, not the
+//! primary engine. The default build extracts signatures with **tree-sitter** via
+//! declarative per-language queries in [`crate::core::signatures_ts`] (real ASTs,
+//! real multi-line spans, ~22 languages). [`extract_signatures`] tries that path
+//! first and only drops to the line-oriented regex extractors here when the
+//! `tree-sitter` feature is off or a parse yields nothing usable for a file.
+//!
+//! The regex extractors are intentionally conservative: single-line declarations,
+//! declaration-line spans only (`end_line == start_line`). Use
+//! [`extract_signatures_with_backend`] when you need to know — and surface —
+//! which backend actually produced a result (gitlab #981).
+
 use regex::Regex;
 
 macro_rules! static_regex {
@@ -249,7 +263,44 @@ pub fn signature_backend_stats() -> (u64, u64) {
     )
 }
 
+/// Which extractor produced a signature set: the primary tree-sitter AST path
+/// ([`crate::core::signatures_ts`]) or the line-oriented regex fallback in this
+/// module. Surfaced so navigation output (`ctx_outline`) can label its backend
+/// honestly and verifiably instead of merely *claiming* "via tree-sitter"
+/// (gitlab #981).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigBackend {
+    TreeSitter,
+    Regex,
+}
+
+impl SigBackend {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SigBackend::TreeSitter => "tree-sitter",
+            SigBackend::Regex => "regex",
+        }
+    }
+}
+
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
+    let (sigs, backend) = extract_signatures_with_backend(content, file_ext);
+    match backend {
+        SigBackend::TreeSitter => TREE_SITTER_HITS.fetch_add(1, Ordering::Relaxed),
+        SigBackend::Regex => REGEX_FALLBACK_HITS.fetch_add(1, Ordering::Relaxed),
+    };
+    sigs
+}
+
+/// Like [`extract_signatures`] but also reports which backend produced the
+/// result. Does **not** touch the global backend counters, so callers that only
+/// want the label (e.g. per-file JSON outline) don't distort
+/// [`signature_backend_stats`]; the counted path stays [`extract_signatures`].
+pub fn extract_signatures_with_backend(
+    content: &str,
+    file_ext: &str,
+) -> (Vec<Signature>, SigBackend) {
     #[cfg(feature = "tree-sitter")]
     {
         // A successful parse that yields no signatures (`Some(vec![])`) means the
@@ -260,19 +311,18 @@ pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
         if let Some(sigs) = super::signatures_ts::extract_signatures_ts(content, file_ext)
             && !sigs.is_empty()
         {
-            TREE_SITTER_HITS.fetch_add(1, Ordering::Relaxed);
-            return sigs;
+            return (sigs, SigBackend::TreeSitter);
         }
     }
 
-    REGEX_FALLBACK_HITS.fetch_add(1, Ordering::Relaxed);
-    match file_ext {
+    let sigs = match file_ext {
         "rs" => extract_rust_signatures(content),
         "ts" | "tsx" | "js" | "jsx" | "svelte" | "vue" => extract_ts_signatures(content),
         "py" => extract_python_signatures(content),
         "go" => extract_go_signatures(content),
         _ => extract_generic_signatures(content),
-    }
+    };
+    (sigs, SigBackend::Regex)
 }
 
 pub fn extract_file_map(path: &str, content: &str) -> String {
@@ -450,7 +500,7 @@ fn extract_rust_signatures(content: &str) -> Vec<Signature> {
                 type_name.to_string()
             };
             sigs.push(Signature {
-                kind: "class",
+                kind: "impl",
                 name,
                 params: String::new(),
                 return_type: String::new(),

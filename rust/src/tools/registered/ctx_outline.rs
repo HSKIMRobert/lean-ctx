@@ -4,6 +4,7 @@ use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_str, require_resolved_path};
 use crate::tool_defs::tool_def;
+use crate::tools::ctx_outline::OutlineOpts;
 
 pub struct CtxOutlineTool;
 
@@ -15,15 +16,19 @@ impl McpTool for CtxOutlineTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_outline",
-            "WORKFLOW: call BEFORE ctx_read to preview API surface.\n\
-            ANTIPATTERN: NOT for file content (use ctx_read) or deep understanding (use ctx_compose).\n\
-            Returns fn/struct/class/trait signatures + line numbers via tree-sitter.\n\
-            kind=fn|struct|class|all filters. Saves tokens: only the API surface.",
+            "WORKFLOW: call BEFORE ctx_read to map code structure (a syntax-aware table of contents).\n\
+            Accepts a FILE or a DIRECTORY (folder surface — per-file symbols). Symbols come from\n\
+            tree-sitter (22 languages, real line spans); a conservative regex fallback covers the rest.\n\
+            kind=fn|struct|class|trait|enum|impl|all filters by kind; match=<substr> filters by name\n\
+            (case-insensitive); format=json emits deterministic JSON labelling the backend per file.\n\
+            ANTIPATTERN: NOT for file content (use ctx_read) or deep understanding (use ctx_compose).",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Path" },
-                    "kind": { "type": "string", "description": "fn|struct|class|all filter" }
+                    "path": { "type": "string", "description": "File or directory" },
+                    "kind": { "type": "string", "description": "Filter by kind: fn|struct|class|trait|enum|impl|all" },
+                    "match": { "type": "string", "description": "Keep only symbols whose name contains this (case-insensitive)" },
+                    "format": { "type": "string", "description": "Output format: text (default) | json (deterministic)" }
                 },
                 "required": ["path"]
             }),
@@ -37,8 +42,17 @@ impl McpTool for CtxOutlineTool {
     ) -> Result<ToolOutput, ErrorData> {
         let path = require_resolved_path(ctx, args, "path")?;
         let kind = get_str(args, "kind");
+        let name_match = get_str(args, "match");
+        let as_json = get_str(args, "format").as_deref() == Some("json");
 
-        let (result, original) = crate::tools::ctx_outline::handle(&path, kind.as_deref());
+        let (result, original) = crate::tools::ctx_outline::run(
+            &path,
+            &OutlineOpts {
+                kind: kind.as_deref(),
+                name_match: name_match.as_deref(),
+                as_json,
+            },
+        );
         let sent = crate::core::tokens::count_tokens(&result);
         let saved = original.saturating_sub(sent);
 

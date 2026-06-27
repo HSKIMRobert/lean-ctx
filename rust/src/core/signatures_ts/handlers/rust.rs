@@ -49,7 +49,7 @@ pub(crate) fn rust_impl(node: &Node, name: &str, source: &[u8]) -> Signature {
         None => name.to_string(),
     };
     Signature {
-        kind: "class",
+        kind: "impl",
         name: full_name,
         params: String::new(),
         return_type: String::new(),
