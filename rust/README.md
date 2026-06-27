@@ -10,7 +10,7 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/pTHkG9Hew9)
 
-[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#78-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
+[Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#79-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 
 ---
 
@@ -362,7 +362,7 @@ $ lean-ctx gain
   lean-ctx v3.6.10  |  leanctx.com  |  lean-ctx dashboard
 ```
 
-## 78+ MCP Tools
+## 79+ MCP Tools
 
 When configured as an MCP server, lean-ctx provides 79 tools that replace or augment your editor's built-in tools:
 
@@ -412,6 +412,7 @@ When configured as an MCP server, lean-ctx provides 79 tools that replace or aug
 | `ctx_benchmark` | Single-file or project-wide benchmark with preservation scores |
 | `ctx_metrics` | Session statistics with USD cost estimates ($2.50/1M) |
 | `ctx_analyze` | Shannon entropy analysis + mode recommendation |
+| `ctx_compare` | Preview compression — original vs the bytes lean-ctx would emit, with token counts + line diff (read-only) |
 | `ctx_cache` | Cache management: status, clear, invalidate |
 
 ### ctx_read Modes

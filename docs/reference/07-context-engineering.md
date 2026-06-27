@@ -204,6 +204,7 @@ runtime.
 | `ctx_feedback` | — | Record LLM output tokens + latency for harness feedback |
 | `ctx_benchmark` | `lean-ctx benchmark` | Benchmark compression modes for a file/project |
 | `ctx_analyze` | — | Entropy analysis → recommends the optimal compression mode |
+| `ctx_compare` | — | Preview compression — original vs the bytes lean-ctx would emit (read-only) |
 
 ```bash
 lean-ctx benchmark run            # compare read modes on this repo
