@@ -49,6 +49,12 @@ pub enum Condition {
     /// applies to delimited data. Measures tabular_crush's token savings and its
     /// answer-preservation floor in isolation (#982).
     TabularCrush,
+    /// Treatment variant that routes YAML through the [`crate::core::yaml_crush`]
+    /// core (YAML → compact JSON + lossless array factoring) instead of the
+    /// line-based compaction the generic [`aggressive_compress`] applies to YAML.
+    /// Measures yaml_crush's token savings and its answer-preservation floor in
+    /// isolation (#985).
+    YamlCrush,
 }
 
 impl Condition {
@@ -59,6 +65,7 @@ impl Condition {
             Condition::LeanCtx => "lean_ctx",
             Condition::JsonCrush => "json_crush",
             Condition::TabularCrush => "tabular_crush",
+            Condition::YamlCrush => "yaml_crush",
         }
     }
 }
@@ -88,6 +95,7 @@ pub fn assemble(
         Condition::LeanCtx => lean_ctx_entries(workspace, query),
         Condition::JsonCrush => json_crush_entries(workspace, query),
         Condition::TabularCrush => tabular_crush_entries(workspace, query),
+        Condition::YamlCrush => yaml_crush_entries(workspace, query),
     };
     Ok(pack(&entries, budget))
 }
@@ -130,6 +138,23 @@ fn tabular_crush_entries(workspace: &Path, query: &str) -> Vec<(String, String)>
             None => aggressive_compress(content, ext),
         },
     )
+}
+
+/// Like [`lean_ctx_entries`], but YAML files go through the [`yaml_crush`] core
+/// (YAML → compact JSON + lossless array factoring) when it pays, instead of
+/// line-based compaction. Every other file uses the same `aggressive_compress`
+/// path.
+///
+/// [`yaml_crush`]: crate::core::yaml_crush
+fn yaml_crush_entries(workspace: &Path, query: &str) -> Vec<(String, String)> {
+    ranked_entries(workspace, query, |content, ext| {
+        if crate::core::compressor::is_yaml_ext(ext) {
+            crate::core::yaml_crush::crush_text_if_beneficial(content)
+                .unwrap_or_else(|| aggressive_compress(content, ext))
+        } else {
+            aggressive_compress(content, ext)
+        }
+    })
 }
 
 /// Shared BM25-ranked assembly: rank `workspace` files by `query`, render each
@@ -344,6 +369,33 @@ mod tests {
         assert_eq!(
             crushed.digest, again.digest,
             "tabular_crush assembly is deterministic"
+        );
+    }
+
+    #[test]
+    fn yaml_crush_condition_beats_baseline_and_is_deterministic() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut yaml = String::from("items:\n");
+        for i in 0..40 {
+            yaml.push_str(&format!(
+                "  - apiVersion: v1\n    kind: Pod\n    namespace: prod\n    name: pod-{i}\n"
+            ));
+        }
+        fs::write(dir.path().join("pods.yaml"), yaml).unwrap();
+
+        let crushed = assemble(Condition::YamlCrush, dir.path(), "pod namespace", 4000).unwrap();
+        let baseline = assemble(Condition::Baseline, dir.path(), "pod namespace", 4000).unwrap();
+        assert!(
+            crushed.tokens < baseline.tokens,
+            "yaml crush {} must beat baseline {}",
+            crushed.tokens,
+            baseline.tokens
+        );
+
+        let again = assemble(Condition::YamlCrush, dir.path(), "pod namespace", 4000).unwrap();
+        assert_eq!(
+            crushed.digest, again.digest,
+            "yaml_crush assembly is deterministic"
         );
     }
 

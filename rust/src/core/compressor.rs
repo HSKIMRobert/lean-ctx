@@ -60,6 +60,17 @@ pub fn aggressive_compress(content: &str, ext: Option<&str>) -> String {
         return crushed;
     }
 
+    // YAML (#985): a verbose document compacts losslessly to compact JSON through
+    // the shared crusher — formatting dropped, redundant `items`/`list` arrays
+    // factored — far better than the line-based path below. Fires only when it
+    // clears the reduction gate; the exact bytes stay recoverable via a full
+    // re-read.
+    if is_yaml_ext(ext)
+        && let Some(crushed) = crate::core::yaml_crush::crush_text_if_beneficial(content)
+    {
+        return crushed;
+    }
+
     let mut result: Vec<String> = Vec::new();
     let is_python = matches!(ext, Some("py"));
     let is_html = matches!(ext, Some("html" | "htm" | "xml" | "svg"));
@@ -208,6 +219,11 @@ pub(crate) fn tabular_delimiter(ext: Option<&str>) -> Option<char> {
         Some("tsv" | "tab") => Some('\t'),
         _ => None,
     }
+}
+
+/// True for a YAML file extension (`.yaml` / `.yml`).
+pub(crate) fn is_yaml_ext(ext: Option<&str>) -> bool {
+    matches!(ext, Some("yaml" | "yml"))
 }
 
 fn normalize_indentation(line: &str) -> String {

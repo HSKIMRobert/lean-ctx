@@ -37,6 +37,7 @@ pub mod rules_overhead;
 pub mod structural_tokenizer;
 pub mod structured_read;
 pub mod tabular_crush;
+pub mod yaml_crush;
 
 /// Convenience re-export: all compression-related modules.
 pub mod compression {

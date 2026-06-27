@@ -176,6 +176,58 @@ pub(crate) fn verbatim_tabular_crush_lossy(
     ))
 }
 
+/// Opt-in (#985) lossless crush of a *verbatim* command's YAML output (e.g.
+/// `kubectl get -o yaml`, `helm get values`), tried after the JSON and tabular
+/// crushers did not pay. Maps the document onto the JSON value model and compacts
+/// it through the shared crusher — fully reconstructible to the parsed value, so
+/// no CCR handle is needed. The crusher self-guards (returns `None` unless the
+/// text is a genuinely structured, redundant document). Returns a footer'd
+/// reshape only when `enabled` and the crush clears both the reduction gate and
+/// the token floor; otherwise `None`.
+pub(crate) fn verbatim_yaml_crush(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let crushed = crate::core::yaml_crush::crush_text_if_beneficial(output)?;
+    let crushed_tokens = count_tokens(&crushed);
+    (crushed_tokens >= min_output_tokens && crushed_tokens < original_tokens)
+        .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
+}
+
+/// Opt-in (#985) **lossy** escalation for a verbatim command's YAML output, used
+/// only after [`verbatim_yaml_crush`] (lossless) did not pay. Drops near-unique
+/// high-entropy columns and — because data is then lost — persists the verbatim
+/// original to the shared CCR store, appending a `ctx_expand` handle so a dropped
+/// datum is always recoverable out-of-band (never from the text). The embedded
+/// handle is content-addressed, so the output stays byte-stable across turns
+/// (#448/#498).
+pub(crate) fn verbatim_yaml_crush_lossy(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let res = crate::core::yaml_crush::crush_text_lossy_if_beneficial(output, LOSSY_DROP_ENTROPY)?;
+    let crushed_tokens = count_tokens(&res.text);
+    if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
+        return None;
+    }
+    let handle = crate::proxy::ccr::persist_yaml(output)?;
+    let body = shell_savings_footer(&res.text, original_tokens, crushed_tokens);
+    Some(format!(
+        "{body}\n[lean-ctx: high-entropy column(s) dropped — full data at {handle}, \
+         ctx_expand(id=\"{handle}\", search=\"…\") for a slice]"
+    ))
+}
+
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if output.trim().is_empty() {
         return String::new();
@@ -260,6 +312,19 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
             }
             if let Some(crushed) =
                 verbatim_tabular_crush_lossy(output, original_tokens, min_output_tokens, enabled)
+            {
+                return crushed;
+            }
+            // Structured YAML (kubectl/helm -o yaml): same lossless-then-lossy
+            // ladder, self-guarding so only a genuinely structured, redundant
+            // document is ever reshaped.
+            if let Some(crushed) =
+                verbatim_yaml_crush(output, original_tokens, min_output_tokens, enabled)
+            {
+                return crushed;
+            }
+            if let Some(crushed) =
+                verbatim_yaml_crush_lossy(output, original_tokens, min_output_tokens, enabled)
             {
                 return crushed;
             }

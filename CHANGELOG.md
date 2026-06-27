@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **YAML crusher — `kubectl -o yaml`, manifests, CI configs (#985).** A new
+  `core/yaml_crush` maps a YAML document onto the JSON value model (`yaml_serde`)
+  and compacts it through the shared `json_crush` core: the verbose YAML
+  formatting is dropped and redundant `items`/`list` arrays are factored into
+  `_defaults`, all behind a `_lc_yaml_crush` envelope that round-trips exactly to
+  the parsed value. Wired into the aggressive read path (`compressor`, `ctx_read`)
+  for `.yaml`/`.yml` and into shell-output compression (`kubectl`/`helm -o yaml`),
+  with the same lossless-then-lossy ladder as the tabular crusher — the lossy
+  stage drops high-entropy columns behind a CCR handle (`yaml_` tee prefix).
+  Fires only above the 25 % reduction gate (JSON quoting offsets YAML formatting
+  for flat string maps, so those are correctly left alone) and never inflates.
+  Deterministic (#498); a `Condition::YamlCrush` arm measures the win.
 - **Columnar crusher for CSV/TSV — reads and shell output (#982).** A new
   `core/tabular_crush` rewrites row-oriented delimited data into a columnar JSON
   shape: constant columns are hoisted once into `_const`, varying columns stay

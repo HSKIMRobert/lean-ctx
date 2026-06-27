@@ -109,6 +109,15 @@ pub(crate) fn persist_tabular(content: &str) -> Option<String> {
     persist_with(content, "tbl")
 }
 
+/// Persist a YAML crusher's verbatim original (#985) under the `yaml_` prefix and
+/// return its `{state}/tee/yaml_{hash}.log` handle. Used by the lossy column-drop
+/// stage so a dropped column is always recoverable out-of-band via [`resolve_tee`]
+/// / `ctx_expand`, never reconstructed from the (lossy) text. Shares the
+/// content-address and best-effort write contract of [`persist`].
+pub(crate) fn persist_yaml(content: &str) -> Option<String> {
+    persist_with(content, "yaml")
+}
+
 fn persist_with(content: &str, prefix: &str) -> Option<String> {
     if content.len() < MIN_TEE_BYTES {
         return None;
@@ -155,6 +164,9 @@ fn canonical_tee_name(name: &str) -> Option<String> {
     if let Some(hash) = stem.strip_prefix("tbl_") {
         return is_hex(hash, TEE_HASH_LEN).then(|| format!("tbl_{hash}.log"));
     }
+    if let Some(hash) = stem.strip_prefix("yaml_") {
+        return is_hex(hash, TEE_HASH_LEN).then(|| format!("yaml_{hash}.log"));
+    }
     is_hex(stem, TEE_HASH_LEN).then(|| format!("proxy_{stem}.log"))
 }
 
@@ -182,9 +194,10 @@ fn is_shell_tee_name(name: &str) -> bool {
 /// Accepts every handle form a stub or footer can carry, with a fixed precedence
 /// so the forms can never collide (#936):
 ///
-/// 1. **Prefix forms** — `proxy_<16hex>(.log)`, `json_<16hex>(.log)`, or a bare
-///    `<16hex>` (→ `proxy_`, back-compat). The proxy history-prune / live stubs
-///    and the JSON crusher's lossy originals.
+/// 1. **Prefix forms** — `proxy_<16hex>(.log)`, `json_<16hex>(.log)`,
+///    `tbl_<16hex>(.log)`, `yaml_<16hex>(.log)`, or a bare `<16hex>` (→ `proxy_`,
+///    back-compat). The proxy history-prune / live stubs and the JSON / tabular /
+///    YAML crushers' lossy originals.
 /// 2. **Shell-tee form** — `<slug>_<8hex>.log` (`save_tee`), so every compressed
 ///    shell command's already-teed verbatim output is surgically retrievable.
 ///
@@ -464,6 +477,37 @@ mod tests {
                     .to_string_lossy(),
                 tbl,
                 "tbl form {form} -> {tbl}"
+            );
+        }
+    }
+
+    #[test]
+    fn persist_yaml_is_distinct_prefix_and_resolvable() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let content = big("yaml crusher original");
+        let tbl = persist_tabular(&content).expect("tbl persisted");
+        let yaml = persist_yaml(&content).expect("yaml persisted");
+        assert!(
+            yaml.contains("yaml_"),
+            "yaml handle uses yaml_ prefix: {yaml}"
+        );
+        assert_ne!(
+            tbl, yaml,
+            "same content gets distinct files per producer prefix"
+        );
+
+        let hash = crate::core::hasher::hash_short(&content);
+        for form in [
+            yaml.clone(),
+            format!("yaml_{hash}.log"),
+            format!("yaml_{hash}"),
+        ] {
+            assert_eq!(
+                resolve_tee(&form)
+                    .expect("yaml form resolves")
+                    .to_string_lossy(),
+                yaml,
+                "yaml form {form} -> {yaml}"
             );
         }
     }
