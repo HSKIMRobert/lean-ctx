@@ -4,6 +4,7 @@ use chrono::Utc;
 use crate::core::embeddings::EmbeddingEngine;
 
 use crate::core::knowledge::ProjectKnowledge;
+use crate::core::memory_lifecycle::LifecycleReport;
 use crate::core::memory_policy::MemoryPolicy;
 use crate::core::session::SessionState;
 pub(crate) mod embeddings;
@@ -15,6 +16,128 @@ pub(crate) use search::*;
 
 fn load_policy_or_error() -> Result<MemoryPolicy, String> {
     super::knowledge_shared::load_policy_or_error()
+}
+
+#[derive(Debug)]
+pub(crate) struct KnowledgeConsolidationReport {
+    pub session_id: Option<String>,
+    pub session_items: usize,
+    pub facts: usize,
+    pub patterns: usize,
+    pub history: usize,
+    pub lifecycle: LifecycleReport,
+}
+
+pub(crate) fn consolidate_project_knowledge(
+    project_root: &str,
+) -> Result<KnowledgeConsolidationReport, String> {
+    let policy = load_policy_or_error()?;
+    let session = SessionState::load_latest();
+
+    let (_knowledge, report) = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        let mut session_items = 0usize;
+        let mut session_id = None;
+
+        if let Some(session) = session.as_ref() {
+            session_id = Some(session.id.clone());
+
+            for finding in &session.findings {
+                let key_text = if let Some(ref file) = finding.file {
+                    if let Some(line) = finding.line {
+                        format!("{file}:{line}")
+                    } else {
+                        file.clone()
+                    }
+                } else {
+                    format!("finding-{session_items}")
+                };
+
+                knowledge.remember(
+                    "finding",
+                    &key_text,
+                    &finding.summary,
+                    &session.id,
+                    0.7,
+                    &policy,
+                );
+                session_items += 1;
+            }
+
+            for decision in &session.decisions {
+                let key_text = decision
+                    .summary
+                    .chars()
+                    .take(50)
+                    .collect::<String>()
+                    .replace(' ', "-")
+                    .to_lowercase();
+
+                knowledge.remember(
+                    "decision",
+                    &key_text,
+                    &decision.summary,
+                    &session.id,
+                    0.85,
+                    &policy,
+                );
+                session_items += 1;
+            }
+
+            let task_desc = session
+                .task
+                .as_ref()
+                .map_or_else(|| "(no task)".into(), |t| t.description.clone());
+
+            let summary = format!(
+                "Session {}: {} — {} findings, {} decisions consolidated",
+                session.id,
+                task_desc,
+                session.findings.len(),
+                session.decisions.len()
+            );
+            knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
+        }
+
+        let lifecycle = knowledge.run_memory_lifecycle(&policy);
+
+        KnowledgeConsolidationReport {
+            session_id,
+            session_items,
+            facts: knowledge.facts.len(),
+            patterns: knowledge.patterns.len(),
+            history: knowledge.history.len(),
+            lifecycle,
+        }
+    })
+    .map_err(|e| format!("Consolidation done but save failed: {e}"))?;
+
+    Ok(report)
+}
+
+pub(crate) fn format_consolidation_report(report: &KnowledgeConsolidationReport) -> String {
+    let session_line = match report.session_id.as_deref() {
+        Some(session_id) => {
+            format!(
+                "Session import: {session_id} ({} item(s))",
+                report.session_items
+            )
+        }
+        None => "Session import: none (no active session)".to_string(),
+    };
+
+    format!(
+        "{session_line}\n\
+         Facts: {}, Patterns: {}, History: {}\n\
+         Lifecycle: decayed {}, consolidated {}, archived {}, compacted {}, remaining {}",
+        report.facts,
+        report.patterns,
+        report.history,
+        report.lifecycle.decayed_count,
+        report.lifecycle.consolidated_count,
+        report.lifecycle.archived_count,
+        report.lifecycle.compacted_count,
+        report.lifecycle.remaining_facts
+    )
 }
 
 /// Dispatches knowledge base actions (remember, recall, pattern, timeline, etc.).
@@ -640,94 +763,9 @@ fn handle_export(project_root: &str) -> String {
 }
 
 fn handle_consolidate(project_root: &str) -> String {
-    let Some(session) = SessionState::load_latest() else {
-        return "No active session to consolidate.".to_string();
-    };
-    let policy = match crate::core::config::Config::load().memory_policy_effective() {
-        Ok(p) => p,
-        Err(e) => {
-            let path = crate::core::config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.display().to_string(),
-            );
-            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
-        }
-    };
-
-    // Read-modify-write under the cross-process lock (#326/#594) so a parallel
-    // remember/consolidate cannot drop facts via a lost update.
-    let result = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
-        let mut consolidated = 0u32;
-
-        for finding in &session.findings {
-            let key_text = if let Some(ref file) = finding.file {
-                if let Some(line) = finding.line {
-                    format!("{file}:{line}")
-                } else {
-                    file.clone()
-                }
-            } else {
-                format!("finding-{consolidated}")
-            };
-
-            knowledge.remember(
-                "finding",
-                &key_text,
-                &finding.summary,
-                &session.id,
-                0.7,
-                &policy,
-            );
-            consolidated += 1;
-        }
-
-        for decision in &session.decisions {
-            let key_text = decision
-                .summary
-                .chars()
-                .take(50)
-                .collect::<String>()
-                .replace(' ', "-")
-                .to_lowercase();
-
-            knowledge.remember(
-                "decision",
-                &key_text,
-                &decision.summary,
-                &session.id,
-                0.85,
-                &policy,
-            );
-            consolidated += 1;
-        }
-
-        let task_desc = session
-            .task
-            .as_ref()
-            .map_or_else(|| "(no task)".into(), |t| t.description.clone());
-
-        let summary = format!(
-            "Session {}: {} — {} findings, {} decisions consolidated",
-            session.id,
-            task_desc,
-            session.findings.len(),
-            session.decisions.len()
-        );
-        knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
-        let _ = knowledge.run_memory_lifecycle(&policy);
-        consolidated
-    });
-
-    match result {
-        Ok((knowledge, consolidated)) => format!(
-            "Consolidated {consolidated} items from session {} into project knowledge.\n\
-             Facts: {}, Patterns: {}, History: {}",
-            session.id,
-            knowledge.facts.len(),
-            knowledge.patterns.len(),
-            knowledge.history.len()
-        ),
-        Err(e) => format!("Consolidation done but save failed: {e}"),
+    match consolidate_project_knowledge(project_root) {
+        Ok(report) => format_consolidation_report(&report),
+        Err(e) => e,
     }
 }
 
@@ -921,4 +959,43 @@ fn handle_wakeup(project_root: &str) -> String {
         return "No knowledge yet. Start using ctx_knowledge(action=\"remember\") to build project memory.".to_string();
     }
     format!("WAKE-UP BRIEFING:\n{aaak}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report(session_id: Option<String>, session_items: usize) -> KnowledgeConsolidationReport {
+        KnowledgeConsolidationReport {
+            session_id,
+            session_items,
+            facts: 7,
+            patterns: 2,
+            history: 3,
+            lifecycle: LifecycleReport {
+                decayed_count: 1,
+                consolidated_count: 2,
+                archived_count: 3,
+                compacted_count: 4,
+                remaining_facts: 5,
+            },
+        }
+    }
+
+    #[test]
+    fn consolidation_report_marks_no_session_import() {
+        let out = format_consolidation_report(&report(None, 0));
+
+        assert!(out.contains("Session import: none (no active session)"));
+        assert!(out.contains("Lifecycle: decayed 1, consolidated 2"));
+    }
+
+    #[test]
+    fn consolidation_report_includes_session_and_lifecycle_stats() {
+        let out = format_consolidation_report(&report(Some("s1".to_string()), 6));
+
+        assert!(out.contains("Session import: s1 (6 item(s))"));
+        assert!(out.contains("Facts: 7, Patterns: 2, History: 3"));
+        assert!(out.contains("archived 3, compacted 4, remaining 5"));
+    }
 }
