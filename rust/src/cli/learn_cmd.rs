@@ -39,29 +39,46 @@ pub(crate) fn cmd_learn(args: &[String]) {
 
     if apply {
         println!();
-        match learn::apply_to_agents_md(&project_root, &learnings) {
-            Ok(msg) => println!("{msg}"),
+        match learn::apply_learnings(&project_root, &learnings) {
+            Ok(files) if files.is_empty() => {
+                println!("No learnings written (need >=2 occurrences with >=50% confidence).");
+            }
+            Ok(files) => println!(
+                "Wrote {} learnings to {}",
+                learnings.len(),
+                files.join(" + ")
+            ),
             Err(e) => eprintln!("Error: {e}"),
         }
     } else {
-        println!("\nUse `lean-ctx learn --apply` to write these to AGENTS.md.");
+        println!(
+            "\nUse `lean-ctx learn --apply` to write these to AGENTS.md (and CLAUDE.local.md if present)."
+        );
     }
 }
 
-/// `lean-ctx learn --mine <dir>`: distill recurring error signatures from a
-/// directory of `.jsonl` transcripts/logs. Read-only — it surfaces the project's
-/// recurring pain points for review, it never mutates stored state.
+/// `lean-ctx learn --mine [dir]`: distill recurring error signatures from a
+/// directory of `.jsonl` transcripts/logs. With no `dir`, it auto-discovers the
+/// agent-transcripts directory (Claude Code / Cursor), so scanning real subagent
+/// transcripts is zero-config. Read-only — it surfaces the project's recurring
+/// pain points for review, it never mutates stored state.
 fn cmd_learn_mine(dir: Option<&str>) {
-    let Some(dir) = dir else {
-        eprintln!("Usage: lean-ctx learn --mine <dir>  (directory of .jsonl transcripts/logs)");
+    let path = if let Some(d) = dir {
+        std::path::PathBuf::from(d)
+    } else if let Some(p) = gotcha_tracker::mining::default_transcript_dir() {
+        println!("Scanning auto-discovered transcripts: {}\n", p.display());
+        p
+    } else {
+        eprintln!(
+            "Usage: lean-ctx learn --mine [dir]  (no agent-transcripts dir found to auto-scan)"
+        );
         return;
     };
-    let path = std::path::Path::new(dir);
     if !path.is_dir() {
-        eprintln!("Error: '{dir}' is not a directory");
+        eprintln!("Error: '{}' is not a directory", path.display());
         return;
     }
-    let mined = gotcha_tracker::mining::mine_jsonl_dir(path);
+    let mined = gotcha_tracker::mining::mine_jsonl_dir(&path);
     println!(
         "{}",
         gotcha_tracker::mining::format_mining_report(&mined, 2)

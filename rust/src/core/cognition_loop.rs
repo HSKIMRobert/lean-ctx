@@ -155,7 +155,7 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
 
 /// Step 1: Promote recent session decisions/findings into project knowledge.
 fn step_seed_promote(
-    _project_root: &str,
+    project_root: &str,
     knowledge: &mut ProjectKnowledge,
     policy: &MemoryPolicy,
 ) -> u32 {
@@ -164,6 +164,7 @@ fn step_seed_promote(
     };
 
     let mut count = 0u32;
+    count += promote_proven_gotchas(project_root, knowledge, &session.id, policy);
     let max_decisions = 5usize;
     let max_findings = 8usize;
 
@@ -200,6 +201,30 @@ fn step_seed_promote(
         kept += 1;
     }
 
+    count
+}
+
+/// Loop-weighting bridge (#980): promote *proven* gotchas — high confidence, seen
+/// across multiple sessions, and shown to prevent real errors — into durable
+/// project knowledge so `recall` surfaces them like any other fact. Read-only on
+/// the gotcha store (no nested write lock); `remember` upserts by key, so
+/// re-running the loop is idempotent. Capped so one noisy project cannot flood the
+/// knowledge store in a single pass.
+fn promote_proven_gotchas(
+    project_root: &str,
+    knowledge: &mut ProjectKnowledge,
+    session_id: &str,
+    policy: &MemoryPolicy,
+) -> u32 {
+    const MAX_PROMOTED: usize = 8;
+    let store = crate::core::gotcha_tracker::GotchaStore::load(project_root);
+    let mut count = 0u32;
+    for g in store.promotable().into_iter().take(MAX_PROMOTED) {
+        let key = slug_key(&g.trigger, 50);
+        let value = format!("{} → {}", g.trigger, g.resolution);
+        knowledge.remember("gotcha", &key, &value, session_id, g.confidence, policy);
+        count += 1;
+    }
     count
 }
 
@@ -917,6 +942,57 @@ mod tests {
         assert_eq!(report.steps_run, 8);
 
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    #[test]
+    fn promote_proven_gotchas_bridges_into_knowledge_and_is_idempotent() {
+        use crate::core::gotcha_tracker::{
+            Gotcha, GotchaCategory, GotchaSeverity, GotchaSource, GotchaStore,
+        };
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        // Seed a gotcha that clears every promotion threshold and persist it.
+        let mut store = GotchaStore::load(&root);
+        let mut g = Gotcha::new(
+            GotchaCategory::Build,
+            GotchaSeverity::Critical,
+            "cargo E0507 cannot move out of borrowed content",
+            "clone the value before the move",
+            GotchaSource::AgentReported {
+                session_id: "s1".into(),
+            },
+            "s1",
+        );
+        g.confidence = 0.95;
+        g.occurrences = 6;
+        g.session_ids = vec!["s1".into(), "s2".into(), "s3".into()];
+        g.prevented_count = 3;
+        store.gotchas.push(g);
+        store.save(&root).unwrap();
+
+        let policy = MemoryPolicy::default();
+        let mut knowledge = ProjectKnowledge::new(&root);
+
+        let n = promote_proven_gotchas(&root, &mut knowledge, "sess", &policy);
+        assert_eq!(n, 1, "the proven gotcha is promoted");
+        assert!(
+            knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == "gotcha" && f.value.contains("clone the value")),
+            "a durable gotcha fact must appear in knowledge"
+        );
+
+        // Re-running upserts by key — it must not accumulate duplicates.
+        promote_proven_gotchas(&root, &mut knowledge, "sess", &policy);
+        let gotcha_facts = knowledge
+            .facts
+            .iter()
+            .filter(|f| f.category == "gotcha")
+            .count();
+        assert_eq!(gotcha_facts, 1, "promotion must be idempotent");
     }
 
     #[test]

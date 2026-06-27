@@ -77,46 +77,169 @@ pub fn format_agents_section(learnings: &[Learning]) -> String {
     out
 }
 
-/// Write learnings into an AGENTS.md file, replacing any existing marker section.
-pub fn apply_to_agents_md(project_root: &str, learnings: &[Learning]) -> Result<String, String> {
-    let agents_path = std::path::Path::new(project_root).join("AGENTS.md");
+/// Merge the learnings `section` into an existing memory-file body, replacing any
+/// previous marker block (or appending after a clean `\n\n` separator). `title`
+/// is the H1 used only when the file is created from scratch.
+fn merge_marker_section(existing: &str, section: &str, title: &str) -> String {
+    if existing.contains(AGENTS_MARKER_START) {
+        let before = existing
+            .split(AGENTS_MARKER_START)
+            .next()
+            .unwrap_or(existing);
+        let after = existing.split(AGENTS_MARKER_END).nth(1).unwrap_or("");
+        format!(
+            "{}\n\n{}",
+            before.trim_end(),
+            section.trim_end().to_owned() + after
+        )
+    } else if existing.is_empty() {
+        format!("# {title}\n\n{section}")
+    } else {
+        format!("{}\n\n{section}", existing.trim_end())
+    }
+}
 
-    let existing = if agents_path.exists() {
-        std::fs::read_to_string(&agents_path)
-            .map_err(|e| format!("Failed to read AGENTS.md: {e}"))?
+/// Write learnings into one memory file, replacing any existing marker section.
+/// The write is atomic (tmp + rename) so a crash mid-write can never truncate the
+/// user's AGENTS.md / CLAUDE.local.md. `create_if_missing = false` leaves a
+/// non-existent file untouched (returns `Ok(false)`), so optional targets like
+/// CLAUDE.local.md are only updated when the project already keeps one.
+fn apply_to_memory_file(
+    path: &std::path::Path,
+    section: &str,
+    create_if_missing: bool,
+) -> Result<bool, String> {
+    let exists = path.exists();
+    if !exists && !create_if_missing {
+        return Ok(false);
+    }
+    let existing = if exists {
+        std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))?
     } else {
         String::new()
     };
+    let title = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("AGENTS.md");
+    let updated = merge_marker_section(&existing, section, title);
+    crate::config_io::write_atomic(path, &updated)
+        .map_err(|e| format!("Failed to write {}: {e}", path.display()))?;
+    Ok(true)
+}
 
+/// Write learnings into the project's agent-memory files (#980), replacing the
+/// auto-generated marker section in each. AGENTS.md (the lean-ctx standard) is
+/// created if absent; CLAUDE.local.md (Claude Code's local memory) is updated
+/// only when the project already keeps one, so a non-Claude project is never
+/// littered with a file it did not ask for. Returns the file names written.
+pub fn apply_learnings(project_root: &str, learnings: &[Learning]) -> Result<Vec<String>, String> {
+    let section = format_agents_section(learnings);
+    if section.is_empty() {
+        return Ok(Vec::new());
+    }
+    let root = std::path::Path::new(project_root);
+    let mut written = Vec::new();
+    if apply_to_memory_file(&root.join("AGENTS.md"), &section, true)? {
+        written.push("AGENTS.md".to_string());
+    }
+    if apply_to_memory_file(&root.join("CLAUDE.local.md"), &section, false)? {
+        written.push("CLAUDE.local.md".to_string());
+    }
+    Ok(written)
+}
+
+/// Back-compat single-target wrapper (AGENTS.md only). Prefer [`apply_learnings`],
+/// which also updates CLAUDE.local.md when present.
+pub fn apply_to_agents_md(project_root: &str, learnings: &[Learning]) -> Result<String, String> {
     let section = format_agents_section(learnings);
     if section.is_empty() {
         return Ok("No learnings to write (need >=2 occurrences with >=50% confidence).".into());
     }
-
-    let updated = if existing.contains(AGENTS_MARKER_START) {
-        let before = existing
-            .split(AGENTS_MARKER_START)
-            .next()
-            .unwrap_or(&existing);
-        let after = existing.split(AGENTS_MARKER_END).nth(1).unwrap_or("");
-        format!(
-            "{}{}{}",
-            before.trim_end(),
-            "\n\n",
-            section.trim_end().to_owned() + after
-        )
-    } else if existing.is_empty() {
-        format!("# AGENTS.md\n\n{section}")
-    } else {
-        format!("{}\n\n{section}", existing.trim_end())
-    };
-
-    std::fs::write(&agents_path, &updated)
-        .map_err(|e| format!("Failed to write AGENTS.md: {e}"))?;
-
+    let path = std::path::Path::new(project_root).join("AGENTS.md");
+    apply_to_memory_file(&path, &section, true)?;
     Ok(format!(
         "Wrote {} learnings to {}",
         learnings.len(),
-        agents_path.display()
+        path.display()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> Vec<Learning> {
+        vec![Learning {
+            category: "Build".into(),
+            trigger: "cargo E0507".into(),
+            resolution: "clone before the move".into(),
+            confidence: 0.9,
+            occurrences: 3,
+            sessions: 2,
+        }]
+    }
+
+    #[test]
+    fn apply_learnings_creates_agents_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        let written = apply_learnings(&root, &sample()).unwrap();
+        assert_eq!(written, vec!["AGENTS.md".to_string()]);
+
+        let agents = dir.path().join("AGENTS.md");
+        let body = std::fs::read_to_string(&agents).unwrap();
+        assert!(body.contains("cargo E0507"));
+        assert!(body.contains(AGENTS_MARKER_START));
+
+        // Re-applying replaces the marker block instead of stacking a second one.
+        apply_learnings(&root, &sample()).unwrap();
+        let body2 = std::fs::read_to_string(&agents).unwrap();
+        assert_eq!(
+            body2.matches(AGENTS_MARKER_START).count(),
+            1,
+            "the marker section must be replaced, never duplicated"
+        );
+    }
+
+    #[test]
+    fn apply_learnings_updates_claude_local_only_when_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let claude = dir.path().join("CLAUDE.local.md");
+        std::fs::write(&claude, "# My notes\n\nkeep this line\n").unwrap();
+
+        let written = apply_learnings(&root, &sample()).unwrap();
+        assert!(written.contains(&"AGENTS.md".to_string()));
+        assert!(written.contains(&"CLAUDE.local.md".to_string()));
+
+        let body = std::fs::read_to_string(&claude).unwrap();
+        assert!(body.contains("keep this line"), "user content is preserved");
+        assert!(body.contains("cargo E0507"), "learnings are injected");
+    }
+
+    #[test]
+    fn apply_learnings_skips_absent_claude_local() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        let written = apply_learnings(&root, &sample()).unwrap();
+        assert_eq!(
+            written,
+            vec!["AGENTS.md".to_string()],
+            "CLAUDE.local.md is never created unsolicited"
+        );
+        assert!(!dir.path().join("CLAUDE.local.md").exists());
+    }
+
+    #[test]
+    fn apply_learnings_empty_writes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+        let written = apply_learnings(&root, &[]).unwrap();
+        assert!(written.is_empty());
+        assert!(!dir.path().join("AGENTS.md").exists());
+    }
 }

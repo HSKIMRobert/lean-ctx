@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Learn-loop enrichment (#980).** The gotcha learn-loop now reaches further with
+  three additions. (1) **Multi-target write-back**: `lean-ctx learn --apply` writes
+  the distilled learnings to `AGENTS.md` (created if absent) *and* `CLAUDE.local.md`
+  (updated only when the project already keeps one), each via an atomic
+  tmp+rename so a crash can never truncate your memory file. (2) **Zero-config
+  transcript scan**: `lean-ctx learn --mine` with no argument auto-discovers the
+  agent-transcripts directory (`~/.claude/projects`, then
+  `~/.cursor/agent-transcripts`) instead of erroring. (3) **Loop-weighting
+  bridge**: the cognition loop now promotes *proven* gotchas — high confidence,
+  seen across ≥3 sessions, and shown to have prevented real errors — into durable
+  project knowledge, so `recall` surfaces them like any other fact (idempotent,
+  capped per pass).
 - **Never-compress path globs (#1150).** New `proxy.compress_protect` takes a list
   of file-path globs (`*.snap`, `**/golden/**`, `tests/fixtures/*`) whose reads
   are always returned verbatim (`full`), bypassing every lossy mode (`auto`,

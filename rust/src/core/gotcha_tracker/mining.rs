@@ -13,11 +13,25 @@
 //! is read-only — it surfaces signatures for review, it never mutates state.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use regex::Regex;
 
 use super::normalize_error_signature;
+
+/// Auto-discover the agent-transcripts directory so `lean-ctx learn --mine` works
+/// with zero arguments. Prefers Claude Code's `~/.claude/projects`, then Cursor's
+/// `~/.cursor/agent-transcripts`. Returns the first that exists, or `None`.
+#[must_use]
+pub fn default_transcript_dir() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    [
+        home.join(".claude").join("projects"),
+        home.join(".cursor").join("agent-transcripts"),
+    ]
+    .into_iter()
+    .find(|p| p.is_dir())
+}
 
 /// A recurring error signature distilled from mined transcripts.
 #[derive(Debug, Clone, PartialEq)]
