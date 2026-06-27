@@ -748,3 +748,4 @@ Use when your MCP client prefers shell/bash over ctx_shell — transparently
 delegates to ctx_shell internals.
 
 Parameters: `command`*, `cwd`
+
