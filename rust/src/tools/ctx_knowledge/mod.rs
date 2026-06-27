@@ -32,7 +32,7 @@ pub(crate) fn consolidate_project_knowledge(
     project_root: &str,
 ) -> Result<KnowledgeConsolidationReport, String> {
     let policy = load_policy_or_error()?;
-    let session = SessionState::load_latest();
+    let session = SessionState::load_latest_for_project_root(project_root);
 
     let (_knowledge, report) = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
         let mut session_items = 0usize;
@@ -965,6 +965,48 @@ fn handle_wakeup(project_root: &str) -> String {
 mod tests {
     use super::*;
 
+    struct CurrentDirGuard {
+        previous: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(dir: &std::path::Path) -> Self {
+            static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+            let lock = LOCK.get_or_init(|| std::sync::Mutex::new(()));
+            let guard = lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir).unwrap();
+            Self {
+                previous,
+                _lock: guard,
+            }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).unwrap();
+        }
+    }
+
+    struct DataDirGuard;
+
+    impl DataDirGuard {
+        fn set(path: &std::path::Path) -> Self {
+            crate::test_env::set_var("LEAN_CTX_DATA_DIR", path);
+            Self
+        }
+    }
+
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        }
+    }
+
     fn report(session_id: Option<String>, session_items: usize) -> KnowledgeConsolidationReport {
         KnowledgeConsolidationReport {
             session_id,
@@ -997,5 +1039,49 @@ mod tests {
         assert!(out.contains("Session import: s1 (6 item(s))"));
         assert!(out.contains("Facts: 7, Patterns: 2, History: 3"));
         assert!(out.contains("archived 3, compacted 4, remaining 5"));
+    }
+
+    #[test]
+    fn consolidation_loads_session_for_requested_project_root() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let cwd_project = tempfile::tempdir().unwrap();
+        let target_project = tempfile::tempdir().unwrap();
+        let cwd_root = cwd_project.path().to_string_lossy().to_string();
+        let target_root = target_project.path().to_string_lossy().to_string();
+
+        let mut cwd_session = SessionState::new();
+        cwd_session.project_root = Some(cwd_root);
+        cwd_session.add_finding(None, None, "wrong cwd finding");
+        cwd_session.save().unwrap();
+
+        let mut target_session = SessionState::new();
+        target_session.project_root = Some(target_root.clone());
+        target_session.add_finding(None, None, "target project finding");
+        target_session.save().unwrap();
+
+        let _cwd = CurrentDirGuard::enter(cwd_project.path());
+        let report = consolidate_project_knowledge(&target_root).unwrap();
+
+        assert_eq!(
+            report.session_id.as_deref(),
+            Some(target_session.id.as_str())
+        );
+        assert_eq!(report.session_items, 1);
+
+        let knowledge = ProjectKnowledge::load(&target_root).unwrap();
+        assert!(
+            knowledge
+                .facts
+                .iter()
+                .any(|f| f.value == "target project finding")
+        );
+        assert!(
+            !knowledge
+                .facts
+                .iter()
+                .any(|f| f.value == "wrong cwd finding")
+        );
     }
 }
