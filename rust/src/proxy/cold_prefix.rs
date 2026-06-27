@@ -113,10 +113,29 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
 /// opening turns); a collision can only make the recorded last-touch *more
 /// recent*, biasing toward "warm" — never a wrong "cold". `None` when there is no
 /// first message.
-fn conversation_key(messages: &[Value]) -> Option<u64> {
+pub(crate) fn conversation_key(messages: &[Value]) -> Option<u64> {
     let mut first = messages.first()?.clone();
     strip_cache_control(&mut first);
     let bytes = serde_json::to_vec(&first).ok()?;
+    Some(hash_bytes(&bytes))
+}
+
+/// Content hash of the client-cached prefix `messages[0..cached]` with every
+/// volatile `cache_control` marker stripped — the stable identity of the prefix
+/// a provider would cache. Turn-to-turn equality means the cacheable prefix did
+/// not change; inequality means something (a rewrite, an edited earlier turn)
+/// busted it. `None` when `cached == 0` (nothing anchored to compare). Shared so
+/// [`crate::proxy::cache_attribution`] keys on the exact same stable bytes.
+pub(crate) fn cached_prefix_hash(messages: &[Value], cached: usize) -> Option<u64> {
+    let end = cached.min(messages.len());
+    if end == 0 {
+        return None;
+    }
+    let mut prefix: Vec<Value> = messages[..end].to_vec();
+    for msg in &mut prefix {
+        strip_cache_control(msg);
+    }
+    let bytes = serde_json::to_vec(&prefix).ok()?;
     Some(hash_bytes(&bytes))
 }
 
@@ -184,7 +203,7 @@ fn collect_cc_ttl(v: &Value, best: &mut Option<u64>) {
 /// Returns the largest TTL any cached message requested, defaulting to the "5m"
 /// Anthropic default because a `cache_control` marker is present. `None` only
 /// when `cached == 0` (no marker) — in which case there is nothing to repack.
-fn resolved_ttl_secs(messages: &[Value], cached: usize) -> Option<u64> {
+pub(crate) fn resolved_ttl_secs(messages: &[Value], cached: usize) -> Option<u64> {
     if cached == 0 {
         return None;
     }

@@ -92,6 +92,18 @@ pub struct ProxyConfig {
     /// quantifies how much this would save. See
     /// [`ProxyConfig::cache_align_relocate_enabled`].
     pub cache_align_relocate: Option<bool>,
+    /// Opt-in cache-economics (#986). Enables two things at once, both behind this
+    /// single flag: (1) prompt-cache **miss attribution** telemetry — per turn,
+    /// classify why the cache hit or missed (cold start / warm reuse / TTL lapse /
+    /// prefix change) and expose cumulative gauges on `/status`
+    /// ([`crate::proxy::cache_attribution`]); and (2) a **net-cost gate** on the
+    /// cold-prefix repack ([`crate::proxy::cache_policy::worth_repacking`]) that
+    /// skips re-seeding prefixes too small to be cached. The telemetry never
+    /// touches the body and the gate only makes repacking *more* conservative, so
+    /// enabling this can never bust a cache the default would have kept.
+    /// `None`/`false` (the default) keeps today's behaviour exactly. See
+    /// [`ProxyConfig::cache_policy_enabled`].
+    pub cache_policy: Option<bool>,
     /// Cache-safe, cross-provider reasoning-effort control (#834). One of
     /// `minimal|low|medium|high` pins the model's reasoning depth across every
     /// provider; `None`/`"off"` (the default) is a strict no-op. The value is a
@@ -315,6 +327,16 @@ impl ProxyConfig {
     pub fn cache_align_relocate_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE").is_ok()
             || self.cache_align_relocate.unwrap_or(false)
+    }
+
+    /// Whether opt-in cache-economics (#986) is enabled: prompt-cache miss
+    /// attribution telemetry plus the net-cost repack gate. Both are strictly
+    /// safe (measurement + a more-conservative repack), so this stays off by
+    /// default to keep `/status` and the rewrite path byte-identical for proxies
+    /// that don't ask for it. `LEAN_CTX_PROXY_CACHE_POLICY` (any value) wins, then
+    /// `[proxy] cache_policy` in config.toml, else `false`.
+    pub fn cache_policy_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_PROXY_CACHE_POLICY").is_ok() || self.cache_policy.unwrap_or(false)
     }
 
     /// Resolved cross-provider reasoning effort (#834), or `None` when the
@@ -807,6 +829,23 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.cache_align_relocate_enabled());
+    }
+
+    #[test]
+    fn cache_policy_is_opt_in_and_config_enables() {
+        // #986: off by default (telemetry + a more-conservative repack gate).
+        // Isolate from a developer shell that may export the env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_POLICY");
+        assert!(
+            !ProxyConfig::default().cache_policy_enabled(),
+            "cache-economics must be opt-in (off by default)"
+        );
+        let cfg = ProxyConfig {
+            cache_policy: Some(true),
+            ..Default::default()
+        };
+        assert!(cfg.cache_policy_enabled());
     }
 
     #[test]

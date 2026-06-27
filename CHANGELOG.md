@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Cache-economics: prompt-cache miss attribution + net-cost repack gate
+  (#986).** A new opt-in `proxy.cache_policy` answers the one cache question the
+  proxy could not yet measure — *why* a turn misses the provider prompt-cache.
+  `proxy/cache_attribution` classifies every anchored turn by comparing the
+  cacheable prefix hash and idle time against the conversation's previous turn:
+  **cold start**, **warm reuse** (stable prefix within TTL — should hit),
+  **TTL lapse** (stable prefix, expired by time), or **prefix change** (the
+  prefix mutated, so the provider re-writes regardless of timing). The four
+  outcomes surface as cumulative gauges under `/status` `cache_attribution`,
+  turning "I keep missing cache" into an actionable diagnosis (extend the TTL /
+  repack vs stop mutating the prefix). It is strictly measurement-only — the
+  request body is never touched. The same flag also adds `proxy/cache_policy`, a
+  priced (`model_pricing`) net-cost gate folded into the cold-prefix repack
+  (#480): a repack is skipped when the cacheable prefix is below the provider's
+  ~1024-token minimum, so re-seeding it could never produce a cache the provider
+  keeps. The gate is an extra AND-condition, so enabling the policy can only make
+  repacking *more* conservative — it can never bust a cache the default kept.
+  Default-off; `/status` and the wire bytes stay byte-identical until opted in.
 - **YAML crusher — `kubectl -o yaml`, manifests, CI configs (#985).** A new
   `core/yaml_crush` maps a YAML document onto the JSON value model (`yaml_serde`)
   and compacts it through the shared `json_crush` core: the verbose YAML

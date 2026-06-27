@@ -129,6 +129,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     proxy.insert(
+        "cache_policy".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.proxy.cache_policy_enabled()),
+            "Opt-in cache-economics (#986). Enables prompt-cache miss attribution telemetry (per turn, classify the outcome as cold start / warm reuse / TTL lapse / prefix change and report cumulative gauges on /status cache_attribution) plus a net-cost gate on the cold-prefix repack that skips re-seeding prefixes too small to be cached (below Anthropic's ~1024-token minimum). The telemetry never mutates the body and the gate only makes repacking more conservative, so enabling it can never bust a cache the default would have kept. Default false",
+            "LEAN_CTX_PROXY_CACHE_POLICY",
+        ),
+    );
+    proxy.insert(
         "effort".into(),
         key_enum_with_env(
             &["off", "minimal", "low", "medium", "high"],

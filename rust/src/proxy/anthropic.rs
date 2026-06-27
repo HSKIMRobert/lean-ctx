@@ -56,6 +56,12 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // relocate slot — this is the one mutation that moves volatile fields out of
     // the cacheable prefix.
     let relocate_volatile = cfg.proxy.cache_align_relocate_enabled();
+    // #986: cache-economics (opt-in). Resolved up front so the meter-only
+    // short-circuit below still reaches the miss-attribution slot — that
+    // telemetry only reads the cacheable prefix, it never mutates the body, and
+    // the paired net-cost gate only makes the cold-prefix repack more
+    // conservative.
+    let cache_economics = cfg.proxy.cache_policy_enabled();
     // #895 Track B: output-savings holdout arm, from the pristine body (before any
     // mutation below) so it matches the arm the response meter records. Control
     // conversations skip output-shaping (effort + verbosity steer) but are still
@@ -99,6 +105,7 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
         && !inject_breakpoint
         && !align_volatile
         && !relocate_volatile
+        && !cache_economics
     {
         let out = serde_json::to_vec(&doc).unwrap_or_default();
         return (out, original_size, original_size);
@@ -120,11 +127,25 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // cached prefix" rule for THIS request and prune/compress the prefix too,
     // re-seeding a leaner cache. Default-off; never fires without a measured idle
     // gap past TTL × margin, so warm caches stay byte-stable (#448).
+    // #986: cache-economics miss attribution (opt-in, measurement-only). Classify
+    // why this turn hits or misses the provider prompt-cache (TTL lapse vs prefix
+    // change) and bump the `/status` gauges. Reads the cacheable prefix only — the
+    // body is never touched — so it is strictly cache-safe.
+    if cache_economics && let Some(m) = doc.get("messages").and_then(|m| m.as_array()) {
+        super::cache_attribution::record_request(m, cached);
+    }
+    // #480 repack decision, with the #986 net-cost gate folded in: when
+    // cache-economics is on, also require the prefix to be large enough to cache
+    // (`worth_repacking`). The gate is an extra AND-condition, so it can only make
+    // repacking *more* conservative; default-off proxies keep the prior value.
     let repack = cfg.proxy.repacks_cold_prefix()
         && doc
             .get("messages")
             .and_then(|m| m.as_array())
-            .is_some_and(|m| super::cold_prefix::repack_decision(m, cached));
+            .is_some_and(|m| {
+                super::cold_prefix::repack_decision(m, cached)
+                    && (!cache_economics || super::cache_policy::worth_repacking(m, cached))
+            });
     // The prefix length the rewrites below must protect: the full cached prefix
     // normally, or 0 when we are intentionally repacking the cold prefix.
     let protect = if repack { 0 } else { cached };
@@ -780,6 +801,37 @@ mod tests {
             parsed["system"].as_str().unwrap(),
             prose,
             "a warm prefix must stay protected even with repack enabled — only LARGE gaps trigger"
+        );
+    }
+
+    #[test]
+    fn cache_policy_attribution_is_measurement_only() {
+        // #986: enabling cache-economics records miss-attribution telemetry but
+        // must never change the bytes on the wire — the same request compressed
+        // with the policy off vs on is byte-identical (strictly cache-safe).
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_POLICY");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_COLD_PREFIX_REPACK");
+
+        let prose = big_prose();
+        let (_messages, body) = cached_prefix_body("cache-policy-measurement-session", &prose);
+        let bytes = serde_json::to_vec(&body).unwrap();
+
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_policy = Some(false);
+        })
+        .unwrap();
+        let (off, _o, _c) = compress_request_body(body.clone(), bytes.len());
+
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_policy = Some(true);
+        })
+        .unwrap();
+        let (on, _o, _c) = compress_request_body(body, bytes.len());
+
+        assert_eq!(
+            off, on,
+            "miss attribution is measurement-only: the wire bytes must not change"
         );
     }
 

@@ -1,6 +1,8 @@
 pub mod anthropic;
 pub mod cache_aligner;
+pub mod cache_attribution;
 pub mod cache_breakpoint;
+pub mod cache_policy;
 pub mod cache_safety;
 pub mod ccr;
 #[cfg(test)]
@@ -622,6 +624,7 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
         "per_upstream": s.provider_summary(),
         "cache_safety": cache_safety::snapshot(),
+        "cache_attribution": cache_attribution::snapshot(),
         "effort": effort::snapshot(active_effort),
         "per_model": cost::snapshot(),
         "spend": {
