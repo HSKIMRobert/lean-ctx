@@ -3,6 +3,7 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use crate::core::knowledge::AdmissionResult;
 use crate::core::plugins::{PluginManager, executor::HookPoint};
 
 pub(crate) fn handle_remember(
@@ -31,15 +32,36 @@ pub(crate) fn handle_remember(
     };
     // Serialize the read-modify-write under a per-project lock so parallel
     // `remember` calls cannot clobber each other (issue #326). The closure
-    // operates on the freshly (re)loaded state inside the lock.
-    let (knowledge, contradiction) = match ProjectKnowledge::mutate_locked(project_root, |kn| {
-        let c = kn.remember(cat, k, v, session_id, conf, &policy);
-        let _ = kn.run_memory_lifecycle(&policy);
-        c
+    // operates on the freshly (re)loaded state inside the lock. Admission (#970)
+    // is enforced here, on the agent-facing path; lifecycle runs only when the
+    // store actually changed (a rejected low-salience write is a no-op).
+    let (knowledge, admission) = match ProjectKnowledge::mutate_locked(project_root, |kn| {
+        let r = kn.remember_admitted(cat, k, v, session_id, conf, &policy);
+        if !matches!(r, AdmissionResult::RejectedLowSalience { .. }) {
+            let _ = kn.run_memory_lifecycle(&policy);
+        }
+        r
     }) {
         Ok(pair) => pair,
         Err(e) => return format!("Remembered [{cat}] {k}: {v}\n(save failed: {e})"),
     };
+
+    // A low-salience rejection persists nothing — return before the
+    // confirm/merge bookkeeping and the (now pointless) similarity advisories.
+    if let AdmissionResult::RejectedLowSalience { salience, floor } = admission {
+        return format!(
+            "Skipped [{cat}] {k}: salience {salience} below admission floor {floor}. \
+             Rephrase with more signal, or lower the floor \
+             (memory.admission.min_salience / LEAN_CTX_ADMISSION_MIN_SALIENCE)."
+        );
+    }
+
+    // The contradiction (if any) only exists on the normal stored path.
+    let contradiction = match &admission {
+        AdmissionResult::Stored(c) => c.clone(),
+        _ => None,
+    };
+    let merged = matches!(admission, AdmissionResult::Merged { .. });
 
     // Plugin seam: a fact was written. Guarded so it is a no-op without a plugin.
     if PluginManager::has_listener("on_knowledge_update") {
@@ -48,42 +70,60 @@ pub(crate) fn handle_remember(
         });
     }
 
-    let current_fact = knowledge
-        .facts
-        .iter()
-        .find(|f| f.category == cat && f.key == k && f.is_current());
-    let rev = current_fact.map_or(1, |f| f.revision_count);
-    let conf_count = current_fact.map_or(1, |f| f.confirmation_count);
-
-    let mut result = if contradiction.is_some() {
+    let mut result = if let AdmissionResult::Merged {
+        category,
+        key,
+        confirmations,
+        ..
+    } = &admission
+    {
         format!(
-            "Updated [{cat}] {k}: {v} → revision {rev} (previous archived, confidence: {:.0}%)",
-            conf * 100.0
-        )
-    } else if rev > 1 {
-        format!(
-            "Confirmed [{cat}] {k}: {v} (revision {rev}, confirmed {conf_count}x, confidence: {:.0}%)",
-            current_fact.map_or(conf, |f| f.confidence) * 100.0
+            "Merged [{cat}] {k} into existing [{category}/{key}] (near-duplicate; confirmed {confirmations}x). \
+             Store size unchanged — the matched fact was reinforced instead of adding a row."
         )
     } else {
-        format!(
-            "Remembered [{cat}] {k}: {v} (revision 1, confidence: {:.0}%)",
-            conf * 100.0
-        )
+        let current_fact = knowledge
+            .facts
+            .iter()
+            .find(|f| f.category == cat && f.key == k && f.is_current());
+        let rev = current_fact.map_or(1, |f| f.revision_count);
+        let conf_count = current_fact.map_or(1, |f| f.confirmation_count);
+        if contradiction.is_some() {
+            format!(
+                "Updated [{cat}] {k}: {v} → revision {rev} (previous archived, confidence: {:.0}%)",
+                conf * 100.0
+            )
+        } else if rev > 1 {
+            format!(
+                "Confirmed [{cat}] {k}: {v} (revision {rev}, confirmed {conf_count}x, confidence: {:.0}%)",
+                current_fact.map_or(conf, |f| f.confidence) * 100.0
+            )
+        } else {
+            format!(
+                "Remembered [{cat}] {k}: {v} (revision 1, confidence: {:.0}%)",
+                conf * 100.0
+            )
+        }
     };
 
     if let Some(c) = &contradiction {
         result.push_str(&format!("\n⚠ CONTRADICTION: {}", c.resolution));
     }
 
-    let similar = crate::core::knowledge::find_cross_key_similar(
-        cat,
-        k,
-        v,
-        &knowledge.facts,
-        &knowledge.judged_pairs,
-        3,
-    );
+    // Cross-key advisories only help a genuine insert; a merge already collapsed
+    // the closest duplicate, so there is nothing left for the agent to `judge`.
+    let similar = if merged {
+        Vec::new()
+    } else {
+        crate::core::knowledge::find_cross_key_similar(
+            cat,
+            k,
+            v,
+            &knowledge.facts,
+            &knowledge.judged_pairs,
+            3,
+        )
+    };
     if !similar.is_empty() {
         result.push_str(&format!("\n\nSIMILAR FACTS ({} found):", similar.len()));
         for sf in &similar {
@@ -102,6 +142,17 @@ pub(crate) fn handle_remember(
 
     #[cfg(feature = "embeddings")]
     {
+        // The (category, key, value) actually persisted — drives the side-car so
+        // a merge refreshes the *target* fact's vector, not a row never inserted.
+        let (eff_cat, eff_key, eff_val) = match &admission {
+            AdmissionResult::Merged {
+                category,
+                key,
+                value,
+                ..
+            } => (category.clone(), key.clone(), value.clone()),
+            _ => (cat.to_string(), k.to_string(), v.to_string()),
+        };
         if let Some(engine) = embedding_engine() {
             // Serialize the embedding index's read-modify-write under the same
             // per-project lock as the fact write above, and compact against the
@@ -124,20 +175,27 @@ pub(crate) fn handle_remember(
 
                 // Semantic near-duplicate scan against the *pre-upsert* index, so
                 // the new fact never matches itself. Catches paraphrases the
-                // lexical `find_cross_key_similar` pass misses.
-                let semantic = crate::core::knowledge_embedding::find_semantic_duplicates(
-                    &idx,
-                    engine,
-                    &knowledge,
-                    cat,
-                    k,
-                    v,
-                    crate::core::knowledge_embedding::SEMANTIC_DUP_THRESHOLD,
-                    3,
-                );
+                // lexical `find_cross_key_similar` pass misses. Skipped on a merge:
+                // the duplicate was already collapsed by admission.
+                let semantic = if merged {
+                    Vec::new()
+                } else {
+                    crate::core::knowledge_embedding::find_semantic_duplicates(
+                        &idx,
+                        engine,
+                        &knowledge,
+                        cat,
+                        k,
+                        v,
+                        crate::core::knowledge_embedding::SEMANTIC_DUP_THRESHOLD,
+                        3,
+                    )
+                };
 
+                // Embed the fact that was *actually* persisted: the target key on
+                // a merge (with its possibly-extended value), else the new fact.
                 let warn = match crate::core::knowledge_embedding::embed_and_store(
-                    &mut idx, engine, cat, k, v,
+                    &mut idx, engine, &eff_cat, &eff_key, &eff_val,
                 ) {
                     Ok(()) => {
                         let fresh = ProjectKnowledge::load(project_root);

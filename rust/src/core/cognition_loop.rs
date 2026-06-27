@@ -34,6 +34,9 @@ pub struct CognitionLoopReport {
     pub lateral_connections: u32,
     /// Facts whose confidence was lifted by the replay-consolidation pass (#3).
     pub facts_consolidated: u32,
+    /// Low-value, mutually-similar facts collapsed into recoverable digests by
+    /// cluster compaction (#971) — this is what makes the live count *drop*.
+    pub facts_compacted: u32,
     /// Per-entity observation summaries written/refreshed by synthesis (#802).
     pub observations_synthesized: u32,
     pub duration_ms: u64,
@@ -45,7 +48,7 @@ impl std::fmt::Display for CognitionLoopReport {
             f,
             "Cognition Loop ({} steps, {}ms): promoted={}, repaired={}, \
              strengthened={}, decayed={}, archived={}, contradictions={}, lateral={}, \
-             consolidated={}, synthesized={}",
+             consolidated={}, compacted={}, synthesized={}",
             self.steps_run,
             self.duration_ms,
             self.facts_promoted,
@@ -56,6 +59,7 @@ impl std::fmt::Display for CognitionLoopReport {
             self.contradictions_resolved,
             self.lateral_connections,
             self.facts_consolidated,
+            self.facts_compacted,
             self.observations_synthesized,
         )
     }
@@ -124,6 +128,13 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
             if report.facts_consolidated > 0 {
                 crate::core::introspect::tick("memory_consolidation");
             }
+            // Step 8c (#971): collapse piles of low-value, mutually-similar facts
+            // into recoverable digests so the live count drops, not just churns at
+            // the cap. Runs after lifecycle so decayed confidences gate eligibility.
+            report.facts_compacted = knowledge.compact_low_value_clusters(&policy);
+            if report.facts_compacted > 0 {
+                crate::core::introspect::tick("memory_compaction");
+            }
             report.steps_run = 8;
         }
 
@@ -172,7 +183,7 @@ fn step_seed_promote(
         if kept >= max_findings {
             break;
         }
-        if finding_salience(&f.summary) < 45 {
+        if crate::core::memory_salience::text_salience(&f.summary) < 45 {
             continue;
         }
         let key = if let Some(ref file) = f.file {
@@ -571,29 +582,6 @@ fn slug_key(s: &str, max: usize) -> String {
         }
     }
     out.trim_matches('-').to_string()
-}
-
-fn finding_salience(summary: &str) -> u32 {
-    let s = summary.to_lowercase();
-    let mut score = 20u32;
-    let boosts = [
-        ("error", 25),
-        ("failed", 25),
-        ("panic", 30),
-        ("assert", 20),
-        ("forbidden", 25),
-        ("timeout", 20),
-        ("deadlock", 25),
-        ("security", 25),
-        ("vuln", 25),
-        ("e0", 15),
-    ];
-    for (pat, b) in boosts {
-        if s.contains(pat) {
-            score = score.saturating_add(b);
-        }
-    }
-    score
 }
 
 #[cfg(test)]

@@ -6,6 +6,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.8.14] — unreleased
 
 ### Added
+- **Write-time memory admission — dedup-merge + salience floor (gitlab #969/#970).**
+  A capped knowledge store used to fill with paraphrases of facts it already held,
+  forcing eviction to drop a *good* fact to make room for a near-duplicate. The
+  agent-facing `ctx_knowledge remember` path now runs a server-side admission gate
+  (`ProjectKnowledge::remember_admitted`) *before* committing: a new value that is
+  ≥ `auto_merge_similarity` (word-Jaccard, default 0.9) to an existing **same
+  category** fact under a different key is merged into it (a confirmation bump, no
+  new row), and a value whose content salience falls below `min_salience` (default
+  `0` = off, lossless) is rejected with a clear reason. Internal restorers (archive
+  rehydrate, cognition auto-promotion) keep using the ungated `remember`, so
+  admission only disciplines fresh agent writes. Same-key confirm/supersede
+  (contradictions) is untouched. Tunable via `[memory.admission]` /
+  `LEAN_CTX_ADMISSION_{ENABLED,MERGE_SIMILARITY,MIN_SALIENCE}`.
+- **Cluster compaction — collapse low-value fact piles into recoverable digests
+  (gitlab #969/#971).** Decay + the cap kept a busy store *churning* at 100% but
+  never actually shrank it. A new cognition-loop step (8c, hourly, lean-ctx-driven)
+  collapses a same-category cluster of faded (`< max_confidence`), barely-confirmed
+  (`<= max_confirmations`), never-frequently/recently-retrieved facts — at least
+  `min_cluster` of them (default 4) — into a single content-addressed digest fact,
+  archiving the originals so they rehydrate on recall. Digests and synthesized
+  summaries are never re-compacted. The digest key/value are byte-stable functions
+  of the cluster (#498). Surfaced as `compacted=` on the cognition-loop report.
+  Tunable via `[memory.compaction]` / `LEAN_CTX_COMPACTION_*`; runs only in the
+  background loop, never on the `remember` hot path.
+- **Self-curating memory defaults + actionable capacity guidance (gitlab #969/#972).**
+  `prune_unretrieved_after_days` now defaults to a conservative, recoverable
+  **90 days** (was off), so genuinely cold single-confirmation facts are archived
+  instead of accumulating. `lean-ctx doctor` capacity warnings are no longer a dead
+  end: a store *at* its cap now prints that this is healthy by design (eviction
+  holds it there) and which lever to pull, while an *over*-cap CRIT tells the
+  operator to run the cognition loop or raise the cap.
 - **Read-cache re-delivery telemetry (gitlab #953).** Turns the subjective
   "re-reads feel unreliable" signal into data: every event that drops a
   *fully-delivered* cache entry — forcing the next read to re-send the whole file

@@ -68,7 +68,7 @@ pub fn consolidate_latest(
             if kept.len() >= budgets.max_findings {
                 break;
             }
-            if finding_salience(&f.summary) < 45 {
+            if crate::core::memory_salience::text_salience(&f.summary) < 45 {
                 continue;
             }
             kept.push(f.clone());
@@ -138,32 +138,6 @@ fn slug_key(s: &str, max: usize) -> String {
         }
     }
     out.trim_matches('-').to_string()
-}
-
-fn finding_salience(summary: &str) -> u32 {
-    let s = summary.to_lowercase();
-    let mut score = 20u32;
-
-    let boosts = [
-        ("error", 25),
-        ("failed", 25),
-        ("panic", 30),
-        ("assert", 20),
-        ("forbidden", 25),
-        ("timeout", 20),
-        ("deadlock", 25),
-        ("security", 25),
-        ("vuln", 25),
-        ("e0", 15), // rust error codes often start with E0xxx
-    ];
-
-    for (pat, b) in boosts {
-        if s.contains(pat) {
-            score = score.saturating_add(b);
-        }
-    }
-
-    score
 }
 
 #[cfg(test)]

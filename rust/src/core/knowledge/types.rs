@@ -9,6 +9,12 @@ use crate::core::sensitivity::SensitivityLevel;
 /// from user-supplied findings (both are `Observation` archetype).
 pub const COGNITION_SYNTHESIS_SOURCE: &str = "cognition-synthesis";
 
+/// `source_session` marker for digest facts written by the cognition loop's
+/// cluster-compaction step (#971). A digest replaces a cluster of low-value,
+/// mutually-similar facts; the originals are archived (recoverable). Excluded
+/// from being compacted again so digests never cannibalize each other.
+pub const COMPACTION_DIGEST_SOURCE: &str = "cognition-compaction";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum KnowledgeArchetype {
@@ -175,6 +181,28 @@ pub struct Contradiction {
     pub category: String,
     pub severity: ContradictionSeverity,
     pub resolution: String,
+}
+
+/// Outcome of a write-time admission decision (#970), returned by
+/// `ProjectKnowledge::remember_admitted`. It is the difference between "the agent
+/// asked to store X" and "what lean-ctx actually persisted".
+#[derive(Debug, Clone)]
+pub enum AdmissionResult {
+    /// Inserted / confirmed / superseded the normal way; carries any
+    /// contradiction the write resolved.
+    Stored(Option<Contradiction>),
+    /// The value was a near-duplicate of an existing same-category fact under a
+    /// different key and was merged into it (a confirmation bump) instead of
+    /// growing the store. Carries the target's identity, its new confirmation
+    /// count, and the value finally kept.
+    Merged {
+        category: String,
+        key: String,
+        confirmations: u32,
+        value: String,
+    },
+    /// Content salience was below the configured floor; nothing was written.
+    RejectedLowSalience { salience: u32, floor: u32 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

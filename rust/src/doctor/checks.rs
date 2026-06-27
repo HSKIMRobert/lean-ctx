@@ -1789,6 +1789,13 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
                     warnings.join(", ")
                 ),
             });
+            // Actionable guidance (#972). A store *at* its cap is healthy by
+            // design — eviction keeps it there; only *over* cap means curation is
+            // falling behind. Point the operator at the right lever either way.
+            results.push(Outcome {
+                ok: true,
+                line: format!("  {DIM}→ {}{RST}", capacity_hint(critical)),
+            });
         }
     }
 
@@ -1855,6 +1862,18 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
     }
 
     results
+}
+
+/// Actionable next-step for a memory capacity warning (#972). Separated from the
+/// on-disk capacity scan so the messaging is unit-tested directly: a store *at*
+/// its cap is healthy (eviction holds it there), while *over* cap means curation
+/// is behind and the operator should compact or raise the limit.
+fn capacity_hint(critical: bool) -> &'static str {
+    if critical {
+        "over cap — eviction is behind. Run `ctx_knowledge action=\"cognition_loop\"` to compact + archive now, or raise the limit (memory.knowledge.max_facts / LEAN_CTX_MAX_FACTS)"
+    } else {
+        "at/near cap is healthy by design — lean-ctx self-curates (write-time dedup #970, hourly cluster-compaction #971, 90-day prune #972). Raise a cap only if recall quality drops (memory.knowledge.max_facts)"
+    }
 }
 
 pub(super) fn lsp_server_outcomes() -> Vec<Outcome> {
@@ -1958,6 +1977,21 @@ mod tests {
 
     fn check(home: &Path, scope: RulesScope, injection: RulesInjection) -> Outcome {
         claude_instructions_check(home, scope, injection)
+    }
+
+    #[test]
+    fn capacity_hint_is_actionable_for_both_states() {
+        // WARN (at/near cap): reassure it is by-design, point at the cap lever.
+        let warn = capacity_hint(false);
+        assert!(warn.contains("healthy by design"));
+        assert!(warn.contains("max_facts"));
+
+        // CRIT (over cap): give an immediate compaction action.
+        let crit = capacity_hint(true);
+        assert!(crit.contains("cognition_loop"));
+        assert!(crit.contains("max_facts"));
+
+        assert_ne!(warn, crit);
     }
 
     #[test]

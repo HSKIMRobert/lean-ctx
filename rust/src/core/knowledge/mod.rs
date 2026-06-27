@@ -24,6 +24,159 @@ mod tests {
         MemoryPolicy::default()
     }
 
+    fn current_count(k: &ProjectKnowledge) -> usize {
+        k.facts.iter().filter(|f| f.is_current()).count()
+    }
+
+    // === Write-time admission (#970) ===
+
+    #[test]
+    fn admission_merges_same_category_near_duplicate_without_growing() {
+        let policy = default_policy(); // enabled, merge 0.9, floor 0
+        let mut k = ProjectKnowledge::new("/tmp/test-admission-merge");
+
+        let r1 = k.remember_admitted(
+            "architecture",
+            "db-primary",
+            "use postgres for the primary datastore",
+            "s1",
+            0.8,
+            &policy,
+        );
+        assert!(matches!(r1, AdmissionResult::Stored(_)));
+        assert_eq!(current_count(&k), 1);
+
+        // Identical word set under a *different* key → merge, not insert.
+        let r2 = k.remember_admitted(
+            "architecture",
+            "db-store",
+            "use postgres for the primary datastore",
+            "s2",
+            0.9,
+            &policy,
+        );
+        match r2 {
+            AdmissionResult::Merged {
+                category,
+                key,
+                confirmations,
+                ..
+            } => {
+                assert_eq!(category, "architecture");
+                assert_eq!(key, "db-primary", "merges into the earliest match");
+                assert_eq!(confirmations, 2);
+            }
+            other => panic!("expected Merged, got {other:?}"),
+        }
+        assert_eq!(current_count(&k), 1, "merge must not grow the store");
+        let f = k
+            .facts
+            .iter()
+            .find(|f| f.key == "db-primary" && f.is_current())
+            .unwrap();
+        assert_eq!(f.confirmation_count, 2);
+    }
+
+    #[test]
+    fn admission_rejects_below_salience_floor() {
+        let mut policy = default_policy();
+        policy.admission.min_salience = 100; // plain text (base 20) is below it
+
+        let mut k = ProjectKnowledge::new("/tmp/test-admission-floor");
+        let r = k.remember_admitted("misc", "note", "a quiet plain note", "s1", 0.8, &policy);
+        assert!(matches!(r, AdmissionResult::RejectedLowSalience { .. }));
+        assert_eq!(current_count(&k), 0, "rejected fact is never stored");
+
+        // High-signal content clears the floor (security+error+failed+timeout boosts).
+        let r2 = k.remember_admitted(
+            "misc",
+            "bug",
+            "security error: auth failed with timeout",
+            "s1",
+            0.8,
+            &policy,
+        );
+        assert!(matches!(r2, AdmissionResult::Stored(_)));
+        assert_eq!(current_count(&k), 1);
+    }
+
+    #[test]
+    fn admission_preserves_contradiction_supersede_on_same_key() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test-admission-contradiction");
+
+        let r1 = k.remember_admitted("arch", "db", "PostgreSQL", "s1", 0.95, &policy);
+        assert!(matches!(r1, AdmissionResult::Stored(None)));
+
+        // Same (category,key), conflicting value → must supersede, never merge/reject.
+        let r2 = k.remember_admitted("arch", "db", "MySQL", "s2", 0.9, &policy);
+        assert!(
+            matches!(r2, AdmissionResult::Stored(Some(_))),
+            "same-key conflict must surface a contradiction, got {r2:?}"
+        );
+        let cur = k
+            .facts
+            .iter()
+            .find(|f| f.category == "arch" && f.key == "db" && f.is_current())
+            .unwrap();
+        assert_eq!(cur.value, "MySQL");
+    }
+
+    #[test]
+    fn admission_disabled_inserts_like_legacy() {
+        let mut policy = default_policy();
+        policy.admission.enabled = false;
+
+        let mut k = ProjectKnowledge::new("/tmp/test-admission-off");
+        k.remember_admitted(
+            "architecture",
+            "a",
+            "use postgres for the primary datastore",
+            "s1",
+            0.8,
+            &policy,
+        );
+        let r = k.remember_admitted(
+            "architecture",
+            "b",
+            "use postgres for the primary datastore",
+            "s2",
+            0.9,
+            &policy,
+        );
+        assert!(
+            matches!(r, AdmissionResult::Stored(_)),
+            "disabled admission never merges"
+        );
+        assert_eq!(current_count(&k), 2, "both distinct keys stored");
+    }
+
+    #[test]
+    fn admission_does_not_merge_across_categories() {
+        let policy = default_policy();
+        let mut k = ProjectKnowledge::new("/tmp/test-admission-xcat");
+
+        k.remember_admitted(
+            "architecture",
+            "db",
+            "use postgres for the primary datastore",
+            "s1",
+            0.8,
+            &policy,
+        );
+        // Same value, *different category* → categories carry meaning, so no merge.
+        let r = k.remember_admitted(
+            "decision",
+            "db",
+            "use postgres for the primary datastore",
+            "s2",
+            0.9,
+            &policy,
+        );
+        assert!(matches!(r, AdmissionResult::Stored(_)));
+        assert_eq!(current_count(&k), 2);
+    }
+
     #[test]
     fn remember_and_recall() {
         let policy = default_policy();

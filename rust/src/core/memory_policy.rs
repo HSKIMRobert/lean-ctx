@@ -9,6 +9,8 @@ pub struct MemoryPolicy {
     pub lifecycle: LifecyclePolicy,
     pub embeddings: EmbeddingsPolicy,
     pub gotcha: GotchaPolicy,
+    pub admission: AdmissionPolicy,
+    pub compaction: CompactionPolicy,
 }
 
 impl MemoryPolicy {
@@ -19,6 +21,8 @@ impl MemoryPolicy {
         self.lifecycle.apply_env_overrides();
         self.embeddings.apply_env_overrides();
         self.gotcha.apply_env_overrides();
+        self.admission.apply_env_overrides();
+        self.compaction.apply_env_overrides();
     }
 
     pub fn apply_overrides(&mut self, o: &MemoryPolicyOverrides) {
@@ -33,6 +37,8 @@ impl MemoryPolicy {
         self.lifecycle.validate()?;
         self.embeddings.validate()?;
         self.gotcha.validate()?;
+        self.admission.validate()?;
+        self.compaction.validate()?;
         Ok(())
     }
 }
@@ -332,8 +338,10 @@ pub struct LifecyclePolicy {
     /// slower than inference. Default false keeps the baseline tuning unchanged.
     pub archetype_aware_decay: bool,
     /// Archive single-confirmation facts untouched for this many days that were
-    /// never retrieved — dead weight regardless of confidence (#962). `None`
-    /// (default) disables; opt in to curate injected memory aggressively.
+    /// never retrieved — dead weight regardless of confidence (#962). Defaults to
+    /// a conservative 90 days (#972): genuinely cold facts are archived (and
+    /// rehydrate on recall), so a store self-curates instead of only churning at
+    /// its cap. Set `None`/`off` to disable.
     pub prune_unretrieved_after_days: Option<i64>,
 }
 
@@ -347,7 +355,7 @@ impl Default for LifecyclePolicy {
             forgetting_model: "ebbinghaus".to_string(),
             base_stability_days: crate::core::memory_lifecycle::DEFAULT_BASE_STABILITY_DAYS,
             archetype_aware_decay: false,
-            prune_unretrieved_after_days: None,
+            prune_unretrieved_after_days: Some(90),
         }
     }
 }
@@ -527,6 +535,142 @@ impl GotchaPolicy {
     }
 }
 
+/// Write-time admission control for the knowledge store (#970). The cap +
+/// importance-eviction is a backstop *after* the fact is written; admission is
+/// the boundary *before* it, so a capped store fills with signal, not noise.
+/// Applied only to direct `ctx_knowledge remember` (the agent-facing path);
+/// internal restorers (archive rehydrate, cognition auto-promotion) bypass it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdmissionPolicy {
+    /// Master switch for write-time admission. When off, every `remember`
+    /// inserts as before (legacy behavior).
+    pub enabled: bool,
+    /// A new fact whose value is at least this similar (word-Jaccard, 0.0–1.0) to
+    /// an existing *current* fact in the **same category** under a different key
+    /// is merged into it (a confirmation bump) instead of inserted as a new row.
+    /// High by default so only genuine near-duplicates collapse; `0.0` disables
+    /// auto-merge.
+    pub auto_merge_similarity: f32,
+    /// Facts whose content salience ([`crate::core::memory_salience::text_salience`])
+    /// is below this floor are not admitted as normal facts. `0` (default)
+    /// disables the floor — the lossless choice; raise it to curate a noisy store.
+    pub min_salience: u32,
+}
+
+impl Default for AdmissionPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_merge_similarity: 0.9,
+            min_salience: 0,
+        }
+    }
+}
+
+impl AdmissionPolicy {
+    fn apply_env_overrides(&mut self) {
+        if let Ok(v) = std::env::var("LEAN_CTX_ADMISSION_ENABLED") {
+            self.enabled = !(v == "0" || v.eq_ignore_ascii_case("false"));
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_ADMISSION_MERGE_SIMILARITY")
+            && let Ok(n) = v.parse()
+        {
+            self.auto_merge_similarity = n;
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_ADMISSION_MIN_SALIENCE")
+            && let Ok(n) = v.parse()
+        {
+            self.min_salience = n;
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if !(0.0..=1.0).contains(&self.auto_merge_similarity) {
+            return Err("memory.admission.auto_merge_similarity must be in [0.0, 1.0]".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Cluster compaction (#971): the background cognition loop collapses piles of
+/// low-value, mutually-similar facts into a single recoverable digest, so a busy
+/// store's live fact count actually *drops* instead of churning at its cap. It is
+/// strictly guarded — only faded (`< max_confidence`), barely-confirmed
+/// (`<= max_confirmations`), never-frequently/recently-retrieved facts in a
+/// cluster of at least `min_cluster` qualify — and lossless, since the originals
+/// are archived and rehydrate on recall.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompactionPolicy {
+    /// Master switch for cluster compaction in the cognition loop.
+    pub enabled: bool,
+    /// Minimum number of facts in a same-category cluster before it is collapsed
+    /// into a digest. Must be `>= 2`.
+    pub min_cluster: usize,
+    /// Average word-Jaccard similarity (0.0–1.0) a fact needs to join a cluster.
+    pub similarity: f32,
+    /// Importance ceiling: only facts *below* this confidence are eligible, so a
+    /// high-confidence fact is never compacted.
+    pub max_confidence: f32,
+    /// Only facts confirmed at most this many times are eligible — a
+    /// repeatedly-confirmed fact is structurally important and always kept.
+    pub max_confirmations: u32,
+}
+
+impl Default for CompactionPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_cluster: 4,
+            similarity: 0.5,
+            max_confidence: 0.5,
+            max_confirmations: 1,
+        }
+    }
+}
+
+impl CompactionPolicy {
+    fn apply_env_overrides(&mut self) {
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPACTION_ENABLED") {
+            self.enabled = !(v == "0" || v.eq_ignore_ascii_case("false"));
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPACTION_MIN_CLUSTER")
+            && let Ok(n) = v.parse()
+        {
+            self.min_cluster = n;
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPACTION_SIMILARITY")
+            && let Ok(n) = v.parse()
+        {
+            self.similarity = n;
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPACTION_MAX_CONFIDENCE")
+            && let Ok(n) = v.parse()
+        {
+            self.max_confidence = n;
+        }
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPACTION_MAX_CONFIRMATIONS")
+            && let Ok(n) = v.parse()
+        {
+            self.max_confirmations = n;
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.min_cluster < 2 {
+            return Err("memory.compaction.min_cluster must be >= 2".to_string());
+        }
+        if !(0.0..=1.0).contains(&self.similarity) {
+            return Err("memory.compaction.similarity must be in [0.0, 1.0]".to_string());
+        }
+        if !(0.0..=1.0).contains(&self.max_confidence) {
+            return Err("memory.compaction.max_confidence must be in [0.0, 1.0]".to_string());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,6 +686,66 @@ mod tests {
     fn default_policy_is_valid() {
         let p = MemoryPolicy::default();
         p.validate().expect("default policy must be valid");
+    }
+
+    #[test]
+    fn memory_discipline_defaults_are_premium() {
+        // #970/#971/#972: self-curation is on by default, but lossless.
+        let p = MemoryPolicy::default();
+        assert!(p.admission.enabled, "admission on by default");
+        assert_eq!(p.admission.min_salience, 0, "salience floor off (lossless)");
+        assert!(p.compaction.enabled, "cluster compaction on by default");
+        assert!(p.compaction.min_cluster >= 2);
+        assert_eq!(
+            p.lifecycle.prune_unretrieved_after_days,
+            Some(90),
+            "conservative recoverable prune default"
+        );
+    }
+
+    #[test]
+    fn admission_and_compaction_env_overrides_apply() {
+        let _lock = crate::core::data_dir::test_env_lock();
+
+        let prev = [
+            (
+                "LEAN_CTX_ADMISSION_ENABLED",
+                std::env::var("LEAN_CTX_ADMISSION_ENABLED").ok(),
+            ),
+            (
+                "LEAN_CTX_ADMISSION_MIN_SALIENCE",
+                std::env::var("LEAN_CTX_ADMISSION_MIN_SALIENCE").ok(),
+            ),
+            (
+                "LEAN_CTX_COMPACTION_MIN_CLUSTER",
+                std::env::var("LEAN_CTX_COMPACTION_MIN_CLUSTER").ok(),
+            ),
+        ];
+        crate::test_env::set_var("LEAN_CTX_ADMISSION_ENABLED", "0");
+        crate::test_env::set_var("LEAN_CTX_ADMISSION_MIN_SALIENCE", "42");
+        crate::test_env::set_var("LEAN_CTX_COMPACTION_MIN_CLUSTER", "7");
+
+        let mut p = MemoryPolicy::default();
+        p.apply_env_overrides();
+
+        assert!(!p.admission.enabled);
+        assert_eq!(p.admission.min_salience, 42);
+        assert_eq!(p.compaction.min_cluster, 7);
+
+        for (key, val) in prev {
+            restore_env(key, val);
+        }
+    }
+
+    #[test]
+    fn validate_rejects_invalid_compaction() {
+        let mut p = MemoryPolicy::default();
+        p.compaction.min_cluster = 1;
+        assert!(p.validate().is_err());
+
+        let mut p = MemoryPolicy::default();
+        p.admission.auto_merge_similarity = 1.5;
+        assert!(p.validate().is_err());
     }
 
     #[test]

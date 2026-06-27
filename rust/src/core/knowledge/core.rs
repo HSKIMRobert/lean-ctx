@@ -2,8 +2,8 @@ use chrono::Utc;
 
 use super::ranking::{fact_version_id_v1, hash_project_root, string_similarity};
 use super::types::{
-    Contradiction, ContradictionSeverity, KnowledgeArchetype, KnowledgeFact, ProjectKnowledge,
-    ProjectPattern,
+    AdmissionResult, Contradiction, ContradictionSeverity, KnowledgeArchetype, KnowledgeFact,
+    ProjectKnowledge, ProjectPattern,
 };
 use crate::core::memory_boundary::FactPrivacy;
 use crate::core::memory_policy::MemoryPolicy;
@@ -27,6 +27,29 @@ impl ProjectKnowledge {
             prune_unretrieved_after_days: policy.lifecycle.prune_unretrieved_after_days,
         };
         crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
+    }
+
+    /// Cluster compaction (#971): collapse piles of low-value, mutually-similar
+    /// facts into recoverable digests, returning the number of clusters
+    /// collapsed. Heavier than [`Self::run_memory_lifecycle`], so it runs only
+    /// from the background cognition loop (hourly), never on every write. The
+    /// originals are archived and rehydrate on recall — nothing is lost.
+    pub fn compact_low_value_clusters(&mut self, policy: &MemoryPolicy) -> u32 {
+        if !policy.compaction.enabled {
+            return 0;
+        }
+        let cfg = crate::core::memory_lifecycle::ClusterCompactionConfig {
+            min_cluster: policy.compaction.min_cluster,
+            similarity: policy.compaction.similarity,
+            max_confidence: policy.compaction.max_confidence,
+            max_confirmations: policy.compaction.max_confirmations,
+        };
+        let (collapsed, archived) =
+            crate::core::memory_lifecycle::compact_clusters(&mut self.facts, &cfg);
+        if !archived.is_empty() {
+            let _ = crate::core::memory_lifecycle::archive_facts(&archived);
+        }
+        collapsed as u32
     }
 
     pub fn new(project_root: &str) -> Self {
@@ -209,6 +232,105 @@ impl ProjectKnowledge {
         });
 
         contradiction
+    }
+
+    /// Write-time admission gate for the agent-facing `ctx_knowledge remember`
+    /// path (#970). Unlike [`Self::remember`] (which every internal restorer also
+    /// calls), this enforces the [`crate::core::memory_policy::AdmissionPolicy`]:
+    /// near-duplicates are merged instead of inserted, and low-salience noise is
+    /// kept out of the capped store — so eviction never has to drop a good fact to
+    /// make room for a paraphrase. Internal callers (archive rehydrate, cognition
+    /// auto-promotion) keep using [`Self::remember`] and are never gated.
+    pub fn remember_admitted(
+        &mut self,
+        category: &str,
+        key: &str,
+        value: &str,
+        session_id: &str,
+        confidence: f32,
+        policy: &MemoryPolicy,
+    ) -> AdmissionResult {
+        let adm = &policy.admission;
+
+        // Admission only governs *new* facts. An existing (category,key) is a
+        // confirm/supersede the agent explicitly addressed — defer to remember().
+        let has_exact = self
+            .facts
+            .iter()
+            .any(|f| f.category == category && f.key == key && f.is_current());
+        if !adm.enabled || has_exact {
+            return AdmissionResult::Stored(
+                self.remember(category, key, value, session_id, confidence, policy),
+            );
+        }
+
+        // Salience floor: keep low-signal noise out of a capped store.
+        if adm.min_salience > 0 {
+            let salience = crate::core::memory_salience::text_salience(value);
+            if salience < adm.min_salience {
+                return AdmissionResult::RejectedLowSalience {
+                    salience,
+                    floor: adm.min_salience,
+                };
+            }
+        }
+
+        // Cross-key near-duplicate auto-merge within the same category.
+        if adm.auto_merge_similarity > 0.0
+            && let Some(merged) = self.merge_near_duplicate(
+                category,
+                value,
+                session_id,
+                confidence,
+                adm.auto_merge_similarity,
+            )
+        {
+            return merged;
+        }
+
+        AdmissionResult::Stored(self.remember(category, key, value, session_id, confidence, policy))
+    }
+
+    /// Find the best same-category, different-key, *current* near-duplicate of
+    /// `value` at/above `threshold` and merge into it (confirmation bump,
+    /// confidence midpoint, keep the longer/more-complete value). Returns the
+    /// merge outcome, or `None` when nothing qualifies. Deterministic: ties
+    /// resolve to the earliest-inserted fact (stable scan, strict `>`).
+    fn merge_near_duplicate(
+        &mut self,
+        category: &str,
+        value: &str,
+        session_id: &str,
+        confidence: f32,
+        threshold: f32,
+    ) -> Option<AdmissionResult> {
+        let mut best: Option<(usize, f32)> = None;
+        for (i, f) in self.facts.iter().enumerate() {
+            if !f.is_current() || f.category != category {
+                continue;
+            }
+            let sim = string_similarity(value, &f.value);
+            if sim >= threshold && best.is_none_or(|(_, bs)| sim > bs) {
+                best = Some((i, sim));
+            }
+        }
+        let (idx, _) = best?;
+        let now = Utc::now();
+        let f = &mut self.facts[idx];
+        f.last_confirmed = now;
+        f.source_session = session_id.to_string();
+        f.confidence = f32::midpoint(f.confidence, confidence);
+        f.confirmation_count += 1;
+        f.revision_count += 1;
+        if value.len() > f.value.len() {
+            f.value = value.to_string();
+        }
+        Some(AdmissionResult::Merged {
+            category: f.category.clone(),
+            key: f.key.clone(),
+            confirmations: f.confirmation_count,
+            value: f.value.clone(),
+        })
     }
 
     pub fn add_pattern(
