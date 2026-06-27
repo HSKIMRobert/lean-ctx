@@ -115,7 +115,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key_with_env(
             "bool",
             serde_json::json!(cfg.proxy.cache_aligner_enabled()),
-            "Opt-in cache-aligner volatile-field telemetry (#940). When on, the proxy scans each unanchored Anthropic system prompt for volatile, cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and reports how many it found on /status cache_safety (volatile_system_requests, volatile_fields_detected) - purely to quantify how much prompt-cache the client leaks. Measurement only: the request body is never mutated, so it is strictly cache-safe. The deterministic scan is the precursor to the opt-in tail-relocate below. Default false",
+            "Cache-aligner volatile-field telemetry (#940), on by default. The proxy scans each unanchored Anthropic system prompt for volatile, cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and reports how many it found on /status cache_safety (volatile_system_requests, volatile_fields_detected) - purely to quantify how much prompt-cache the client leaks. Measurement only: the request body is never mutated, so it is strictly cache-safe, which is why it ships on for every proxy (#986 premium defaults). The deterministic scan is the precursor to the opt-in tail-relocate below. Set false to opt out of the per-request scan. Default true",
             "LEAN_CTX_PROXY_CACHE_ALIGNER",
         ),
     );
@@ -133,7 +133,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key_with_env(
             "bool",
             serde_json::json!(cfg.proxy.cache_policy_enabled()),
-            "Opt-in cache-economics (#986). Enables prompt-cache miss attribution telemetry (per turn, classify the outcome as cold start / warm reuse / TTL lapse / prefix change and report cumulative gauges on /status cache_attribution) plus a net-cost gate on the cold-prefix repack that skips re-seeding prefixes too small to be cached (below Anthropic's ~1024-token minimum). The telemetry never mutates the body and the gate only makes repacking more conservative, so enabling it can never bust a cache the default would have kept. Default false",
+            "Cache-economics (#986), on by default. Enables prompt-cache miss attribution telemetry (per turn, classify the outcome as cold start / warm reuse / TTL lapse / prefix change and report cumulative gauges on /status cache_attribution) plus a net-cost gate on the cold-prefix repack that skips re-seeding prefixes too small to be cached (below Anthropic's ~1024-token minimum). The telemetry never mutates the body and the gate only makes repacking more conservative, so it can never bust a cache that would otherwise have been kept - both halves are strictly safe, so every proxy gets them out of the box (#986 premium defaults). Set false to opt out (drops the /status attribution gauges and the per-request prefix hash). Default true",
             "LEAN_CTX_PROXY_CACHE_POLICY",
         ),
     );

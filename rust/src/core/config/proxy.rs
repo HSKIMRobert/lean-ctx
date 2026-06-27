@@ -76,8 +76,10 @@ pub struct ProxyConfig {
     /// cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and records how
     /// many it found on `/status` `cache_safety` — purely to quantify how much
     /// prompt-cache the client is leaking. **Measurement only**: the request body
-    /// is never mutated, so it is strictly cache-safe. `None`/`false` (the default)
-    /// skips the scan entirely. See [`ProxyConfig::cache_aligner_enabled`].
+    /// is never mutated, so it is strictly cache-safe. `None` (the default) enables
+    /// it — every proxy ships cache-leak visibility out of the box (#986 premium
+    /// defaults); set `false` to opt out of the per-request scan. See
+    /// [`ProxyConfig::cache_aligner_enabled`].
     pub cache_aligner: Option<bool>,
     /// Opt-in active cache-aligner relocate (#974). When enabled, the proxy
     /// rewrites an *unanchored* Anthropic `system` prompt into a stable block
@@ -92,16 +94,17 @@ pub struct ProxyConfig {
     /// quantifies how much this would save. See
     /// [`ProxyConfig::cache_align_relocate_enabled`].
     pub cache_align_relocate: Option<bool>,
-    /// Opt-in cache-economics (#986). Enables two things at once, both behind this
-    /// single flag: (1) prompt-cache **miss attribution** telemetry — per turn,
+    /// Cache-economics (#986), **on by default**. Bundles two strictly-safe halves
+    /// behind one flag: (1) prompt-cache **miss attribution** telemetry — per turn,
     /// classify why the cache hit or missed (cold start / warm reuse / TTL lapse /
     /// prefix change) and expose cumulative gauges on `/status`
     /// ([`crate::proxy::cache_attribution`]); and (2) a **net-cost gate** on the
     /// cold-prefix repack ([`crate::proxy::cache_policy::worth_repacking`]) that
     /// skips re-seeding prefixes too small to be cached. The telemetry never
     /// touches the body and the gate only makes repacking *more* conservative, so
-    /// enabling this can never bust a cache the default would have kept.
-    /// `None`/`false` (the default) keeps today's behaviour exactly. See
+    /// it can never bust a cache that would otherwise have been kept. `None` (the
+    /// default) enables both — every proxy gets the diagnosis and the safer repack
+    /// out of the box (#986 premium defaults); set `false` to opt out. See
     /// [`ProxyConfig::cache_policy_enabled`].
     pub cache_policy: Option<bool>,
     /// Cache-safe, cross-provider reasoning-effort control (#834). One of
@@ -312,11 +315,13 @@ impl ProxyConfig {
     }
 
     /// Whether opt-in cache-aligner volatile-field telemetry (#940) is enabled.
-    /// Off by default: it adds a per-request scan of the system prompt (pure
-    /// measurement, no body mutation). `LEAN_CTX_PROXY_CACHE_ALIGNER` (any value)
-    /// wins, then `[proxy] cache_aligner` in config.toml, else `false`.
+    /// On by default (#986 premium defaults): the scan is pure measurement and
+    /// never mutates the body, so every proxy ships cache-leak visibility out of
+    /// the box. Strictly cache-safe. `LEAN_CTX_PROXY_CACHE_ALIGNER=on|off` wins,
+    /// then `[proxy] cache_aligner` in config.toml, else `true`. Opt **out** only
+    /// to drop the per-request system-prompt scan.
     pub fn cache_aligner_enabled(&self) -> bool {
-        std::env::var("LEAN_CTX_PROXY_CACHE_ALIGNER").is_ok() || self.cache_aligner.unwrap_or(false)
+        env_bool_or("LEAN_CTX_PROXY_CACHE_ALIGNER", self.cache_aligner, true)
     }
 
     /// Whether opt-in active cache-aligner relocate (#974) is enabled. Off by
@@ -329,14 +334,16 @@ impl ProxyConfig {
             || self.cache_align_relocate.unwrap_or(false)
     }
 
-    /// Whether opt-in cache-economics (#986) is enabled: prompt-cache miss
-    /// attribution telemetry plus the net-cost repack gate. Both are strictly
-    /// safe (measurement + a more-conservative repack), so this stays off by
-    /// default to keep `/status` and the rewrite path byte-identical for proxies
-    /// that don't ask for it. `LEAN_CTX_PROXY_CACHE_POLICY` (any value) wins, then
-    /// `[proxy] cache_policy` in config.toml, else `false`.
+    /// Whether cache-economics (#986) is enabled: prompt-cache miss attribution
+    /// telemetry plus the net-cost repack gate. Both are strictly safe
+    /// (measurement + a more-conservative repack that never busts a cache the
+    /// default kept), so this is **on by default** — every proxy gets the
+    /// diagnosis and the safer repack out of the box.
+    /// `LEAN_CTX_PROXY_CACHE_POLICY=on|off` wins, then `[proxy] cache_policy` in
+    /// config.toml, else `true`. Opt out to keep `/status` free of the attribution
+    /// gauges and skip the per-request prefix hash.
     pub fn cache_policy_enabled(&self) -> bool {
-        std::env::var("LEAN_CTX_PROXY_CACHE_POLICY").is_ok() || self.cache_policy.unwrap_or(false)
+        env_bool_or("LEAN_CTX_PROXY_CACHE_POLICY", self.cache_policy, true)
     }
 
     /// Resolved cross-provider reasoning effort (#834), or `None` when the
@@ -612,6 +619,22 @@ pub fn diagnose_drift(env: Option<&str>, disk: &str, live: &str) -> Option<Upstr
     (disk != live).then_some(UpstreamDrift::ConfigNotApplied)
 }
 
+/// Resolve a tri-state boolean toggle for the default-**on** proxy features: an
+/// explicit `on`/`off`-style environment variable wins, then the config
+/// `Option<bool>`, else `default`. Lets an operator force a feature on **or** off
+/// from the shell; an unparseable value is ignored so a typo can never silently
+/// flip it (mirrors [`ProxyConfig::live_compresses`]).
+fn env_bool_or(env_key: &str, configured: Option<bool>, default: bool) -> bool {
+    if let Ok(raw) = std::env::var(env_key) {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => return true,
+            "0" | "false" | "no" | "off" => return false,
+            _ => {}
+        }
+    }
+    configured.unwrap_or(default)
+}
+
 /// Built-in default live-compress exclusion (#481). Serena's code-reading tools
 /// (`find_symbol`/`find_referencing_symbols`/`search_for_pattern`) return source
 /// bodies the model edits, yet are mis-bucketed as `Search` by name, so the proxy
@@ -796,16 +819,29 @@ mod tests {
     }
 
     #[test]
-    fn cache_aligner_is_opt_in_and_config_enables() {
-        // #940: off by default (it adds a per-request system-prompt scan, even
-        // though it never mutates the body). Isolate from a developer shell that
-        // may export the env override.
+    fn cache_aligner_defaults_on_and_config_disables() {
+        // #986 premium defaults: the volatile-field scan is measurement-only and
+        // strictly cache-safe, so it ships on by default; `false` opts out.
+        // Isolate from a developer shell that may export the env override.
         let _lock = crate::core::data_dir::test_env_lock();
         crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGNER");
         assert!(
-            !ProxyConfig::default().cache_aligner_enabled(),
-            "cache-aligner telemetry must be opt-in (off by default)"
+            ProxyConfig::default().cache_aligner_enabled(),
+            "cache-aligner telemetry must be on by default (measurement-only, safe)"
         );
+        let cfg = ProxyConfig {
+            cache_aligner: Some(false),
+            ..Default::default()
+        };
+        assert!(!cfg.cache_aligner_enabled(), "explicit false opts out");
+    }
+
+    #[test]
+    fn cache_aligner_legacy_opt_in_still_enables() {
+        // An explicit `true` (a pre-#986 config) keeps working unchanged. Isolate
+        // from a developer shell that may export the env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGNER");
         let cfg = ProxyConfig {
             cache_aligner: Some(true),
             ..Default::default()
@@ -832,20 +868,31 @@ mod tests {
     }
 
     #[test]
-    fn cache_policy_is_opt_in_and_config_enables() {
-        // #986: off by default (telemetry + a more-conservative repack gate).
-        // Isolate from a developer shell that may export the env override.
+    fn cache_policy_defaults_on_and_can_be_disabled() {
+        // #986 premium defaults: telemetry + a more-conservative repack gate are
+        // both strictly safe, so cache-economics ships on by default and is
+        // opt-out via config `false` or `LEAN_CTX_PROXY_CACHE_POLICY=off`. Isolate
+        // from a developer shell that may export the env override.
         let _lock = crate::core::data_dir::test_env_lock();
         crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_POLICY");
         assert!(
-            !ProxyConfig::default().cache_policy_enabled(),
-            "cache-economics must be opt-in (off by default)"
+            ProxyConfig::default().cache_policy_enabled(),
+            "cache-economics must be on by default (measurement + safe gate)"
         );
         let cfg = ProxyConfig {
+            cache_policy: Some(false),
+            ..Default::default()
+        };
+        assert!(!cfg.cache_policy_enabled(), "explicit false opts out");
+
+        // An explicit env `off` wins even over a config `true`.
+        crate::test_env::set_var("LEAN_CTX_PROXY_CACHE_POLICY", "off");
+        let on = ProxyConfig {
             cache_policy: Some(true),
             ..Default::default()
         };
-        assert!(cfg.cache_policy_enabled());
+        assert!(!on.cache_policy_enabled(), "env off overrides config true");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_POLICY");
     }
 
     #[test]

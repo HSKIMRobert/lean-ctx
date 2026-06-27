@@ -6,9 +6,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Premium defaults: safe cache telemetry now ships on (#986).** Everything that
+  is pure measurement or a strict safety improvement is enabled by default, so
+  every install and every update delivers the best lean-ctx without flipping a
+  flag (config is written minimally, so code defaults reach existing users on
+  upgrade). The cache-economics telemetry below (`proxy.cache_policy`) and the
+  cache-aligner volatile-field telemetry (`proxy.cache_aligner`, #940) are now
+  **on by default** — both are measurement-only / strictly cache-safe. Features
+  that change provider-visible content or carry a real cost risk stay opt-in by
+  design (a premium proxy never silently risks your bill): the cold-prefix repack
+  (`cold_prefix_repack`, ~12× re-bill on a wrong cold guess), the active
+  cache-aligner relocate (`cache_align_relocate`), breakpoint injection
+  (`cache_breakpoint`), and output shaping (`effort`, `verbosity_steer`). All
+  remain togglable via config or `LEAN_CTX_PROXY_*=on|off`.
 - **Cache-economics: prompt-cache miss attribution + net-cost repack gate
-  (#986).** A new opt-in `proxy.cache_policy` answers the one cache question the
-  proxy could not yet measure — *why* a turn misses the provider prompt-cache.
+  (#986).** `proxy.cache_policy` (now on by default) answers the one cache
+  question the proxy could not yet measure — *why* a turn misses the provider
+  prompt-cache.
   `proxy/cache_attribution` classifies every anchored turn by comparing the
   cacheable prefix hash and idle time against the conversation's previous turn:
   **cold start**, **warm reuse** (stable prefix within TTL — should hit),
@@ -21,9 +35,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   priced (`model_pricing`) net-cost gate folded into the cold-prefix repack
   (#480): a repack is skipped when the cacheable prefix is below the provider's
   ~1024-token minimum, so re-seeding it could never produce a cache the provider
-  keeps. The gate is an extra AND-condition, so enabling the policy can only make
-  repacking *more* conservative — it can never bust a cache the default kept.
-  Default-off; `/status` and the wire bytes stay byte-identical until opted in.
+  keeps. The gate is an extra AND-condition, so it can only make repacking *more*
+  conservative — it can never bust a cache the default kept. On by default; the
+  attribution never mutates the wire bytes, so the request the provider sees is
+  byte-identical whether the policy is on or off. Opt out with
+  `proxy.cache_policy = false` or `LEAN_CTX_PROXY_CACHE_POLICY=off`.
 - **YAML crusher — `kubectl -o yaml`, manifests, CI configs (#985).** A new
   `core/yaml_crush` maps a YAML document onto the JSON value model (`yaml_serde`)
   and compacts it through the shared `json_crush` core: the verbose YAML

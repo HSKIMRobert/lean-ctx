@@ -46,21 +46,22 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // one mutation this mode performs — its whole point is to add a cache anchor
     // to an otherwise byte-passthrough request.
     let inject_breakpoint = cfg.proxy.cache_breakpoint_enabled();
-    // #940: cache-aligner volatile-field telemetry (opt-in, measurement-only).
+    // #940: cache-aligner volatile-field telemetry (default-on, measurement-only).
     // Also resolved up front so a meter-only proxy still reaches the scan slot —
     // it never mutates the body, it only records how much cache the system prompt
-    // leaks.
+    // leaks, so it ships on for every proxy (#986 premium defaults).
     let align_volatile = cfg.proxy.cache_aligner_enabled();
     // #974: active cache-aligner relocate (opt-in, Anthropic-only). Resolved up
     // front like the telemetry above so a meter-only proxy still reaches the
     // relocate slot — this is the one mutation that moves volatile fields out of
     // the cacheable prefix.
     let relocate_volatile = cfg.proxy.cache_align_relocate_enabled();
-    // #986: cache-economics (opt-in). Resolved up front so the meter-only
+    // #986: cache-economics (default-on). Resolved up front so the meter-only
     // short-circuit below still reaches the miss-attribution slot — that
     // telemetry only reads the cacheable prefix, it never mutates the body, and
     // the paired net-cost gate only makes the cold-prefix repack more
-    // conservative.
+    // conservative, so both halves ship on for every proxy (#986 premium
+    // defaults).
     let cache_economics = cfg.proxy.cache_policy_enabled();
     // #895 Track B: output-savings holdout arm, from the pristine body (before any
     // mutation below) so it matches the arm the response meter records. Control
@@ -144,7 +145,8 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
             .and_then(|m| m.as_array())
             .is_some_and(|m| {
                 super::cold_prefix::repack_decision(m, cached)
-                    && (!cache_economics || super::cache_policy::worth_repacking(m, cached))
+                    && (!cache_economics
+                        || super::cache_policy::worth_repacking(doc.get("system"), m, cached))
             });
     // The prefix length the rewrites below must protect: the full cached prefix
     // normally, or 0 when we are intentionally repacking the cold prefix.
@@ -740,7 +742,11 @@ mod tests {
         })
         .unwrap();
 
-        let prose = big_prose();
+        // The prefix must clear the cacheable floor: with premium defaults the
+        // net-cost gate (#986, on by default) skips repacking a sub-1024-token
+        // prefix the provider could never cache. A real cold prefix worth
+        // re-seeding is large, so size the system prose accordingly.
+        let prose = big_prose().repeat(6);
         let (messages, body) = cached_prefix_body("cold-repack-enabled-session", &prose);
         // Predict cold: last touched 3h ago, well past the 5m default TTL × margin.
         super::super::cold_prefix::test_seed_last_touch(&messages, 3 * 60 * 60);
@@ -751,6 +757,36 @@ mod tests {
         assert!(
             parsed["system"].as_str().unwrap().len() < prose.len(),
             "a predicted-cold prefix must let the proxy repack the otherwise-protected system prose"
+        );
+    }
+
+    #[test]
+    fn cold_prefix_repack_skipped_for_subcacheable_prefix_by_default() {
+        // #986 premium default: cache_policy is on, so the net-cost gate skips a
+        // cold repack of a prefix below the provider's cacheable minimum —
+        // re-seeding it could never produce a cache the provider keeps. Repack is
+        // enabled and the prefix is cold, but it is too small (≈345 tokens) to
+        // cache, so the system prose must stay protected (unchanged).
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_COLD_PREFIX_REPACK");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_POLICY");
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.role_aggressiveness.system = Some(0.9);
+            c.proxy.cold_prefix_repack = Some(true);
+        })
+        .unwrap();
+
+        let prose = big_prose();
+        let (messages, body) = cached_prefix_body("cold-repack-subcacheable-session", &prose);
+        super::super::cold_prefix::test_seed_last_touch(&messages, 3 * 60 * 60);
+
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let parsed: Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(
+            parsed["system"].as_str().unwrap(),
+            prose,
+            "the net-cost gate must skip repacking a sub-cacheable prefix (premium default)"
         );
     }
 

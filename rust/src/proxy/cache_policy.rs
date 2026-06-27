@@ -31,30 +31,44 @@ use crate::core::tokens::count_tokens;
 /// minimum rather than an estimate.
 pub const MIN_CACHEABLE_TOKENS: u64 = 1024;
 
-/// Token count of the client-cached prefix `messages[0..cached]`. Measured (not
-/// estimated) via the same BPE counter the rest of the proxy uses, so the gate
-/// reflects the real prefix the provider would cache.
-#[must_use]
-pub fn prefix_tokens(messages: &[Value], cached: usize) -> u64 {
-    let end = cached.min(messages.len());
-    if end == 0 {
-        return 0;
+/// Token count of an Anthropic `system` field (a string or a content-block
+/// array) — the part of the cacheable prefix that precedes every message.
+/// Serialized and BPE-counted like the messages below so both halves of the
+/// prefix use one consistent measure.
+fn system_tokens(system: Option<&Value>) -> u64 {
+    match system {
+        Some(v) if !v.is_null() => serde_json::to_string(v).map_or(0, |s| count_tokens(&s) as u64),
+        _ => 0,
     }
-    let Ok(serialized) = serde_json::to_string(&messages[..end]) else {
-        return 0;
-    };
-    count_tokens(&serialized) as u64
+}
+
+/// Token count of the prefix the provider would actually cache: the `system`
+/// field plus the client-cached messages `messages[0..cached]`. Measured (not
+/// estimated) via the same BPE counter the rest of the proxy uses, so the gate
+/// reflects the real prefix — including the system prose a cold-prefix repack
+/// re-seeds, which is usually the bulk of it.
+#[must_use]
+pub fn prefix_tokens(system: Option<&Value>, messages: &[Value], cached: usize) -> u64 {
+    let mut total = system_tokens(system);
+    let end = cached.min(messages.len());
+    if end > 0
+        && let Ok(serialized) = serde_json::to_string(&messages[..end])
+    {
+        total += count_tokens(&serialized) as u64;
+    }
+    total
 }
 
 /// Live repack gate (pre-compression). A cold-prefix repack only pays when the
-/// cacheable prefix is large enough that the provider will actually cache the
-/// re-seeded version; below [`MIN_CACHEABLE_TOKENS`] the repack just churns the
-/// conversation's cache key. Applied as an extra AND-condition on the existing
-/// repack decision, so enabling the policy can only make repacking *more*
-/// conservative — never trigger a rewrite that would not have happened.
+/// cacheable prefix (system + cached messages) is large enough that the provider
+/// will actually cache the re-seeded version; below [`MIN_CACHEABLE_TOKENS`] the
+/// repack just churns the conversation's cache key. Applied as an extra
+/// AND-condition on the existing repack decision, so the policy can only make
+/// repacking *more* conservative — never trigger a rewrite that would not have
+/// happened.
 #[must_use]
-pub fn worth_repacking(messages: &[Value], cached: usize) -> bool {
-    prefix_tokens(messages, cached) >= MIN_CACHEABLE_TOKENS
+pub fn worth_repacking(system: Option<&Value>, messages: &[Value], cached: usize) -> bool {
+    prefix_tokens(system, messages, cached) >= MIN_CACHEABLE_TOKENS
 }
 
 /// Cache-write cost saved by re-seeding a compressed prefix instead of the full
@@ -95,7 +109,7 @@ mod tests {
     #[test]
     fn prefix_tokens_zero_when_nothing_cached() {
         let msgs = vec![json!({"role": "user", "content": "hello"})];
-        assert_eq!(prefix_tokens(&msgs, 0), 0);
+        assert_eq!(prefix_tokens(None, &msgs, 0), 0);
     }
 
     #[test]
@@ -105,16 +119,27 @@ mod tests {
             json!({"role": "user", "content": big}),
             json!({"role": "assistant", "content": "tail not counted"}),
         ];
-        let one = prefix_tokens(&msgs, 1);
-        let two = prefix_tokens(&msgs, 2);
+        let one = prefix_tokens(None, &msgs, 1);
+        let two = prefix_tokens(None, &msgs, 2);
         assert!(one > 0);
         assert!(two > one, "wider cached span counts more tokens");
     }
 
     #[test]
+    fn prefix_tokens_includes_the_system_field() {
+        // The system prose is part of Anthropic's cacheable prefix and is what a
+        // cold repack re-seeds, so it must count toward the gate.
+        let msgs = vec![json!({"role": "user", "content": "hi"})];
+        let big_system = json!("context engineering ".repeat(400));
+        let without = prefix_tokens(None, &msgs, 1);
+        let with = prefix_tokens(Some(&big_system), &msgs, 1);
+        assert!(with > without + 500, "system prose must dominate the count");
+    }
+
+    #[test]
     fn worth_repacking_rejects_small_prefix() {
         let msgs = vec![json!({"role": "user", "content": "tiny"})];
-        assert!(!worth_repacking(&msgs, 1));
+        assert!(!worth_repacking(None, &msgs, 1));
     }
 
     #[test]
@@ -122,7 +147,23 @@ mod tests {
         // Comfortably above the 1024-token cacheable floor.
         let big = "context engineering ".repeat(1500);
         let msgs = vec![json!({"role": "user", "content": big})];
-        assert!(worth_repacking(&msgs, 1));
+        assert!(worth_repacking(None, &msgs, 1));
+    }
+
+    #[test]
+    fn worth_repacking_counts_large_system_over_tiny_messages() {
+        // A small message prefix but a large system prompt still clears the gate,
+        // because the provider caches system + messages together.
+        let msgs = vec![json!({"role": "user", "content": "hi"})];
+        let big_system = json!("context engineering ".repeat(1500));
+        assert!(
+            !worth_repacking(None, &msgs, 1),
+            "tiny prefix alone is skipped"
+        );
+        assert!(
+            worth_repacking(Some(&big_system), &msgs, 1),
+            "a large system prompt makes the prefix worth re-seeding"
+        );
     }
 
     #[test]
