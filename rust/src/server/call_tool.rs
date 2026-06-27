@@ -276,6 +276,21 @@ impl LeanCtxServer {
                 || std::env::var("LEAN_CTX_RAW").is_ok()
         };
 
+        // #990: a tool may declare that *this* invocation yields a machine-readable
+        // payload (e.g. ctx_outline format=json) that must reach the client
+        // byte-exact and parseable. The body is fully built (redaction +
+        // sensitivity still apply) but every prose decoration and terse
+        // compression below is suppressed, and the pure pre-decoration body is
+        // restored before returning (see the `machine_readable` guard near the
+        // end of this function). This also covers JSON error envelopes from the
+        // early rate-limit path, which would otherwise be corrupted by the
+        // first-call auto-context briefing.
+        let machine_readable = self
+            .registry
+            .as_ref()
+            .and_then(|r| r.get_arc(name))
+            .is_some_and(|tool| tool.produces_machine_readable(args));
+
         let pre_terse_len = result_text.len();
         let output_tokens = {
             let tokens = crate::core::tokens::count_tokens(&result_text) as u64;
@@ -924,6 +939,19 @@ impl LeanCtxServer {
         // callable but warns — prepend a one-line notice steering to the primary.
         if let Some(notice) = crate::server::dynamic_tools::deprecation_notice(name) {
             result_text = format!("{notice}\n{result_text}");
+        }
+
+        // #990: a machine-readable invocation (e.g. ctx_outline format=json) must
+        // return a byte-exact, parseable payload. Every step above may have
+        // prepended/appended prose (auto-context briefing, verify footer, hints,
+        // checkpoints, deprecation notice) or compressed the body — all of which
+        // break a JSON contract. Restore the pure body captured *before*
+        // compression and decoration; redaction + sensitivity were applied
+        // earlier so the security envelope is preserved. `ctx_outline` is not an
+        // archivable/firewallable tool, so `pre_compression` is the unmodified
+        // body here; the guard is a no-op for non-machine-readable calls.
+        if machine_readable {
+            result_text = pre_compression;
         }
 
         Ok(finalize_call_result(result_text, shell_outcome))
