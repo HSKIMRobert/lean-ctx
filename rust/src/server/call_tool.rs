@@ -127,7 +127,47 @@ impl LeanCtxServer {
             }
         }
 
-        let auto_context = {
+        // #990: determine machine-readability *before* the once-per-session
+        // decorations below. A machine-readable invocation (e.g. ctx_outline
+        // format=json) must reach the client byte-exact and parseable, so every
+        // prose decoration and terse compression is suppressed and the pure
+        // pre-decoration body is restored at the end (see the `machine_readable`
+        // guard near the end of this function). Computing it here — not after
+        // dispatch — means such a call also never *consumes* a latched
+        // once-per-session flag (auto-context briefing, rules tip) whose prose
+        // we would then discard, so those surface on the next human-facing call.
+        //
+        // `ctx_call` is a meta-dispatcher: the contract belongs to its *inner*
+        // tool + inner arguments, not to ctx_call itself. Unwrap one level so
+        // JSON reached via the lazy `ctx_call` path (the default advertised
+        // surface, where ctx_outline is not a top-level tool) is just as
+        // byte-exact as a direct call. This also covers JSON error envelopes
+        // from the early rate-limit path, which the first-call auto-context
+        // briefing would otherwise corrupt.
+        let (mr_name, mr_args): (
+            Option<String>,
+            Option<&serde_json::Map<String, serde_json::Value>>,
+        ) = if name == "ctx_call" {
+            (
+                helpers::get_str(args, "name"),
+                args.and_then(|m| m.get("arguments"))
+                    .and_then(serde_json::Value::as_object),
+            )
+        } else {
+            (Some(name.to_string()), args)
+        };
+        let machine_readable = mr_name
+            .as_deref()
+            .and_then(|n| self.registry.as_ref().and_then(|r| r.get_arc(n)))
+            .is_some_and(|tool| tool.produces_machine_readable(mr_args));
+
+        // Skip the session wake-up briefing for machine-readable calls: the
+        // pre-hook latches `session_initialized` via compare-exchange, so calling
+        // it here would burn the once-per-session slot for a briefing we then
+        // throw away. Deferring keeps the briefing intact for the next call.
+        let auto_context = if machine_readable {
+            None
+        } else {
             let task = {
                 let session = self.session.read().await;
                 session.task.as_ref().map(|t| t.description.clone())
@@ -275,38 +315,6 @@ impl LeanCtxServer {
                 || std::env::var("LEAN_CTX_DISABLED").is_ok()
                 || std::env::var("LEAN_CTX_RAW").is_ok()
         };
-
-        // #990: a tool may declare that *this* invocation yields a machine-readable
-        // payload (e.g. ctx_outline format=json) that must reach the client
-        // byte-exact and parseable. The body is fully built (redaction +
-        // sensitivity still apply) but every prose decoration and terse
-        // compression below is suppressed, and the pure pre-decoration body is
-        // restored before returning (see the `machine_readable` guard near the
-        // end of this function). This also covers JSON error envelopes from the
-        // early rate-limit path, which would otherwise be corrupted by the
-        // first-call auto-context briefing.
-        //
-        // `ctx_call` is a meta-dispatcher: the contract belongs to its *inner*
-        // tool + inner arguments, not to ctx_call itself. Unwrap one level so
-        // JSON reached via the lazy `ctx_call` path (the default advertised
-        // surface, where ctx_outline is not a top-level tool) is just as
-        // byte-exact as a direct call.
-        let (mr_name, mr_args): (
-            Option<String>,
-            Option<&serde_json::Map<String, serde_json::Value>>,
-        ) = if name == "ctx_call" {
-            (
-                helpers::get_str(args, "name"),
-                args.and_then(|m| m.get("arguments"))
-                    .and_then(serde_json::Value::as_object),
-            )
-        } else {
-            (Some(name.to_string()), args)
-        };
-        let machine_readable = mr_name
-            .as_deref()
-            .and_then(|n| self.registry.as_ref().and_then(|r| r.get_arc(n)))
-            .is_some_and(|tool| tool.produces_machine_readable(mr_args));
 
         let pre_terse_len = result_text.len();
         let output_tokens = {
@@ -534,9 +542,13 @@ impl LeanCtxServer {
             result_text = format!("{result_text}\n\n{bw}");
         }
 
-        if !self
-            .rules_stale_checked
-            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        // Gated on `!machine_readable` (short-circuits before the swap) so a
+        // json-first call does not consume this once-per-session slot for a tip
+        // we would immediately discard; it then surfaces on the next call.
+        if !machine_readable
+            && !self
+                .rules_stale_checked
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             let client = self.client_name.read().await.clone();
             if !client.is_empty() && crate::rules_inject::check_rules_freshness(&client).is_some() {
@@ -959,14 +971,15 @@ impl LeanCtxServer {
         }
 
         // #990: a machine-readable invocation (e.g. ctx_outline format=json) must
-        // return a byte-exact, parseable payload. Every step above may have
-        // prepended/appended prose (auto-context briefing, verify footer, hints,
-        // checkpoints, deprecation notice) or compressed the body — all of which
-        // break a JSON contract. Restore the pure body captured *before*
-        // compression and decoration; redaction + sensitivity were applied
-        // earlier so the security envelope is preserved. `ctx_outline` is not an
-        // archivable/firewallable tool, so `pre_compression` is the unmodified
-        // body here; the guard is a no-op for non-machine-readable calls.
+        // return a byte-exact, parseable payload. The state-consuming briefings
+        // are already skipped above (so their once-per-session flags survive),
+        // but other steps still append recomputed prose (verify footer, throttle
+        // / budget warning, deprecation notice) or compress the body — all of
+        // which break a JSON contract. This guard is the robust catch-all:
+        // restore the pure body captured *before* compression and decoration.
+        // Redaction + sensitivity were applied earlier so the security envelope
+        // is preserved. `ctx_outline` is not an archivable/firewallable tool, so
+        // `pre_compression` is the unmodified body here; no-op otherwise.
         if machine_readable {
             result_text = pre_compression;
         }
