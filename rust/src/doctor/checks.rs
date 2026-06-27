@@ -1870,9 +1870,9 @@ pub(super) fn capacity_warnings() -> Vec<Outcome> {
 /// is behind and the operator should compact or raise the limit.
 fn capacity_hint(critical: bool) -> &'static str {
     if critical {
-        "over cap — eviction is behind. Run `ctx_knowledge action=\"cognition_loop\"` to compact + archive now, or raise the limit (memory.knowledge.max_facts / LEAN_CTX_MAX_FACTS)"
+        "over cap — eviction is behind. Run `lean-ctx knowledge consolidate --all` to compact project memory now, or raise the relevant memory.* cap"
     } else {
-        "at/near cap is healthy by design — lean-ctx self-curates (write-time dedup #970, hourly cluster-compaction #971, 90-day prune #972). Raise a cap only if recall quality drops (memory.knowledge.max_facts)"
+        "at/near cap is healthy by design — lean-ctx self-curates (write-time dedup #970, hourly cluster-compaction #971, 90-day prune #972). Raise a cap only if recall quality drops"
     }
 }
 

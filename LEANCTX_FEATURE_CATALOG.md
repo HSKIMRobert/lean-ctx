@@ -105,7 +105,7 @@ Full CLI parity with MCP `ctx_knowledge`:
 - `export [--format json|jsonl|simple] [--output <path>]` — export knowledge (stdout or file)
 - `import <path> [--merge replace|append|skip-existing] [--dry-run]` — import from JSON/JSONL
 - `remove --category <c> --key <k>` — remove a fact
-- `consolidate` — import latest session if present, then run the knowledge lifecycle
+- `consolidate [--all]` — import latest session if present, run lifecycle, then leave 25% facts/history/procedures capacity free; `--all` repeats this for every stored project root
 - `status` — knowledge base summary
 - `health` — health report with quality metrics
 - `lifecycle` — read-only lifecycle/capacity report
