@@ -23,6 +23,7 @@ pub fn auto_approve_tools() -> Vec<&'static str> {
         "ctx_overview",
         "ctx_preload",
         "ctx_compress",
+        "ctx_compare",
         "ctx_metrics",
         "ctx_session",
         "ctx_knowledge",
