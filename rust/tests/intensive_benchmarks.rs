@@ -150,9 +150,13 @@ fn bench_tool_descriptions_token_count() {
     // `core_tool_surface_stays_within_budget`); this full-surface total only
     // applies in opt-in full mode. Cutting it further is #509 (reduce tool
     // COUNT), not trimming these eval-validated descriptions.
+    // Raised 5600 -> 6000 for #982: registering ctx_compare (78 -> 79 tools)
+    // pushed the actual to ~5630, over the previous 5600 ceiling whose headroom
+    // had shrunk below one tool. Per #290 the ceiling must carry "a tool or two"
+    // of slack over the actual, so 6000 (actual ~5630) restores that buffer.
     assert!(
-        total < 5600,
-        "Total tool description tokens should be <5600, got {total}"
+        total < 6000,
+        "Total tool description tokens should be <6000, got {total}"
     );
 
     for (name, desc) in &descriptions {
@@ -206,9 +210,14 @@ fn bench_total_input_overhead() {
     // gate confirms NO REGRESSION (eval A/B Δ +0.039). The lazy default surface
     // (bench_lazy_default_vs_full_overhead) is unaffected; cutting the full-
     // surface total is #509 (reduce tool COUNT).
+    // Raised 14000 -> 15000 for #982: registering ctx_compare (78 -> 79 tools)
+    // lifted the actual to ~14205 (instr ~440 + desc ~5630 + schemas ~8135), over
+    // the previous 14000 ceiling whose headroom had shrunk below one tool. Per
+    // #290 the ceiling must carry "a tool or two" of slack over the actual, so
+    // 15000 (actual ~14205) restores that buffer.
     assert!(
-        total < 14000,
-        "Total input overhead should be <14000 tokens, got {total}"
+        total < 15000,
+        "Total input overhead should be <15000 tokens, got {total}"
     );
 }
 
