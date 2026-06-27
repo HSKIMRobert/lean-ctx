@@ -17,8 +17,9 @@
 //!    [`crate::core::neural::cache_alignment::CacheAlignedOutput`].
 //!
 //! ## Determinism (#498) & cache-safety (#448)
-//! Both stages are pure functions of the text: matches come from [`merged_spans`]
-//! (collected, sorted, overlaps merged), and the relocate's placeholders + tail
+//! Both stages are pure functions of the text: matches come from the
+//! `merged_spans` helper (collected, sorted, overlaps merged), and the
+//! relocate's placeholders + tail
 //! header are byte-constants, so identical input yields byte-identical output and
 //! the rewritten prefix is stable across turns. The relocate is idempotent (a
 //! second pass sees only placeholders) and only ever fires when the client
