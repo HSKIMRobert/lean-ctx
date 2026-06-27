@@ -119,11 +119,17 @@ bundle). `ctx_knowledge action=consolidate` and
 session exists, findings/decisions/history are imported first; if not, session
 import is skipped. Both paths then run the memory lifecycle over all project
 knowledge and report `run_memory_lifecycle` stats: decayed, consolidated,
-archived, compacted, and remaining facts. Explicit consolidate then enforces the
-75% target for facts/history/procedures in the same run, so at least 25%
-capacity remains free after session import. Capacity is bounded by
-`[memory.knowledge] max_facts` and `[memory.procedural] max_procedures` — near
-capacity, `doctor` warns and `consolidate` reclaims space.
+archived, compacted, and remaining facts. Every store — facts, history,
+procedures and patterns — is capacity-bounded (`[memory.knowledge] max_facts` /
+`max_history` / `max_patterns` and `[memory.procedural] max_procedures`) and
+reclaimed **losslessly**: when a store reaches its cap, the lowest-value tail is
+archived under `memory/archive/<store>/` (restorable) and the store settles at a
+working-room target — 75% by default (`[memory.lifecycle] reclaim_headroom_pct`).
+A reclaim uses hysteresis: it triggers only when a store hits its cap, never on
+every write. The reclaim is **on by default**; set
+`[memory.lifecycle] reclaim_enabled = false` to trim only the overflow instead.
+Eviction is archived either way, so nothing is ever hard-dropped. Near capacity,
+`doctor` warns and `consolidate` reclaims space.
 The CLI `--all` flag scans stored project knowledge roots and invokes that same
 per-project consolidation function for each one.
 

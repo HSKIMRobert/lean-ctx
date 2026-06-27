@@ -349,7 +349,7 @@ action=consolidate imports latest session if present, runs lifecycle, then frees
 action=gotcha trigger='X' resolution='Y' for known pitfalls.
 mode=semantic|exact for recall. category groups related facts.
 
-Parameters: `action`*, `as_of`, `category`, `confidence`, `examples`, `key`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `trigger`, `value`
+Parameters: `action`*, `as_of`, `category`, `confidence`, `dry_run`, `examples`, `key`, `limit`, `mode`, `pattern_type`, `query`, `resolution`, `severity`, `store`, `trigger`, `value`
 
 ## `ctx_ledger`
 
