@@ -9,7 +9,7 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 | | lean-ctx | Repomix | codebase-memory | claude-context | Aider repo-map | Mem0 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | **Stars** | 2.9k+ | 25k+ | 3k+ | 11.5k+ | 43k+ | 55k+ |
-| **MCP Tools** | **78** | 8 | 14 | 3 | 0 | 9 |
+| **MCP Tools** | **79** | 8 | 14 | 3 | 0 | 9 |
 | **Read Modes** | **10** | 0 | 0 | 0 | 0 | 0 |
 | **Token Compression** | **99%** | ~70% | 99%+ | ~40% | N/A | N/A |
 | **Shell Compression** | **95+** | — | — | — | — | — |
