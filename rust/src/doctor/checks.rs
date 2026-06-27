@@ -1872,7 +1872,7 @@ fn capacity_hint(critical: bool) -> &'static str {
     if critical {
         "over cap — eviction is behind. Run `lean-ctx knowledge consolidate --all` to compact project memory now, or raise the relevant memory.* cap"
     } else {
-        "at/near cap is healthy by design — lean-ctx self-curates (write-time dedup #970, hourly cluster-compaction #971, 90-day prune #972). Raise a cap only if recall quality drops"
+        "at/near cap is healthy by design — lean-ctx self-curates (write-time dedup #970, hourly cluster-compaction #971, 90-day prune #972). Raise a cap only if recall quality drops (memory.*)"
     }
 }
 
@@ -1984,12 +1984,12 @@ mod tests {
         // WARN (at/near cap): reassure it is by-design, point at the cap lever.
         let warn = capacity_hint(false);
         assert!(warn.contains("healthy by design"));
-        assert!(warn.contains("max_facts"));
+        assert!(warn.contains("memory.*"));
 
         // CRIT (over cap): give an immediate compaction action.
         let crit = capacity_hint(true);
-        assert!(crit.contains("cognition_loop"));
-        assert!(crit.contains("max_facts"));
+        assert!(crit.contains("lean-ctx knowledge consolidate --all"));
+        assert!(crit.contains("memory.*"));
 
         assert_ne!(warn, crit);
     }
