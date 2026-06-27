@@ -46,7 +46,7 @@ OpenAI (50%) prompt-cache discounts survive compression.
 | ML / learned compression | No (deterministic by design) | Yes (Kompress, torch) |
 | JSON array crusher (row dedup) | `json_crush` — lossless + opt-in lossy with CCR, deterministic (#935) | Smart Crusher (statistical) |
 | Active prompt-cache breakpoints | Anthropic `cache_control` injection, opt-in (#939) | Cache aligner |
-| Volatile-field cache telemetry | Opt-in system-prompt scan, measurement-only (#940) | Cache aligner (relocate) |
+| Volatile-field cache alignment | Detector (#940) **+ opt-in tail-relocate (#974)**, deterministic | Cache aligner (relocate) |
 | Compression-learning loop | Retrieve-coupled session backoff, deterministic (#941) | CCR learning |
 | Cross-agent shared memory | Knowledge graph + handoff | `SharedContext` |
 | File-read compression | 10 modes, ~13-token cached re-reads | — |
@@ -151,9 +151,10 @@ agent case — compress far more. See [`bench/compress/`](../../bench/compress/R
 - **Determinism & prompt-cache safety** — byte-stable output is a CI-guarded
   contract (#498); compression never breaks Anthropic/OpenAI cache discounts.
 - **Deterministic equivalents of Headroom's adaptive stages** — the JSON crusher
-  (#935), active Anthropic cache-breakpoint injection (#939) and retrieve-coupled
-  compression-learning loop (#941) deliver Smart-Crusher / cache-aligner / CCR-
-  learning behaviour *without* sampling, ML weights or non-deterministic output.
+  (#935), active Anthropic cache-breakpoint injection (#939), volatile-field
+  cache-aligner relocate (#974) and retrieve-coupled compression-learning loop
+  (#941) deliver Smart-Crusher / cache-aligner / CCR-learning behaviour *without*
+  sampling, ML weights or non-deterministic output.
 - **It's a whole layer** — compression is 1 of 78 MCP tools alongside cached
   reads, shell compression, semantic search, code intelligence and memory.
 - **100% local, single Rust binary** — no Python runtime, no telemetry by default.

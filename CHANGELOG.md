@@ -3,6 +3,25 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Active cache-aligner relocate — the opt-in tail-relocate the #940 detector
+  was the precursor to (#974).** With `[proxy] cache_align_relocate` (env
+  `LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE`) enabled, the proxy rewrites an
+  *unanchored* Anthropic `system` prompt into a stable block — every volatile
+  value (ISO dates/datetimes, UUIDs, git SHAs) replaced by a constant `[ctx#N]`
+  placeholder — carrying the `cache_control` breakpoint, plus an *uncached*
+  trailing block that re-states the relocated values. The large, stable prefix
+  then stays byte-identical turn-to-turn and finally caches at the provider, while
+  only the small volatile tail is reprocessed. Anthropic-only, Treatment-arm, and
+  gated on a client that anchored nothing of its own and on Anthropic's minimum
+  cacheable size; deterministic (#498) and idempotent (a second pass sees only
+  placeholders). Composes with the #939 breakpoint injection to exactly one
+  anchor on the stable block. New `/status` `cache_safety` gauges
+  (`volatile_relocate_requests`, `volatile_fields_relocated`) quantify the win.
+  Default off — the request is byte-identical until you opt in.
+
 ## [3.8.15] — 2026-06-27
 
 ### Fixed

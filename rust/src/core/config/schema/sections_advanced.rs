@@ -115,8 +115,17 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key_with_env(
             "bool",
             serde_json::json!(cfg.proxy.cache_aligner_enabled()),
-            "Opt-in cache-aligner volatile-field telemetry (#940). When on, the proxy scans each unanchored Anthropic system prompt for volatile, cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and reports how many it found on /status cache_safety (volatile_system_requests, volatile_fields_detected) - purely to quantify how much prompt-cache the client leaks. Measurement only: the request body is never mutated, so it is strictly cache-safe. The deterministic scan is the precursor to an opt-in tail-relocate. Default false",
+            "Opt-in cache-aligner volatile-field telemetry (#940). When on, the proxy scans each unanchored Anthropic system prompt for volatile, cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and reports how many it found on /status cache_safety (volatile_system_requests, volatile_fields_detected) - purely to quantify how much prompt-cache the client leaks. Measurement only: the request body is never mutated, so it is strictly cache-safe. The deterministic scan is the precursor to the opt-in tail-relocate below. Default false",
             "LEAN_CTX_PROXY_CACHE_ALIGNER",
+        ),
+    );
+    proxy.insert(
+        "cache_align_relocate".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.proxy.cache_align_relocate_enabled()),
+            "Opt-in active cache-aligner relocate (#974). When on, the proxy rewrites an unanchored Anthropic system prompt into a stable block (volatile values - ISO dates/datetimes, UUIDs, git SHAs - replaced by constant placeholders) carrying the cache_control breakpoint, plus an uncached trailing block that re-states the relocated values. The cacheable prefix then stays byte-stable turn-to-turn and finally caches; only the small tail is reprocessed. Anthropic-only, Treatment-arm, gated on a client that anchored nothing and on Anthropic's minimum cacheable size. Deterministic (#498) and idempotent. The cache_aligner telemetry is the precursor that quantifies the saving. Default false",
+            "LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE",
         ),
     );
     proxy.insert(

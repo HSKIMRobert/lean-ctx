@@ -35,6 +35,11 @@ static BREAKPOINTS_INJECTED: AtomicU64 = AtomicU64::new(0);
 static VOLATILE_SYSTEM_REQUESTS: AtomicU64 = AtomicU64::new(0);
 /// Cumulative volatile fields detected across those requests (#940).
 static VOLATILE_FIELDS_DETECTED: AtomicU64 = AtomicU64::new(0);
+/// Requests where the opt-in relocate (#974) actively moved volatile fields out
+/// of the cacheable prefix into the uncached tail. A pure cache-win signal.
+static VOLATILE_RELOCATE_REQUESTS: AtomicU64 = AtomicU64::new(0);
+/// Cumulative volatile fields relocated across those requests (#974).
+static VOLATILE_FIELDS_RELOCATED: AtomicU64 = AtomicU64::new(0);
 
 /// Record one request's frozen-region prose activity.
 ///
@@ -72,6 +77,17 @@ pub fn record_volatile_system(fields: u64) {
     }
     VOLATILE_SYSTEM_REQUESTS.fetch_add(1, Ordering::Relaxed);
     VOLATILE_FIELDS_DETECTED.fetch_add(fields, Ordering::Relaxed);
+}
+
+/// Record one request whose system prompt had `fields` volatile values relocated
+/// to the uncached tail (#974). A no-op when none moved, so the gauges count only
+/// requests the relocate actually rewrote.
+pub fn record_volatile_relocated(fields: u64) {
+    if fields == 0 {
+        return;
+    }
+    VOLATILE_RELOCATE_REQUESTS.fetch_add(1, Ordering::Relaxed);
+    VOLATILE_FIELDS_RELOCATED.fetch_add(fields, Ordering::Relaxed);
 }
 
 /// Cache-preservation ratio: `safe / total`, or `1.0` when nothing has been
@@ -114,6 +130,14 @@ pub struct CacheSafety {
     /// Volatile fields detected across those requests (#940), cumulative.
     #[serde(default)]
     pub volatile_fields_detected: u64,
+    /// Requests where the opt-in relocate (#974) moved volatile fields out of the
+    /// cacheable prefix into the uncached tail, cumulative. Non-zero only with
+    /// `cache_align_relocate` enabled — a pure cache win, not a regression.
+    #[serde(default)]
+    pub volatile_relocate_requests: u64,
+    /// Volatile fields relocated across those requests (#974), cumulative.
+    #[serde(default)]
+    pub volatile_fields_relocated: u64,
 }
 
 #[must_use]
@@ -128,6 +152,8 @@ pub fn snapshot() -> CacheSafety {
         breakpoints_injected: BREAKPOINTS_INJECTED.load(Ordering::Relaxed),
         volatile_system_requests: VOLATILE_SYSTEM_REQUESTS.load(Ordering::Relaxed),
         volatile_fields_detected: VOLATILE_FIELDS_DETECTED.load(Ordering::Relaxed),
+        volatile_relocate_requests: VOLATILE_RELOCATE_REQUESTS.load(Ordering::Relaxed),
+        volatile_fields_relocated: VOLATILE_FIELDS_RELOCATED.load(Ordering::Relaxed),
     }
 }
 

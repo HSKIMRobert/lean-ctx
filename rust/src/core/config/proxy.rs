@@ -79,6 +79,19 @@ pub struct ProxyConfig {
     /// is never mutated, so it is strictly cache-safe. `None`/`false` (the default)
     /// skips the scan entirely. See [`ProxyConfig::cache_aligner_enabled`].
     pub cache_aligner: Option<bool>,
+    /// Opt-in active cache-aligner relocate (#974). When enabled, the proxy
+    /// rewrites an *unanchored* Anthropic `system` prompt into a stable block
+    /// (volatile values — ISO dates/datetimes, UUIDs, git SHAs — replaced by
+    /// constant placeholders) carrying the `cache_control` breakpoint, plus an
+    /// *uncached* trailing block that re-states the relocated values. The cacheable
+    /// prefix then stays byte-stable turn-to-turn and finally caches; only the
+    /// small tail is reprocessed. Anthropic-only, Treatment-arm, gated on a client
+    /// that anchored nothing and on Anthropic's minimum cacheable size.
+    /// Deterministic (#498) and idempotent. `None`/`false` (the default) leaves the
+    /// request untouched. The `cache_aligner` telemetry above is the precursor that
+    /// quantifies how much this would save. See
+    /// [`ProxyConfig::cache_align_relocate_enabled`].
+    pub cache_align_relocate: Option<bool>,
     /// Cache-safe, cross-provider reasoning-effort control (#834). One of
     /// `minimal|low|medium|high` pins the model's reasoning depth across every
     /// provider; `None`/`"off"` (the default) is a strict no-op. The value is a
@@ -292,6 +305,16 @@ impl ProxyConfig {
     /// wins, then `[proxy] cache_aligner` in config.toml, else `false`.
     pub fn cache_aligner_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CACHE_ALIGNER").is_ok() || self.cache_aligner.unwrap_or(false)
+    }
+
+    /// Whether opt-in active cache-aligner relocate (#974) is enabled. Off by
+    /// default: it reshapes the provider-visible `system` field (moving volatile
+    /// values to an uncached tail block), so it must be an explicit opt-in.
+    /// `LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE` (any value) wins, then `[proxy]
+    /// cache_align_relocate` in config.toml, else `false`.
+    pub fn cache_align_relocate_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE").is_ok()
+            || self.cache_align_relocate.unwrap_or(false)
     }
 
     /// Resolved cross-provider reasoning effort (#834), or `None` when the
@@ -766,6 +789,24 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.cache_aligner_enabled());
+    }
+
+    #[test]
+    fn cache_align_relocate_is_opt_in_and_config_enables() {
+        // #974: off by default (it reshapes the provider-visible system field by
+        // relocating volatile values to the tail). Isolate from a developer shell
+        // that may export the env override.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE");
+        assert!(
+            !ProxyConfig::default().cache_align_relocate_enabled(),
+            "active cache-aligner relocate must be opt-in (off by default)"
+        );
+        let cfg = ProxyConfig {
+            cache_align_relocate: Some(true),
+            ..Default::default()
+        };
+        assert!(cfg.cache_align_relocate_enabled());
     }
 
     #[test]

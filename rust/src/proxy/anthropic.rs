@@ -51,6 +51,11 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     // it never mutates the body, it only records how much cache the system prompt
     // leaks.
     let align_volatile = cfg.proxy.cache_aligner_enabled();
+    // #974: active cache-aligner relocate (opt-in, Anthropic-only). Resolved up
+    // front like the telemetry above so a meter-only proxy still reaches the
+    // relocate slot — this is the one mutation that moves volatile fields out of
+    // the cacheable prefix.
+    let relocate_volatile = cfg.proxy.cache_align_relocate_enabled();
     // #895 Track B: output-savings holdout arm, from the pristine body (before any
     // mutation below) so it matches the arm the response meter records. Control
     // conversations skip output-shaping (effort + verbosity steer) but are still
@@ -93,6 +98,7 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
         && !modified
         && !inject_breakpoint
         && !align_volatile
+        && !relocate_volatile
     {
         let out = serde_json::to_vec(&doc).unwrap_or_default();
         return (out, original_size, original_size);
@@ -222,6 +228,27 @@ fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize
     {
         let scan = super::cache_aligner::scan_volatile(&text);
         cache_safety::record_volatile_system(scan.fields as u64);
+    }
+    // #974: active cache-aligner relocate (Anthropic-only). After the telemetry
+    // above measured the leak on the pristine prompt, move the volatile values out
+    // of the cacheable prefix into an uncached tail block so the prefix finally
+    // caches. Gated exactly like the breakpoint below — Treatment arm, and only
+    // when the client anchored nothing of its own. The rewrite adds the
+    // `cache_control` itself, so a following #939 injection sees an anchored prefix
+    // and stays a no-op: the two compose to exactly one breakpoint on the stable
+    // block, with the volatile tail left uncached.
+    if relocate_volatile
+        && arm == super::holdout::Arm::Treatment
+        && cached == 0
+        && doc
+            .get("system")
+            .is_some_and(|s| !prose::value_has_cache_control(s))
+    {
+        let relocated = super::cache_aligner::apply_anthropic_relocate(&mut doc);
+        if relocated > 0 {
+            modified = true;
+            cache_safety::record_volatile_relocated(relocated as u64);
+        }
     }
     // #939: active prompt-cache breakpoint injection (Anthropic-only). When the
     // client anchored no prefix of its own — no message `cache_control` (`cached
@@ -946,6 +973,168 @@ mod tests {
         assert_eq!(
             out, bytes,
             "cache-aligner telemetry must never mutate the request body"
+        );
+    }
+
+    /// A cacheable-size system prompt that carries one volatile field (a date),
+    /// so the #974 relocate has something to move and clears the size floor.
+    fn cacheable_system_with_date() -> String {
+        format!("Today is 2026-06-27. {}", cacheable_system())
+    }
+
+    fn clear_relocate_env() {
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGN_RELOCATE");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_BREAKPOINT");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_CACHE_ALIGNER");
+        crate::test_env::remove_var("LEAN_CTX_PROXY_OUTPUT_HOLDOUT");
+    }
+
+    #[test]
+    fn cache_align_relocate_moves_volatiles_to_tail_when_opt_in() {
+        // #974: opt-in on, client anchored nothing → the date leaves the cacheable
+        // prefix for an uncached tail block, and the stable block carries the one
+        // ephemeral breakpoint.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_relocate_env();
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system_with_date(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_align_relocate = Some(true);
+            c.proxy.output_holdout = Some(0.0);
+        })
+        .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+
+        assert!(v["system"].is_array(), "system reshaped into a block array");
+        assert_eq!(v["system"][0]["cache_control"]["type"], "ephemeral");
+        assert!(
+            !v["system"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("2026-06-27"),
+            "the volatile date must leave the cacheable prefix"
+        );
+        assert!(
+            v["system"][1].get("cache_control").is_none(),
+            "the relocated tail block stays uncached"
+        );
+        assert!(
+            v["system"][1]["text"]
+                .as_str()
+                .unwrap()
+                .contains("2026-06-27"),
+            "the date must be re-stated in the tail"
+        );
+    }
+
+    #[test]
+    fn cache_align_relocate_off_by_default_is_byte_unchanged() {
+        // Default off → byte-identical request, preserving the cache-stable
+        // contract even with a volatile-rich system prompt.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_relocate_env();
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system_with_date(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        assert_eq!(
+            out, bytes,
+            "default-off must leave the request byte-identical"
+        );
+    }
+
+    #[test]
+    fn cache_align_relocate_skips_control_arm() {
+        // #895 holdout: a control-arm conversation must be byte-unchanged so its
+        // cache behaviour is the measurement baseline.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_relocate_env();
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system_with_date(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_align_relocate = Some(true);
+            c.proxy.output_holdout = Some(1.0);
+        })
+        .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert!(
+            v["system"].is_string(),
+            "control arm must not be relocated (measurement baseline)"
+        );
+    }
+
+    #[test]
+    fn cache_align_relocate_respects_client_anchor() {
+        // Safety: a client cache_control means `system` is part of the cached
+        // prefix — never relocate it (that would shift the cached prefix, #448).
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_relocate_env();
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system_with_date(),
+            "messages": [{
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "hello",
+                    "cache_control": {"type": "ephemeral"}
+                }]
+            }]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_align_relocate = Some(true);
+            c.proxy.output_holdout = Some(0.0);
+        })
+        .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        assert!(
+            v["system"].is_string(),
+            "with a client anchor present, system must be left untouched"
+        );
+    }
+
+    #[test]
+    fn cache_align_relocate_composes_with_breakpoint_to_one_anchor() {
+        // Both opt-ins on: relocate adds the breakpoint to the stable block, so the
+        // #939 injection sees an anchored prefix and stays a no-op — exactly one
+        // breakpoint, on the stable block, with the volatile tail uncached.
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        clear_relocate_env();
+        let body = serde_json::json!({
+            "model": "claude-opus-4-8",
+            "system": cacheable_system_with_date(),
+            "messages": [{"role": "user", "content": "Refactor the parser."}]
+        });
+        let bytes = serde_json::to_vec(&body).unwrap();
+        crate::core::config::Config::update_global(|c| {
+            c.proxy.cache_align_relocate = Some(true);
+            c.proxy.cache_breakpoint = Some(true);
+            c.proxy.output_holdout = Some(0.0);
+        })
+        .unwrap();
+        let (out, _o, _c) = compress_request_body(body, bytes.len());
+        let v: Value = serde_json::from_slice(&out).unwrap();
+        let blocks = v["system"].as_array().expect("system is a block array");
+        assert_eq!(blocks.len(), 2, "stable block + volatile tail");
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
+        assert!(
+            blocks[1].get("cache_control").is_none(),
+            "no second breakpoint — the tail stays uncached"
         );
     }
 }
