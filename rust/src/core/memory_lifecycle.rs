@@ -10,7 +10,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::knowledge::KnowledgeFact;
+use super::knowledge::{KnowledgeFact, sort_fact_for_output};
 
 const DEFAULT_DECAY_RATE: f32 = 0.01;
 const DEFAULT_MAX_FACTS: usize = 1000;
@@ -325,23 +325,27 @@ pub fn compact(
 
     to_archive.sort_unstable();
     to_archive.dedup();
-    let count = to_archive.len();
 
     for idx in to_archive.into_iter().rev() {
         archived.push(facts.remove(idx));
     }
 
-    if facts.len() > config.max_facts {
+    if facts.len() >= config.max_facts && config.max_facts > 0 {
+        let target = reclaim_target_capacity(config.max_facts);
         facts.sort_by(|a, b| {
-            b.confidence
-                .partial_cmp(&a.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            b.is_current()
+                .cmp(&a.is_current())
+                .then_with(|| sort_fact_for_output(a, b))
         });
-        let excess: Vec<KnowledgeFact> = facts.drain(config.max_facts..).collect();
+        let excess: Vec<KnowledgeFact> = facts.drain(target..).collect();
         archived.extend(excess);
     }
 
-    (count, archived)
+    (archived.len(), archived)
+}
+
+fn reclaim_target_capacity(max_facts: usize) -> usize {
+    max_facts.saturating_sub(max_facts.div_ceil(4))
 }
 
 /// Guardrails for cluster compaction (#971). See
@@ -874,6 +878,45 @@ mod tests {
         assert_eq!(facts.len(), 1);
         assert_eq!(archived.len(), 1);
         assert_eq!(archived[0].key, "cache");
+    }
+
+    #[test]
+    fn compact_at_capacity_reclaims_twenty_five_percent() {
+        let config = LifecycleConfig {
+            max_facts: 8,
+            ..Default::default()
+        };
+        let mut facts: Vec<KnowledgeFact> = (0..8)
+            .map(|i| make_fact("finding", &format!("k{i}"), &format!("value {i}"), 0.8))
+            .collect();
+
+        let (count, archived) = compact(&mut facts, &config);
+
+        assert_eq!(count, 2);
+        assert_eq!(archived.len(), 2);
+        assert_eq!(facts.len(), 6);
+    }
+
+    #[test]
+    fn compact_prefers_current_high_salience_facts() {
+        let config = LifecycleConfig {
+            max_facts: 4,
+            ..Default::default()
+        };
+        let decision = make_fact("decision", "keep-decision", "important decision", 0.7);
+        let finding = make_fact("finding", "keep-finding", "fresh finding", 0.9);
+        let mut old = make_fact("decision", "drop-archived", "old decision", 0.95);
+        old.valid_until = Some(Utc::now());
+        let low = make_fact("misc", "drop-low", "low salience", 0.6);
+        let mut facts = vec![old, low, finding, decision];
+
+        let (_count, archived) = compact(&mut facts, &config);
+        let keys: Vec<&str> = facts.iter().map(|f| f.key.as_str()).collect();
+        let archived_keys: Vec<&str> = archived.iter().map(|f| f.key.as_str()).collect();
+
+        assert!(keys.contains(&"keep-decision"));
+        assert!(keys.contains(&"keep-finding"));
+        assert!(archived_keys.contains(&"drop-archived"));
     }
 
     #[test]

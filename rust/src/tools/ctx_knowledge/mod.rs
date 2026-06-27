@@ -3,8 +3,10 @@ use chrono::Utc;
 #[cfg(feature = "embeddings")]
 use crate::core::embeddings::EmbeddingEngine;
 
-use crate::core::knowledge::ProjectKnowledge;
+use crate::core::knowledge::{ProjectKnowledge, sort_fact_for_output};
+use crate::core::memory_lifecycle::LifecycleReport;
 use crate::core::memory_policy::MemoryPolicy;
+use crate::core::procedural_memory::{ProceduralStore, Procedure};
 use crate::core::session::SessionState;
 pub(crate) mod embeddings;
 pub(crate) use embeddings::*;
@@ -15,6 +17,289 @@ pub(crate) use search::*;
 
 fn load_policy_or_error() -> Result<MemoryPolicy, String> {
     super::knowledge_shared::load_policy_or_error()
+}
+
+#[derive(Debug)]
+pub(crate) struct KnowledgeConsolidationReport {
+    pub session_id: Option<String>,
+    pub session_items: usize,
+    pub facts: usize,
+    pub active_facts: usize,
+    pub archived_facts: usize,
+    pub fact_capacity_target: usize,
+    pub fact_capacity_archived: usize,
+    pub patterns: usize,
+    pub history: usize,
+    pub history_capacity_target: usize,
+    pub history_compacted: usize,
+    pub procedures: usize,
+    pub procedure_capacity_target: usize,
+    pub procedures_compacted: usize,
+    pub lifecycle: LifecycleReport,
+}
+
+pub(crate) fn consolidate_project_knowledge(
+    project_root: &str,
+) -> Result<KnowledgeConsolidationReport, String> {
+    let policy = load_policy_or_error()?;
+    let session = SessionState::load_latest_for_project_root(project_root);
+
+    let (_knowledge, report) = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        let mut session_items = 0usize;
+        let mut session_id = None;
+
+        if let Some(session) = session.as_ref() {
+            session_id = Some(session.id.clone());
+
+            for finding in &session.findings {
+                let key_text = if let Some(ref file) = finding.file {
+                    if let Some(line) = finding.line {
+                        format!("{file}:{line}")
+                    } else {
+                        file.clone()
+                    }
+                } else {
+                    format!("finding-{session_items}")
+                };
+
+                knowledge.remember(
+                    "finding",
+                    &key_text,
+                    &finding.summary,
+                    &session.id,
+                    0.7,
+                    &policy,
+                );
+                session_items += 1;
+            }
+
+            for decision in &session.decisions {
+                let key_text = decision
+                    .summary
+                    .chars()
+                    .take(50)
+                    .collect::<String>()
+                    .replace(' ', "-")
+                    .to_lowercase();
+
+                knowledge.remember(
+                    "decision",
+                    &key_text,
+                    &decision.summary,
+                    &session.id,
+                    0.85,
+                    &policy,
+                );
+                session_items += 1;
+            }
+
+            let task_desc = session
+                .task
+                .as_ref()
+                .map_or_else(|| "(no task)".into(), |t| t.description.clone());
+
+            let summary = format!(
+                "Session {}: {} — {} findings, {} decisions consolidated",
+                session.id,
+                task_desc,
+                session.findings.len(),
+                session.decisions.len()
+            );
+            knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
+        }
+
+        let lifecycle = knowledge.run_memory_lifecycle(&policy);
+        let fact_capacity_target = reclaim_target_capacity(policy.knowledge.max_facts);
+        let fact_capacity_archived =
+            compact_facts_for_capacity(knowledge, policy.knowledge.max_facts)?;
+        let history_capacity_target = reclaim_target_capacity(policy.knowledge.max_history);
+        let history_compacted =
+            compact_history_for_capacity(knowledge, policy.knowledge.max_history);
+        let (procedures, procedure_capacity_target, procedures_compacted) =
+            compact_procedures_for_capacity(
+                &knowledge.project_hash,
+                policy.procedural.max_procedures,
+            )?;
+        let active_facts = knowledge.facts.iter().filter(|f| f.is_current()).count();
+        let archived_facts = knowledge.facts.len().saturating_sub(active_facts);
+
+        Ok(KnowledgeConsolidationReport {
+            session_id,
+            session_items,
+            facts: knowledge.facts.len(),
+            active_facts,
+            archived_facts,
+            fact_capacity_target,
+            fact_capacity_archived,
+            patterns: knowledge.patterns.len(),
+            history: knowledge.history.len(),
+            history_capacity_target,
+            history_compacted,
+            procedures,
+            procedure_capacity_target,
+            procedures_compacted,
+            lifecycle,
+        })
+    })
+    .map_err(|e| format!("Consolidation done but save failed: {e}"))?;
+
+    report
+}
+
+pub(crate) fn consolidate_all_project_knowledge()
+-> Result<Vec<(String, KnowledgeConsolidationReport)>, String> {
+    let roots = ProjectKnowledge::list_project_roots()?;
+    let mut reports = Vec::with_capacity(roots.len());
+    for root in roots {
+        let report = consolidate_project_knowledge(&root)
+            .map_err(|e| format!("Consolidation failed for {}: {e}", project_label(&root)))?;
+        reports.push((root, report));
+    }
+    Ok(reports)
+}
+
+pub(crate) fn format_consolidation_report(report: &KnowledgeConsolidationReport) -> String {
+    let session_line = match report.session_id.as_deref() {
+        Some(session_id) => {
+            format!(
+                "Session import: {session_id} ({} item(s))",
+                report.session_items
+            )
+        }
+        None => "Session import: none (no active session)".to_string(),
+    };
+
+    format!(
+        "{session_line}\n\
+         Facts: {} active, {} archived, {} total (target <= {}, archived-to-target {})\n\
+         Patterns: {}, History: {} (target <= {}, compacted {})\n\
+         Procedures: {} (target <= {}, compacted {})\n\
+         Lifecycle: decayed {}, consolidated {}, archived {}, compacted {}, remaining {}",
+        report.active_facts,
+        report.archived_facts,
+        report.facts,
+        report.fact_capacity_target,
+        report.fact_capacity_archived,
+        report.patterns,
+        report.history,
+        report.history_capacity_target,
+        report.history_compacted,
+        report.procedures,
+        report.procedure_capacity_target,
+        report.procedures_compacted,
+        report.lifecycle.decayed_count,
+        report.lifecycle.consolidated_count,
+        report.lifecycle.archived_count,
+        report.lifecycle.compacted_count,
+        report.lifecycle.remaining_facts
+    )
+}
+
+pub(crate) fn format_all_consolidation_reports(
+    reports: &[(String, KnowledgeConsolidationReport)],
+) -> String {
+    if reports.is_empty() {
+        return "No project knowledge stores found.".to_string();
+    }
+
+    let mut out = format!("Projects consolidated: {}", reports.len());
+    for (project_root, report) in reports {
+        out.push_str("\n\nProject: ");
+        out.push_str(project_label(project_root));
+        out.push('\n');
+        out.push_str(&format_consolidation_report(report));
+    }
+    out
+}
+
+fn project_label(project_root: &str) -> &str {
+    if project_root.trim().is_empty() {
+        "(empty project root)"
+    } else {
+        project_root
+    }
+}
+
+fn compact_facts_for_capacity(
+    knowledge: &mut ProjectKnowledge,
+    max_facts: usize,
+) -> Result<usize, String> {
+    if max_facts == 0 {
+        return Ok(0);
+    }
+    let target = reclaim_target_capacity(max_facts);
+    if knowledge.facts.len() <= target {
+        return Ok(0);
+    }
+
+    knowledge.facts.sort_by(|a, b| {
+        b.is_current()
+            .cmp(&a.is_current())
+            .then_with(|| sort_fact_for_output(a, b))
+    });
+
+    let archived = knowledge.facts.split_off(target);
+    let archived_count = archived.len();
+    if let Err(e) = crate::core::memory_lifecycle::archive_facts(&archived) {
+        knowledge.facts.extend(archived);
+        return Err(format!("Capacity archive failed: {e}"));
+    }
+
+    Ok(archived_count)
+}
+
+fn compact_history_for_capacity(knowledge: &mut ProjectKnowledge, max_history: usize) -> usize {
+    if max_history == 0 {
+        return 0;
+    }
+    let target = reclaim_target_capacity(max_history);
+    if knowledge.history.len() <= target {
+        return 0;
+    }
+    let compacted = knowledge.history.len().saturating_sub(target);
+    if compacted > 0 {
+        knowledge.history.drain(0..compacted);
+    }
+    compacted
+}
+
+fn compact_procedures_for_capacity(
+    project_hash: &str,
+    max_procedures: usize,
+) -> Result<(usize, usize, usize), String> {
+    let target = reclaim_target_capacity(max_procedures);
+    let Some(mut store) = ProceduralStore::load(project_hash) else {
+        return Ok((0, target, 0));
+    };
+    if max_procedures == 0 || store.procedures.len() <= target {
+        return Ok((store.procedures.len(), target, 0));
+    }
+
+    store.procedures.sort_by(sort_procedure_for_retention);
+    let compacted = store.procedures.len().saturating_sub(target);
+    store.procedures.truncate(target);
+    store
+        .save()
+        .map_err(|e| format!("Procedure capacity compact failed: {e}"))?;
+    Ok((store.procedures.len(), target, compacted))
+}
+
+fn sort_procedure_for_retention(a: &Procedure, b: &Procedure) -> std::cmp::Ordering {
+    procedure_score(b)
+        .total_cmp(&procedure_score(a))
+        .then_with(|| b.last_used.cmp(&a.last_used))
+        .then_with(|| b.created_at.cmp(&a.created_at))
+        .then_with(|| a.name.cmp(&b.name))
+        .then_with(|| a.id.cmp(&b.id))
+}
+
+fn procedure_score(procedure: &Procedure) -> f32 {
+    let use_score = (procedure.times_used.min(20) as f32) / 20.0;
+    procedure.confidence * 0.5 + procedure.success_rate() * 0.3 + use_score * 0.2
+}
+
+fn reclaim_target_capacity(max_items: usize) -> usize {
+    max_items.saturating_sub(max_items.div_ceil(4))
 }
 
 /// Dispatches knowledge base actions (remember, recall, pattern, timeline, etc.).
@@ -640,94 +925,9 @@ fn handle_export(project_root: &str) -> String {
 }
 
 fn handle_consolidate(project_root: &str) -> String {
-    let Some(session) = SessionState::load_latest() else {
-        return "No active session to consolidate.".to_string();
-    };
-    let policy = match crate::core::config::Config::load().memory_policy_effective() {
-        Ok(p) => p,
-        Err(e) => {
-            let path = crate::core::config::Config::path().map_or_else(
-                || "~/.lean-ctx/config.toml".to_string(),
-                |p| p.display().to_string(),
-            );
-            return format!("Error: invalid memory policy: {e}\nFix: edit {path}");
-        }
-    };
-
-    // Read-modify-write under the cross-process lock (#326/#594) so a parallel
-    // remember/consolidate cannot drop facts via a lost update.
-    let result = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
-        let mut consolidated = 0u32;
-
-        for finding in &session.findings {
-            let key_text = if let Some(ref file) = finding.file {
-                if let Some(line) = finding.line {
-                    format!("{file}:{line}")
-                } else {
-                    file.clone()
-                }
-            } else {
-                format!("finding-{consolidated}")
-            };
-
-            knowledge.remember(
-                "finding",
-                &key_text,
-                &finding.summary,
-                &session.id,
-                0.7,
-                &policy,
-            );
-            consolidated += 1;
-        }
-
-        for decision in &session.decisions {
-            let key_text = decision
-                .summary
-                .chars()
-                .take(50)
-                .collect::<String>()
-                .replace(' ', "-")
-                .to_lowercase();
-
-            knowledge.remember(
-                "decision",
-                &key_text,
-                &decision.summary,
-                &session.id,
-                0.85,
-                &policy,
-            );
-            consolidated += 1;
-        }
-
-        let task_desc = session
-            .task
-            .as_ref()
-            .map_or_else(|| "(no task)".into(), |t| t.description.clone());
-
-        let summary = format!(
-            "Session {}: {} — {} findings, {} decisions consolidated",
-            session.id,
-            task_desc,
-            session.findings.len(),
-            session.decisions.len()
-        );
-        knowledge.consolidate(&summary, vec![session.id.clone()], &policy);
-        let _ = knowledge.run_memory_lifecycle(&policy);
-        consolidated
-    });
-
-    match result {
-        Ok((knowledge, consolidated)) => format!(
-            "Consolidated {consolidated} items from session {} into project knowledge.\n\
-             Facts: {}, Patterns: {}, History: {}",
-            session.id,
-            knowledge.facts.len(),
-            knowledge.patterns.len(),
-            knowledge.history.len()
-        ),
-        Err(e) => format!("Consolidation done but save failed: {e}"),
+    match consolidate_project_knowledge(project_root) {
+        Ok(report) => format_consolidation_report(&report),
+        Err(e) => e,
     }
 }
 
@@ -921,4 +1121,321 @@ fn handle_wakeup(project_root: &str) -> String {
         return "No knowledge yet. Start using ctx_knowledge(action=\"remember\") to build project memory.".to_string();
     }
     format!("WAKE-UP BRIEFING:\n{aaak}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct CurrentDirGuard {
+        previous: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(dir: &std::path::Path) -> Self {
+            static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+            let lock = LOCK.get_or_init(|| std::sync::Mutex::new(()));
+            let guard = lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir).unwrap();
+            Self {
+                previous,
+                _lock: guard,
+            }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).unwrap();
+        }
+    }
+
+    struct DataDirGuard;
+
+    impl DataDirGuard {
+        fn set(path: &std::path::Path) -> Self {
+            crate::test_env::set_var("LEAN_CTX_DATA_DIR", path);
+            Self
+        }
+    }
+
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        }
+    }
+
+    fn report(session_id: Option<String>, session_items: usize) -> KnowledgeConsolidationReport {
+        KnowledgeConsolidationReport {
+            session_id,
+            session_items,
+            facts: 7,
+            active_facts: 5,
+            archived_facts: 2,
+            fact_capacity_target: 6,
+            fact_capacity_archived: 1,
+            patterns: 2,
+            history: 3,
+            history_capacity_target: 6,
+            history_compacted: 1,
+            procedures: 4,
+            procedure_capacity_target: 6,
+            procedures_compacted: 2,
+            lifecycle: LifecycleReport {
+                decayed_count: 1,
+                consolidated_count: 2,
+                archived_count: 3,
+                compacted_count: 4,
+                remaining_facts: 5,
+            },
+        }
+    }
+
+    #[test]
+    fn consolidation_report_marks_no_session_import() {
+        let out = format_consolidation_report(&report(None, 0));
+
+        assert!(out.contains("Session import: none (no active session)"));
+        assert!(out.contains("Lifecycle: decayed 1, consolidated 2"));
+    }
+
+    #[test]
+    fn consolidation_report_includes_session_and_lifecycle_stats() {
+        let out = format_consolidation_report(&report(Some("s1".to_string()), 6));
+
+        assert!(out.contains("Session import: s1 (6 item(s))"));
+        assert!(
+            out.contains(
+                "Facts: 5 active, 2 archived, 7 total (target <= 6, archived-to-target 1)"
+            )
+        );
+        assert!(out.contains("Patterns: 2, History: 3 (target <= 6, compacted 1)"));
+        assert!(out.contains("Procedures: 4 (target <= 6, compacted 2)"));
+        assert!(out.contains("archived 3, compacted 4, remaining 5"));
+    }
+
+    #[test]
+    fn compact_history_reclaims_capacity_above_target() {
+        let mut knowledge = ProjectKnowledge::new("/tmp/lean-ctx-history-compact-test");
+        for i in 0..7 {
+            knowledge
+                .history
+                .push(crate::core::knowledge::ConsolidatedInsight {
+                    summary: format!("summary {i}"),
+                    from_sessions: vec![format!("s{i}")],
+                    timestamp: Utc::now(),
+                });
+        }
+
+        let compacted = compact_history_for_capacity(&mut knowledge, 8);
+
+        assert_eq!(compacted, 1);
+        assert_eq!(knowledge.history.len(), 6);
+        assert_eq!(knowledge.history[0].summary, "summary 1");
+    }
+
+    #[test]
+    fn compact_facts_reclaims_capacity_above_target() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let policy = MemoryPolicy::default();
+        let mut knowledge = ProjectKnowledge::new("/tmp/lean-ctx-fact-compact-test");
+        for i in 0..7 {
+            knowledge.remember(
+                "finding",
+                &format!("k{i}"),
+                &format!("value {i}"),
+                "s1",
+                0.8,
+                &policy,
+            );
+        }
+
+        let archived = compact_facts_for_capacity(&mut knowledge, 8).unwrap();
+
+        assert_eq!(archived, 1);
+        assert_eq!(knowledge.facts.len(), 6);
+    }
+
+    fn test_procedure(id: usize, confidence: f32) -> Procedure {
+        Procedure {
+            id: format!("p-{id}"),
+            name: format!("workflow-{id}"),
+            description: "test workflow".to_string(),
+            steps: Vec::new(),
+            activation_keywords: Vec::new(),
+            confidence,
+            times_used: id as u32,
+            times_succeeded: id as u32,
+            last_used: Utc::now(),
+            project_specific: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn consolidation_compacts_procedures_above_target() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path().to_string_lossy().to_string();
+        let project_hash = ProjectKnowledge::new(&root).project_hash;
+        let mut store = ProceduralStore::new(&project_hash);
+        for i in 0..80 {
+            store.procedures.push(test_procedure(i, i as f32 / 100.0));
+        }
+        store.save().unwrap();
+
+        let report = consolidate_project_knowledge(&root).unwrap();
+        let reloaded = ProceduralStore::load(&project_hash).unwrap();
+
+        assert_eq!(report.procedures, 75);
+        assert_eq!(report.procedure_capacity_target, 75);
+        assert_eq!(report.procedures_compacted, 5);
+        assert_eq!(reloaded.procedures.len(), 75);
+        assert!(!reloaded.procedures.iter().any(|p| p.id == "p-0"));
+    }
+
+    #[test]
+    fn consolidation_does_not_capacity_compact_at_twenty_five_percent_free() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path().to_string_lossy().to_string();
+        let policy = MemoryPolicy::default();
+        let mut knowledge = ProjectKnowledge::new(&root);
+
+        for i in 0..150 {
+            knowledge.remember(
+                &format!("category-{i}"),
+                &format!("k{i}"),
+                &format!("unique stable fact value {i}"),
+                "s1",
+                0.8,
+                &policy,
+            );
+        }
+        for i in 0..75 {
+            knowledge
+                .history
+                .push(crate::core::knowledge::ConsolidatedInsight {
+                    summary: format!("summary {i}"),
+                    from_sessions: vec![format!("s{i}")],
+                    timestamp: Utc::now(),
+                });
+        }
+        knowledge.save().unwrap();
+
+        let mut procedures = ProceduralStore::new(&knowledge.project_hash);
+        for i in 0..75 {
+            procedures
+                .procedures
+                .push(test_procedure(i, i as f32 / 100.0));
+        }
+        procedures.save().unwrap();
+
+        let report = consolidate_project_knowledge(&root).unwrap();
+        let reloaded = ProjectKnowledge::load(&root).unwrap();
+        let reloaded_procedures = ProceduralStore::load(&knowledge.project_hash).unwrap();
+
+        assert_eq!(report.fact_capacity_archived, 0);
+        assert_eq!(report.history_compacted, 0);
+        assert_eq!(report.procedures_compacted, 0);
+        assert_eq!(reloaded.facts.len(), 150);
+        assert_eq!(reloaded.history.len(), 75);
+        assert_eq!(reloaded_procedures.procedures.len(), 75);
+    }
+
+    #[test]
+    fn consolidation_loads_session_for_requested_project_root() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let cwd_project = tempfile::tempdir().unwrap();
+        let target_project = tempfile::tempdir().unwrap();
+        let cwd_root = cwd_project.path().to_string_lossy().to_string();
+        let target_root = target_project.path().to_string_lossy().to_string();
+
+        let mut cwd_session = SessionState::new();
+        cwd_session.project_root = Some(cwd_root);
+        cwd_session.add_finding(None, None, "wrong cwd finding");
+        cwd_session.save().unwrap();
+
+        let mut target_session = SessionState::new();
+        target_session.project_root = Some(target_root.clone());
+        target_session.add_finding(None, None, "target project finding");
+        target_session.save().unwrap();
+
+        let _cwd = CurrentDirGuard::enter(cwd_project.path());
+        let report = consolidate_project_knowledge(&target_root).unwrap();
+
+        assert_eq!(
+            report.session_id.as_deref(),
+            Some(target_session.id.as_str())
+        );
+        assert_eq!(report.session_items, 1);
+
+        let knowledge = ProjectKnowledge::load(&target_root).unwrap();
+        assert!(
+            knowledge
+                .facts
+                .iter()
+                .any(|f| f.value == "target project finding")
+        );
+        assert!(
+            !knowledge
+                .facts
+                .iter()
+                .any(|f| f.value == "wrong cwd finding")
+        );
+    }
+
+    #[test]
+    fn consolidate_all_project_knowledge_runs_every_known_project() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let data_dir = tempfile::tempdir().unwrap();
+        let _data_dir = DataDirGuard::set(data_dir.path());
+        let project_a = tempfile::tempdir().unwrap();
+        let project_b = tempfile::tempdir().unwrap();
+        let root_a = project_a.path().to_string_lossy().to_string();
+        let root_b = project_b.path().to_string_lossy().to_string();
+        let policy = MemoryPolicy::default();
+
+        let mut knowledge_a = ProjectKnowledge::new(&root_a);
+        knowledge_a.remember("finding", "a", "project a fact", "s1", 0.8, &policy);
+        knowledge_a.save().unwrap();
+
+        let mut knowledge_b = ProjectKnowledge::new(&root_b);
+        knowledge_b.remember("finding", "b", "project b fact", "s1", 0.8, &policy);
+        knowledge_b.save().unwrap();
+
+        let reports = consolidate_all_project_knowledge().unwrap();
+        let roots: Vec<_> = reports.iter().map(|(root, _)| root.clone()).collect();
+        let mut expected = vec![root_a, root_b];
+        expected.sort();
+
+        assert_eq!(roots, expected);
+        assert_eq!(reports.len(), 2);
+        assert!(
+            reports
+                .iter()
+                .all(|(_, report)| report.session_id.is_none())
+        );
+    }
+
+    #[test]
+    fn all_consolidation_report_marks_empty_store_set() {
+        let reports = Vec::new();
+
+        let out = format_all_consolidation_reports(&reports);
+
+        assert_eq!(out, "No project knowledge stores found.");
+    }
 }

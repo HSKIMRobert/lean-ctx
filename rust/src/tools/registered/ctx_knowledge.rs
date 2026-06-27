@@ -21,6 +21,7 @@ impl McpTool for CtxKnowledgeTool {
              WORKFLOW: save after completing significant tasks; recall at session start.\n\
              action=remember key='X' value='Y' saves a fact (both required).\n\
              action=recall query='X' retrieves it. action=status shows all categories.\n\
+action=consolidate imports latest session if present, runs lifecycle, then frees 25% facts/history/procedures capacity.\n\
              action=gotcha trigger='X' resolution='Y' for known pitfalls.\n\
              mode=semantic|exact for recall. category groups related facts.",
             json!({

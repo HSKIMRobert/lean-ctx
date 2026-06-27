@@ -98,6 +98,8 @@ lean-ctx knowledge recall "how do payments work"
 lean-ctx knowledge search "stripe"
 lean-ctx knowledge status          # counts, capacity
 lean-ctx knowledge health          # integrity check
+lean-ctx knowledge consolidate     # import session + run lifecycle
+lean-ctx knowledge consolidate --all
 lean-ctx knowledge export --output kb.json
 lean-ctx knowledge import kb.json --merge
 ```
@@ -111,10 +113,19 @@ recall uses the knowledge embeddings (`knowledge/<hash>/embeddings.json`).
 
 **Under the hood:** stored under `knowledge/<project-hash>/knowledge.json`.
 The MCP tool adds richer actions: `relate`/`relations` (link facts),
-`consolidate` (merge duplicates), `timeline`, `rooms`, and `wakeup` (the
-session-start recall bundle). Capacity is bounded by
-`[memory.knowledge] max_facts` (default 200) — at capacity, `doctor` warns and
-`consolidate` reclaims space.
+`consolidate`, `timeline`, `rooms`, and `wakeup` (the session-start recall
+bundle). `ctx_knowledge action=consolidate` and
+`lean-ctx knowledge consolidate` call the same implementation: if a latest
+session exists, findings/decisions/history are imported first; if not, session
+import is skipped. Both paths then run the memory lifecycle over all project
+knowledge and report `run_memory_lifecycle` stats: decayed, consolidated,
+archived, compacted, and remaining facts. Explicit consolidate then enforces the
+75% target for facts/history/procedures in the same run, so at least 25%
+capacity remains free after session import. Capacity is bounded by
+`[memory.knowledge] max_facts` and `[memory.procedural] max_procedures` — near
+capacity, `doctor` warns and `consolidate` reclaims space.
+The CLI `--all` flag scans stored project knowledge roots and invokes that same
+per-project consolidation function for each one.
 
 ### Gotchas — auto-learned mistakes
 

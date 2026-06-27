@@ -14,6 +14,7 @@ pub(crate) fn cmd_knowledge(args: &[String]) {
         Some("export") => cmd_export(args, &project_root),
         Some("remove") => cmd_remove(args, &project_root),
         Some("import") => cmd_import(args, &project_root),
+        Some("consolidate") => cmd_consolidate(args, &project_root),
         Some("status") => {
             #[cfg(unix)]
             {
@@ -541,6 +542,24 @@ fn recall_json(project_root: &str, category: Option<&str>, query: Option<&str>) 
     println!("{json}");
 }
 
+fn cmd_consolidate(args: &[String], project_root: &str) {
+    let result = if args.iter().any(|a| a == "--all") {
+        ctx_knowledge::consolidate_all_project_knowledge()
+            .map(|reports| ctx_knowledge::format_all_consolidation_reports(&reports))
+    } else {
+        ctx_knowledge::consolidate_project_knowledge(project_root)
+            .map(|report| ctx_knowledge::format_consolidation_report(&report))
+    };
+
+    match result {
+        Ok(out) => println!("{out}"),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// Filters to current facts (optional category + substring query), newest
 /// first, capped, and serializes with the `{category, content, timestamp}`
 /// contract the editor extensions consume (plus key + confidence).
@@ -660,6 +679,7 @@ Usage:
   lean-ctx knowledge export [--format json|jsonl|simple] [--output <path>]
   lean-ctx knowledge import <path> [--merge replace|append|skip-existing] [--dry-run]
   lean-ctx knowledge remove --category <cat> --key <key>
+  lean-ctx knowledge consolidate [--all]
   lean-ctx knowledge status
   lean-ctx knowledge health
   lean-ctx knowledge lifecycle
@@ -670,6 +690,8 @@ Examples:
   lean-ctx knowledge export --format jsonl --output backup.jsonl
   lean-ctx knowledge import backup.json --merge skip-existing --dry-run
   lean-ctx knowledge remove --category auth --key token-type
+  lean-ctx knowledge consolidate
+  lean-ctx knowledge consolidate --all
   lean-ctx knowledge status"
     );
 }
