@@ -3,6 +3,23 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.8.15] — 2026-06-27
+
+### Fixed
+- **The `embeddings`-free build compiles again — unblocks FreeBSD and other
+  non-tier-1 ports (#586).** The default `embeddings` feature pulls `ort` (ONNX
+  Runtime), whose `load-dynamic` dylib resolver only ships a default library name
+  for windows/linux/android/macos/ios; on FreeBSD that `match` is non-exhaustive
+  and the build fails inside `ort` itself. lean-ctx already intends to build
+  without ORT (`run_inference` has a `not(embeddings)` stub), but the
+  `ort_environment` / `ort_execution_providers` modules and two `embeddings`
+  helpers (`embed_batch`'s rayon import, `run_inference_batch`) were not
+  feature-gated, so `--no-default-features` — the configuration such ports must
+  use — *also* failed to compile. Those are now gated, and a `build-minimal` CI
+  job (`cargo check --no-default-features`) guards the configuration so it can
+  never silently regress. Semantic search / embeddings stay unavailable on
+  targets ORT does not support, but the rest of lean-ctx builds and runs.
+
 ## [3.8.14] — 2026-06-27
 
 ### Added
