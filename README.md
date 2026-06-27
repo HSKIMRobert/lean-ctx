@@ -120,6 +120,7 @@ Your AI agent reads files and runs commands. LeanCTX compresses both automatical
 - **JIT disclosure**: `signatures` carries line spans and points at `lines:N-M` for targeted expansion — outline first, bodies on demand
 - **Shell output**: 95+ shell-output patterns compress git, npm, cargo, docker, kubectl, terraform and more (270 passthrough rules)
 - **Tree-sitter AST**: structural understanding for 18 languages — not just text compression
+- **Reversible by design (CCR)**: compression never *discards* content — pruned or truncated payloads move to a content-addressed store with a deterministic handle, so the model can pull the original bytes back on demand via `ctx_expand`, `ctx_retrieve`, an in-band marker, or `GET /v1/references/{id}`. [Five recovery paths →](docs/comparisons/vs-headroom.md#reversibility)
 
 ### 2. Routing — the right fidelity per read
 
@@ -185,7 +186,7 @@ wire path:   AI tool  →  lean-ctx proxy        →  model provider   (every re
 
 - **MCP server** *(read path)*: exposes `ctx_*` tools (read modes, caching, deltas, search, memory, multi-agent)
 - **Shell hook** *(read path)*: transparently compresses common commands so the LLM sees less noise
-- **Request proxy** *(wire path, opt-in)*: `lean-ctx proxy enable` puts a local proxy between your agent and the model that compresses **every request** — system prompt, full history and tool results — prompt-cache-safe, with measured USD spend. It can also pin **one reasoning-effort level across OpenAI, Anthropic & Gemini** (`proxy.effort`) without breaking that cache. Same layer as a standalone request-compression proxy (e.g. Headroom) — you don't need one on top.
+- **Request proxy** *(wire path, opt-in)*: `lean-ctx proxy enable` puts a local proxy between your agent and the model that compresses **every request** — system prompt, full history and tool results — prompt-cache-safe, with measured USD spend. It can also pin **one reasoning-effort level across OpenAI, Anthropic & Gemini** (`proxy.effort`) without breaking that cache, cut **output** tokens with a cache-safe verbosity steer plus a measured holdout, and **relocate volatile fields** (dates, UUIDs, commit SHAs) out of the cacheable prefix so a stable system prompt finally caches. Every rewrite is reversible (content-addressed recovery) and byte-stable by contract. Same layer as a standalone request-compression proxy (e.g. Headroom) — you don't need one on top.
 - **Property Graph**: multi-edge code graph powers impact analysis, related file discovery, and search ranking
 - **Session memory**: persists state with structured recovery so long-running work never "cold starts"
 - **Context Manager**: browser dashboard for real-time visibility into what's in your context window
@@ -529,17 +530,29 @@ vhs demo/benchmark.tape
 
 ## Benchmarks
 
-- **Latest snapshot**: [BENCHMARKS.md](BENCHMARKS.md)
-- **Reproduce**:
+Real, reproduced numbers — never estimated. Measured on this repo with the GPT-4o
+tokenizer (`o200k_base`); a tool that isn't installed is reported as such, never
+guessed.
 
-```bash
-lean-ctx benchmark report .
-```
+| Read mode | Compression | Tokens (50 files) | Quality |
+|---|---:|---:|---:|
+| Raw read | 0% | 457.6K | 100% |
+| `map` | **97.7%** | 8.9K | 83% |
+| `signatures` | **97.0%** | 11.8K | 92% |
+| Cached re-read | ~99.99% | ~13 tok | 100% |
+
+Accuracy isn't a vibe: the lossy stages are **CI-gated**. A model-free A/B gate
+proves the JSON crusher keeps *every* gold answer while cutting tokens, and proxy
+rewrites are byte-stable by contract, so Anthropic (90%) / OpenAI (50%) prompt-cache
+discounts survive compression.
+
+- **Latest snapshot**: [BENCHMARKS.md](BENCHMARKS.md)
+- **Reproduce**: `lean-ctx benchmark report .`
 
 ## By the numbers
 
-- **2,600+ GitHub stars** — and counting
-- **260+ forks** — active community contributions
+- **2,900+ GitHub stars** — and counting
+- **280+ forks** — active community contributions
 - **200+ releases** — shipped near-daily since launch
 - **30+ supported AI coding agents** — broadest MCP compatibility
 - **78 MCP tools** — from simple file reads to multi-agent orchestration
@@ -549,6 +562,7 @@ lean-ctx benchmark report .
 ## Docs
 
 - **Reference (every function, by user journey)**: [docs/reference/](docs/reference/README.md) — 11 journeys + CLI/MCP/config appendices
+- **For AI agents / LLMs**: [llms.txt](llms.txt) — a curated, machine-readable map of lean-ctx (per the [llms.txt](https://llmstxt.org) convention)
 - Getting started: https://leanctx.com/docs/getting-started
 - Tools reference: https://leanctx.com/docs/tools/
 - CLI reference: https://leanctx.com/docs/cli-reference/

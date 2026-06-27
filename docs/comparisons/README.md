@@ -8,8 +8,8 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 
 | | lean-ctx | Repomix | codebase-memory | claude-context | Aider repo-map | Mem0 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Stars** | 1.8k+ | 25k+ | 3k+ | 11.5k+ | 43k+ | 55k+ |
-| **MCP Tools** | **77** | 8 | 14 | 3 | 0 | 9 |
+| **Stars** | 2.9k+ | 25k+ | 3k+ | 11.5k+ | 43k+ | 55k+ |
+| **MCP Tools** | **78** | 8 | 14 | 3 | 0 | 9 |
 | **Read Modes** | **10** | 0 | 0 | 0 | 0 | 0 |
 | **Token Compression** | **99%** | ~70% | 99%+ | ~40% | N/A | N/A |
 | **Shell Compression** | **95+** | — | — | — | — | — |
@@ -21,7 +21,7 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 | **Multi-Agent** | **Yes** | — | — | — | — | Yes |
 | **100% Local** | **Yes** | Yes | Yes | No | Yes | No |
 | **Single Binary** | **Rust** | Node.js | C | Node.js | Python | Python |
-| **Agents Supported** | **28** | Any MCP | 11 | 2-3 | 1 (Aider) | Any MCP |
+| **Agents Supported** | **31** | Any MCP | 11 | 2-3 | 1 (Aider) | Any MCP |
 | **Stability Contract** | **29 frozen/stable contracts, CI-enforced** | — | — | — | — | — |
 
 ## Which Tool Should I Use?
@@ -57,7 +57,7 @@ We believe in transparent, fact-based comparisons. Every page below includes rea
 | [**lean-ctx vs Repomix**](vs-repomix.md) | Live context layer vs snapshot packer — 99% vs 70% compression | [Full comparison →](vs-repomix.md) |
 | [**lean-ctx vs codebase-memory**](vs-codebase-memory.md) | Broad context layer vs deep code intelligence — 78 tools vs 14 | [Full comparison →](vs-codebase-memory.md) |
 | [**lean-ctx vs claude-context**](vs-claude-context.md) | 100% local vs cloud-dependent — 78 tools vs 3 | [Full comparison →](vs-claude-context.md) |
-| [**lean-ctx vs Aider repo-map**](vs-aider-repomap.md) | MCP-available vs CLI-locked — PageRank for 28 agents | [Full comparison →](vs-aider-repomap.md) |
+| [**lean-ctx vs Aider repo-map**](vs-aider-repomap.md) | MCP-available vs CLI-locked — PageRank for 31 agents | [Full comparison →](vs-aider-repomap.md) |
 | [**lean-ctx vs Mem0**](vs-mem0.md) | Code-specific vs general-purpose — local vs cloud | [Full comparison →](vs-mem0.md) |
 | [**lean-ctx vs The Token Company**](vs-token-company.md) | Local deterministic code compression vs cloud ML prose compression | [Full comparison →](vs-token-company.md) |
 | [**lean-ctx vs Headroom**](vs-headroom.md) | Deterministic, prompt-cache-safe `compress()` + full context layer vs ML compression library | [Full comparison →](vs-headroom.md) |
