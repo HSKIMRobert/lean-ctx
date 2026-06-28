@@ -6,6 +6,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Context Time Machine — git-anchored, signed snapshots of the layer state
+  (epic #1022).** The state of the context layer (what the model saw, why, and at
+  what token ROI) becomes a navigable, reproducible, shareable artifact — the
+  temporal axis through everything lean-ctx does.
+  - **`CONTEXT_SNAPSHOT_V1` (#1023).** A distilled, typed, content-addressed
+    (BLAKE3) and ed25519-signable projection of the live stores — git anchor,
+    Context IR lineage, ledger Φ-scores, ROI, and the session slice — never raw
+    transcripts. Deterministic per the output-determinism contract
+    ([contract](docs/contracts/context-snapshot-v1.md)).
+  - **Headless engine (#1024).** `lean-ctx snapshot create [--sign] | list | show
+    | verify` builds a snapshot from the live stores, anchors it to the current
+    commit, and stores it on a crash-safe, append-only timeline (`index.jsonl`);
+    `verify` proves both integrity (body hashes to its id) and the signature.
+  - **Replay in the dashboard (#1025).** A new *Time Machine* tab scrubs the
+    timeline and shows, per frame, the git anchor, ROI, lineage, ledger Φ, and the
+    session behind it, over a JSON control-plane API.
+  - **Restore / resume (#1026).** `lean-ctx snapshot restore <id> [--git]` merges
+    the snapshot's session slice (task, decisions, files) into the live session so
+    the next agent resumes where it left off, and with `--git` checks out the
+    commit anchor — guarded so it never clobbers a dirty tree. Bare-CLI sessions
+    now stamp their project root (as the MCP daemon already did), so a CLI-only
+    `session … ; snapshot create` flow captures the session slice.
+  - **Share / import (#1027).** `lean-ctx snapshot publish <id> [--out <path>]`
+    writes a signed, portable `*.ctxsnapshot.json`; `lean-ctx snapshot import
+    <file>` proves its integrity and signature and appends it to the local
+    timeline (idempotent; tampered or wrongly-signed files are refused) — so a
+    teammate can `show`, `verify`, and `restore` exactly the state you shared.
 - **Lossless memory & one consolidation engine (#995).** Project memory is now
   fully recoverable and managed by a single capacity manager. Builds on and
   supersedes the original capacity-reclaim proposal by @ousatov-ua (PR #588).

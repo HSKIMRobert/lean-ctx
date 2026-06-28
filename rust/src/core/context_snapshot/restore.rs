@@ -9,7 +9,7 @@
 //! - **reproduce** — optionally check out the snapshot's git anchor so the code
 //!   matches what the model saw (guarded: never discards a dirty tree).
 //!
-//! [`merge_session`] is a pure function over an in-memory [`SessionState`]
+//! `merge_session` is a pure function over an in-memory [`SessionState`]
 //! (unit-tested); loading/saving and git are the impure shell around it.
 
 use std::path::Path;

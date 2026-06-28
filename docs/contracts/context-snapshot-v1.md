@@ -85,15 +85,32 @@ malformed signature material (bad hex / wrong length / unknown algorithm) errors
 
 ## Timeline chaining
 
-Snapshots form an append-only chain via `parent_id`. The timeline index and the
-builder that fills snapshots from live stores land in Phase 1 (#1024); this
-contract (#1023) freezes the on-disk shape, the deterministic id, and the
-signing semantics.
+Snapshots form an append-only chain via `parent_id`. This contract (#1023)
+freezes the on-disk shape, the deterministic id, and the signing semantics; the
+builder, timeline index, restore, and share/import verbs shipped on top of it
+(#1024–#1027).
+
+## Lifecycle verbs
+
+The full CLI surface over a snapshot (each builds on this contract):
+
+- `snapshot create [--sign]` — build + store from the live stores (#1024)
+- `snapshot list|show|verify` — browse + prove the timeline (#1024)
+- `snapshot restore <id> [--git]` — resume the session slice; optionally check
+  out the commit anchor, guarded against a dirty tree (#1026)
+- `snapshot publish <id> [--out]` — write a signed, shareable
+  `*.ctxsnapshot.json`; `snapshot import <file>` proves it (integrity +
+  signature) and appends it to the local timeline, idempotently (#1027)
 
 ## Relevant code
 
 - Types: `rust/src/core/context_snapshot/types.rs`
 - Canonical id: `rust/src/core/context_snapshot/digest.rs`
 - Signing: `rust/src/core/context_snapshot/signing.rs`
+- Builder (live stores → snapshot): `rust/src/core/context_snapshot/builder.rs`
+- Append-only timeline: `rust/src/core/context_snapshot/timeline.rs`
+- Restore / resume: `rust/src/core/context_snapshot/restore.rs`
+- Publish / import: `rust/src/core/context_snapshot/publish.rs`
+- CLI surface: `rust/src/cli/snapshot_cmd.rs`
 - Schema version: `rust/src/core/contracts.rs` (`CONTEXT_SNAPSHOT_V1_SCHEMA_VERSION`)
 - Reused keypair: `rust/src/core/context_package/keys.rs`

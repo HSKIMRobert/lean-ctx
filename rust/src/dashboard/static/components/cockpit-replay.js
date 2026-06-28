@@ -426,4 +426,3 @@ customElements.define('cockpit-replay', CockpitReplay);
 })();
 
 export { CockpitReplay };
-

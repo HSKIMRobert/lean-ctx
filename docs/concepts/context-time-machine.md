@@ -3,7 +3,10 @@
 > **North-star concept.** This document defines the positioning, the vision, the
 > architecture (built on foundations that already exist in the codebase), and a
 > phased roadmap. The GitLab epic and its sub-issues are derived from here.
-> No implementation has shipped yet — this is the map, not the territory.
+> **Status: Phases 0–4 have shipped** — the headless engine, the dashboard Time
+> Machine, restore/resume, and signed file-based share/import are all live (see
+> §10). What remains is reach, not foundations: a `ctxpkg.com` registry and a
+> side-by-side git-diff replay view.
 
 ## TL;DR
 
@@ -119,16 +122,25 @@ We build almost nothing from scratch. The building blocks already exist:
 | Container format | [`context_package/`](../../rust/src/core/context_package) | The portable, signed `.ctxpkg` envelope to carry a snapshot. |
 | Knowledge timeline | [`ctx_knowledge/mod.rs`](../../rust/src/tools/ctx_knowledge/mod.rs) | An already-temporal view over knowledge. |
 
-What is **missing** — the actual build:
+What we **built on top** (Phases 0–4, now shipped):
 
-- **Git anchor** — bind each snapshot/frame to a commit SHA + worktree state
-  (nothing links these today).
-- **Unified Context Snapshot** — one format bundling IR lineage + proof +
-  session slice + knowledge + Φ + git anchor in a single `.ctxpkg` extension.
-- **Timeline index** — append-only, deterministic ordering of snapshots/events.
-- **Replay experience** — dashboard split view (model view ｜ git diff ｜ why/ROI).
-- **Restore / resume** — snapshot → rehydrate layer state → agent continues
-  seamlessly.
+- **Git anchor** ✅ — every snapshot pins to a commit / branch / dirty state
+  ([`builder.rs`](../../rust/src/core/context_snapshot/builder.rs)).
+- **Unified Context Snapshot** ✅ — one `CONTEXT_SNAPSHOT_V1` format bundling IR
+  lineage + ledger Φ + ROI + session slice + git anchor, content-addressed and
+  ed25519-signable ([`types.rs`](../../rust/src/core/context_snapshot/types.rs)).
+- **Timeline index** ✅ — append-only, crash-safe `index.jsonl`
+  ([`timeline.rs`](../../rust/src/core/context_snapshot/timeline.rs)).
+- **Replay experience** ✅ — dashboard *Time Machine* tab: timeline + per-frame
+  detail (git anchor, ROI, lineage, ledger, session). *Open:* a side-by-side
+  model-view ｜ git-diff split.
+- **Restore / resume** ✅ — `snapshot restore` merges the session slice and, with
+  `--git`, checks out the commit (guarded)
+  ([`restore.rs`](../../rust/src/core/context_snapshot/restore.rs)).
+- **Share / import** ✅ — `snapshot publish`/`import` move a signed, verifiable
+  snapshot file between projects
+  ([`publish.rs`](../../rust/src/core/context_snapshot/publish.rs)). *Open:* a
+  `ctxpkg.com` registry + A2A transport.
 
 ```mermaid
 flowchart LR
@@ -175,17 +187,21 @@ contract (no timestamps/counters in bodies; content-addressed).
 
 ## 7. The three verbs on the state
 
-- **Snapshot (freeze)** — `lean-ctx snapshot create` / `ctx_snapshot`: freeze the
-  layer state at the current commit. Auto-snapshot optionally on git commit hooks
-  or session checkpoints.
-- **Replay (time-travel)** — dashboard timeline: scrub across commits; per frame a
-  split view "model view ↔ git diff ↔ why/ROI". This completes the long-standing
-  request for a live decompression UI (side-by-side full vs compressed).
-- **Restore / resume + share** — load a snapshot → rehydrate
-  session/knowledge/ledger (builds on
-  [`ccp_session_bundle.rs`](../../rust/src/core/ccp_session_bundle.rs) +
-  [`handoff_ledger.rs`](../../rust/src/core/handoff_ledger.rs)); or publish to
-  `ctxpkg.com` as versioned context history.
+- **Snapshot (freeze)** — `lean-ctx snapshot create [--sign]`: freeze the layer
+  state at the current commit; `list` / `show` / `verify` browse and prove the
+  timeline. Auto-snapshot on git hooks or session checkpoints stays a future
+  policy toggle.
+- **Replay (time-travel)** — dashboard *Time Machine* tab: scrub the timeline;
+  per frame the detail panel shows git anchor, ROI, lineage and ledger Φ, and the
+  session behind it. A side-by-side "model view ↔ git diff" remains the next step.
+- **Restore / resume** — `lean-ctx snapshot restore <id> [--git]`: merge the
+  snapshot's session slice (task, decisions, files) into the live session so the
+  next agent resumes, and optionally check out the commit anchor (guarded against
+  a dirty tree).
+- **Share / import** — `lean-ctx snapshot publish <id>` writes a signed,
+  verifiable `*.ctxsnapshot.json`; `import <file>` proves it and adds it to the
+  recipient's timeline. A `ctxpkg.com` registry for versioned, hosted history is
+  the future reach.
 
 ## 8. Differentiation
 
@@ -208,27 +224,31 @@ what your agent saw, why, and what it cost."*
 
 ## 9. Naming
 
-- Experience / feature: **Context Time Machine** (dashboard tab: "Timeline").
-- Artifact: **Context Snapshot** (temporal `.ctxpkg`).
-- CLI: `lean-ctx snapshot create|list|show|replay|restore|publish`; MCP:
-  `ctx_snapshot`.
+- Experience / feature: **Context Time Machine** (dashboard tab: "Time Machine").
+- Artifact: **Context Snapshot** (`CONTEXT_SNAPSHOT_V1`; shared as
+  `*.ctxsnapshot.json`).
+- CLI (shipped): `lean-ctx snapshot create|list|show|verify|restore|publish|import`.
+  MCP `ctx_snapshot` stays a future surface.
 - Strategic frame: *"ctxpkg goes temporal" / "version control for context."*
 
 ## 10. Phased roadmap (→ GitLab epic + sub-issues)
 
-- **Phase 0 — concept & contract**: this document; a `Direction` bullet in
-  [`VISION.md`](../../VISION.md) and [`ECOSYSTEM.md`](../../ECOSYSTEM.md); and a
-  `CONTEXT_SNAPSHOT_V1` contract extending `CONTEXT_PACKAGE_V1`.
-- **Phase 1 — MVP snapshot (headless)**: `lean-ctx snapshot create/list/show` on
-  the ctxpkg builder + `context_ir` + `context_proof` + git anchor. Append-only
-  timeline index. Deterministic, signable.
-- **Phase 2 — replay experience**: dashboard timeline + split view (model view ↔
-  git diff ↔ why/ROI), including token ROI per frame. Reuses existing
-  dashboard control-plane APIs.
-- **Phase 3 — restore / resume**: snapshot → layer rehydration; agent continues
-  seamlessly (built on ccp/handoff).
-- **Phase 4 — share / publish**: `ctxpkg.com` integration for shareable, versioned
-  context history; A2A transport.
+- **Phase 0 — concept & contract** ✅ (`#1023`): this document; a `Direction`
+  bullet in [`VISION.md`](../../VISION.md) and
+  [`ECOSYSTEM.md`](../../ECOSYSTEM.md); and the `CONTEXT_SNAPSHOT_V1`
+  [contract](../contracts/context-snapshot-v1.md).
+- **Phase 1 — MVP snapshot (headless)** ✅ (`#1024`): `lean-ctx snapshot
+  create/list/show/verify` on `context_ir` + `context_ledger` + session slice +
+  git anchor. Append-only timeline index. Deterministic, ed25519-signable.
+- **Phase 2 — replay experience** ✅ (`#1025`): dashboard *Time Machine* tab —
+  timeline + per-frame detail (git anchor, ROI, lineage, ledger Φ, session) over
+  a JSON control-plane API. *Open:* a side-by-side model-view ｜ git-diff split.
+- **Phase 3 — restore / resume** ✅ (`#1026`): `snapshot restore <id> [--git]` —
+  merge the session slice into the live session; optionally check out the commit
+  anchor (guarded against a dirty tree).
+- **Phase 4 — share / publish** ✅ (`#1027`): `snapshot publish`/`import` move a
+  signed, verifiable snapshot file between projects. *Open:* a `ctxpkg.com`
+  registry for hosted, versioned history + A2A transport.
 
 ## 11. Open decisions & risks
 
