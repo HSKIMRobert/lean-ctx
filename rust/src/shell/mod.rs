@@ -1,3 +1,4 @@
+pub(crate) mod agent_wrapper;
 pub mod compress;
 mod exec;
 mod interactive;

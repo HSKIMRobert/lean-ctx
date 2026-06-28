@@ -227,6 +227,13 @@ pub fn exec_argv(args: &[String]) -> i32 {
     // `git status; rm -rf /` is checked as ONE quoted token, never re-parsed.
     let joined = super::platform::join_command(args);
 
+    // #595: unwrap a host command wrapper (eval + cwd snapshot) before any
+    // checks so the real command — not the wrapper — is gated and run. The `-t`
+    // path cannot exec a compound argv, so route the rebuild through `exec`.
+    if let Some(u) = super::agent_wrapper::unwrap_agent_wrapper(&joined) {
+        return exec(&u.rebuild());
+    }
+
     // The `-t` track path is the agent's default shell hook
     // (`_lc() { lean-ctx -t "$@" }`), so it MUST enforce the same allowlist
     // boundary as `-c` (see `exec`). Previously it skipped the check entirely,
@@ -365,6 +372,14 @@ fn allowlist_gate(command: &str) -> Option<i32> {
 }
 
 pub fn exec(command: &str) -> i32 {
+    // #595: when the agent wraps its command in host scaffolding
+    // (`… && eval '<cmd>' … && pwd -P >| …-cwd`), look through it so the allowlist
+    // and compression act on the REAL command, not the wrapper — whose `eval` the
+    // allowlist would otherwise hard-block on every single call. The cwd snapshot
+    // is preserved so the host keeps tracking the working directory.
+    let unwrapped = super::agent_wrapper::unwrap_agent_wrapper(command).map(|u| u.rebuild());
+    let command = unwrapped.as_deref().unwrap_or(command);
+
     if let Some(code) = allowlist_gate(command) {
         return code;
     }

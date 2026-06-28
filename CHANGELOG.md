@@ -176,6 +176,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Default off — the request is byte-identical until you opt in.
 
 ### Fixed
+- **Shell hook no longer blocks Claude Code's Bash tool (GH #595).** Claude Code
+  wraps every Bash call in its own scaffolding
+  (`shopt -u extglob … && eval '<cmd>' < /dev/null && pwd -P >| /tmp/claude-XXXX-cwd`)
+  before the lean-ctx shell hook forwards the whole line to `lean-ctx -c`. The
+  allowlist then hard-blocked the `eval` at command position (exit 126) on *every*
+  command — the wrapper shape is identical each time, so the Bash tool became
+  unusable.
+  - **Look through the wrapper:** the new `shell::agent_wrapper` detects the host
+    scaffold, extracts the real inner command and runs *that* through the normal
+    allowlist + compression pipeline, so the inner `git`/`cargo`/… command is gated
+    and compressed as usual instead of dying on the `eval`.
+  - **cwd tracking preserved:** the trailing `pwd -P >| …-cwd` snapshot is rebuilt
+    onto the unwrapped command, so the host keeps tracking the working directory.
+  - **Security unchanged:** detection requires *both* an `eval '<cmd>'` and a host
+    cwd-snapshot redirect, so a bare `eval` the model itself chose still hits the
+    allowlist's hard block (regression-tested end to end).
 - **CLI and MCP now always read the same `config.toml` (GH #594).** When an older
   release had baked `LEAN_CTX_DATA_DIR` into an editor's MCP `env`, the server ran
   in single-dir mode and read config from the data dir (`~/.local/share/lean-ctx`)
