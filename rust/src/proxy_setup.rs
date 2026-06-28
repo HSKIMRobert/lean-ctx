@@ -752,32 +752,30 @@ fn install_codex_env_at(config_dir: &Path, port: u16, quiet: bool) {
 }
 
 fn install_codex_env_at_mode(config_dir: &Path, port: u16, quiet: bool, mode: CodexProxyMode) {
-    // Codex reads the built-in OpenAI provider's base URL from the top-level
-    // `openai_base_url` key (openai/codex#12031). Crucially — proven by Codex's
-    // `ModelProviderInfo::to_api_provider` — that override applies even under a
-    // ChatGPT subscription login: it replaces the hardcoded
-    // `chatgpt.com/backend-api/codex`, so the proxy sees the traffic without any
-    // custom provider. API-key mode uses `/v1`; ChatGPT auth uses the backend rail
-    // under `/backend-api/codex`, plus `chatgpt_base_url` for the login flow and
-    // aux `/backend-api/*` calls (e.g. the codex_apps streamable-HTTP MCP endpoint).
+    // API-key Codex is billed per token, so routing it through the proxy's `/v1`
+    // rail is where compression actually saves money. Codex reads the built-in
+    // OpenAI provider's base URL from the top-level `openai_base_url` key
+    // (openai/codex#12031).
     //
-    // #597: we deliberately do NOT write a custom `model_provider`. Codex scopes
-    // its local conversation history by the active provider id (openai/codex#15494,
-    // #19318), so any non-`openai` provider hides every prior session from
-    // `/resume`/`fork`/history. Keeping the default `openai` provider preserves that
-    // history; the proxy still intercepts ChatGPT turns because it answers the WS
-    // upgrade on `/backend-api/codex/responses` with 426 → Codex falls back to the
-    // HTTP/SSE path the proxy compresses and meters.
+    // #597: a ChatGPT *subscription* login is flat-rate — compression saves no
+    // money there, while pointing Codex at the proxy actively breaks it. A custom
+    // `model_provider` hides all prior history (Codex scopes history by provider
+    // id, openai/codex#15494/#19318) and a `chatgpt_base_url`/`backend-api`
+    // override funnels Codex's cloud/remote + login traffic through a proxy built
+    // only for model turns (it broke `codex cloud`/remote and made Codex depend on
+    // a live proxy). So for ChatGPT auth we write NOTHING and leave Codex talking
+    // directly to chatgpt.com; an empty `entries` still lets `render_codex_config`
+    // auto-heal stale lean-ctx entries left by earlier versions.
     let base = format!("http://127.0.0.1:{port}");
     let entries: Vec<(&str, String)> = match mode {
         CodexProxyMode::ApiKey => vec![("openai_base_url", format!("{base}/v1"))],
-        CodexProxyMode::ChatGpt => vec![
-            ("openai_base_url", format!("{base}/backend-api/codex")),
-            ("chatgpt_base_url", format!("{base}/backend-api")),
-        ],
+        CodexProxyMode::ChatGpt => Vec::new(),
     };
 
-    if !is_proxy_reachable(port) {
+    // Writing a proxy URL only makes sense against a live proxy; healing (empty
+    // `entries`, ChatGPT mode) must run regardless so a stale config is cleaned
+    // even when the proxy is down.
+    if !entries.is_empty() && !is_proxy_reachable(port) {
         if !quiet {
             println!("  Skipping Codex CLI proxy env (proxy not running on port {port})");
         }
@@ -794,7 +792,14 @@ fn install_codex_env_at_mode(config_dir: &Path, port: u16, quiet: bool, mode: Co
 
     if updated == existing {
         if !quiet {
-            println!("  Codex CLI proxy env already configured");
+            match mode {
+                CodexProxyMode::ApiKey => println!("  Codex CLI proxy env already configured"),
+                CodexProxyMode::ChatGpt => {
+                    println!(
+                        "  Codex ChatGPT login — config left native (no lean-ctx proxy entries)"
+                    );
+                }
+            }
         }
         return;
     }
@@ -803,9 +808,9 @@ fn install_codex_env_at_mode(config_dir: &Path, port: u16, quiet: bool, mode: Co
     if !quiet {
         match mode {
             CodexProxyMode::ApiKey => println!("  Configured openai_base_url in Codex CLI config"),
-            CodexProxyMode::ChatGpt => {
-                println!("  Configured ChatGPT Codex proxy URLs in Codex CLI config");
-            }
+            CodexProxyMode::ChatGpt => println!(
+                "  Codex ChatGPT login — removed stale lean-ctx proxy entries (Codex now talks directly to ChatGPT)"
+            ),
         }
     }
 }
@@ -1414,7 +1419,7 @@ $env:GEMINI_API_BASE_URL = "{base}"
     }
 
     #[test]
-    fn codex_env_chatgpt_mode_writes_backend_urls() {
+    fn codex_env_chatgpt_mode_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let codex_dir = dir.path().join(".codex");
         std::fs::create_dir_all(&codex_dir).unwrap();
@@ -1425,30 +1430,35 @@ $env:GEMINI_API_BASE_URL = "{base}"
         install_codex_env_at_mode(&codex_dir, port, true, CodexProxyMode::ChatGpt);
 
         let cfg = std::fs::read_to_string(codex_dir.join("config.toml")).unwrap();
-        assert!(cfg.contains(&format!(
-            "openai_base_url = \"http://127.0.0.1:{port}/backend-api/codex\""
-        )));
-        assert!(cfg.contains(&format!(
-            "chatgpt_base_url = \"http://127.0.0.1:{port}/backend-api\""
-        )));
-        // #597: ChatGPT mode must NOT pin a custom model_provider — Codex scopes
-        // history by provider id, so anything but the default `openai` hides every
-        // prior conversation. The proxy still intercepts via the base-URL override
-        // + its 426 WS-upgrade → HTTP fallback on /backend-api/codex/responses.
+        // #597: a ChatGPT subscription login is flat-rate (no per-token cost to
+        // compress) and routing it through the proxy hides history + breaks codex
+        // cloud/remote. lean-ctx writes nothing and leaves Codex native.
+        assert!(
+            !cfg.contains("openai_base_url"),
+            "ChatGPT mode must not write a proxy openai_base_url, got:\n{cfg}"
+        );
+        assert!(
+            !cfg.contains("chatgpt_base_url"),
+            "ChatGPT mode must not write a proxy chatgpt_base_url, got:\n{cfg}"
+        );
         assert!(
             !cfg.contains("model_provider"),
-            "no custom model_provider may be written (would hide Codex history), got:\n{cfg}"
+            "ChatGPT mode must not pin a model_provider, got:\n{cfg}"
         );
         assert!(
-            !cfg.contains(&format!("[model_providers.{CODEX_CHATGPT_PROVIDER_ID}]")),
-            "no leanctx-chatgpt provider block may be written, got:\n{cfg}"
+            !cfg.contains("127.0.0.1"),
+            "no proxy URL may be injected, got:\n{cfg}"
         );
-        assert!(cfg.contains("model = \"gpt-5.5\""));
+        assert!(
+            cfg.contains("model = \"gpt-5.5\""),
+            "user keys are preserved, got:\n{cfg}"
+        );
     }
 
-    /// #597 auto-heal: upgrading over a config that still carries the pre-#597
-    /// `model_provider = leanctx-chatgpt` + provider block strips both, so Codex
-    /// history reappears, and re-applies only the history-safe base-URL overrides.
+    /// #597 auto-heal: upgrading over a config that still carries lean-ctx's
+    /// ChatGPT-proxy entries (the `leanctx-chatgpt` provider + block AND the
+    /// `backend-api` base-URL overrides) strips ALL of them and writes nothing — so
+    /// Codex history reappears and cloud/remote talk directly to ChatGPT again.
     #[test]
     fn codex_chatgpt_upgrade_strips_legacy_leanctx_provider() {
         let dir = tempfile::tempdir().unwrap();
@@ -1478,9 +1488,18 @@ $env:GEMINI_API_BASE_URL = "{base}"
             !cfg.contains("model_provider"),
             "stale model_provider must be removed so history reappears, got:\n{cfg}"
         );
-        assert!(cfg.contains(&format!(
-            "openai_base_url = \"http://127.0.0.1:{port}/backend-api/codex\""
-        )));
+        assert!(
+            !cfg.contains("openai_base_url"),
+            "backend-api openai_base_url override must be removed (breaks remote), got:\n{cfg}"
+        );
+        assert!(
+            !cfg.contains("chatgpt_base_url"),
+            "chatgpt_base_url override must be removed (breaks remote), got:\n{cfg}"
+        );
+        assert!(
+            !cfg.contains("127.0.0.1"),
+            "no proxy URL may remain after healing, got:\n{cfg}"
+        );
         assert!(cfg.contains("model = \"gpt-5.5\""));
     }
 

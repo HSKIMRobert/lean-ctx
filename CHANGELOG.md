@@ -176,21 +176,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Default off — the request is byte-identical until you opt in.
 
 ### Fixed
-- **Codex proxy no longer hides past conversations (GH #597).** For a ChatGPT
-  subscription login, GH #568 pinned `model_provider = "leanctx-chatgpt"` (plus a
-  `[model_providers.leanctx-chatgpt]` block) in `~/.codex/config.toml` to route
-  turns through the proxy. But Codex scopes its local session history by the active
-  provider id *by design* (`openai/codex#15494`, `#19318`), so the pin hid every
-  prior `openai` conversation from `/resume`, `resume --last`, `fork`, and the
-  Desktop history picker (no data loss — rollouts + SQLite stay intact). lean-ctx
-  now keeps the **default `openai` provider** and redirects ChatGPT turns purely
-  via the top-level `openai_base_url`/`chatgpt_base_url` keys: Codex's
-  `to_api_provider` honors `openai_base_url` even under ChatGPT auth, and the proxy
-  answers the WebSocket upgrade on `/backend-api/codex/responses` with `426` so
-  Codex falls back to the HTTP/SSE path it compresses — **savings and history are
-  both preserved**, no custom provider needed. Upgrading auto-heals: the next
-  `lean-ctx proxy enable`/`setup` strips the stale `leanctx-chatgpt` provider so
-  conversations reappear, and `lean-ctx doctor` now flags a lingering pin.
+- **lean-ctx no longer touches Codex under a ChatGPT subscription login (GH #597).**
+  GH #568 pinned `model_provider = "leanctx-chatgpt"` (plus a
+  `[model_providers.leanctx-chatgpt]` block) and `openai_base_url`/`chatgpt_base_url`
+  overrides in `~/.codex/config.toml` to route ChatGPT turns through the proxy. That
+  was the wrong trade for a subscription: a ChatGPT plan is **flat-rate**, so
+  compression saves no money — while the pin hid every prior conversation (Codex
+  scopes history by provider id *by design*, `openai/codex#15494`/`#19318`) from
+  `/resume`, `fork` and the Desktop picker, the `backend-api` base-URL overrides
+  funnelled Codex's **cloud/remote** + login traffic through a proxy built only for
+  model turns (breaking `codex cloud`/remote), and they made Codex depend on a live
+  local proxy. lean-ctx now writes **nothing** for ChatGPT auth — Codex talks
+  directly to `chatgpt.com`, so history, `codex cloud`/remote and login all stay
+  native (no data loss; rollouts + SQLite were always intact). **API-key Codex is
+  unchanged**: it keeps the per-token `/v1` proxy rail, where compression actually
+  cuts cost. Upgrading auto-heals: the next `lean-ctx proxy enable`/`setup` strips
+  the stale `leanctx-chatgpt` provider **and** the `backend-api` base-URL overrides,
+  and `lean-ctx doctor` flags any lingering ChatGPT-proxy entries.
 - **Shell hook no longer blocks Claude Code's Bash tool (GH #595).** Claude Code
   wraps every Bash call in its own scaffolding
   (`shopt -u extglob … && eval '<cmd>' < /dev/null && pwd -P >| /tmp/claude-XXXX-cwd`)

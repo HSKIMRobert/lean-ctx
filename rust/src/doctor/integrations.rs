@@ -972,30 +972,38 @@ fn check_codex_history_visibility(home: &std::path::Path) -> NamedCheck {
     let codex_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let path = codex_dir.join("config.toml");
     let content = std::fs::read_to_string(&path).unwrap_or_default();
-    let hidden = codex_history_hidden_by_proxy_provider(&content);
+    let artifact = codex_chatgpt_proxy_artifact(&content);
     NamedCheck {
-        name: "Codex history".to_string(),
-        ok: !hidden,
-        detail: if hidden {
+        name: "Codex config".to_string(),
+        ok: !artifact,
+        detail: if artifact {
             format!(
-                "model_provider = \"leanctx-chatgpt\" hides past Codex conversations (#597) — run `lean-ctx proxy enable` to heal ({})",
+                "lean-ctx ChatGPT-proxy entries hide past conversations and break codex cloud/remote (#597) — run `lean-ctx proxy enable` to heal ({})",
                 path.display()
             )
         } else {
-            "default provider — past conversations stay visible".to_string()
+            "native — history visible, cloud/remote intact".to_string()
         },
     }
 }
 
-/// True when a *top-level* `model_provider = "leanctx-chatgpt"` pins Codex to
-/// lean-ctx's proxy provider (which hides prior history, #597). A per-profile
-/// `model_provider` (inside a `[table]`) is the user's own choice and ignored.
-fn codex_history_hidden_by_proxy_provider(config: &str) -> bool {
+/// True when a *top-level* lean-ctx ChatGPT-proxy artifact is present. lean-ctx
+/// only ever wrote these for a ChatGPT-subscription login, and they both hide
+/// Codex history (the `leanctx-chatgpt` provider) and route Codex's cloud,
+/// remote and login traffic through the proxy (#597). The API-key rail
+/// (`openai_base_url` to `/v1`) is legitimate and never matched; a per-profile
+/// entry (inside a `[table]`) is the user's own choice and ignored.
+fn codex_chatgpt_proxy_artifact(config: &str) -> bool {
     config
         .lines()
         .map(str::trim_start)
         .take_while(|t| !t.starts_with('['))
-        .any(|t| t.starts_with("model_provider") && t.contains("leanctx-chatgpt"))
+        .any(|t| {
+            let local = t.contains("127.0.0.1") || t.contains("localhost");
+            (t.starts_with("model_provider") && t.contains("leanctx-chatgpt"))
+                || (t.starts_with("chatgpt_base_url") && local)
+                || (t.starts_with("openai_base_url") && local && t.contains("/backend-api"))
+        })
 }
 
 fn check_codex_hooks_enabled(home: &std::path::Path) -> NamedCheck {
@@ -1450,21 +1458,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codex_history_hidden_detects_only_top_level_proxy_provider() {
-        // #597: a top-level pin hides history → flagged.
-        assert!(codex_history_hidden_by_proxy_provider(
+    fn codex_chatgpt_proxy_artifact_detects_only_top_level_entries() {
+        // #597: a top-level provider pin hides history → flagged.
+        assert!(codex_chatgpt_proxy_artifact(
             "model_provider = \"leanctx-chatgpt\"\nmodel = \"gpt-5.5\"\n"
         ));
-        // Default provider → fine.
-        assert!(!codex_history_hidden_by_proxy_provider(
-            "model_provider = \"openai\"\n"
-        ));
-        // Healed config (only base-URL overrides) → fine.
-        assert!(!codex_history_hidden_by_proxy_provider(
+        // backend-api base-URL overrides break codex cloud/remote → flagged.
+        assert!(codex_chatgpt_proxy_artifact(
             "openai_base_url = \"http://127.0.0.1:8765/backend-api/codex\"\n"
         ));
+        assert!(codex_chatgpt_proxy_artifact(
+            "chatgpt_base_url = \"http://127.0.0.1:8765/backend-api\"\n"
+        ));
+        // Default provider → fine.
+        assert!(!codex_chatgpt_proxy_artifact(
+            "model_provider = \"openai\"\n"
+        ));
+        // API-key rail (/v1) is legitimate → not flagged.
+        assert!(!codex_chatgpt_proxy_artifact(
+            "openai_base_url = \"http://127.0.0.1:4444/v1\"\n"
+        ));
         // A per-profile choice is the user's own → not flagged.
-        assert!(!codex_history_hidden_by_proxy_provider(
+        assert!(!codex_chatgpt_proxy_artifact(
             "model = \"gpt-5.5\"\n\n[profiles.proxy]\nmodel_provider = \"leanctx-chatgpt\"\n"
         ));
     }
