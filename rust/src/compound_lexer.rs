@@ -147,55 +147,6 @@ fn contains_heredoc(input: &str) -> bool {
     input.contains("<<") || input.contains("$((")
 }
 
-/// Rewrites a compound command by applying a rewrite function to each command segment.
-/// Operators and pipe-right-hand segments are preserved unchanged.
-/// `rewrite_fn` receives a command string and returns `Some(rewritten)` if it should
-/// be rewritten, or `None` to keep the original.
-pub fn rewrite_compound<F>(input: &str, rewrite_fn: F) -> Option<String>
-where
-    F: Fn(&str) -> Option<String>,
-{
-    let segments = split_compound(input);
-    if segments.len() <= 1 {
-        return None;
-    }
-
-    let mut any_rewritten = false;
-    let mut result = String::new();
-    let mut after_pipe = false;
-
-    for seg in &segments {
-        match seg {
-            Segment::Operator(op) => {
-                if op == "|" {
-                    after_pipe = true;
-                }
-                if !result.is_empty() && !result.ends_with(' ') {
-                    result.push(' ');
-                }
-                result.push_str(op);
-                result.push(' ');
-            }
-            Segment::Command(cmd) => {
-                if after_pipe {
-                    result.push_str(cmd);
-                } else if let Some(rewritten) = rewrite_fn(cmd) {
-                    any_rewritten = true;
-                    result.push_str(&rewritten);
-                } else {
-                    result.push_str(cmd);
-                }
-            }
-        }
-    }
-
-    if any_rewritten {
-        Some(result.trim().to_string())
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,47 +259,5 @@ mod tests {
             segs,
             vec![Segment::Command("echo $(git status && echo ok)".into())]
         );
-    }
-
-    #[test]
-    fn rewrite_compound_and_chain() {
-        let result = rewrite_compound("cd src && git status && echo done", |cmd| {
-            if cmd.starts_with("git ") {
-                Some(format!("rtk {cmd}"))
-            } else {
-                None
-            }
-        });
-        assert_eq!(result, Some("cd src && rtk git status && echo done".into()));
-    }
-
-    #[test]
-    fn rewrite_compound_pipe_preserves_right() {
-        let result = rewrite_compound("git log | head -5", |cmd| {
-            if cmd.starts_with("git ") {
-                Some(format!("rtk {cmd}"))
-            } else {
-                None
-            }
-        });
-        assert_eq!(result, Some("rtk git log | head -5".into()));
-    }
-
-    #[test]
-    fn rewrite_compound_no_match_returns_none() {
-        let result = rewrite_compound("cd src && echo done", |_| None);
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn rewrite_single_command_returns_none() {
-        let result = rewrite_compound("git status", |cmd| {
-            if cmd.starts_with("git ") {
-                Some(format!("rtk {cmd}"))
-            } else {
-                None
-            }
-        });
-        assert_eq!(result, None);
     }
 }

@@ -74,11 +74,18 @@ print('rewrite' if ('updatedInput' in hs or 'updated_input' in d) else 'passthro
 }
 
 validate_rewrite "simple cmd"       '{"tool_name":"Bash","command":"git status"}'                                      "rewrite"
-validate_rewrite "pipe cmd"         '{"tool_name":"Bash","command":"curl https://api.com | python3"}'                   "rewrite"
+# Gate-clean pipe → wrapped WHOLE in one `lean-ctx -c` (fixes #589: Windows _lc +
+# left-of-pipe compression). Robust: git/head are default-allowlisted, no
+# interpreter, so the decision is independent of strict-mode/allowlist tweaks.
+validate_rewrite "clean pipe"       '{"tool_name":"Bash","command":"git log --oneline | head -5"}'                     "rewrite"
 validate_rewrite "embed quotes"     '{"tool_name":"Bash","command":"git commit --allow-empty -m \"Test\""}'             "rewrite"
 validate_rewrite "curl auth"        '{"tool_name":"Bash","command":"curl -H \"Authorization: Bearer tok\" api.com"}'    "rewrite"
 validate_rewrite "rg quotes"        '{"tool_name":"Bash","command":"rg \"TODO\" src/"}'                                 "rewrite"
 validate_rewrite "grep passthrough" '{"tool_name":"Bash","command":"grep -r \"TODO\" src/"}'                            "passthrough"
+# Compat-first (#589): a compound whose sink is NOT gate-clean (kubectl is never
+# in the defaults) is left RAW for the agent shell — wrapping it would newly
+# subject the sink to lean-ctx's gate and block a previously-working command.
+validate_rewrite "tricky sink pipe" '{"tool_name":"Bash","command":"git log | kubectl apply -f -"}'                    "passthrough"
 validate_rewrite "docker multi-env" '{"tool_name":"Bash","command":"docker run -e \"A=1\" -e \"B=2\" nginx"}'           "rewrite"
 validate_rewrite "find glob"        '{"tool_name":"Bash","command":"find . -name \"*.js\""}'                            "rewrite"
 validate_rewrite "git format"       '{"tool_name":"Bash","command":"git log --format=\"%H %s\""}'                       "rewrite"

@@ -218,6 +218,8 @@ fn rewrite_skip_reason(cmd: &str) -> &'static str {
         "already a lean-ctx command"
     } else if cmd.contains("<<") {
         "heredoc cannot be rewritten safely"
+    } else if is_compound(cmd) && !crate::core::shell_allowlist::passes_enforced(cmd) {
+        "compound pipes/chains into a non-allowlisted or interpreter sink — left raw for the agent shell"
     } else {
         "not a known read/search/list command"
     }
@@ -225,6 +227,17 @@ fn rewrite_skip_reason(cmd: &str) -> &'static str {
 
 fn is_rewritable(cmd: &str) -> bool {
     rewrite_registry::is_rewritable_command(cmd)
+}
+
+/// True when `cmd` carries a top-level shell operator (`&&`, `||`, `;`, `|`),
+/// i.e. it is a compound/pipeline rather than a single command. Compounds are
+/// handled authoritatively by [`build_rewrite_compound`]; this guards the
+/// single-command `is_rewritable` fallback in [`rewrite_candidate`] so a
+/// compound the compound-handler declined is never re-wrapped whole.
+fn is_compound(cmd: &str) -> bool {
+    compound_lexer::split_compound(cmd)
+        .iter()
+        .any(|s| matches!(s, compound_lexer::Segment::Operator(_)))
 }
 
 fn wrap_single_command(cmd: &str, binary: &str) -> String {
@@ -264,7 +277,12 @@ fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
         return Some(rewritten);
     }
 
-    if is_rewritable(cmd) {
+    // Single-command fallback only. A compound that `build_rewrite_compound`
+    // declined (tricky pipe/chain sink, or no rewritable segment) must NOT be
+    // re-wrapped here: wrapping the whole string in `lean-ctx -c '…'` would newly
+    // subject its sink to the allowlist gate and could block a command the
+    // agent's shell ran fine before (#589). Compounds are authoritative above.
+    if !is_compound(cmd) && is_rewritable(cmd) {
         return Some(wrap_single_command(cmd, binary));
     }
 
@@ -586,17 +604,64 @@ fn parse_head_tail_args<'a>(args: &[&'a str]) -> (Option<usize>, Option<&'a str>
     (n, path)
 }
 
+/// Rewrites a compound/pipeline (`a | b`, `a && b`, `a; b`, …) by wrapping the
+/// WHOLE string in a single `lean-ctx -c "…"` — but only when it would pass the
+/// allowlist gate. Otherwise it declines (`None`) and the command is left to the
+/// agent's shell unchanged.
+///
+/// Why wrap-whole (not per-segment, the previous behavior): `lean-ctx -c` runs
+/// the command in a profile-free POSIX shell and compresses only the FINAL
+/// output, so `|`, `&&`, `||`, `;` all work natively inside it. The old
+/// per-segment split left the operators in the OUTER (hooked) shell, which broke
+/// two real cases (#589, idea by @getappz):
+///   1. Aliased builtins (`head`, `tail`, …) resolve to an undefined `_lc`
+///      helper in non-interactive git-bash → `_lc: command not found` on Windows.
+///   2. The LEFT side of a pipe got compressed, so the downstream command read
+///      the lean-ctx digest instead of the raw bytes it expected.
+///
+/// Why gate-clean only (compat-first, no new block, no bypass): wrapping subjects
+/// every segment — including the pipe sink — to the allowlist. For gate-clean
+/// compounds (`git log | head`, `cargo test && npm run lint`) that is exactly
+/// right (compressed + fully gated). For a compound whose sink is an
+/// interpreter-eval (`python3 -c …`) or a non-allowlisted tool, wrapping would
+/// NEWLY block a command the agent's shell ran fine before. We decline instead
+/// and leave it raw, so the user's own shell-security config keeps governing it
+/// — the pre-existing behavior, with no agent-reachable raw/no-gate path opened.
 fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> {
-    compound_lexer::rewrite_compound(cmd, |segment| {
-        if segment.starts_with("lean-ctx ") || segment.starts_with(&format!("{binary} ")) {
-            return None;
-        }
-        if is_rewritable(segment) {
-            Some(wrap_single_command(segment, binary))
-        } else {
-            None
-        }
-    })
+    let segments = compound_lexer::split_compound(cmd);
+    let commands: Vec<&str> = segments
+        .iter()
+        .filter_map(|s| match s {
+            compound_lexer::Segment::Command(c) => Some(c.trim()),
+            compound_lexer::Segment::Operator(_) => None,
+        })
+        .collect();
+
+    // No top-level operator → single command; the caller's wrap_single_command
+    // fallback owns it.
+    if segments.len() == commands.len() {
+        return None;
+    }
+
+    let is_leanctx = |c: &str| c.starts_with("lean-ctx ") || c.starts_with(&format!("{binary} "));
+
+    // A segment is already a lean-ctx call → don't nest `-c "… lean-ctx -c …"`.
+    if commands.iter().any(|c| is_leanctx(c)) {
+        return None;
+    }
+
+    // Nothing lean-ctx could compress/redirect → leave it to the native shell.
+    if !commands.iter().any(|c| is_rewritable(c)) {
+        return None;
+    }
+
+    // Wrap-whole only when the entire compound would pass the allowlist gate;
+    // otherwise a tricky sink would be newly blocked (see doc above).
+    if crate::core::shell_allowlist::passes_enforced(cmd) {
+        Some(wrap_single_command(cmd, binary))
+    } else {
+        None
+    }
 }
 
 /// The lean-ctx redirect a host tool name maps to, if any.

@@ -147,6 +147,16 @@ state. Headless / fleet environments can opt in without a prompt via
 is on the allowlist (~200 common dev tools: `git`, `cargo`, `npm`, `node`,
 `python`, …). Anything else passes through untouched rather than being wrapped.
 
+**Pipelines & chains (`|`, `&&`, `||`, `;`):** a compound command is wrapped as a
+*single* `lean-ctx -c "<whole>"` only when **every** stage is gate-clean — then
+the pipe/chain runs natively inside one profile-free shell and just the *final*
+output is compressed (so `git log | wc -l` counts the raw log, not a digest). If
+any stage is not gate-clean (an interpreter `-c`, a non-allowlisted sink such as
+`kubectl`, …) the **whole** command is left raw for the agent's shell. lean-ctx
+never wraps only part of a pipe (which would compress mid-pipe data the next stage
+still needs) and never relaxes the gate to wrap a tricky sink — the rewrite can
+only ever route commands the same chokepoint would already allow.
+
 ```toml
 # config.toml
 shell_allowlist = ["git", "cargo", "npm", "…"]   # REPLACE the default set

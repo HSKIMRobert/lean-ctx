@@ -1081,3 +1081,41 @@ fn security_warn_never_blocks_while_enforce_does() {
     assert!(enforced.is_err(), "enforce must block eval");
     assert!(warned.is_ok(), "warn must run the check but never block");
 }
+
+// --- passes_enforced (hook compound classifier, #589) ---
+// The PreToolUse hook routes only gate-clean compounds into the compressing
+// `lean-ctx -c` wrap. `passes_enforced` is the side-effect-free predicate it
+// asks; it must answer the enforce-mode question independent of the active mode.
+
+#[test]
+fn passes_enforced_gates_clean_vs_sink() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git,head,grep,wc");
+    let clean = passes_enforced("git log | head -5");
+    let multi = passes_enforced("git log | grep fix | wc -l");
+    let interpreter = passes_enforced("git log | python3 -c 'print(1)'");
+    let eval_blocked = passes_enforced("eval rm -rf /");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(clean, "gate-clean pipeline must pass");
+    assert!(multi, "multi-stage gate-clean pipeline must pass");
+    assert!(
+        !interpreter,
+        "non-allowlisted interpreter sink must not pass"
+    );
+    assert!(!eval_blocked, "eval is always blocked");
+}
+
+#[test]
+fn passes_enforced_is_mode_independent() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git,head");
+    // Even with gating turned OFF, passes_enforced answers the *enforce* question
+    // so the hook keeps a would-be-blocked sink raw instead of compressing it.
+    crate::test_env::set_var("LEAN_CTX_SHELL_SECURITY", "off");
+    let tricky_off = passes_enforced("git log | python3 -c 'print(1)'");
+    let clean_off = passes_enforced("git log | head");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_SECURITY");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(!tricky_off, "mode-independent: sink still fails under off");
+    assert!(clean_off, "clean pipeline passes regardless of mode");
+}

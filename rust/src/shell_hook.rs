@@ -996,6 +996,27 @@ mod tests {
     }
 
     #[test]
+    fn bash_stubs_appear_before_exec_guard() {
+        // git-bash on Windows runs the agent's commands non-interactively, where
+        // `.bashenv` is the only startup file bash sources (and only when BASH_ENV
+        // points at it). The `_lc`/`_lc_compress` stubs must therefore be defined
+        // BEFORE the exec guard so a residual aliased token never breaks with
+        // `_lc: command not found` even if the guard's env-check bails (#589).
+        let tmp = tempfile::tempdir().unwrap();
+        install_bashenv(tmp.path(), true, Style::Inline, &test_stamp());
+        let body = std::fs::read_to_string(tmp.path().join(".bashenv")).unwrap();
+        let stub_pos = body.find("_lc()").expect("_lc stub must exist");
+        let compress_pos = body
+            .find("_lc_compress()")
+            .expect("_lc_compress stub must exist");
+        let exec_pos = body.find("exec lean-ctx").expect("exec guard must exist");
+        assert!(
+            stub_pos < exec_pos && compress_pos < exec_pos,
+            "bash stubs must be defined BEFORE the exec guard"
+        );
+    }
+
+    #[test]
     fn dropin_zshenv_also_contains_stubs() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(tmp.path().join(".zshenv.d")).unwrap();

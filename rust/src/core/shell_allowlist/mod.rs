@@ -35,6 +35,22 @@ pub fn check_shell_allowlist(command: &str) -> Result<(), String> {
     }
 }
 
+/// True when `command` would pass the allowlist / dangerous-pattern checks in
+/// `enforce` semantics — independent of the active [`ShellSecurity`] mode and
+/// without any logging or blocking side effects.
+///
+/// The PreToolUse hook uses this to decide whether a compound/pipeline is safe
+/// to route through the compressing `lean-ctx -c` wrap: only gate-clean compounds
+/// are wrapped, so a pipeline whose sink is an interpreter-eval or a
+/// non-allowlisted tool is never *newly* blocked by the rewrite (#589). It is
+/// mode-independent on purpose: a data-sink pipeline should stay raw (left to the
+/// agent shell) even in `off`/`warn` mode, where compressing its output would be
+/// just as wrong as blocking it would be in `enforce`.
+#[must_use]
+pub fn passes_enforced(command: &str) -> bool {
+    enforce_shell_allowlist(command).is_ok()
+}
+
 /// Allowlist + dangerous-pattern enforcement, evaluated as if in `enforce` mode.
 /// [`check_shell_allowlist`] decides whether a violation blocks, warns, or is
 /// skipped based on the active [`ShellSecurity`] mode.

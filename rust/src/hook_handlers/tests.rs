@@ -13,6 +13,24 @@ fn expect_wrapped(cmd: &str, binary: &str) -> String {
     }
 }
 
+/// Pins a deterministic shell allowlist while `body` runs, so the `passes_enforced`
+/// gate now consulted by [`build_rewrite_compound`] never depends on the
+/// developer's `config.toml`. `git/cargo/npm/head/grep/wc/cat/rg/echo/cd/ls` are
+/// allowed; `python3` and `kubectl` are deliberately absent so the tricky-sink
+/// branch (left raw for the agent shell, #589) is exercised. Serialized via the
+/// shared test lock; the env is removed before the caller asserts so a failed
+/// assertion can never leak it into another test.
+fn with_test_allowlist<T>(body: impl FnOnce() -> T) -> T {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var(
+        "LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE",
+        "git,cargo,npm,head,grep,wc,cat,rg,echo,cd,ls",
+    );
+    let out = body();
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    out
+}
+
 #[test]
 fn is_rewritable_basic() {
     assert!(is_rewritable("git status"));
@@ -51,6 +69,22 @@ fn rewrite_skip_reason_tracks_candidate_none_branches() {
     assert_eq!(
         rewrite_skip_reason(unknown),
         "not a known read/search/list command"
+    );
+
+    // A compound whose sink isn't allowlisted (here `python3 -c`) is left raw for
+    // the agent shell — the rewrite must not newly block it (#589). Deterministic
+    // via an explicit allowlist that omits python3.
+    let tricky = "git log | python3 -c 'print(1)'";
+    let (declined, reason) = with_test_allowlist(|| {
+        (
+            rewrite_candidate(tricky, binary).is_none(),
+            rewrite_skip_reason(tricky),
+        )
+    });
+    assert!(declined, "tricky compound sink must not be rewritten");
+    assert_eq!(
+        reason,
+        "compound pipes/chains into a non-allowlisted or interpreter sink — left raw for the agent shell"
     );
 }
 
@@ -456,60 +490,130 @@ fn redirect_output_carries_copilot_modified_args() {
     assert_eq!(p["updated_input"]["path"], "/tmp/x.lctx");
 }
 
+// --- build_rewrite_compound: wrap-whole for gate-clean compounds (#589) ---
+// A gate-clean compound is wrapped ENTIRELY in one `lean-ctx -c "…"`: the
+// pipe/chain runs inside lean-ctx's profile-free shell (fixes the Windows
+// `_lc: command not found`) and only the FINAL output is compressed (fixes the
+// left-of-pipe corruption). Tricky sinks (non-allowlisted / interpreter-eval)
+// are declined and left raw for the agent's shell (compat-first, no new block).
+
 #[test]
 fn compound_rewrite_and_chain() {
-    let result = build_rewrite_compound("cd src && git status && echo done", "lean-ctx");
-    let w = expect_wrapped("git status", "lean-ctx");
-    assert_eq!(result, Some(format!("cd src && {w} && echo done")));
+    let cmd = "cd src && git status && echo done";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
 }
 
 #[test]
 fn compound_rewrite_pipe() {
-    let result = build_rewrite_compound("git log --oneline | head -5", "lean-ctx");
-    let w = expect_wrapped("git log --oneline", "lean-ctx");
-    assert_eq!(result, Some(format!("{w} | head -5")));
+    let cmd = "git log --oneline | head -5";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
 }
 
 #[test]
-fn compound_rewrite_no_match() {
-    let result = build_rewrite_compound("cd src && echo done", "lean-ctx");
+fn compound_rewrite_multi_pipe() {
+    let cmd = "git log | grep fix | wc -l";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
+}
+
+#[test]
+fn compound_rewrite_right_only_rewritable() {
+    // `cat` is a FileRead (not `-c`-wrappable alone) but `rg` makes the compound
+    // rewritable; the whole thing is gate-clean, so it wraps as one unit.
+    let cmd = "cat notes.txt | rg TODO";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
+}
+
+#[test]
+fn compound_rewrite_no_rewritable_segment() {
+    // Neither `cd` nor `echo` is rewritable → nothing to compress → left as-is.
+    let result = with_test_allowlist(|| build_rewrite_compound("cd src && echo done", "lean-ctx"));
     assert_eq!(result, None);
 }
 
 #[test]
 fn compound_rewrite_multiple_rewritable() {
-    let result = build_rewrite_compound("git add . && cargo test && npm run lint", "lean-ctx");
-    let w1 = expect_wrapped("git add .", "lean-ctx");
-    let w2 = expect_wrapped("cargo test", "lean-ctx");
-    let w3 = expect_wrapped("npm run lint", "lean-ctx");
-    assert_eq!(result, Some(format!("{w1} && {w2} && {w3}")));
+    let cmd = "git add . && cargo test && npm run lint";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
 }
 
 #[test]
 fn compound_rewrite_semicolons() {
-    let result = build_rewrite_compound("git add .; git commit -m 'fix'", "lean-ctx");
-    let w1 = expect_wrapped("git add .", "lean-ctx");
-    let w2 = expect_wrapped("git commit -m 'fix'", "lean-ctx");
-    assert_eq!(result, Some(format!("{w1} ; {w2}")));
+    let cmd = "git add .; git commit -m 'fix'";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
 }
 
 #[test]
 fn compound_rewrite_or_chain() {
-    let result = build_rewrite_compound("git pull || echo failed", "lean-ctx");
-    let w = expect_wrapped("git pull", "lean-ctx");
-    assert_eq!(result, Some(format!("{w} || echo failed")));
+    let cmd = "git pull || echo failed";
+    let result = with_test_allowlist(|| build_rewrite_compound(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
 }
 
 #[test]
 fn compound_skips_already_rewritten() {
-    let result = build_rewrite_compound("lean-ctx -c git status && git diff", "lean-ctx");
-    let w = expect_wrapped("git diff", "lean-ctx");
-    assert_eq!(result, Some(format!("lean-ctx -c git status && {w}")));
+    // A segment that is already a lean-ctx call must not be nested inside another
+    // `lean-ctx -c "…"`; the whole compound is left untouched.
+    let result = with_test_allowlist(|| {
+        build_rewrite_compound("lean-ctx -c git status && git diff", "lean-ctx")
+    });
+    assert_eq!(result, None);
+}
+
+#[test]
+fn compound_tricky_interpreter_sink_left_raw() {
+    // Piping into `python3 -c` (not allowlisted) must NOT be wrapped — wrapping
+    // would newly subject the interpreter to the gate and block a command the
+    // agent's shell ran fine before (#589, compat-first).
+    let result = with_test_allowlist(|| {
+        build_rewrite_compound("git log | python3 -c 'print(1)'", "lean-ctx")
+    });
+    assert_eq!(result, None);
+}
+
+#[test]
+fn compound_tricky_non_allowlisted_sink_left_raw() {
+    // `kubectl` is rewritable but deliberately excluded from the defaults; the
+    // compound therefore fails the gate and stays raw rather than being blocked.
+    let result =
+        with_test_allowlist(|| build_rewrite_compound("git log | kubectl apply -f -", "lean-ctx"));
+    assert_eq!(result, None);
+}
+
+#[test]
+fn compound_tricky_chain_sink_left_raw() {
+    let result = with_test_allowlist(|| {
+        build_rewrite_compound("cargo test && python3 -c 'print(1)'", "lean-ctx")
+    });
+    assert_eq!(result, None);
 }
 
 #[test]
 fn single_command_not_compound() {
-    let result = build_rewrite_compound("git status", "lean-ctx");
+    let result = with_test_allowlist(|| build_rewrite_compound("git status", "lean-ctx"));
+    assert_eq!(result, None);
+}
+
+#[test]
+fn rewrite_candidate_wraps_clean_compound() {
+    // End-to-end: a gate-clean pipeline routes through the compound handler and
+    // is wrapped whole (never split, never falling to the single-command path).
+    let cmd = "git log | head -5";
+    let result = with_test_allowlist(|| rewrite_candidate(cmd, "lean-ctx"));
+    assert_eq!(result, Some(expect_wrapped(cmd, "lean-ctx")));
+}
+
+#[test]
+fn rewrite_candidate_leaves_tricky_compound_untouched() {
+    // End-to-end: a tricky compound must not be re-wrapped by the single-command
+    // `is_rewritable` fallback after the compound handler declines it (#589).
+    let result =
+        with_test_allowlist(|| rewrite_candidate("git log | python3 -c 'print(1)'", "lean-ctx"));
     assert_eq!(result, None);
 }
 
