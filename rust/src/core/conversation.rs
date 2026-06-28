@@ -16,6 +16,21 @@
 //! so it is never served — nor records — a stub under another agent's identity;
 //! this lets the stub gate replace the old blanket subagent force-fresh (#956).
 //!
+//! ## Concurrency hardening (#1040)
+//!
+//! `active_transcript.json` is a single, last-writer-wins slot, and an MCP
+//! `ctx_read` call carries no caller identity (`ToolContext` has none), so with
+//! **two concurrent top-level chats** the daemon
+//! cannot prove which chat is asking: the resolved id may be the *other* chat's
+//! (last writer) or a TTL-stale value. A matching id is therefore untrustworthy
+//! while more than one conversation is live. Rather than risk serving chat B a
+//! stub for content only chat A received, the gate **withholds every stub while
+//! more than one conversation has been active recently** — correctness over the
+//! re-read savings. Single-conversation daemons (the common case) keep the full
+//! savings; sightings are sampled on each transcript refresh. Subagents never
+//! feed this signal (they short-circuit on their `task:` scope), so a parent +
+//! its subagents are not counted as concurrent.
+//!
 //! Disabled with `LEAN_CTX_CONVERSATION_SCOPE=0` (falls back to the legacy
 //! process-scoped behavior).
 
@@ -26,6 +41,12 @@ use std::time::{Duration, Instant};
 /// How long a resolved conversation id stays fresh before we re-read the file.
 const REFRESH_TTL: Duration = Duration::from_secs(3);
 
+/// How long a sighting of a conversation id keeps counting toward "concurrently
+/// active". Sized to comfortably span a multi-tab session's think/act gaps so a
+/// second chat that briefly goes quiet doesn't drop below the concurrency
+/// threshold and re-open the cross-chat stub hazard (#1040).
+const CONCURRENCY_WINDOW: Duration = Duration::from_secs(30);
+
 struct Cached {
     value: Option<String>,
     refreshed_at: Instant,
@@ -34,6 +55,14 @@ struct Cached {
 fn store() -> &'static RwLock<Option<Cached>> {
     static STORE: OnceLock<RwLock<Option<Cached>>> = OnceLock::new();
     STORE.get_or_init(|| RwLock::new(None))
+}
+
+/// Recent sightings of distinct conversation ids (`id` → last-seen instant),
+/// fed by [`refresh`]. Drives [`multiple_conversations_recent`] so the stub gate
+/// can tell when the daemon is multiplexing more than one chat (#1040).
+fn seen_store() -> &'static RwLock<Vec<(String, Instant)>> {
+    static SEEN: OnceLock<RwLock<Vec<(String, Instant)>>> = OnceLock::new();
+    SEEN.get_or_init(|| RwLock::new(Vec::new()))
 }
 
 pub(crate) fn scope_enabled() -> bool {
@@ -96,6 +125,9 @@ pub fn current_conversation_id() -> Option<String> {
 
 fn refresh() -> Option<String> {
     let fresh = crate::hook_handlers::load_active_transcript().and_then(|(_, conv)| conv);
+    if let Some(id) = fresh.as_deref() {
+        note_conversation_seen(id);
+    }
     if let Ok(mut guard) = store().write() {
         // Retain last-known-good: a transient miss (file briefly absent or
         // expired) must not flip a stable conversation to `None` and force
@@ -119,16 +151,82 @@ fn refresh() -> Option<String> {
     fresh
 }
 
+/// Record a sighting of `id` in the recency log. Thin wrapper over the pure
+/// [`note_into`] so the global store stays an implementation detail.
+fn note_conversation_seen(id: &str) {
+    if let Ok(mut v) = seen_store().write() {
+        note_into(&mut v, id, Instant::now(), CONCURRENCY_WINDOW);
+    }
+}
+
+/// Pure core of [`note_conversation_seen`]: upsert `id`'s last-seen timestamp and
+/// drop sightings older than `window`. One entry per id, so the vec length is the
+/// number of distinct recent conversations.
+fn note_into(v: &mut Vec<(String, Instant)>, id: &str, now: Instant, window: Duration) {
+    v.retain(|(_, t)| now.duration_since(*t) < window);
+    if let Some(entry) = v.iter_mut().find(|(seen, _)| seen == id) {
+        entry.1 = now;
+    } else {
+        v.push((id.to_string(), now));
+    }
+}
+
+/// Pure core of [`multiple_conversations_recent`]: distinct ids seen within
+/// `window` of `now`.
+fn distinct_within(v: &[(String, Instant)], now: Instant, window: Duration) -> usize {
+    v.iter()
+        .filter(|(_, t)| now.duration_since(*t) < window)
+        .count()
+}
+
+/// True when more than one conversation has been active within
+/// [`CONCURRENCY_WINDOW`] — i.e. the daemon is multiplexing chats, so the shared
+/// `active_transcript.json` id can't be trusted to name the current caller and no
+/// stub is provably in-context (#1040).
+pub(crate) fn multiple_conversations_recent() -> bool {
+    seen_store()
+        .read()
+        .is_ok_and(|v| distinct_within(&v, Instant::now(), CONCURRENCY_WINDOW) > 1)
+}
+
 /// Whether a `[unchanged]` stub may be served for an entry that was delivered to
 /// `delivered`, given the `current` conversation.
 ///
 /// `current == None` (no conversation context) preserves the legacy
-/// process-scoped behavior — stub allowed. Otherwise the stub is only allowed
-/// when the current conversation *is* the one that received the full content.
+/// process-scoped behavior — stub allowed — **unless** more than one conversation
+/// has been active recently, in which case every stub is withheld because the
+/// shared id signal can't identify the caller (#1040).
 pub fn conversation_allows_stub(current: Option<&str>, delivered: Option<&str>) -> bool {
-    match current {
-        None => true,
-        Some(cur) => delivered == Some(cur),
+    allows_stub(
+        scope_enabled(),
+        multiple_conversations_recent(),
+        current,
+        delivered,
+    )
+}
+
+/// Pure decision core (no env / global reads) so the full matrix is unit-testable.
+fn allows_stub(
+    scope_on: bool,
+    concurrent: bool,
+    current: Option<&str>,
+    delivered: Option<&str>,
+) -> bool {
+    if !scope_on {
+        // Explicit legacy mode: one daemon == one conversation by contract.
+        return true;
+    }
+    if concurrent {
+        // Multiple chats live: a matching id can't be trusted to name THIS caller,
+        // so nothing is provably in-context — withhold every stub (#1040).
+        return false;
+    }
+    match (current, delivered) {
+        (Some(c), Some(d)) => c == d,
+        // Known caller, unknown delivery (pre-scoping entry) → can't prove → block.
+        (Some(_), None) => false,
+        // Unknown caller on a single-conversation daemon → legacy allow.
+        (None, _) => true,
     }
 }
 
@@ -141,46 +239,101 @@ pub fn conversation_allows_stub(current: Option<&str>, delivered: Option<&str>) 
 /// conversation. Unlike the warm path there is no "no context → legacy" escape,
 /// because without a current conversation id we cannot prove the content is in
 /// the new process's context, and a wrong cold stub would resurrect exactly the
-/// cross-chat hazard #954 closed.
+/// cross-chat hazard #954 closed. Also withheld under concurrency (#1040).
 pub fn conversation_allows_cold_stub(current: Option<&str>, delivered: Option<&str>) -> bool {
-    matches!((current, delivered), (Some(c), Some(d)) if c == d)
+    allows_cold_stub(multiple_conversations_recent(), current, delivered)
+}
+
+/// Pure decision core of [`conversation_allows_cold_stub`].
+fn allows_cold_stub(concurrent: bool, current: Option<&str>, delivered: Option<&str>) -> bool {
+    !concurrent && matches!((current, delivered), (Some(c), Some(d)) if c == d)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // The gate matrix is tested through the pure cores (`allows_stub` /
+    // `allows_cold_stub`) so the assertions are deterministic regardless of the
+    // process-global recency store, which other tests mutate in parallel.
+
     #[test]
     fn no_current_context_allows_stub_legacy() {
-        // Without conversation context we must behave exactly as before.
-        assert!(conversation_allows_stub(None, None));
-        assert!(conversation_allows_stub(None, Some("conv-a")));
+        // Single-conversation daemon, scoping on: behave exactly as before.
+        assert!(allows_stub(true, false, None, None));
+        assert!(allows_stub(true, false, None, Some("conv-a")));
+    }
+
+    #[test]
+    fn scope_disabled_always_allows_stub() {
+        // Explicit opt-out → legacy process scope, even under (irrelevant) concurrency.
+        assert!(allows_stub(false, true, Some("conv-b"), Some("conv-a")));
+        assert!(allows_stub(false, true, None, None));
     }
 
     #[test]
     fn same_conversation_allows_stub() {
-        assert!(conversation_allows_stub(Some("conv-a"), Some("conv-a")));
+        assert!(allows_stub(true, false, Some("conv-a"), Some("conv-a")));
     }
 
     #[test]
     fn different_conversation_blocks_stub() {
-        assert!(!conversation_allows_stub(Some("conv-b"), Some("conv-a")));
+        assert!(!allows_stub(true, false, Some("conv-b"), Some("conv-a")));
     }
 
     #[test]
     fn unknown_delivering_conversation_blocks_stub() {
         // Entry delivered before scoping existed → cannot prove it is in context.
-        assert!(!conversation_allows_stub(Some("conv-a"), None));
+        assert!(!allows_stub(true, false, Some("conv-a"), None));
+    }
+
+    #[test]
+    fn concurrency_withholds_every_warm_stub() {
+        // #1040: while >1 chat is live, even a same-id match is untrustworthy.
+        assert!(!allows_stub(true, true, Some("conv-a"), Some("conv-a")));
+        assert!(!allows_stub(true, true, None, None));
+        assert!(!allows_stub(true, true, None, Some("conv-a")));
     }
 
     #[test]
     fn cold_stub_requires_both_known_and_matching() {
-        assert!(conversation_allows_cold_stub(Some("c"), Some("c")));
-        assert!(!conversation_allows_cold_stub(Some("c"), Some("d")));
+        assert!(allows_cold_stub(false, Some("c"), Some("c")));
+        assert!(!allows_cold_stub(false, Some("c"), Some("d")));
         // No "legacy" escape for the cold path: unknown either side → blocked.
-        assert!(!conversation_allows_cold_stub(None, Some("c")));
-        assert!(!conversation_allows_cold_stub(Some("c"), None));
-        assert!(!conversation_allows_cold_stub(None, None));
+        assert!(!allows_cold_stub(false, None, Some("c")));
+        assert!(!allows_cold_stub(false, Some("c"), None));
+        assert!(!allows_cold_stub(false, None, None));
+    }
+
+    #[test]
+    fn cold_stub_withheld_under_concurrency() {
+        // #1040: a matching cold stub is still withheld while chats are multiplexed.
+        assert!(!allows_cold_stub(true, Some("c"), Some("c")));
+    }
+
+    #[test]
+    fn recency_counts_distinct_ids_and_dedupes_repeats() {
+        let now = Instant::now();
+        let win = Duration::from_secs(30);
+        let mut v = Vec::new();
+        note_into(&mut v, "a", now, win);
+        assert_eq!(distinct_within(&v, now, win), 1);
+        note_into(&mut v, "a", now, win); // same id refreshes, no new entry
+        assert_eq!(distinct_within(&v, now, win), 1);
+        note_into(&mut v, "b", now, win); // second chat → concurrency
+        assert_eq!(distinct_within(&v, now, win), 2);
+    }
+
+    #[test]
+    fn recency_prunes_sightings_older_than_window() {
+        let win = Duration::from_secs(30);
+        let t0 = Instant::now();
+        let mut v = Vec::new();
+        note_into(&mut v, "old", t0, win);
+        // A sighting well past the window prunes the stale one — back to one chat.
+        let t1 = t0 + win * 2;
+        note_into(&mut v, "new", t1, win);
+        assert_eq!(distinct_within(&v, t1, win), 1);
     }
 
     #[test]
@@ -205,7 +358,7 @@ mod tests {
         // transcript conversation id, so the stub gate always withholds the
         // parent's delivery from the subagent.
         let sub = subagent_scope_from(Some("xyz")).unwrap();
-        assert!(!conversation_allows_stub(Some(&sub), Some("xyz")));
-        assert!(conversation_allows_stub(Some(&sub), Some(&sub)));
+        assert!(!allows_stub(true, false, Some(&sub), Some("xyz")));
+        assert!(allows_stub(true, false, Some(&sub), Some(&sub)));
     }
 }
