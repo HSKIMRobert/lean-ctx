@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(3);
+mod dedup;
 mod observe;
 mod payload;
 pub use observe::*;
@@ -186,28 +187,31 @@ pub fn handle_rewrite() {
         return;
     };
 
-    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
-        debug_log::log_hook_decision(
-            "rewrite",
-            &tool_name,
-            Route::LeanCtx,
-            &cmd,
-            "rewritable command",
-        );
-        print!(
-            "{}",
+    // #1032: Cursor fires preToolUse twice. Dedup on a PID-independent key (tool +
+    // command) so the second fire replays the decision instead of re-logging.
+    let key_material = format!("{tool_name}\u{0}{cmd}");
+    let out = dedup::deduped("rewrite", &key_material, || {
+        if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
+            debug_log::log_hook_decision(
+                "rewrite",
+                &tool_name,
+                Route::LeanCtx,
+                &cmd,
+                "rewritable command",
+            );
             build_dual_rewrite_output(tool_args.as_ref(), &rewritten)
-        );
-    } else {
-        debug_log::log_hook_decision(
-            "rewrite",
-            &tool_name,
-            Route::Native,
-            &cmd,
-            rewrite_skip_reason(&cmd),
-        );
-        print!("{allow}");
-    }
+        } else {
+            debug_log::log_hook_decision(
+                "rewrite",
+                &tool_name,
+                Route::Native,
+                &cmd,
+                rewrite_skip_reason(&cmd),
+            );
+            build_dual_allow_output()
+        }
+    });
+    print!("{out}");
 }
 
 /// Human-readable reason a shell command was left to the native tool. Mirrors
@@ -711,11 +715,36 @@ pub fn handle_redirect() {
     let tool_name = payload::resolve_tool_name(&v).unwrap_or_default();
     let tool_args = payload::resolve_tool_args(&v);
 
-    match classify_redirect(&tool_name) {
-        RedirectKind::Read => redirect_read(tool_args.as_ref()),
-        RedirectKind::Grep => redirect_grep(tool_args.as_ref()),
-        RedirectKind::Glob => redirect_glob(tool_args.as_ref()),
-        RedirectKind::None => print!("{allow}"),
+    let kind = classify_redirect(&tool_name);
+    if matches!(kind, RedirectKind::None) {
+        print!("{allow}");
+        return;
+    }
+
+    // #1032: Cursor fires preToolUse twice (two processes, identical payload), so a
+    // naive redirect runs the lean-ctx subprocess and logs twice. Dedup on a
+    // PID-independent key (tool + args) so the second fire replays the first's
+    // response — one subprocess, one log entry.
+    let args_json = tool_args
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    let key_material = format!("{tool_name}\u{0}{args_json}");
+    let out = dedup::deduped("redirect", &key_material, || {
+        produce_redirect_output(kind, tool_args.as_ref())
+    });
+    print!("{out}");
+}
+
+/// Build the redirect stdout for a classified tool call. Returns the full hook
+/// response (redirect or allow-passthrough) so [`handle_redirect`] can route it
+/// through the double-fire dedup before printing exactly once.
+fn produce_redirect_output(kind: RedirectKind, tool_args: Option<&serde_json::Value>) -> String {
+    match kind {
+        RedirectKind::Read => redirect_read(tool_args),
+        RedirectKind::Grep => redirect_grep(tool_args),
+        RedirectKind::Glob => redirect_glob(tool_args),
+        RedirectKind::None => build_dual_allow_output(),
     }
 }
 
@@ -734,7 +763,7 @@ fn redirect_read_args(path: &str) -> [&str; 4] {
 /// Redirect Read through lean-ctx for compression + caching.
 /// Safe because `mark_hook_environment()` sets LEAN_CTX_HOOK_CHILD=1 which
 /// prevents daemon auto-start. The subprocess uses the fast local-only path.
-fn redirect_read(tool_input: Option<&serde_json::Value>) {
+fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
     // Hosts disagree on the path field: Cursor/Claude send `file_path`, some MCP
     // schemas use `path`. Resolve across all of them and remember WHICH field
     // matched so the redirect rewrites the same field the host reads back.
@@ -748,8 +777,7 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
             "<none>",
             "no path in tool input",
         );
-        print!("{}", build_dual_allow_output());
-        return;
+        return build_dual_allow_output();
     };
     if should_passthrough(&path) {
         debug_log::log_hook_decision(
@@ -759,8 +787,7 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
             &path,
             "passthrough path (sensitive/binary/excluded)",
         );
-        print!("{}", build_dual_allow_output());
-        return;
+        return build_dual_allow_output();
     }
 
     let shadow = is_shadow_mode_active();
@@ -798,12 +825,8 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
                     "lean-ctx shadow mode: this Read was served by ctx_read(\"{path}\", \"full\"). Call ctx_read directly for better performance."
                 )
             });
-            print!(
-                "{}",
-                build_redirect_output(tool_input, path_field, temp_str, shadow_note.as_deref())
-            );
             log_shadow_intercept("Read", &path);
-            return;
+            return build_redirect_output(tool_input, path_field, temp_str, shadow_note.as_deref());
         }
     }
 
@@ -814,7 +837,7 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
         &path,
         "lean-ctx read produced no output",
     );
-    print!("{}", build_dual_allow_output());
+    build_dual_allow_output()
 }
 
 /// Redirect Grep through lean-ctx for compressed results.
@@ -832,7 +855,7 @@ fn grep_content_mode(tool_input: Option<&serde_json::Value>) -> bool {
         == Some("content")
 }
 
-fn redirect_grep(tool_input: Option<&serde_json::Value>) {
+fn redirect_grep(tool_input: Option<&serde_json::Value>) -> String {
     let pattern = tool_input
         .and_then(|ti| ti.get("pattern"))
         .and_then(|p| p.as_str())
@@ -850,8 +873,7 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
             "<none>",
             "no pattern in tool input",
         );
-        print!("{}", build_dual_allow_output());
-        return;
+        return build_dual_allow_output();
     }
 
     if !grep_content_mode(tool_input) {
@@ -865,8 +887,7 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
         if is_shadow_mode_active() {
             log_shadow_intercept("Grep", &format!("{pattern} in {search_path}"));
         }
-        print!("{}", build_dual_allow_output());
-        return;
+        return build_dual_allow_output();
     }
 
     let shadow = is_shadow_mode_active();
@@ -903,12 +924,8 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
                     "lean-ctx shadow mode: this Grep was served by ctx_search(\"{pattern}\", \"{search_path}\"). Call ctx_search directly for better performance."
                 )
             });
-            print!(
-                "{}",
-                build_redirect_output(tool_input, "path", temp_str, shadow_note.as_deref())
-            );
             log_shadow_intercept("Grep", &format!("{pattern} in {search_path}"));
-            return;
+            return build_redirect_output(tool_input, "path", temp_str, shadow_note.as_deref());
         }
     }
 
@@ -919,7 +936,7 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
         &format!("{pattern} in {search_path}"),
         "lean-ctx grep produced no output",
     );
-    print!("{}", build_dual_allow_output());
+    build_dual_allow_output()
 }
 
 /// Redirect Glob through lean-ctx in shadow/harden mode (#556).
@@ -931,12 +948,11 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) {
 /// path (parity with `ctx_glob`) and record the intercept in shadow.log — then
 /// allow the native call through unchanged. Outside those modes there is nothing
 /// to gain, so we pass through immediately without spawning a subprocess.
-fn redirect_glob(tool_input: Option<&serde_json::Value>) {
+fn redirect_glob(tool_input: Option<&serde_json::Value>) -> String {
     let allow = build_dual_allow_output();
     let shadow = is_shadow_mode_active();
     if !shadow && !is_harden_active() {
-        print!("{allow}");
-        return;
+        return allow;
     }
 
     let pattern = tool_input
@@ -951,9 +967,9 @@ fn redirect_glob(tool_input: Option<&serde_json::Value>) {
             "<none>",
             "no pattern in tool input",
         );
-        print!("{allow}");
-        return;
+        return allow;
     }
+
     let search_path = tool_input
         .and_then(|ti| ti.get("path"))
         .and_then(|p| p.as_str())
@@ -981,7 +997,7 @@ fn redirect_glob(tool_input: Option<&serde_json::Value>) {
         "shadow/harden warm — native passthrough",
     );
     log_shadow_intercept("Glob", &format!("{pattern} in {search_path}"));
-    print!("{allow}");
+    allow
 }
 
 const REDIRECT_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(10);
