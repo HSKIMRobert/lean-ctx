@@ -922,3 +922,15 @@ fn classify_redirect_passes_through_shell_and_unknown() {
         assert_eq!(classify_redirect(n), RedirectKind::None, "{n}");
     }
 }
+
+#[test]
+fn redirect_read_args_pin_full_mode_never_auto() {
+    // #1021: a redirected native Read must fetch verbatim content. `auto`
+    // degrades large files to a structure MAP (signatures), which is the wrong
+    // payload for a Read and silently drops offset/limit. The host windows the
+    // faithful full content itself.
+    let args = redirect_read_args("/repo/src/main.rs");
+    assert_eq!(args, ["read", "/repo/src/main.rs", "-m", "full"]);
+    assert!(args.contains(&"full"));
+    assert!(!args.contains(&"auto"));
+}

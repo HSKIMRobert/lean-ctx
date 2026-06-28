@@ -719,6 +719,18 @@ pub fn handle_redirect() {
     }
 }
 
+/// Argv for the `lean-ctx read` subprocess a redirected native Read runs.
+///
+/// Pinned to `-m full` (verbatim, edit-ready content). The default `auto`
+/// mode degrades a large file to a structure MAP — signatures, not content —
+/// so the host's native Read would receive the wrong thing and silently
+/// ignore `offset`/`limit` (#1021). With the temp file holding faithful full
+/// content the host applies its own `offset`/`limit` to it, so windowed reads
+/// keep working without lean-ctx having to reimplement them.
+fn redirect_read_args(path: &str) -> [&str; 4] {
+    ["read", path, "-m", "full"]
+}
+
 /// Redirect Read through lean-ctx for compression + caching.
 /// Safe because `mark_hook_environment()` sets LEAN_CTX_HOOK_CHILD=1 which
 /// prevents daemon auto-start. The subprocess uses the fast local-only path.
@@ -762,9 +774,11 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) {
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(&path);
 
-    if let Some(mut output) =
-        run_with_timeout(&binary, &["read", &path], REDIRECT_SUBPROCESS_TIMEOUT)
-    {
+    if let Some(mut output) = run_with_timeout(
+        &binary,
+        &redirect_read_args(&path),
+        REDIRECT_SUBPROCESS_TIMEOUT,
+    ) {
         if shadow {
             let header = format!(
                 "[shadow-mode: Read intercepted → ctx_read(\"{path}\", \"full\"). Use ctx_read directly for better performance.]\n\n"
