@@ -170,7 +170,12 @@ pub(super) fn cmd_dev_install() {
     ipc::process::kill_all_by_name("lean-ctx");
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    let remaining = ipc::process::find_pids_by_name("lean-ctx");
+    // #1036: force-kill the SAME MCP-safe set as `cmd_stop` (`find_killable_pids`),
+    // never the raw `find_pids_by_name`. The latter includes the IDE-owned MCP
+    // stdio server (bare `lean-ctx`); SIGKILLing it drops the editor's MCP
+    // connection for minutes (until the IDE respawns it) — the binary the IDE
+    // respawns is the freshly installed one anyway, so killing it only hurts.
+    let remaining = ipc::process::find_killable_pids("lean-ctx");
     if !remaining.is_empty() {
         eprintln!("  Force-killing {} stubborn process(es)…", remaining.len());
         for &pid in &remaining {
