@@ -4,8 +4,8 @@
 //! `env`, that process ran in single-dir mode and wrote `config.toml` into the
 //! data dir (`$XDG_DATA_HOME/lean-ctx`), while the terminal CLI kept config in
 //! `$XDG_CONFIG_HOME/lean-ctx`. The resolver now keeps both on the config dir
-//! (see [`crate::core::paths::single_dir_override`]), but a `config.toml` that
-//! was already written into the data dir would be silently ignored from then on.
+//! (see `core::paths::single_dir_override`), but a `config.toml` that was already
+//! written into the data dir would be silently ignored from then on.
 //!
 //! This module relocates it to the canonical config dir, **losslessly**:
 //! - canonical config absent/empty → the stray copy is *adopted* as the real
