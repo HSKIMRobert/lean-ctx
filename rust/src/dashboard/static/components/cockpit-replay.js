@@ -399,10 +399,12 @@ class CockpitReplay extends HTMLElement {
       '<pre class="mono" style="background:var(--bg-elev,#0d1117);padding:10px;border-radius:8px;overflow:auto">' +
       'lean-ctx snapshot show ' + this._esc(id) + '\n' +
       'lean-ctx snapshot verify ' + this._esc(id) + '\n' +
-      'lean-ctx snapshot restore ' + this._esc(id) + ' --git</pre>' +
+      'lean-ctx snapshot restore ' + this._esc(id) + ' --git\n' +
+      'lean-ctx snapshot publish ' + this._esc(id) + '</pre>' +
       '<p class="hs" style="color:var(--muted)"><span class="mono">restore</span> resumes this ' +
       'snapshot\u2019s task &amp; decisions (and, with <span class="mono">--git</span>, checks out its ' +
-      'commit). Sharing lands as <span class="mono">snapshot publish</span> (Phase 4).</p>' +
+      'commit). <span class="mono">publish</span> writes a signed, shareable file; the recipient runs ' +
+      '<span class="mono">snapshot import &lt;file&gt;</span>.</p>' +
       '</div>'
     );
   }
@@ -424,3 +426,4 @@ customElements.define('cockpit-replay', CockpitReplay);
 })();
 
 export { CockpitReplay };
+

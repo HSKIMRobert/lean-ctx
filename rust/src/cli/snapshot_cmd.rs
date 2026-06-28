@@ -4,7 +4,8 @@
 //! state as a git-anchored, signed snapshot and browse the append-only timeline.
 
 use crate::core::context_snapshot::{
-    self, ContextSnapshotV1, GitRestore, RestoreOptions, RestoreOutcome, SnapshotOptions,
+    self, ContextSnapshotV1, GitRestore, ImportOutcome, PublishOptions, PublishOutcome,
+    RestoreOptions, RestoreOutcome, SnapshotOptions,
 };
 
 pub(crate) fn cmd_snapshot(args: &[String]) {
@@ -19,6 +20,8 @@ pub(crate) fn cmd_snapshot(args: &[String]) {
         "show" => cmd_show(args),
         "verify" => cmd_verify(args),
         "restore" => cmd_restore(args),
+        "publish" => cmd_publish(args),
+        "import" => cmd_import(args),
         other => {
             eprintln!("unknown snapshot subcommand: {other}");
             usage();
@@ -29,18 +32,28 @@ pub(crate) fn cmd_snapshot(args: &[String]) {
 
 fn usage() {
     eprintln!(
-        "Usage: lean-ctx snapshot <create|list|show|verify|restore> [options]\n\
+        "Usage: lean-ctx snapshot <create|list|show|verify|restore|publish|import> [options]\n\
          \n  create [--sign]      build + store a snapshot of the current context state\
          \n  list [--json]        list this project's snapshot timeline\
          \n  show <id> [--json]   print a stored snapshot\
          \n  verify <id>          check a snapshot's signature + integrity\
          \n  restore <id> [--git] resume the snapshot's session (and, with --git, check out its commit)\
+         \n  publish <id> [--out <path>]  write a signed, shareable snapshot file\
+         \n  import <file>        verify + add a shared snapshot to this project's timeline\
          \n\nCommon: [--root <path>] selects the project (default: cwd)."
     );
 }
 
 fn has_flag(args: &[String], flag: &str) -> bool {
     args.iter().any(|a| a == flag)
+}
+
+/// Value following `flag` (e.g. `--out <path>`), if present.
+fn flag_value(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }
 
 /// First non-flag argument after the subcommand (the id for show / verify).
@@ -224,6 +237,94 @@ fn render_restore(s: &ContextSnapshotV1, o: &RestoreOutcome) -> String {
         GitRestore::Failed(e) => format!("checkout failed: {e}"),
     };
     let _ = writeln!(out, "  git      {git_line}");
+    out
+}
+
+fn cmd_publish(args: &[String]) {
+    let project_root = super::common::detect_project_root(args);
+    let Some(id) = id_arg(args) else {
+        fail_usage("snapshot id required: lean-ctx snapshot publish <id>");
+        return;
+    };
+    let id = match context_snapshot::resolve_id(&project_root, &id) {
+        Ok(full) => full,
+        Err(e) => {
+            fail(&e);
+            return;
+        }
+    };
+    let snap = match context_snapshot::read_snapshot(&project_root, &id) {
+        Ok(s) => s,
+        Err(e) => {
+            fail(&e);
+            return;
+        }
+    };
+    let opts = PublishOptions {
+        project_root,
+        out: flag_value(args, "--out").map(std::path::PathBuf::from),
+    };
+    match context_snapshot::publish(&snap, &opts) {
+        Ok(outcome) => print!("{}", render_publish(&snap, &outcome)),
+        Err(e) => fail(&e),
+    }
+}
+
+fn cmd_import(args: &[String]) {
+    let project_root = super::common::detect_project_root(args);
+    let Some(file) = id_arg(args) else {
+        fail_usage("snapshot file required: lean-ctx snapshot import <file>");
+        return;
+    };
+    match context_snapshot::import(std::path::Path::new(&file), &project_root) {
+        Ok(outcome) => print!("{}", render_import(&outcome)),
+        Err(e) => fail(&e),
+    }
+}
+
+fn render_publish(s: &ContextSnapshotV1, o: &PublishOutcome) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(out, "published snapshot {}", short(&s.snapshot_id));
+    let _ = writeln!(out, "  file     {}", o.path.display());
+    let _ = writeln!(
+        out,
+        "  signed   {} (publisher {})",
+        if o.newly_signed { "now" } else { "already" },
+        short(&o.public_key)
+    );
+    let _ = writeln!(
+        out,
+        "  share    send the file; the recipient runs: lean-ctx snapshot import <file>"
+    );
+    out
+}
+
+fn render_import(o: &ImportOutcome) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let verb = if o.already_present {
+        "already in timeline"
+    } else {
+        "imported"
+    };
+    let _ = writeln!(out, "{verb}: snapshot {}", short(&o.snapshot_id));
+    let provenance = if !o.signed {
+        "unsigned — no provenance".to_string()
+    } else if o.verified {
+        "signature verified".to_string()
+    } else {
+        "signature INVALID".to_string()
+    };
+    let _ = writeln!(out, "  provenance {provenance}");
+    if !o.already_present {
+        let _ = writeln!(
+            out,
+            "  next     lean-ctx snapshot show {} | restore {}",
+            short(&o.snapshot_id),
+            short(&o.snapshot_id)
+        );
+    }
     out
 }
 
