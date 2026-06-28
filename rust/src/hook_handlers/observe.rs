@@ -44,12 +44,40 @@ fn emit_dedicated_session_context(input: &str) {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(input) else {
         return;
     };
-    if v.get("hook_event_name").and_then(|e| e.as_str()) != Some("SessionStart") {
+    if !session_start_honours_additional_context(&v) {
         return;
     }
-    if !crate::core::config::Config::load().dedicated_session_context_active() {}
-    // Session start additional context removed — the MCP instructions
-    // already carry the compact rules block.
+    let cfg = crate::core::config::Config::load();
+    if !cfg.dedicated_session_context_active() {
+        return;
+    }
+    // Canonical Bare rules (same SSOT as the MCP instructions) reinforced at
+    // session start: models weight in-conversation context above static server
+    // instructions, so this nudge lifts ctx_* adoption where it is honoured (#1031).
+    let summary = crate::core::rules_canonical::render(
+        cfg.shadow_mode,
+        crate::core::rules_canonical::Wrapper::Bare,
+        crate::core::config::CompressionLevel::Off,
+    );
+    emit_session_start_additional_context(&summary);
+}
+
+/// True only for SessionStart payloads from hosts that actually honour
+/// `additionalContext` — Claude/Codex/CodeBuddy, tagged with `session_id`.
+///
+/// Cursor also registers `hook observe` on sessionStart, but it discards
+/// SessionStart `additionalContext` (confirmed Cursor bug) and already receives
+/// the rules from the static `.cursor/rules/lean-ctx.mdc`. Its payload is tagged
+/// with `conversation_id`, so it is excluded here to avoid a dead, duplicated
+/// emit (#1031).
+fn session_start_honours_additional_context(v: &serde_json::Value) -> bool {
+    let is_session_start =
+        v.get("hook_event_name").and_then(|e| e.as_str()) == Some("SessionStart");
+    let is_cursor = v
+        .get("conversation_id")
+        .and_then(|c| c.as_str())
+        .is_some_and(|c| !c.is_empty());
+    is_session_start && !is_cursor
 }
 
 #[derive(serde::Serialize)]
@@ -641,5 +669,34 @@ mod tests {
         });
         let event = detect_event_type(&v, 1000).unwrap();
         assert_eq!(event.event_type, "session");
+    }
+
+    #[test]
+    fn session_start_honoured_for_claude_payload() {
+        // Claude/Codex/CodeBuddy: hook_event_name + session_id, no conversation_id.
+        let v = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "abc123",
+            "source": "startup"
+        });
+        assert!(session_start_honours_additional_context(&v));
+    }
+
+    #[test]
+    fn session_start_skipped_for_cursor_payload() {
+        // Cursor sessionStart is tagged with conversation_id (+ model) and discards
+        // the additionalContext field, so it must be excluded (#1031).
+        let v = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "conversation_id": "0e1f4ed8-d858-4557-9fc5-6cbf5298eb8b",
+            "model": "claude-opus"
+        });
+        assert!(!session_start_honours_additional_context(&v));
+    }
+
+    #[test]
+    fn session_start_skipped_for_non_session_event() {
+        let v = serde_json::json!({ "hook_event_name": "PreToolUse", "session_id": "x" });
+        assert!(!session_start_honours_additional_context(&v));
     }
 }
