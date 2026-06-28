@@ -468,6 +468,47 @@ fn build_and_persist_fix_report(
     }
     steps.push(reclaim_step);
 
+    // #594: relocate a `config.toml` that an old MCP env (LEAN_CTX_DATA_DIR)
+    // stranded in the data dir, so the CLI and the MCP server resolve the same
+    // config from now on. Lossless: adopt it when canonical is empty, otherwise
+    // keep the CLI-authored config and archive the stray copy.
+    let mut config_step = SetupStepReport {
+        name: "config_unify".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: Vec::new(),
+        errors: Vec::new(),
+    };
+    match crate::core::config_heal::heal() {
+        Some(report) => {
+            let (status, note) = match report.action {
+                crate::core::config_heal::HealAction::Adopted => (
+                    "recovered".to_string(),
+                    "adopted a config.toml stranded in the data dir as the canonical config",
+                ),
+                crate::core::config_heal::HealAction::Superseded => (
+                    "unified".to_string(),
+                    "kept the canonical config and archived a stale data-dir copy",
+                ),
+            };
+            config_step.items.push(SetupItem {
+                name: "heal".to_string(),
+                status,
+                path: Some(report.to.to_string_lossy().to_string()),
+                note: Some(note.to_string()),
+            });
+        }
+        None => {
+            config_step.items.push(SetupItem {
+                name: "heal".to_string(),
+                status: "clean".to_string(),
+                path: None,
+                note: Some("CLI and MCP already resolve the same config".to_string()),
+            });
+        }
+    }
+    steps.push(config_step);
+
     // Record the XDG commitment now that the install is split + the residual
     // legacy dir is gone, so a stray `~/.lean-ctx` can never re-collapse this
     // install again (GL #623). `ensure_pinned` is a no-op for a deliberate

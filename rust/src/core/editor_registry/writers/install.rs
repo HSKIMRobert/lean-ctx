@@ -730,6 +730,12 @@ pub(super) fn upsert_codex_toml(existing: &str, binary: &str) -> String {
     let mut wrote_command = false;
     let mut wrote_args = false;
     let mut inserted_parent_before_subtable = false;
+    // #594: drop a stale `[mcp_servers.lean-ctx.env]` table — older versions
+    // pinned `LEAN_CTX_DATA_DIR` there, which forced the MCP server into
+    // single-dir mode and collapsed config onto the data dir, diverging from
+    // the CLI. The current entry never carries an env block, so stripping it is
+    // safe and makes both read the same config.
+    let mut in_env_subtable = false;
 
     let parent_block = format!(
         "[mcp_servers.lean-ctx]\ncommand = {}\nargs = []\n\n",
@@ -750,6 +756,12 @@ pub(super) fn upsert_codex_toml(existing: &str, binary: &str) -> String {
                 out.push_str("args = []\n");
                 wrote_args = true;
             }
+            in_env_subtable = trimmed == "[mcp_servers.lean-ctx.env]"
+                || trimmed.starts_with("[mcp_servers.lean-ctx.env.");
+            if in_env_subtable {
+                in_section = false;
+                continue;
+            }
             in_section = trimmed == "[mcp_servers.lean-ctx]";
             if in_section {
                 saw_section = true;
@@ -762,6 +774,10 @@ pub(super) fn upsert_codex_toml(existing: &str, binary: &str) -> String {
             }
             out.push_str(line);
             out.push('\n');
+            continue;
+        }
+
+        if in_env_subtable {
             continue;
         }
 
@@ -878,7 +894,11 @@ pub(super) fn write_hermes_yaml(
 
         if content.contains("lean-ctx") {
             let has_correct_binary = content.contains(binary);
-            if has_correct_binary {
+            // #594: a stale `LEAN_CTX_DATA_DIR` env (from older versions) must be
+            // rewritten out even when the binary already matches, so the MCP
+            // server stops collapsing config onto the data dir.
+            let has_stale_env = content.contains("LEAN_CTX_DATA_DIR");
+            if has_correct_binary && !has_stale_env {
                 return Ok(WriteResult {
                     action: WriteAction::Already,
                     note: None,

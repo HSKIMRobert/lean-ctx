@@ -47,6 +47,31 @@ so a config written after launch only takes effect on the next restart.
 
 ---
 
+## 1b. "The CLI and my editor (MCP) read different config"
+
+**Symptom:** a setting applied in the terminal (`lean-ctx config set …`) is
+ignored by the MCP server inside your editor — e.g. a custom `path_jail` works on
+the CLI but not in-editor.
+
+**Cause:** an older lean-ctx baked `LEAN_CTX_DATA_DIR` into the editor's MCP
+server `env`. That forced the server into single-dir mode, so it read
+`config.toml` from the **data** dir (`~/.local/share/lean-ctx`) while the CLI
+read it from the **config** dir (`~/.config/lean-ctx`).
+
+**Diagnose:** `lean-ctx doctor` flags `config location — stray config.toml in the
+data dir` when this happens.
+
+**Fix:** `lean-ctx doctor --fix` (or just `lean-ctx update` / `lean-ctx setup`).
+It strips the stale env from every editor config and **losslessly** relocates a
+stray data-dir `config.toml` into the canonical config dir, so both read the same
+file again. Restart the editor afterwards.
+
+> Current versions never pin `LEAN_CTX_DATA_DIR` in MCP configs, and a data-dir
+> pin at the *standard* location is treated as data-only — so config no longer
+> diverges even if a stale env lingers from an older install.
+
+---
+
 ## 2. "`gain` shows zero / savings look wrong"
 
 **Diagnose:** is anything routed through lean-ctx yet?

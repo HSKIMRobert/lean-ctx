@@ -18,6 +18,13 @@ Source files:
 
 ## 1. `lean-ctx update` — self-update from GitHub Releases
 
+> **This is how everyone updates lean-ctx.** It downloads a prebuilt binary for
+> your platform in seconds — no Rust toolchain, no compilation. The network
+> phases (DNS, connect, time-to-first-byte) are bounded by timeouts, so a dead
+> network or unresponsive mirror fails fast with a clear error instead of
+> appearing "stuck". (For building from source, see `dev-install` in §4 — that's
+> a contributor workflow, not the normal update path.)
+
 ```bash
 lean-ctx update             # check + install latest
 lean-ctx update --check     # only report whether an update exists
@@ -132,6 +139,13 @@ lean-ctx stop          # stop ALL lean-ctx processes (daemon, proxy, orphans)
 lean-ctx restart       # restart the daemon (applies config.toml changes)
 lean-ctx dev-install   # build release + atomic install + restart (dev only)
 ```
+
+> **`dev-install` builds from source** (`cargo build --release`) and is meant for
+> **contributors** hacking on lean-ctx itself. The first build compiles the whole
+> dependency tree and can take **several minutes** — the live cargo output is
+> normal progress, not a hang. If you just want the latest release, use
+> **`lean-ctx update`** (§1) instead: it downloads a prebuilt binary in seconds
+> and needs no toolchain.
 
 > Important (macOS): the proxy runs as a LaunchAgent with `KeepAlive=true`. A
 > plain `kill`/`pkill` will be respawned. `lean-ctx stop` unloads the LaunchAgent

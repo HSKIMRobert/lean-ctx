@@ -175,6 +175,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (`volatile_relocate_requests`, `volatile_fields_relocated`) quantify the win.
   Default off — the request is byte-identical until you opt in.
 
+### Fixed
+- **CLI and MCP now always read the same `config.toml` (GH #594).** When an older
+  release had baked `LEAN_CTX_DATA_DIR` into an editor's MCP `env`, the server ran
+  in single-dir mode and read config from the data dir (`~/.local/share/lean-ctx`)
+  while the terminal CLI read it from the config dir (`~/.config/lean-ctx`), so
+  settings silently diverged.
+  - **Resolver:** a `LEAN_CTX_DATA_DIR` equal to the *standard* `$XDG_DATA_HOME/
+    lean-ctx` is now a data-only pin and no longer collapses config/state/cache
+    onto the data dir. Custom/legacy single-dir paths still collapse (unchanged
+    back-compat). Deterministic, no filesystem access (#498).
+  - **Self-healing writers:** `setup` / `update` strip a stale `LEAN_CTX_DATA_DIR`
+    from the lean-ctx MCP entry across all formats (JSON, Codex TOML, Hermes YAML).
+  - **Lossless migration:** a `config.toml` stranded in the data dir is relocated
+    to the config dir — adopted when canonical is empty, otherwise the
+    CLI-authored config wins and the stray copy is archived to
+    `config.toml.superseded` (never deleted).
+  - **doctor:** flags `config location — stray config.toml in the data dir`, and
+    `doctor --fix` unifies it.
+
+### Changed
+- **Frictionless updates.** `lean-ctx update` — the prebuilt-binary self-updater
+  everyone should use — now bounds its DNS/connect/response phases with timeouts,
+  so a dead network or unresponsive mirror can no longer make it appear "stuck".
+  `dev-install` prints an up-front notice that it builds from source (a contributor
+  workflow that can take minutes) and points end-users at `lean-ctx update`. When
+  the running binary is behind the latest release, the MCP session and
+  `lean-ctx doctor` now surface a one-line "run lean-ctx update" nudge —
+  notify-only, never an auto-install (on by default; opt out with
+  `update_check_disabled` / `LEAN_CTX_NO_UPDATE_CHECK`).
+
 ## [3.8.15] — 2026-06-27
 
 ### Fixed

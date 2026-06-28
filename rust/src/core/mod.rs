@@ -341,6 +341,7 @@ pub mod client_capabilities;
 pub mod client_constraints;
 pub mod cloud_files;
 pub mod config;
+pub mod config_heal;
 pub mod consolidation;
 pub mod consolidation_engine;
 pub mod contextops;

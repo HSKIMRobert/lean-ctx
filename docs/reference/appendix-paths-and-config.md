@@ -31,18 +31,27 @@ Each resolver applies the same three steps:
 
 1. **Explicit override** — `LEAN_CTX_<CATEGORY>_DIR` set & non-empty → wins.
 2. **Single-dir backward-compat** — existing installs never split silently. If
-   `LEAN_CTX_DATA_DIR` is set, **or** legacy `~/.lean-ctx` holds data, **or**
-   mixed `$XDG_CONFIG_HOME/lean-ctx` holds data (the pre-#408 layout), then **all**
-   categories collapse onto that one directory — byte-for-byte the old behavior.
+   `LEAN_CTX_DATA_DIR` points at a **non-standard** path, **or** legacy
+   `~/.lean-ctx` holds data, **or** mixed `$XDG_CONFIG_HOME/lean-ctx` holds data
+   (the pre-#408 layout), then **all** categories collapse onto that one
+   directory — byte-for-byte the old behavior.
 3. **XDG split default** — a fresh install uses the per-category default above.
 
 "Holds data" = contains a data marker (`stats.json`, `sessions/`, `vectors/`,
 `graphs/`, `knowledge/`). `config.toml`/hooks alone do **not** count, so a
 config-only dir does not pin the other categories back onto it.
 
-> **Don't hardcode `LEAN_CTX_DATA_DIR`** in editor MCP configs — it forces the
-> legacy single-dir layout (everything under one path). Leave it unset for the
-> clean XDG split; existing installs are auto-detected and keep working.
+> **Data-only pin (GH #594).** A `LEAN_CTX_DATA_DIR` equal to the *standard*
+> data dir (`$XDG_DATA_HOME/lean-ctx`) is treated as a data pin only and does
+> **not** collapse config/state/cache. Older versions baked exactly that value
+> into editor MCP `env` blocks; honoring it as single-dir made the MCP server
+> read `config.toml` from the data dir while the CLI read it from the config dir.
+> Now both keep the XDG split, so they always read the same config.
+
+> **Don't hardcode `LEAN_CTX_DATA_DIR`** in editor MCP configs — a *custom* path
+> still forces the legacy single-dir layout. Leave it unset for the clean XDG
+> split; existing installs are auto-detected and keep working, and `setup` /
+> `update` strip any stale pin a previous version may have written.
 
 ### Migrate an existing install to the split (opt-in)
 
@@ -91,7 +100,7 @@ var always wins.
 |----------|---------|---------|
 | `LEAN_CTX_DISABLED=1` | Bypass ALL compression + disable shell hook | unset |
 | `LEAN_CTX_RAW=1` | Uncompressed output for one command | unset |
-| `LEAN_CTX_DATA_DIR` | Explicit data dir; **also forces legacy single-dir mode** (see §1) | `$XDG_DATA_HOME/lean-ctx` |
+| `LEAN_CTX_DATA_DIR` | Explicit data dir; a *custom* path also forces legacy single-dir mode (a standard-path pin is **data-only**, see §1) | `$XDG_DATA_HOME/lean-ctx` |
 | `LEAN_CTX_CONFIG_DIR` | Explicit config dir (`config.toml`, hooks) | `$XDG_CONFIG_HOME/lean-ctx` |
 | `LEAN_CTX_STATE_DIR` | Explicit state dir (events, logs, ledgers) | `$XDG_STATE_HOME/lean-ctx` |
 | `LEAN_CTX_CACHE_DIR` | Explicit cache dir (semantic cache, models) | `$XDG_CACHE_HOME/lean-ctx` |

@@ -213,6 +213,20 @@ pub fn run() {
         });
     }
 
+    // #594: a `config.toml` stranded in the data dir means the MCP server (an
+    // older `LEAN_CTX_DATA_DIR` env collapsed its layout) and the CLI were
+    // reading *different* config. Flag it; `lean-ctx setup`/`update` and
+    // `doctor --fix` relocate it to the config dir so both agree again.
+    if let Some(stray) = crate::core::config_heal::pending() {
+        board.check(&Outcome {
+            ok: false,
+            line: format!(
+                "{BOLD}config location{RST}  {YELLOW}stray config.toml in the data dir{RST}  {DIM}{}{RST}  {DIM}(run: lean-ctx doctor --fix to unify CLI + MCP){RST}",
+                stray.display()
+            ),
+        });
+    }
+
     // Layout commitment (GL #623): a pinned XDG install can no longer be
     // hijacked by a stray ~/.lean-ctx. Surface the mode and flag a residual dir
     // (heal reclaims it on the next start / `doctor --fix`).
@@ -620,6 +634,16 @@ pub fn run() {
     }
     println!("  {DIM}LSP servers are optional enhancements (not counted in score){RST}");
     println!("  {DIM}{}{RST}", crate::core::integrity::origin_line());
+
+    // Refresh the cached latest-version in the background and, if the running
+    // binary is behind, nudge toward the fast self-updater right where a
+    // confused user looks when something seems off (the "stuck updating"
+    // report). Notify-only — never auto-installs.
+    crate::core::version_check::check_background();
+    if let Some(banner) = crate::core::version_check::get_update_banner() {
+        println!();
+        println!("{banner}");
+    }
 }
 
 pub fn run_compact() {

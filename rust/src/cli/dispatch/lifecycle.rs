@@ -119,7 +119,21 @@ pub(super) fn cmd_dev_install() {
         std::process::exit(1);
     };
 
-    eprintln!("Building release binary…");
+    // `dev-install` builds from source (contributor workflow). Set expectations
+    // up front so the multi-minute cargo build is never mistaken for a hang, and
+    // point end-users at the fast binary self-updater instead.
+    eprintln!("\x1b[1m◆ lean-ctx dev-install\x1b[0m  \x1b[2m(builds from source)\x1b[0m");
+    eprintln!(
+        "  \x1b[2mCompiles the binary from source — this can take several minutes the\n  \
+         first time while cargo fetches and builds the dependency tree. The live\n  \
+         build output below is normal progress, not a hang.\x1b[0m"
+    );
+    eprintln!(
+        "  \x1b[2mJust want the latest release? Run\x1b[0m \x1b[1mlean-ctx update\x1b[0m \x1b[2m— it \
+         downloads a prebuilt\n  binary in seconds, no toolchain required.\x1b[0m"
+    );
+    eprintln!();
+    eprintln!("\x1b[2m→ cargo build --release\x1b[0m");
     let build = std::process::Command::new("cargo")
         .args(["build", "--release"])
         .current_dir(&cargo_root)

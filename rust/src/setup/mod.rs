@@ -431,6 +431,21 @@ pub fn run_setup() {
             report.canonical.display()
         ));
     }
+    // #594: relocate a `config.toml` that an old MCP env (LEAN_CTX_DATA_DIR)
+    // stranded in the data dir, so CLI and MCP read the same config from now on.
+    if let Some(report) = crate::core::config_heal::heal() {
+        match report.action {
+            crate::core::config_heal::HealAction::Adopted => {
+                terminal_ui::print_status_new(&format!(
+                    "Recovered your config into {}",
+                    report.to.display()
+                ));
+            }
+            crate::core::config_heal::HealAction::Superseded => {
+                terminal_ui::print_status_ok("Unified config (archived a stale data-dir copy)");
+            }
+        }
+    }
     crate::doctor::run_compact();
 
     // Commit to the XDG layout (and drain any residual ~/.lean-ctx) so a stray

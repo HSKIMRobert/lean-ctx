@@ -213,6 +213,43 @@ approval_mode = \"approve\"
 }
 
 #[test]
+fn upsert_codex_toml_strips_stale_env_subtable() {
+    // #594: an older lean-ctx pinned LEAN_CTX_DATA_DIR in a `.env` subtable,
+    // which collapsed config onto the data dir for the MCP server. Re-running
+    // setup/update must drop it so the CLI and MCP resolve the same config.
+    let input = "\
+[mcp_servers.lean-ctx]
+command = \"/old/lean-ctx\"
+args = []
+
+[mcp_servers.lean-ctx.env]
+LEAN_CTX_DATA_DIR = \"/home/user/.local/share/lean-ctx\"
+
+[mcp_servers.lean-ctx.tools.ctx_read]
+approval_mode = \"approve\"
+";
+    let updated = upsert_codex_toml(input, "/new/lean-ctx");
+    assert!(
+        !updated.contains("LEAN_CTX_DATA_DIR"),
+        "stale env pin must be stripped:\n{updated}"
+    );
+    assert!(
+        !updated.contains("[mcp_servers.lean-ctx.env]"),
+        "emptied env sub-table must be removed:\n{updated}"
+    );
+    assert!(updated.contains("command = \"/new/lean-ctx\""));
+    assert!(
+        updated.contains("[mcp_servers.lean-ctx.tools.ctx_read]"),
+        "unrelated tool sub-tables must be preserved:\n{updated}"
+    );
+    assert_eq!(
+        updated.matches("[mcp_servers.lean-ctx]").count(),
+        1,
+        "parent section preserved exactly once"
+    );
+}
+
+#[test]
 fn auto_approve_contains_core_tools() {
     let tools = auto_approve_tools();
     assert!(tools.contains(&"ctx_read"));
@@ -328,17 +365,38 @@ fn hermes_yaml_creates_mcp_servers_section() {
 fn hermes_yaml_skips_if_already_present() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.yaml");
-    let data_dir = crate::core::data_dir::lean_ctx_data_dir()
-        .map(|d| d.to_string_lossy().to_string())
-        .unwrap_or_default();
     std::fs::write(
-            &path,
-            format!("mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n    env:\n      LEAN_CTX_DATA_DIR: \"{data_dir}\"\n"),
-        )
-        .unwrap();
+        &path,
+        "mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n",
+    )
+    .unwrap();
     let t = target("test", path.clone(), ConfigType::HermesYaml);
     let res = write_hermes_yaml(&t, "lean-ctx", WriteOptions::default()).unwrap();
     assert_eq!(res.action, WriteAction::Already);
+}
+
+#[test]
+fn hermes_yaml_rewrites_to_strip_stale_env() {
+    // #594: an older lean-ctx pinned LEAN_CTX_DATA_DIR in the Hermes MCP block,
+    // collapsing config onto the data dir. Even when the binary already matches,
+    // re-running setup must rewrite the block to drop the stale env so the CLI
+    // and the MCP server read the same config.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.yaml");
+    std::fs::write(
+        &path,
+        "mcp_servers:\n  lean-ctx:\n    command: \"lean-ctx\"\n    env:\n      LEAN_CTX_DATA_DIR: \"/home/user/.local/share/lean-ctx\"\n",
+    )
+    .unwrap();
+    let t = target("test", path.clone(), ConfigType::HermesYaml);
+    let res = write_hermes_yaml(&t, "lean-ctx", WriteOptions::default()).unwrap();
+    assert_eq!(res.action, WriteAction::Updated);
+    let written = std::fs::read_to_string(&path).unwrap();
+    assert!(
+        !written.contains("LEAN_CTX_DATA_DIR"),
+        "stale env must be stripped:\n{written}"
+    );
+    assert!(written.contains("command: \"lean-ctx\""));
 }
 
 #[test]
