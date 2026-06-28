@@ -55,25 +55,26 @@ pub const COMPRESSION_BLOCK_END: &str = "<!-- /lean-ctx-compression -->";
 /// Current rules version (monotonically increasing integer).  Embedded as
 /// `<!-- version: {RULES_VERSION} -->` right after `START_MARK` so the
 /// injection layer can parse it and decide whether a file is up-to-date.
-pub const RULES_VERSION: usize = 1;
+pub const RULES_VERSION: usize = 2;
 
 /// Banner placed at the top of dedicated rule files (non-shadow only).
-pub const CRITICAL: &str = "CRITICAL: ALWAYS use lean-ctx tools instead of native equivalents. \
+pub const CRITICAL: &str = "CRITICAL: ALWAYS use lean-ctx ctx_* tools instead of native equivalents. \
      This is NOT optional.";
 
 /// Compact bullet-list mapping (for both dedicated and shared contexts).
 pub const BULLETS: &str = "\
-MANDATORY MAPPING:\n\
+MANDATORY MAPPING (4 core redirects first):\n\
 • Read/cat -> ctx_read(path, mode)\n\
-• Glob/find -> ctx_glob(pattern)\n\
-• Shell/bash -> ctx_shell(command)\n\
 • Grep -> ctx_search(pattern, path)\n\
+• Shell/bash -> ctx_shell(command)\n\
+• Glob/find -> ctx_glob(pattern)\n\
 • ls/find -> ctx_tree(path, depth)";
 
 /// One-line admonition reinforcing the tool preference.  Always right after
 /// `BULLETS` in both profiles.
-pub const NEVER: &str =
-    "NEVER use native Read/Grep/Shell/Glob when ctx_* equivalents are available.";
+pub const NEVER: &str = "NEVER use native Read/Grep/Shell/Glob when a ctx_* equivalent \
+    exists. SELF-CORRECT: the moment you reach for a native Read/Grep/Shell/Glob, stop \
+    and call the ctx_* tool instead.";
 
 /// Intent-to-tool playbook — maps common agent questions to the right tool.
 pub const INTENT: &str = "\
@@ -800,5 +801,44 @@ mod tests {
         let content = "just user text";
         let f = RulesFile::parse(content);
         assert_eq!(f.without_section(), content);
+    }
+
+    #[test]
+    fn bullets_lead_with_four_core_redirects() {
+        // Most-used routes (Read/Grep/Shell/Glob) lead; ls->ctx_tree trails.
+        let read = BULLETS.find("ctx_read").expect("ctx_read mapping present");
+        let search = BULLETS
+            .find("ctx_search")
+            .expect("ctx_search mapping present");
+        let shell = BULLETS
+            .find("ctx_shell")
+            .expect("ctx_shell mapping present");
+        let glob = BULLETS.find("ctx_glob").expect("ctx_glob mapping present");
+        let tree = BULLETS.find("ctx_tree").expect("ctx_tree mapping present");
+        assert!(
+            read < search && search < shell && shell < glob && glob < tree,
+            "core redirects (read<search<shell<glob) must precede ctx_tree"
+        );
+    }
+
+    #[test]
+    fn never_carries_self_correction() {
+        // Self-correction reinforces the redirect harder than a bare prohibition.
+        assert!(
+            NEVER.contains("SELF-CORRECT"),
+            "NEVER must teach self-correction"
+        );
+        assert!(
+            NEVER.contains("call"),
+            "NEVER must spell out the corrective action"
+        );
+    }
+
+    #[test]
+    fn critical_names_ctx_family() {
+        assert!(
+            CRITICAL.contains("ctx_*"),
+            "CRITICAL must name the ctx_* family"
+        );
     }
 }
