@@ -97,12 +97,21 @@ Local-first.
 - **No more "I already showed you this file"** — session memory persists across chats
 - **Works with your existing setup** — one `lean-ctx setup` command, no config changes needed
 - **Full visibility** — see exactly where your context window budget goes
+- **Model-agnostic & yours** — swap OpenAI/Anthropic/Gemini freely; your context and memory stay local and portable, never locked in a vendor's black box
 
 ---
 
 <p align="center">
   <strong>Saves you tokens?</strong> <a href="https://github.com/yvgude/lean-ctx">Give it a star</a> — it helps others discover LeanCTX.
 </p>
+
+---
+
+## Why now — own your context
+
+Models are converging on commodity. The durable edge isn't *which* model you call — it's your **context**: what your agents read, what they remember, and what you can prove. And the layer that optimizes and *owns* that context can't come from the vendor that bills per token or keeps your memory in a black box — it has to sit on your side.
+
+That's the shift behind "agent entities" that live in your chat and remember your company (Claude in Slack, ClickUp Brain): a **context login, not a model login** — you end up renting your own company knowledge back. LeanCTX is the opposite layer. It keeps the moat yours: local-first, portable (`.ctxpkg`), and model-agnostic — swap OpenAI, Anthropic or Gemini without losing context or cache. **Own your context; don't rent it back.**
 
 ---
 
@@ -137,6 +146,7 @@ Context doesn't disappear between chats anymore.
 - **Session memory (CCP)**: persist task/facts/decisions across chats — structured recovery queries survive compaction
 - **Knowledge graph**: temporal facts with validity windows, episodic + procedural memory
 - **Property Graph**: multi-edge code graph (imports, calls, exports, type_ref) powers impact analysis and search ranking
+- **Yours, not the vendor's**: memory stays local and portable — export it as a `.ctxpkg` package and move it across machines or models, instead of locking it in a vendor's black box
 
 ### 4. Verification — control what reaches the model
 
@@ -634,4 +644,5 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Easy first PR: propose a new CLI 
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+
 
