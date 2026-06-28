@@ -1,5 +1,5 @@
 use super::super::{
-    ensure_codex_hooks_enabled as shared_ensure_codex_hooks_enabled,
+    ensure_codex_hooks_enabled as shared_ensure_codex_hooks_enabled, ensure_state_dir,
     install_codex_instruction_docs, mcp_server_quiet_mode, resolve_binary_path,
     upsert_lean_ctx_codex_hook_entries, write_file,
 };
@@ -9,7 +9,9 @@ pub fn install_codex_hook() {
         tracing::error!("Cannot resolve codex directory");
         return;
     };
-    let _ = std::fs::create_dir_all(&codex_dir);
+    if !ensure_state_dir(&codex_dir) {
+        return;
+    }
 
     let hook_config_changed = install_codex_hook_config(&codex_dir);
     let installed_docs = install_codex_instruction_docs(&codex_dir);
