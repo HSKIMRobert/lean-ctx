@@ -265,9 +265,15 @@ fn collect_pids(stdout: &[u8], exclude_pid: u32, out: &mut Vec<u32>) {
 /// MCP servers are child processes of the IDE and must not be killed — the IDE
 /// will immediately respawn them, causing a kill loop that requires a reboot.
 pub fn find_killable_pids(name: &str) -> Vec<u32> {
-    let all = find_pids_by_name(name);
-    let mcp_pids = find_mcp_server_pids(name);
-    all.into_iter().filter(|p| !mcp_pids.contains(p)).collect()
+    killable_excluding_mcp(find_pids_by_name(name), &find_mcp_server_pids(name))
+}
+
+/// Pure set-difference: every PID in `all` that is not an MCP server PID. Split
+/// out from [`find_killable_pids`] so the IDE-protection invariant — the
+/// MCP-stdio server is never returned as killable (#1036) — is unit-testable
+/// without spawning real processes.
+fn killable_excluding_mcp(all: Vec<u32>, mcp: &[u32]) -> Vec<u32> {
+    all.into_iter().filter(|p| !mcp.contains(p)).collect()
 }
 
 #[cfg(unix)]
@@ -392,5 +398,22 @@ mod tests {
             start.elapsed() < std::time::Duration::from_secs(5),
             "timeout must not wait for the full command"
         );
+    }
+
+    #[test]
+    fn killable_excludes_mcp_pids() {
+        // #1036: the IDE-owned MCP stdio server PID must never be returned as
+        // killable, so `cmd_dev_install`'s force-kill cannot drop the editor's
+        // MCP connection.
+        let killable = killable_excluding_mcp(vec![1, 2, 3, 4], &[2, 4]);
+        assert_eq!(killable, vec![1, 3]);
+        assert!(!killable.contains(&2));
+        assert!(!killable.contains(&4));
+    }
+
+    #[test]
+    fn killable_with_no_mcp_returns_all() {
+        let all = vec![10, 20, 30];
+        assert_eq!(killable_excluding_mcp(all.clone(), &[]), all);
     }
 }
