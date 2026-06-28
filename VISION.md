@@ -48,6 +48,12 @@ Technical depth: [`docs/cognition-interface.md`](docs/cognition-interface.md) ·
 
 ## Direction
 
+- **Context Time Machine** — the layer state (what the model saw, why, and at
+  what token ROI) becomes a git-anchored, signed, navigable artifact: rewind to
+  any commit, reproduce it, resume from it, or share it. The temporal axis
+  through everything lean-ctx does — it *decides, remembers, guards, proves, and
+  now replays*. See
+  [`docs/concepts/context-time-machine.md`](docs/concepts/context-time-machine.md).
 - **Context as Code** — declarative pipelines, profiles and policies in TOML,
   version-controlled like infrastructure.
 - **Cognition interface** — constraints-aware instruction compilation,
