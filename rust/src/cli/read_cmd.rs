@@ -38,6 +38,14 @@ fn cap_cli_to_raw(framed: String, raw_content: &str, raw_tokens: usize) -> Strin
     }
 }
 
+/// Whether the read must bypass all caches and return verbatim content. True for
+/// explicit `--fresh`/`--no-cache` and for hook children (`hook_child`), whose
+/// `-m full` output is piped into a temp file the host reads back as the file's
+/// content and must never be a `cached … [NL]` stub (#1037).
+fn should_force_fresh(args: &[String], hook_child: bool) -> bool {
+    hook_child || args.iter().any(|a| a == "--fresh" || a == "--no-cache")
+}
+
 pub fn cmd_read(args: &[String]) {
     if args.is_empty() {
         eprintln!(
@@ -61,7 +69,13 @@ pub fn cmd_read(args: &[String]) {
         .position(|a| a == "--mode" || a == "-m")
         .and_then(|i| args.get(i + 1))
         .map_or("auto", std::string::String::as_str);
-    let force_fresh = args.iter().any(|a| a == "--fresh" || a == "--no-cache");
+    // #1037: redirect/rewrite hook children pipe `-m full` output into a temp file the
+    // host reads back AS the file's content, so a `cached <file> [NL]` cache-hit stub
+    // corrupts the read (and round-trips the stub into the real file on the next edit).
+    // The hook env (set by `mark_hook_environment`, inherited by the subprocess) forces
+    // verbatim content on BOTH the daemon (`fresh:true`) and standalone (skip cli_cache)
+    // paths. Direct CLI/MCP reads keep caching.
+    let force_fresh = should_force_fresh(args, std::env::var("LEAN_CTX_HOOK_CHILD").is_ok());
     // Whether *we* choose the mode (auto): only then do we cap framing to raw.
     // An explicit mode is a deliberate view we return verbatim (#361).
     let requested_auto = mode == "auto";
@@ -666,5 +680,25 @@ mod cap_tests {
                 count_tokens(&out)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod fresh_tests {
+    use super::should_force_fresh;
+
+    #[test]
+    fn hook_child_forces_fresh_even_without_flags() {
+        // #1037: a hook child must always read verbatim (no `cached … [NL]` stub),
+        // even when the caller passed no `--fresh`/`--no-cache` flag.
+        assert!(should_force_fresh(&[], true));
+        assert!(!should_force_fresh(&[], false));
+    }
+
+    #[test]
+    fn explicit_flags_force_fresh() {
+        assert!(should_force_fresh(&["--fresh".to_string()], false));
+        assert!(should_force_fresh(&["--no-cache".to_string()], false));
+        assert!(!should_force_fresh(&["file.rs".to_string()], false));
     }
 }
