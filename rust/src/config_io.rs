@@ -213,72 +213,149 @@ pub fn write_atomic_with_backup_checked(
 }
 
 pub fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
-    reject_symlink(path)?;
+    // #596: a user may symlink agent config (`~/.claude.json`,
+    // `~/.codex/config.toml`, …) into a managed dotfiles repo. Resolve the
+    // symlink to its real target and write THROUGH it (preserving the symlink)
+    // instead of hard-blocking. The target must stay within `$HOME`, so a
+    // planted symlink can never redirect a config write outside the user's own
+    // home (preserves the GL#442 symlink-hijack protection).
+    let target = resolve_write_target(path)?;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    if let Some(parent) = target.parent() {
+        ensure_dir(parent)?;
     }
 
-    let parent = path
-        .parent()
-        .ok_or_else(|| "invalid path (no parent directory)".to_string())?;
-    let filename = path
-        .file_name()
-        .ok_or_else(|| "invalid path (no filename)".to_string())?
-        .to_string_lossy();
+    // Force owner-only perms on the real config file (a symlink itself has no
+    // meaningful mode); Windows ACLs are left untouched. The temp+rename
+    // mechanics and the read-only-directory in-place fallback (#459) are shared
+    // with the edit tools via `core::atomic_fs`.
+    #[cfg(unix)]
+    let perms = {
+        use std::os::unix::fs::PermissionsExt;
+        Some(std::fs::Permissions::from_mode(0o600))
+    };
+    #[cfg(not(unix))]
+    let perms: Option<std::fs::Permissions> = None;
 
-    let pid = std::process::id();
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    crate::core::atomic_fs::write_bytes_with_fallback(&target, content.as_bytes(), perms.as_ref())
+}
 
-    let tmp = parent.join(format!(".{filename}.lean-ctx.tmp.{pid}.{nanos}"));
-    std::fs::write(&tmp, content).map_err(|e| e.to_string())?;
+/// Resolve the real file to write, honoring a user-managed symlink (#596).
+///
+/// * not a symlink (or missing) → `path` unchanged.
+/// * symlink whose resolved target stays within `$HOME` → the target (write
+///   THROUGH, preserving the symlink) — the legitimate dotfiles pattern.
+/// * symlink whose target escapes `$HOME` → refuse (preserves the GL#442
+///   symlink-hijack protection).
+fn resolve_write_target(path: &Path) -> Result<PathBuf, String> {
+    let Ok(meta) = path.symlink_metadata() else {
+        return Ok(path.to_path_buf());
+    };
+    if !crate::core::pathutil::is_symlink_or_reparse(&meta) {
+        return Ok(path.to_path_buf());
+    }
 
-    #[cfg(windows)]
-    {
-        if path.exists() {
-            let _ = std::fs::remove_file(path);
+    let real_target = resolve_symlink_target(path)?;
+    ensure_within_home(path, &real_target)?;
+    Ok(real_target)
+}
+
+/// Read a symlink and resolve its target to an absolute path, resolving symlinks
+/// in the existing-ancestor portion (so a symlinked *parent* is followed too)
+/// while tolerating a not-yet-created target file/dir.
+fn resolve_symlink_target(link_path: &Path) -> Result<PathBuf, String> {
+    let link = std::fs::read_link(link_path)
+        .map_err(|e| format!("cannot read symlink {}: {e}", link_path.display()))?;
+    let raw_target = if link.is_absolute() {
+        link
+    } else {
+        link_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(link)
+    };
+    canonicalize_existing_prefix(&raw_target)
+}
+
+/// Canonicalize `path` by resolving its deepest *existing* ancestor (following
+/// symlinks) and re-appending the not-yet-created tail, so the home-only check
+/// runs on a real path even when the target file/dir doesn't exist yet.
+fn canonicalize_existing_prefix(path: &Path) -> Result<PathBuf, String> {
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    let mut cur = path;
+    loop {
+        if let Ok(real) = crate::core::pathutil::canonicalize_secure(cur) {
+            let mut out = real;
+            for comp in tail.iter().rev() {
+                out.push(comp);
+            }
+            return Ok(out);
+        }
+        match cur.parent() {
+            Some(parent) if parent != cur => {
+                if let Some(name) = cur.file_name() {
+                    tail.push(name.to_os_string());
+                }
+                cur = parent;
+            }
+            _ => {
+                return Err(format!(
+                    "cannot resolve any existing ancestor of {}",
+                    path.display()
+                ));
+            }
         }
     }
-
-    std::fs::rename(&tmp, path).map_err(|e| {
-        format!(
-            "atomic write failed: {} (tmp: {})",
-            e,
-            tmp.to_string_lossy()
-        )
-    })?;
-
-    restrict_file_permissions(path);
-
-    Ok(())
 }
 
-fn reject_symlink(path: &Path) -> Result<(), String> {
-    // `is_symlink_or_reparse`: on Windows this also rejects NTFS junctions,
-    // which `FileType::is_symlink` misses (GL#442).
-    if path.exists()
-        && path
-            .symlink_metadata()
-            .is_ok_and(|m| crate::core::pathutil::is_symlink_or_reparse(&m))
-    {
-        return Err(format!(
-            "refusing to write through symlink: {}",
-            path.display()
-        ));
+/// SECURITY (#596 / GL#442): a resolved symlink target must stay within `$HOME`.
+fn ensure_within_home(link_path: &Path, real_target: &Path) -> Result<(), String> {
+    let home = crate::core::home::resolve_home_dir()
+        .ok_or_else(|| "cannot determine $HOME to validate symlink target".to_string())?;
+    let real_home = crate::core::pathutil::canonicalize_secure_or_self(&home);
+    if real_target.starts_with(&real_home) {
+        Ok(())
+    } else {
+        Err(format!(
+            "refusing to write through symlink whose target escapes $HOME: {} -> {}",
+            link_path.display(),
+            real_target.display()
+        ))
     }
-    Ok(())
 }
 
-#[cfg(unix)]
-fn restrict_file_permissions(path: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+/// `create_dir_all` that tolerates a user-managed symlinked directory (#596):
+///
+/// * regular dir / missing path → `create_dir_all`.
+/// * symlink to an existing directory → ok (no-op).
+/// * dangling symlink whose target is within `$HOME` → create the real target.
+/// * symlink to a non-directory, or a target escaping `$HOME` → clear error.
+pub fn ensure_dir(dir: &Path) -> Result<(), String> {
+    match dir.symlink_metadata() {
+        Ok(meta) if crate::core::pathutil::is_symlink_or_reparse(&meta) => {
+            match std::fs::metadata(dir) {
+                Ok(m) if m.is_dir() => Ok(()),
+                Ok(_) => Err(format!(
+                    "{} is a symlink to a non-directory; fix or remove the symlink",
+                    dir.display()
+                )),
+                Err(_) => {
+                    // Dangling symlink: create the intended target if it is in $HOME.
+                    let real_target = resolve_symlink_target(dir)?;
+                    ensure_within_home(dir, &real_target)?;
+                    std::fs::create_dir_all(&real_target).map_err(|e| {
+                        format!(
+                            "cannot create symlink target dir {}: {e}",
+                            real_target.display()
+                        )
+                    })
+                }
+            }
+        }
+        _ => std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create directory {}: {e}", dir.display())),
+    }
 }
-
-#[cfg(not(unix))]
-fn restrict_file_permissions(_path: &Path) {}
 
 #[cfg(test)]
 mod tests {
@@ -432,5 +509,133 @@ enabled = true
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+}
+
+/// #596: write THROUGH a user-managed symlink to its real (in-`$HOME`) target,
+/// reject targets that escape `$HOME`, and make `ensure_dir` tolerant of
+/// symlinked directories. Unix-only (POSIX symlinks + `$HOME` override).
+#[cfg(all(test, unix))]
+mod symlink_596_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// RAII override of `$HOME` that restores the previous value on drop (even on
+    /// panic). Pair with `test_env_lock()` so env access stays serialized.
+    struct HomeGuard(Option<std::ffi::OsString>);
+    impl HomeGuard {
+        fn set(home: &Path) -> Self {
+            let prev = std::env::var_os("HOME");
+            crate::test_env::set_var("HOME", home);
+            HomeGuard(prev)
+        }
+    }
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(v) => crate::test_env::set_var("HOME", v),
+                None => crate::test_env::remove_var("HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn write_through_symlink_in_home_updates_target_and_keeps_link() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::set(home.path());
+
+        let dotfiles = home.path().join("dotfiles");
+        std::fs::create_dir_all(&dotfiles).unwrap();
+        let target = dotfiles.join("agent.json");
+        std::fs::write(&target, "{}\n").unwrap();
+        let link = home.path().join(".agent.json");
+        symlink(&target, &link).unwrap();
+
+        write_atomic(&link, "{\"k\":1}\n").unwrap();
+
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the user symlink must be preserved (write-through, not replace)"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "{\"k\":1}\n");
+
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600,
+            "owner-only perms must land on the real config file"
+        );
+    }
+
+    #[test]
+    fn refuses_symlink_whose_target_escapes_home() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::set(home.path());
+
+        let target = outside.path().join("escape.json");
+        std::fs::write(&target, "{}").unwrap();
+        let link = home.path().join(".agent.json");
+        symlink(&target, &link).unwrap();
+
+        let err = write_atomic(&link, "x").unwrap_err();
+        assert!(err.contains("escapes $HOME"), "got: {err}");
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "{}",
+            "an escaping target must be left untouched"
+        );
+    }
+
+    #[test]
+    fn ensure_dir_accepts_symlink_to_dir_rejects_symlink_to_file() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::set(home.path());
+
+        let real_dir = home.path().join("real_dir");
+        std::fs::create_dir_all(&real_dir).unwrap();
+        let dir_link = home.path().join(".agentdir");
+        symlink(&real_dir, &dir_link).unwrap();
+        assert!(
+            ensure_dir(&dir_link).is_ok(),
+            "a healthy dir symlink must be accepted"
+        );
+
+        let real_file = home.path().join("real_file");
+        std::fs::write(&real_file, "x").unwrap();
+        let file_link = home.path().join(".agentfile");
+        symlink(&real_file, &file_link).unwrap();
+        let err = ensure_dir(&file_link).unwrap_err();
+        assert!(err.contains("non-directory"), "got: {err}");
+    }
+
+    #[test]
+    fn ensure_dir_creates_dangling_symlink_target_in_home() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let home = tempfile::tempdir().unwrap();
+        let _home = HomeGuard::set(home.path());
+
+        // Dangling: link → home/dotfiles/.codex, neither exists yet.
+        let target = home.path().join("dotfiles/.codex");
+        let link = home.path().join(".codex");
+        symlink(&target, &link).unwrap();
+
+        ensure_dir(&link).unwrap();
+
+        assert!(target.is_dir(), "dangling symlink target must be created");
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "the symlink itself must remain"
+        );
+        assert!(std::fs::metadata(&link).unwrap().is_dir());
     }
 }

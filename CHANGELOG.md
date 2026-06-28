@@ -192,6 +192,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - **Security unchanged:** detection requires *both* an `eval '<cmd>'` and a host
     cwd-snapshot redirect, so a bare `eval` the model itself chose still hits the
     allowlist's hard block (regression-tested end to end).
+- **Installer no longer fails on symlinked `~/.claude` / `~/.codex` (GH #596).**
+  Dotfiles users symlink their agent config (`~/.claude.json`,
+  `~/.codex/config.toml`, …) into a managed repo. The `[Critical] symlink hijack
+  protection` previously added to `config_io::write_atomic` then hard-blocked
+  *every* write through such a symlink (`refusing to write through symlink`), so
+  `setup`/`init` could no longer register the MCP server or write agent config.
+  - **Write through the symlink:** the new `resolve_write_target` follows a
+    user-managed symlink to its real file and writes there atomically, leaving the
+    symlink intact and the dotfile updated — the legitimate dotfiles pattern.
+  - **Hijack protection kept:** following is allowed only when the resolved target
+    stays within `$HOME`; a symlink whose target escapes `$HOME` is still refused,
+    so a planted symlink can never redirect a config write to a system path.
+  - **Robust directory setup:** a new `ensure_dir` tolerates a symlinked agent
+    directory (and creates a dangling in-`$HOME` target), and the Claude/Codex
+    setup steps now surface a clear error instead of silently swallowing a failed
+    `create_dir_all`. The Claude skill also honors `CLAUDE_CONFIG_DIR` instead of a
+    hardcoded `~/.claude`.
+  - **Read-only / cross-FS fallback shared:** `config_io` now reuses the edit
+    tools' atomic-write mechanics (`core::atomic_fs`), gaining the
+    read-only-directory in-place fallback (#459). Regression-tested end to end with
+    symlinked claude/codex configs.
 - **CLI and MCP now always read the same `config.toml` (GH #594).** When an older
   release had baked `LEAN_CTX_DATA_DIR` into an editor's MCP `env`, the server ran
   in single-dir mode and read config from the data dir (`~/.local/share/lean-ctx`)

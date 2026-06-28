@@ -1,5 +1,5 @@
 use super::super::{
-    HookMode, REDIRECT_SCRIPT_CLAUDE, generate_rewrite_script, make_executable,
+    HookMode, REDIRECT_SCRIPT_CLAUDE, ensure_state_dir, generate_rewrite_script, make_executable,
     mcp_server_quiet_mode, resolve_binary_path, resolve_binary_path_for_bash, write_file,
 };
 use super::shared::remove_all_blocks;
@@ -119,7 +119,9 @@ Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 
 fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMode) {
     let claude_dir = crate::core::editor_registry::claude_state_dir(home);
-    let _ = std::fs::create_dir_all(&claude_dir);
+    if !ensure_state_dir(&claude_dir) {
+        return;
+    }
     let claude_md_path = claude_dir.join("CLAUDE.md");
 
     // Neither dedicated nor off keep a lean-ctx block in the user's CLAUDE.md:
@@ -177,8 +179,12 @@ fn strip_claude_md_block(claude_md_path: &std::path::Path) {
 }
 
 fn install_claude_skill(home: &std::path::Path) {
-    let skill_dir = home.join(".claude/skills/lean-ctx");
-    let _ = std::fs::create_dir_all(skill_dir.join("scripts"));
+    // Honor CLAUDE_CONFIG_DIR like every other Claude state path (CLAUDE.md,
+    // hooks, settings.json) instead of hardcoding `~/.claude` (#596).
+    let skill_dir = crate::core::editor_registry::claude_state_dir(home).join("skills/lean-ctx");
+    if !ensure_state_dir(&skill_dir.join("scripts")) {
+        return;
+    }
 
     let skill_md = include_str!("../../templates/SKILL.md");
     let install_sh = include_str!("../../templates/skill_install.sh");
@@ -203,7 +209,7 @@ fn install_claude_skill(home: &std::path::Path) {
 /// lean-ctx-owned `lean-ctx` skill folder is touched, so a user's other skills
 /// are never affected.
 fn remove_claude_skill(home: &std::path::Path) {
-    let skill_dir = home.join(".claude/skills/lean-ctx");
+    let skill_dir = crate::core::editor_registry::claude_state_dir(home).join("skills/lean-ctx");
     if skill_dir.exists()
         && std::fs::remove_dir_all(&skill_dir).is_ok()
         && !super::super::mcp_server_quiet_mode()
@@ -241,7 +247,9 @@ fn remove_claude_rules_file(home: &std::path::Path) {
 
 pub(crate) fn install_claude_hook_scripts(home: &std::path::Path) {
     let hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
-    let _ = std::fs::create_dir_all(&hooks_dir);
+    if !ensure_state_dir(&hooks_dir) {
+        return;
+    }
 
     let binary = resolve_binary_path();
 
@@ -773,7 +781,10 @@ mod tests {
     #[test]
     fn skill_install_then_remove_roundtrips() {
         // The off path removes a previously installed skill; install+remove must
-        // touch only the lean-ctx skill folder.
+        // touch only the lean-ctx skill folder. The skill dir now honors
+        // CLAUDE_CONFIG_DIR (#596); pin it off so the path is deterministic.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("CLAUDE_CONFIG_DIR");
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
         install_claude_skill(home);

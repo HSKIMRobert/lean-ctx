@@ -845,6 +845,25 @@ fn write_file(path: &std::path::Path, content: &str) {
     }
 }
 
+/// Create a setup directory, surfacing a clear error instead of silently
+/// swallowing it (#596).
+///
+/// A user may symlink `~/.claude` / `~/.codex` (or a child) into a dotfiles
+/// repo; [`crate::config_io::ensure_dir`] follows such a symlink to its real
+/// in-`$HOME` target and tolerates a dangling one. Returns `false` (after
+/// printing the reason) when the directory cannot be prepared, so the caller can
+/// skip the now-impossible writes rather than failing confusingly downstream.
+fn ensure_state_dir(dir: &std::path::Path) -> bool {
+    match crate::config_io::ensure_dir(dir) {
+        Ok(()) => true,
+        Err(e) => {
+            // Always surface — a swallowed dir failure was the #596 footgun.
+            eprintln!("lean-ctx setup: cannot prepare {}: {e}", dir.display());
+            false
+        }
+    }
+}
+
 fn is_inside_git_repo(path: &std::path::Path) -> bool {
     let mut p = path;
     loop {
