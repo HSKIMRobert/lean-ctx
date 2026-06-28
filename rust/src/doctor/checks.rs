@@ -1441,7 +1441,7 @@ pub(super) fn semantic_index_outcome() -> Option<Outcome> {
         "failed" => Outcome {
             ok: false,
             line: format!(
-                "{BOLD}Semantic index{RST}  {RED}FAILED{RST}: {}  {DIM}(run: lean-ctx reindex){RST}",
+                "{BOLD}Semantic index{RST}  {RED}FAILED{RST}: {}  {DIM}(run: lean-ctx index build-semantic){RST}",
                 summary
                     .last_error
                     .or(summary.note)
