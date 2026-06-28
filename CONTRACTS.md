@@ -313,4 +313,3 @@ Define how LeanCTX communicates with the outside world.
 | Remote agents | HTTP | HTTP MCP v1 + typed errors | `lean-ctx serve` |
 | Teams | HTTP | Team Server v1 + audit log | `lean-ctx team serve` |
 | Future plugins | In-process / Subprocess | Provider v1 + CompressionPattern v1 + LcpTool v1 | `~/.config/lean-ctx/plugins/` |
-
