@@ -168,6 +168,7 @@ LeanCTX is growing from a single context *layer* into a full **cognitive context
 layer** for whole teams: version-controlled context strategy, one unified graph, and a
 governance layer across many agents.
 
+- **Context Time Machine** — the layer's state (what the model saw, why, and at what token ROI) becomes a git-anchored, signed, navigable artifact: rewind to any commit, reproduce it, resume from it, or share it. The temporal axis through everything LeanCTX does — it *decides, remembers, guards, proves, and replays*. ([concept →](docs/concepts/context-time-machine.md))
 - **Context as Code** — declarative pipelines, profiles, and policies in TOML, versioned like infrastructure
 - **Unified Context Graph** — code, tests, commits, CI runs, and knowledge entries in a single semantic graph
 - **Agent Harness** — roles, budgets, and tool permissions for multi-agent governance
@@ -633,3 +634,4 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Easy first PR: propose a new CLI 
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
+

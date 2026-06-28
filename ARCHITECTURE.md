@@ -1119,6 +1119,17 @@ The frontend (`cockpit-context.js`) renders these as a unified control panel wit
 
 35. **Dashboard Control Plane** — 4 new API endpoints (/api/context-bounce, -client, -pressure, -dynamic-tools) expose runtime state. The frontend cockpit-context.js panel provides live visibility into IDE detection, budget pressure, bounce rates, and dynamic tool loading.
 
+## Direction: Context Time Machine
+
+The IR / proof / ledger foundations above are designed to compose into a single
+temporal artifact. **Context IR** records live lineage (what entered context, from
+where, at what token cost); **Context Proof** signs point-in-time snapshots with
+replay hashes; the **Context Ledger** explains *why* each item was included, with
+its Φ-score. Git-anchoring these and chaining them across commits yields a
+**Context Snapshot** — a signed, navigable record you can rewind, reproduce,
+resume, or share. This is a documented direction (not yet shipped); the design
+lives in [`docs/concepts/context-time-machine.md`](docs/concepts/context-time-machine.md).
+
 ## Diagram 5: Context Field Theory (CFT) Architecture
 
 ```mermaid
