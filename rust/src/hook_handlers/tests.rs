@@ -966,3 +966,34 @@ fn redirect_output_omits_additional_context_without_shadow() {
         "no shadow note => no additionalContext key"
     );
 }
+
+#[test]
+fn gating_decision_returns_work_result_when_fast() {
+    // The normal path: work finishes well within budget, so its decision is used.
+    let out = decide_with_timeout(
+        std::time::Duration::from_secs(5),
+        "FALLBACK".to_string(),
+        || "WORK".to_string(),
+    );
+    assert_eq!(out, "WORK");
+}
+
+#[test]
+fn gating_decision_fails_open_on_timeout() {
+    // #1035: a hung hook must never block the host — past the deadline the
+    // pass-through (fallback) decision is returned instead of waiting on `work`.
+    let start = std::time::Instant::now();
+    let out = decide_with_timeout(
+        std::time::Duration::from_millis(50),
+        "FALLBACK".to_string(),
+        || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            "WORK".to_string()
+        },
+    );
+    assert_eq!(out, "FALLBACK", "a hung hook must fail open to passthrough");
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "fail-open must not wait for the hung work"
+    );
+}

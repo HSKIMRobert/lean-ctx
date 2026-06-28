@@ -6,6 +6,13 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Hard wall-clock budget for a command-gating hook (rewrite/redirect) to produce
+/// its decision. Sized above the worst legitimate single read path (stdin 3s +
+/// redirect subprocess 10s) so valid work always completes; a true hang — or a
+/// dead-winner dedup loser that would otherwise wait then redo the work — is
+/// bounded here and FAILS OPEN instead of wedging the host's tool call (#1035).
+const HOOK_GATING_TIMEOUT: Duration = Duration::from_secs(15);
 mod dedup;
 mod observe;
 mod payload;
@@ -70,6 +77,39 @@ pub fn arm_watchdog(timeout: Duration) {
         );
         std::process::exit(1);
     });
+}
+
+/// Run a command-gating hook's decision logic under a hard wall-clock timeout and
+/// print the result exactly once.
+///
+/// On timeout the hook FAILS OPEN — it prints the allow/pass-through decision so a
+/// slow or hung hook (a stalled subprocess, a wedged dedup wait, a saturated host)
+/// can never block the host's tool call: the command simply runs unmodified
+/// (#1035). The worker thread is abandoned on timeout (it only sends to a channel,
+/// never prints, and dies with the process), so there is no double-output race —
+/// `emit_gating_decision` is the single writer to stdout.
+fn emit_gating_decision<F>(timeout: Duration, work: F)
+where
+    F: FnOnce() -> String + Send + 'static,
+{
+    let out = decide_with_timeout(timeout, build_dual_allow_output(), work);
+    print!("{out}");
+}
+
+/// Run `work` under a hard wall-clock timeout, returning `fallback` if it does not
+/// finish in time. Split from [`emit_gating_decision`]'s printing so the fail-open
+/// behavior is unit-testable. The worker only sends to a channel (it never prints)
+/// and is abandoned on timeout, so it can never double-write the host's stdout
+/// (#1035).
+fn decide_with_timeout<F>(timeout: Duration, fallback: String, work: F) -> String
+where
+    F: FnOnce() -> String + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(work());
+    });
+    rx.recv_timeout(timeout).unwrap_or(fallback)
 }
 
 /// Reads all of stdin with a timeout. Returns None if stdin is empty, broken, or times out.
@@ -151,46 +191,45 @@ fn is_shell_tool(tool_name: &str) -> bool {
 }
 
 pub fn handle_rewrite() {
-    let allow = build_dual_allow_output();
+    emit_gating_decision(HOOK_GATING_TIMEOUT, compute_rewrite);
+}
+
+/// Decide the rewrite hook's stdout (a rewrite or an allow-passthrough) without
+/// printing, so [`handle_rewrite`] can run it under the fail-open timeout (#1035).
+fn compute_rewrite() -> String {
     if is_disabled() {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     }
     let binary = resolve_binary();
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
         tracing::warn!("[hook rewrite] invalid JSON payload, allowing passthrough");
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     // Resolve across host shapes: Claude/Cursor send snake_case `tool_name` +
     // `tool_input`; Copilot CLI sends camelCase `toolName` + `toolArgs` (a
     // JSON-encoded string). Before #551 only the snake_case path was read.
     let Some(tool_name) = payload::resolve_tool_name(&v) else {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     if !is_shell_tool(&tool_name) {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     }
 
     let tool_args = payload::resolve_tool_args(&v);
     let Some(cmd) = payload::resolve_command(&v, tool_args.as_ref()) else {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     // #1032: Cursor fires preToolUse twice. Dedup on a PID-independent key (tool +
     // command) so the second fire replays the decision instead of re-logging.
     let key_material = format!("{tool_name}\u{0}{cmd}");
-    let out = dedup::deduped("rewrite", &key_material, || {
+    dedup::deduped("rewrite", &key_material, || {
         if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
             debug_log::log_hook_decision(
                 "rewrite",
@@ -210,8 +249,7 @@ pub fn handle_rewrite() {
             );
             build_dual_allow_output()
         }
-    });
-    print!("{out}");
+    })
 }
 
 /// Human-readable reason a shell command was left to the native tool. Mirrors
@@ -693,22 +731,24 @@ fn classify_redirect(tool_name: &str) -> RedirectKind {
 }
 
 pub fn handle_redirect() {
-    let allow = build_dual_allow_output();
+    emit_gating_decision(HOOK_GATING_TIMEOUT, compute_redirect);
+}
+
+/// Decide the redirect hook's stdout (a redirect or an allow-passthrough) without
+/// printing, so [`handle_redirect`] can run it under the fail-open timeout (#1035).
+fn compute_redirect() -> String {
     if is_disabled() {
         let _ = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT);
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     }
 
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&input) else {
         tracing::warn!("[hook redirect] invalid JSON payload, allowing passthrough");
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     };
 
     // Normalise host payload shapes (snake_case vs Copilot CLI camelCase, #551).
@@ -717,8 +757,7 @@ pub fn handle_redirect() {
 
     let kind = classify_redirect(&tool_name);
     if matches!(kind, RedirectKind::None) {
-        print!("{allow}");
-        return;
+        return build_dual_allow_output();
     }
 
     // #1032: Cursor fires preToolUse twice (two processes, identical payload), so a
@@ -730,10 +769,9 @@ pub fn handle_redirect() {
         .map(ToString::to_string)
         .unwrap_or_default();
     let key_material = format!("{tool_name}\u{0}{args_json}");
-    let out = dedup::deduped("redirect", &key_material, || {
+    dedup::deduped("redirect", &key_material, || {
         produce_redirect_output(kind, tool_args.as_ref())
-    });
-    print!("{out}");
+    })
 }
 
 /// Build the redirect stdout for a classified tool call. Returns the full hook

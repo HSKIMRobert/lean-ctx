@@ -154,17 +154,23 @@ fn hook_dir() -> Option<std::path::PathBuf> {
     Some(dir)
 }
 
+/// Extensions [`sweep_stale`] may delete: our own dedup side channels
+/// (`.claim`/`.resp`) and the redirect temp files (`.lctx`) the host reads back
+/// right after the hook returns. The `.lctx` files previously had no sweeper and
+/// leaked thousands of files (#1035).
+fn is_sweepable_ext(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e == "claim" || e == "resp" || e == "lctx")
+}
+
 fn sweep_stale(dir: &Path) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let p = entry.path();
-        let is_dedup_file = p
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "claim" || e == "resp");
-        if !is_dedup_file {
+        if !is_sweepable_ext(&p) {
             continue;
         }
         let stale = entry
@@ -268,5 +274,28 @@ mod tests {
         let bogus = Path::new("/proc/nonexistent-lean-ctx/does/not/exist");
         let out = deduped_in(bogus, "redirect", "x", || "FALLBACK".to_string());
         assert_eq!(out, "FALLBACK");
+    }
+
+    #[test]
+    fn sweeps_redirect_and_dedup_extensions_only() {
+        // #1035: the redirect temp files (`.lctx`) must be sweepable so they stop
+        // leaking, alongside our own `.claim`/`.resp` side channels — but unrelated
+        // files must never be touched.
+        assert!(is_sweepable_ext(Path::new("abc.lctx")));
+        assert!(is_sweepable_ext(Path::new("abc.claim")));
+        assert!(is_sweepable_ext(Path::new("abc.resp")));
+        assert!(!is_sweepable_ext(Path::new("abc.txt")));
+        assert!(!is_sweepable_ext(Path::new("noext")));
+    }
+
+    #[test]
+    fn sweep_keeps_fresh_lctx() {
+        // A just-written redirect temp file is younger than CLEANUP_AGE, so the
+        // sweep must keep it (the host still needs to read it back).
+        let dir = tempfile::tempdir().unwrap();
+        let fresh = dir.path().join("fresh.lctx");
+        fs::write(&fresh, "x").unwrap();
+        sweep_stale(dir.path());
+        assert!(fresh.exists(), "a fresh .lctx must survive the sweep");
     }
 }

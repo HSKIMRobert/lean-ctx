@@ -641,8 +641,14 @@ pub fn run() {
                 // runtime/session vars (e.g. CODEX_THREAD_ID) that the long-lived
                 // MCP server process never receives. Bridge them for ctx_shell (#370).
                 core::agent_runtime_env::capture();
-                hook_handlers::arm_watchdog(std::time::Duration::from_secs(5));
                 let action = rest.first().map_or("help", std::string::String::as_str);
+                // Gating hooks (rewrite/redirect) self-bound their work and FAIL OPEN
+                // inside the handler (#1035), so they must NOT also carry the
+                // force-exit watchdog (which would `exit(1)` with no decision and
+                // wedge the host). The remaining hooks keep the simple zombie-guard.
+                if !matches!(action, "rewrite" | "redirect") {
+                    hook_handlers::arm_watchdog(std::time::Duration::from_secs(5));
+                }
                 match action {
                     "rewrite" => hook_handlers::handle_rewrite(),
                     "redirect" => hook_handlers::handle_redirect(),
