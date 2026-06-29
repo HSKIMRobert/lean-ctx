@@ -177,4 +177,3 @@ Numbers attributed to TTC are as reported on their site/docs (June 2026) and not
 independently verified.*
 
 [The Token Company →](https://thetokencompany.com/) · [lean-ctx docs →](https://leanctx.com/docs)
-

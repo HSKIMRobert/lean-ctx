@@ -202,4 +202,3 @@ If privacy and local-first operation matter to you — or if you want more than 
 *Both projects are open source and under active development.*
 
 [Get started with lean-ctx](https://leanctx.com/docs/getting-started) | [claude-context on GitHub](https://github.com/zilliztech/claude-context)
-

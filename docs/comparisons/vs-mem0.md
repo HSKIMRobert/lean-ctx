@@ -209,4 +209,3 @@ The choice comes down to your use case: general AI memory vs. coding agent conte
 *Both projects are open source under Apache 2.0.*
 
 [Get started with lean-ctx](https://leanctx.com/docs/getting-started) | [Mem0 on GitHub](https://github.com/mem0ai/mem0) | [Mem0 Docs](https://docs.mem0.ai)
-

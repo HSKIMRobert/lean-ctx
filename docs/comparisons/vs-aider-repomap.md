@@ -161,4 +161,3 @@ If you're an Aider user, lean-ctx can enhance your workflow with additional comp
 *Aider is an excellent AI coding tool. We recommend trying both and choosing what fits your workflow.*
 
 [Get started with lean-ctx](https://leanctx.com/docs/getting-started) | [Aider on GitHub](https://github.com/Aider-AI/aider) | [Aider repo-map docs](https://aider.chat/docs/repomap.html)
-

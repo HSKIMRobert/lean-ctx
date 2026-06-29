@@ -30,4 +30,3 @@ if git diff --cached --name-only | grep -qE '^rust/(eval/testbench/|src/core/eva
         exit 1
     fi
 fi
-

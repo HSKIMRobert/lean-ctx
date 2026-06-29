@@ -368,5 +368,3 @@ When running the team server (`lean-ctx team-server`):
 ---
 
 **Last updated**: 2026-06-21
-
-
