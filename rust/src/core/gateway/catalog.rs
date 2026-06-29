@@ -56,11 +56,14 @@ pub fn split_namespaced(handle: &str) -> Option<(&str, &str)> {
 
 static CACHE: Mutex<Option<(Instant, Catalog)>> = Mutex::new(None);
 
-/// Drop the cached catalog so the next [`get`] rebuilds it.
+/// Drop the cached catalog so the next [`get`] rebuilds it. Also clears the
+/// session pool (#1078): a wiring change (install/remove/revoke) must not keep a
+/// stale child process alive for a server that may no longer exist.
 pub fn invalidate() {
     if let Ok(mut g) = CACHE.lock() {
         *g = None;
     }
+    super::pool::clear();
 }
 
 /// Return the catalog, rebuilding it if the cache is empty or older than

@@ -10,7 +10,7 @@ use std::path::Path;
 use crate::core::addons::manifest::AddonManifest;
 use crate::core::addons::revocation::RevocationList;
 use crate::core::addons::store::InstalledStore;
-use crate::core::addons::{install, registry};
+use crate::core::addons::{bootstrap, install, registry};
 
 pub fn cmd_addon(args: &[String]) {
     let action = args.first().map_or("list", String::as_str);
@@ -312,6 +312,21 @@ fn cmd_add(target: &str, args: &[String]) {
         std::process::exit(1);
     }
 
+    let force = args.iter().any(|a| a == "--force" || a == "-f");
+    let no_verify = args.iter().any(|a| a == "--no-verify");
+    let cfg = crate::core::config::Config::load();
+
+    // Fail fast (#1080): run the full pre-persist gate — policy, kill-switch,
+    // capability coherence — before rendering the preview or spawning a probe,
+    // so a rejected addon surfaces a clear verdict and nothing is touched.
+    let server = match install::preflight(&manifest, &cfg.addons, force) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
+
     println!("About to install `{}`:\n", manifest.addon.name);
     print_install_preview(&manifest);
     println!(
@@ -326,7 +341,64 @@ fn cmd_add(target: &str, args: &[String]) {
         return;
     }
 
-    match install::install(&manifest, &source) {
+    // Bootstrap (#1105): provision the upstream package via its pinned manager
+    // *before* probing — the [mcp] command depends on it being installed. The
+    // policy floor (addons.allow_bootstrap) was already enforced in preflight.
+    if manifest.install.is_declared() {
+        println!(
+            "\nInstalling `{}` via {} (pinned {})…",
+            manifest.install.package.trim(),
+            manifest.install.manager.trim(),
+            manifest.install.version.trim()
+        );
+        match bootstrap::ensure_installed(&manifest.install) {
+            Ok(outcome) => {
+                match outcome.status {
+                    bootstrap::BootstrapStatus::AlreadyPresent => {
+                        println!("  Already installed — skipped.");
+                    }
+                    bootstrap::BootstrapStatus::Installed => println!("  ✓ Installed."),
+                }
+                if let Some(warning) = outcome.warning {
+                    eprintln!("  ⚠ {warning}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Error: bootstrap install failed: {e}\n  Nothing was wired.");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Health probe (#1076): confirm the server actually speaks MCP *before* we
+    // wire it, so a broken command/args fails now with a clear message instead
+    // of opaquely at first `ctx_tools` use. Skip with `--no-verify`.
+    let mut verified: Option<usize> = None;
+    if !no_verify {
+        // First spawn may download a package (npx/uvx), so allow extra headroom
+        // over the per-call timeout.
+        let timeout = std::time::Duration::from_secs(cfg.gateway.call_timeout_secs.max(60));
+        print!("Verifying the MCP server responds… ");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        match crate::core::addons::health::probe(&server, timeout) {
+            Ok(report) => {
+                println!("ok ({} tool(s)).", report.tool_count);
+                verified = Some(report.tool_count);
+            }
+            Err(e) => {
+                println!("failed.");
+                eprintln!(
+                    "Error: `{}` did not pass its health check: {e}\n  \
+                     Nothing was installed. Check the command/args (and capabilities), then retry \
+                     — or skip the check with `--no-verify`.",
+                    manifest.addon.name
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    match install::install(&manifest, &source, force) {
         Ok(outcome) => {
             println!(
                 "\n✓ Installed `{}` → gateway server `{}`.",
@@ -334,6 +406,9 @@ fn cmd_add(target: &str, args: &[String]) {
             );
             if outcome.enabled_gateway {
                 println!("  Enabled the MCP gateway (gateway.enabled = true).");
+            }
+            if let Some(n) = verified {
+                println!("  Verified: {n} tool(s) reachable.");
             }
             println!(
                 "  Its tools are reachable via `ctx_tools` (find/call). \
@@ -348,10 +423,10 @@ fn cmd_add(target: &str, args: &[String]) {
 }
 
 fn cmd_remove(name: &str, args: &[String]) {
-    if InstalledStore::load().get(name).is_none() {
+    let Some(entry) = InstalledStore::load().get(name).cloned() else {
         eprintln!("Addon `{name}` is not installed.");
         std::process::exit(1);
-    }
+    };
 
     if !super::prompt::confirm(
         &format!("Remove addon `{name}` (unwire its MCP server)?"),
@@ -367,6 +442,22 @@ fn cmd_remove(name: &str, args: &[String]) {
                 "✓ Removed `{}` (gateway server `{}`).",
                 outcome.name, outcome.gateway_server
             );
+            // Uninstall the bootstrapped package (#1105), best-effort — a failed
+            // uninstall must never block the unwire that already succeeded.
+            if let Some(receipt) = entry.install {
+                println!(
+                    "Uninstalling `{}` via {}…",
+                    receipt.package, receipt.manager
+                );
+                match bootstrap::uninstall(&receipt) {
+                    Ok(()) => println!("  ✓ Uninstalled."),
+                    Err(e) => eprintln!(
+                        "  Note: could not uninstall `{}` automatically: {e}\n  \
+                         Remove it manually if you no longer need it.",
+                        receipt.package
+                    ),
+                }
+            }
             if outcome.last_removed {
                 println!(
                     "  No addons remain. The gateway stays enabled — disable it with \
@@ -498,6 +589,13 @@ fn cmd_init(args: &[String]) {
     };
     let force = args.iter().any(|a| a == "--force" || a == "-f");
 
+    // `--command "npx -y pkg@1.2.3"` (stdio only): wire a real command and let
+    // the scaffold pick capabilities that actually let it run (GH #1079).
+    let command: Option<Vec<String>> = (transport == TransportKind::Stdio)
+        .then(|| flag_value(args, "--command"))
+        .flatten()
+        .map(|spec| spec.split_whitespace().map(str::to_string).collect());
+
     // Slug: explicit positional, else the current directory name.
     let slug = positional(args).or_else(|| {
         std::env::current_dir()
@@ -523,7 +621,7 @@ fn cmd_init(args: &[String]) {
         std::process::exit(1);
     }
 
-    let contents = scaffold::addon_manifest(&slug, transport);
+    let contents = scaffold::addon_manifest(&slug, transport, command.as_deref());
     if let Err(e) = std::fs::write(path, contents) {
         eprintln!("Error writing {}: {e}", scaffold::MANIFEST_FILENAME);
         std::process::exit(1);
@@ -740,8 +838,33 @@ fn print_install_preview(manifest: &AddonManifest) {
             }
         }
     }
+    print_bootstrap(manifest);
     print_capabilities(manifest);
     print_security_review(manifest);
+}
+
+/// Disclose the bootstrap install a `[install]` block performs on `add` (#1105):
+/// the exact, shell-free package-manager commands the user is consenting to.
+fn print_bootstrap(manifest: &AddonManifest) {
+    let install = &manifest.install;
+    if !install.is_declared() {
+        return;
+    }
+    let prog = install
+        .manager()
+        .map_or_else(|| install.manager.trim().to_string(), |m| m.as_str().into());
+    println!("\n  Install on add — runs a pinned package manager before first use:");
+    println!("    manager:   {}", install.manager.trim());
+    println!(
+        "    package:   {} (pinned {})",
+        install.package.trim(),
+        install.version.trim()
+    );
+    println!("    install:   {prog} {}", install.install_argv().join(" "));
+    println!(
+        "    uninstall: {prog} {}   (run on `addon remove`)",
+        install.uninstall_argv().join(" ")
+    );
 }
 
 /// Show the declared capabilities the user is about to grant (P1). A declared
@@ -828,7 +951,8 @@ fn print_help() {
          ACTIONS:\n    \
              list                 List installed addons + the registry\n    \
              init [name]          Scaffold a lean-ctx-addon.toml here\n                         \
-                                  [--http] [--force]\n    \
+                                  [--http] [--force]\n                         \
+                                  [--command \"npx -y pkg@1.2.3\"]\n    \
              search [query]       Search the registry (empty = list all)\n    \
              categories           Browse the registry by category\n    \
              usage                Per-addon / per-tool call counters\n    \
@@ -850,7 +974,10 @@ fn print_help() {
              help                 Show this help\n\
          \n\
          FLAGS:\n    \
-             -y, --yes            Skip the confirmation prompt (scripts/CI)\n\
+             -y, --yes            Skip the confirmation prompt (scripts/CI)\n    \
+             --no-verify          add: skip the post-install MCP health probe\n    \
+             --force, -f          add: install despite an under-declared\n                         \
+                                  capability warning (init: overwrite)\n\
          \n\
          BUILD YOUR OWN ADDON:\n    \
              1. Expose your tool as an MCP server (stdio binary or HTTP endpoint).\n    \

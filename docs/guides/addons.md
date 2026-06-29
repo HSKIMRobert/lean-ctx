@@ -10,6 +10,68 @@ covers using addons and **building & publishing your own**.
 
 Contract: [`addon-manifest-v1`](../contracts/addon-manifest-v1.md).
 
+## Why an addon goes deeper than a passthrough
+
+Most "MCP aggregators" stop at proxying: they forward a downstream tool's output
+to the model verbatim. lean-ctx can do that too (a **governed passthrough** —
+secrets redacted, output audit-tagged as untrusted), but it can also do something
+no aggregator does: run the addon's output through **its own context engine**, so
+the result is retrieved, searched, graphed and remembered through the *same* paths
+as your own code. One `ctx_expand`, one `ctx_search`, one `ctx_callgraph`, one
+`ctx_knowledge` — regardless of which addon produced the data.
+
+This is opt-in and **off by default** (pure passthrough until you enable it).
+Turn it on globally and/or per server:
+
+```toml
+[gateway]
+enabled = true
+compress_output      = true   # L1: format-aware compression (deterministic)
+handle_spill         = true   # L2: oversized output → ctx_expand retrieval handle
+index_output         = true   # L3: consolidate into BM25 + graph + knowledge
+output_budget_tokens = 2000   # L1 target / L2 spill threshold
+
+[[gateway.servers]]
+name = "repomix"
+# … command/args …
+integration = "codebase-pack" # L4 typed adapter (usually auto-derived; see below)
+```
+
+…or via the CLI: `lean-ctx config set gateway.index_output true`.
+
+### The four levels
+
+| Level | Flag | What happens to addon output |
+|---|---|---|
+| **L1 compress** | `compress_output` | Format-aware compression to `output_budget_tokens` — a deterministic function of (content, budget), so it never breaks provider prompt-caching ([#498](../reference/README.md)). |
+| **L2 handle/spill** | `handle_spill` | Output over budget is stored verbatim in the content-addressed archive; the model gets a summary + a `ctx_expand` handle instead of the blob. Generalizes Repomix's `outputId` and Headroom's CCR to **every** addon, through one retrieval path. |
+| **L3 consolidate** | `index_output` | A background side-channel feeds the output into the BM25 index (`ctx_search` / `ctx_semantic_search`), links file references as property-graph edges (`ctx_callgraph`), and remembers facts (`ctx_knowledge`). Never alters the returned text. |
+| **L4 typed adapters** | per-server `integration` | A category-aware adapter folds a known payload into the matching store (below). |
+
+Security and determinism are preserved at every level: post-processing runs
+**after** `scrub_output` (secrets already gone), L1/L2 are deterministic
+functions of the content, and L3 is a pure side-channel (like usage metering).
+
+### Typed adapters (L4) — competitors as first-class citizens
+
+When an addon belongs to a known category, a typed adapter understands its output
+and routes it into lean-ctx's native store. The `integration` slug is normally
+**auto-derived** from the addon's `categories`; set it explicitly only to force or
+disable an adapter (`none`).
+
+| `integration` | Example addons | What the adapter does |
+|---|---|---|
+| `codebase-pack` | Repomix | `pack_codebase` → archive + `ctx_expand` handle (keeps the repomix `outputId` for grep) |
+| `code-graph` | Graphify | nodes/edges → property graph → `ctx_callgraph` |
+| `code-symbols` | Serena | LSP-precise `find_referencing_symbols` → property-graph call edges (complements tree-sitter) |
+| `memory` | Mem0 / OpenMemory / Cognee / Letta | `search_memories` → `ctx_knowledge` facts |
+| `compression` | Headroom / RTK | registered as a named lean-ctx `Compressor` (selectable like the built-ins) |
+
+The positioning is deliberate **counter-lock-in**: a competing tool plugs in as
+one interchangeable component among many, while lean-ctx stays the unifying
+retrieval / search / graph / memory substrate. You can integrate the competition
+instead of being encapsulated by it.
+
 ## Use an addon
 
 ```bash
@@ -25,6 +87,54 @@ asks before changing anything. Pass `--yes` / `-y` to skip the prompt in
 scripts. Installing an addon enables the MCP gateway (`gateway.enabled = true`);
 its tools become reachable via `ctx_tools` (find/call) — restart your MCP client
 to pick them up.
+
+### Install on add — ephemeral runners & the `[install]` block
+
+There are two ways `add` makes a tool runnable, both pinned and disclosed:
+
+1. **Ephemeral runner** — when the `[mcp]` command is `npx` (Node) or `uvx`
+   (uv/Python), the package is downloaded and run **lazily on the first tool
+   call**, then cached. `add` only writes the `[[gateway.servers]]` entry;
+   *adding is installing*, provided the runner is on your `PATH`.
+2. **`[install]` block** (#1105, Phase 2) — for tools that need a one-time
+   bootstrap before a runnable command exists, the manifest declares a pinned
+   package-manager install. On `add`, lean-ctx runs it (idempotently); on
+   `remove`, it uninstalls it. The exact commands are shown before anything runs.
+
+```toml
+[install]
+manager = "uv"               # uv | pip | cargo | npm | brew
+package = "headroom-ai[mcp]"  # the package spec the manager understands
+version = "0.27.0"            # mandatory exact pin (no ranges / latest)
+bin     = "headroom"          # binary the [mcp] command needs (PATH idempotency)
+```
+
+The engine never uses a shell: each manager has a fixed argv template, and
+`package`/`version`/`bin` are passed as discrete arguments (and rejected if they
+contain shell metacharacters). A team can forbid all bootstrap execution with
+`lean-ctx config set addons.allow_bootstrap false`. Every installable entry pins
+an exact version; an unpinned runner or `[install]` block is rejected by the
+registry validator, so upstream can't change under you silently.
+
+| Tool | Add = install? | Wiring / bootstrap | Secrets |
+|---|---|---|---|
+| `repomix` | **yes** (runner) | `npx -y repomix@1.15.0 --mcp` | — |
+| `serena` | **yes** (runner) | `uvx --from serena-agent==1.5.3 serena start-mcp-server` | — |
+| `sequential-thinking` | **yes** (runner) | `npx -y @modelcontextprotocol/server-sequential-thinking@…` | — |
+| `everything` | **yes** (runner) | `npx -y @modelcontextprotocol/server-everything@…` | — |
+| `headroom` | **yes** (`[install]`) | `uv tool install headroom-ai[mcp]==0.27.0` → `headroom mcp serve` | — |
+| `graphify` | listed | `uv tool install "graphifyy[mcp]"` **+ a built `graph.json`** (no out-of-the-box server) | — |
+| `cognee` | listed | clone + `uv sync` (upstream #1815); no pinned one-liner | — |
+| `letta` | listed | `npm i -g letta-mcp-server` + a running Letta backend | `LETTA_API_KEY` |
+| `mem0` | listed | official MCP server (hosted) | `MEM0_API_KEY` |
+| `claude-context` | listed | `npx @zilliz/claude-context-mcp` | `OPENAI_API_KEY` + Milvus |
+| `rtk` | listed | shell-output hook; MCP via the `rtk-mcp` bridge | — |
+| `lmd` | listed | Markdown directive layer — no MCP endpoint | — |
+
+*Listed* tools either need secrets/a backend or don't ship a clean, pinned,
+out-of-the-box MCP server yet. Each flips to install-on-add with a one-line
+registry change (an `[install]` + `[mcp]` block) the moment upstream ships one —
+see the [bootstrap-engine design](../dev/addon-bootstrap-engine.md).
 
 ## Build your own addon
 
@@ -272,6 +382,11 @@ addon does (see
   gateway enabled; turn it off with `lean-ctx config set gateway.enabled false`.
 - Everything is local and deterministic: no network calls or telemetry in the
   add/list/search/info/remove paths.
+- **Output pipeline (opt-in).** Once a call returns, the gateway redacts secrets,
+  then — if the deep-integration flags are set — runs the output through L1–L4
+  (see [Why an addon goes deeper](#why-an-addon-goes-deeper-than-a-passthrough)).
+  Installing a categorized addon records its `integration` slug in the
+  `[[gateway.servers]]` entry, so routing needs no catalog lookup on the hot path.
 
 ### Discover & measure
 

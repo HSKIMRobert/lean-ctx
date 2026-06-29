@@ -93,7 +93,7 @@ pub struct Audit {
 /// Render a ready-to-edit `lean-ctx-addon.toml` for `slug` + `transport`.
 #[must_use]
 pub fn scaffold(slug: &str, transport: Transport) -> String {
-    engine_scaffold::addon_manifest(slug, transport.into())
+    engine_scaffold::addon_manifest(slug, transport.into(), None)
 }
 
 /// Normalise an arbitrary name into a valid addon slug (`[a-z0-9-]`), or `None`
