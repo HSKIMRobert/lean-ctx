@@ -370,4 +370,3 @@ Context packages bundle Knowledge, Graph, Session, Patterns, and Gotchas into po
   - `rust/src/templates/*` where applicable
   - this catalog
 - Historical counts in old CHANGELOG entries remain unchanged by design.
-

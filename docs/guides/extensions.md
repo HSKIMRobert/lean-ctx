@@ -159,4 +159,3 @@ behaviour.
 - [Context policy packs](policy-packs.md)
 - [Provider framework contract](../contracts/provider-framework-contract-v1.md)
 - [Addon manifest contract](../contracts/addon-manifest-v1.md)
-

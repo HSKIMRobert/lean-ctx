@@ -7,7 +7,7 @@
 //!
 //! - **keyed** by the resolved transport (same command/args/env/caps/url → same
 //!   session), so two different servers never share a child,
-//! - **idle-evicted**: a session unused for [`IDLE_TTL`] is dropped on the next
+//! - **idle-evicted**: a session unused for `IDLE_TTL` is dropped on the next
 //!   access (closing the child's stdin → the server exits), swept opportunistically
 //!   on every [`acquire`],
 //! - **liveness-checked**: [`acquire`] also drops any session whose transport has

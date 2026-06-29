@@ -63,4 +63,3 @@ class GainDataTest {
         GainCodec.parse("{not valid json")
     }
 }
-

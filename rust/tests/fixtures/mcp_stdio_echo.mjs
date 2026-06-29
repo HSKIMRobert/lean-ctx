@@ -100,4 +100,3 @@ rl.on('line', (line) => {
 
 // When the client closes stdin (session dropped from the pool), exit cleanly.
 rl.on('close', () => process.exit(0));
-

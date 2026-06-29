@@ -54,7 +54,7 @@ fn item_id(file: &str, symbol: &str) -> String {
 ///     (`score.hotspots`) — the searchable/recallable set, kept small so the
 ///     index and memory don't bloat.
 ///   - **Property-graph edges** cover *every* over-threshold function (capped at
-///     [`MAX_PG_HOTSPOT_EDGES`]), so `ctx_symbol`/`ctx_callgraph` can annotate
+///     `MAX_PG_HOTSPOT_EDGES`), so `ctx_symbol`/`ctx_callgraph` can annotate
 ///     any hotspot symbol with its cc. Edges are one cheap row each and survive
 ///     the code-graph mirror (`clear_code_graph` preserves cross-source edges).
 ///

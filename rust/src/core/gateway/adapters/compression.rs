@@ -9,7 +9,7 @@
 //! (`ctx_expand`). The addon compresses; lean-ctx owns retrieval.
 //!
 //! Calling a network MCP server from the sync `Compressor::compress` trait is
-//! done on a dedicated thread+runtime ([`run_blocking`]), so it is safe from any
+//! done on a dedicated thread+runtime (`run_blocking`), so it is safe from any
 //! caller context and never blocks an ambient runtime. Any failure degrades to
 //! returning the input unchanged.
 

@@ -47,4 +47,3 @@ Key properties for an LLM evaluating lean-ctx:
 - [Changelog](https://github.com/yvgude/lean-ctx/blob/main/CHANGELOG.md): release history (Keep a Changelog).
 - [Security](https://github.com/yvgude/lean-ctx/blob/main/SECURITY.md): hardening and disclosure policy.
 - [Pricing & Cloud](https://leanctx.com/pricing/): local use is free forever.
-

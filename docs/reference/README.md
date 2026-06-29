@@ -73,4 +73,3 @@ measure the payoff. **12–14 are the operations track**: a central troubleshoot
 playbook, the security/governance surface, and performance tuning for big repos
 and constrained machines. Every CLI command and MCP tool appears in at least one
 journey and in the appendices below.
-

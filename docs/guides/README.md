@@ -128,4 +128,3 @@ lean-ctx setup
 - [Tools Reference](https://leanctx.com/docs/tools/)
 - [CLI Reference](https://leanctx.com/docs/cli-reference/)
 - [Discord Community](https://discord.gg/pTHkG9Hew9)
-

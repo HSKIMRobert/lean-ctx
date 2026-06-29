@@ -40,7 +40,7 @@ impl Rt {
 
 /// Execute a `ctx_tools` action, returning response text or an error message.
 ///
-/// `project_root` is the caller's project root (from [`ToolContext`]); it is
+/// `project_root` is the caller's project root (from `ToolContext`); it is
 /// forwarded to [`gateway::proxy`] so output post-processing (#1095) can index
 /// downstream results into the project's stores. Empty = no project scope.
 pub fn run(args: &Map<String, Value>, project_root: &str) -> Result<String, String> {
