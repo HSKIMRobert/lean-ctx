@@ -72,6 +72,33 @@ impl Manager {
             .unwrap_or_else(|| self.as_str().to_string())
     }
 
+    /// A short, actionable hint for installing this manager when it is absent —
+    /// surfaced by the `addon add` pre-flight so a missing manager fails with a
+    /// "here's how to get it" message rather than a raw spawn error.
+    #[must_use]
+    pub fn install_hint(self) -> &'static str {
+        match self {
+            Self::Uv => "install uv → https://docs.astral.sh/uv/getting-started/installation/",
+            Self::Pip => "install Python & pip → https://pip.pypa.io/en/stable/installation/",
+            Self::Cargo => "install Rust (cargo) → https://rustup.rs",
+            Self::Npm => "install Node.js (ships npm) → https://nodejs.org/",
+            Self::Brew => "install Homebrew → https://brew.sh",
+        }
+    }
+
+    /// Whether the manager's executable can actually be launched: its
+    /// `LEANCTX_BOOTSTRAP_<MANAGER>` override path is executable, or its bare
+    /// name resolves on `PATH`. Lets `addon add` pre-flight a missing manager.
+    #[must_use]
+    pub fn is_available(self) -> bool {
+        let prog = self.program();
+        if prog.contains('/') || prog.contains('\\') {
+            is_executable(std::path::Path::new(&prog))
+        } else {
+            binary_on_path(&prog)
+        }
+    }
+
     /// argv to install `package` pinned to `version`. Engine-owned; `package`
     /// and `version` are discrete elements (never concatenated into a shell).
     #[must_use]
@@ -292,6 +319,20 @@ pub fn ensure_installed(install: &AddonInstall) -> Result<BootstrapOutcome, Stri
             receipt,
             warning: None,
         });
+    }
+
+    // Pre-flight: the package is absent, so the manager must run — verify it
+    // exists first and fail with an install hint instead of a raw spawn error.
+    if !manager.is_available() {
+        return Err(format!(
+            "the `{mgr}` package manager is not installed (or not on PATH), so `{pkg}` cannot be \
+             installed.\n  → {hint}\n  Or install `{bin}` yourself, then re-run — `addon add` \
+             detects it and skips the bootstrap.",
+            mgr = manager.as_str(),
+            pkg = install.package.trim(),
+            hint = manager.install_hint(),
+            bin = install.bin(),
+        ));
     }
 
     run(
@@ -604,5 +645,43 @@ mod tests {
         // SAFETY: guarded by ENV_LOCK; clears the override set above.
         unsafe { std::env::remove_var("LEANCTX_BOOTSTRAP_UV") };
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn install_hint_is_present_for_every_manager() {
+        for m in [
+            Manager::Uv,
+            Manager::Pip,
+            Manager::Cargo,
+            Manager::Npm,
+            Manager::Brew,
+        ] {
+            assert!(!m.install_hint().is_empty(), "{m:?} needs an install hint");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn ensure_installed_preflights_a_missing_manager() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let tmp = std::env::temp_dir().join(format!("leanctx-boot-miss-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let missing = tmp.join("uv-not-here");
+
+        let mut install = declared("uv", "demo-pkg", "1.0.0");
+        install.verify = vec!["false".into()]; // never satisfied → must install
+
+        // SAFETY: guarded by ENV_LOCK; points the manager at a non-existent path
+        // so the pre-flight must reject *before* any spawn is attempted.
+        unsafe { std::env::set_var("LEANCTX_BOOTSTRAP_UV", &missing) };
+        let err = ensure_installed(&install).expect_err("missing manager rejected");
+
+        // SAFETY: guarded by ENV_LOCK; clears the override set above.
+        unsafe { std::env::remove_var("LEANCTX_BOOTSTRAP_UV") };
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        assert!(err.contains("uv"), "names the manager: {err}");
+        assert!(err.contains("not installed"), "explains why: {err}");
+        assert!(err.contains("astral.sh"), "gives an install hint: {err}");
     }
 }

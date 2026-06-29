@@ -110,6 +110,12 @@ flowchart TD
 - **Idempotency**: check presence *first* (`verify` argv, else `bin` on `PATH`);
   if already satisfied, skip the manager entirely and just wire. Re-running `add`
   is safe and reports `Already installed — skipped`.
+- **Pre-flight**: when an install *is* needed, verify the manager itself exists
+  (`LEANCTX_BOOTSTRAP_<MGR>` override path, else the bare name on `PATH`) before
+  spawning it. A missing manager fails with an install hint
+  (`install uv → https://docs.astral.sh/uv/…`) instead of a raw spawn error, and
+  the `add` disclosure shows a `requires: <manager> on PATH — ✓/✗` line up front
+  so the gap is visible *before* consent.
 - **Receipt**: `<data_dir>/addons/installed.json` carries an `install` record
   (manager, package, version, bin) — content-only, no timestamps, so it stays
   determinism-friendly (#498). `remove` reads it to uninstall.
@@ -179,6 +185,7 @@ ships a clean server — no further engine work.
   environments; otherwise the manager is resolved from `PATH`.
 - Open: per-manager cache/location detection for richer "already present" checks
   (today: `verify` argv, else `bin` on `PATH`).
-- Open: a `doctor` check that the managers referenced by installed addons exist.
+- Partly shipped: `add` now pre-flights the manager's existence (with an install
+  hint); a full `doctor` sweep over *already-installed* addons is still open.
 - Open: Windows support for the manager templates (the executable probe already
   falls back to "is a file" off-unix; argv templates assume POSIX managers).

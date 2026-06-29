@@ -865,6 +865,18 @@ fn print_bootstrap(manifest: &AddonManifest) {
         "    uninstall: {prog} {}   (run on `addon remove`)",
         install.uninstall_argv().join(" ")
     );
+    // Pre-flight: tell the user up front whether the manager is even present, so
+    // a missing toolchain is visible before they consent rather than mid-install.
+    if let Some(m) = install.manager() {
+        if m.is_available() {
+            println!("    requires:  `{prog}` on PATH — ✓ found");
+        } else {
+            println!(
+                "    requires:  `{prog}` on PATH — ✗ NOT found ({})",
+                m.install_hint()
+            );
+        }
+    }
 }
 
 /// Show the declared capabilities the user is about to grant (P1). A declared
