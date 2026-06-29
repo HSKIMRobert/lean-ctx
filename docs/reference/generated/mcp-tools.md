@@ -611,11 +611,12 @@ Parameters: `action`*, `agent`
 Search code; `action` picks the engine. regex (default): exact pattern, `pattern`
 required, include='*.rs', paths=[..] multi-root. semantic: by meaning (BM25+embeddings),
 `query`, mode=bm25|dense|hybrid.              symbol: one symbol's body by `name` (AST-precise),
-file/kind narrow. reindex / find_related(file_path,line).
+file/kind narrow, or `handle`=path#name@Lline for an exact stable reference.
+reindex / find_related(file_path,line).
 anchored=true tags hits path:line:hh for ctx_patch. For end-to-end understanding,
 use ctx_compose FIRST.
 
-Parameters: `action`, `anchored`, `file`, `file_path`, `include`, `kind`, `line`, `max_results`, `mode`, `name`, `path`, `paths`, `pattern`, `query`, `top_k`
+Parameters: `action`, `anchored`, `file`, `file_path`, `handle`, `include`, `kind`, `line`, `max_results`, `mode`, `name`, `path`, `paths`, `pattern`, `query`, `top_k`
 
 ## `ctx_semantic_search`
 

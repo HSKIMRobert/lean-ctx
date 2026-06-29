@@ -376,6 +376,7 @@ pub mod git_signals;
 pub mod git_util;
 pub mod godot;
 pub mod gotcha_tracker;
+pub mod handle;
 pub mod hasher;
 pub mod heatmap;
 pub mod hebbian_cache;

@@ -36,7 +36,9 @@ impl SearchAction {
                 _ => {}
             }
         }
-        if args.contains_key("pattern") {
+        if args.contains_key("handle") {
+            Self::Symbol
+        } else if args.contains_key("pattern") {
             Self::Regex
         } else if args.contains_key("name") {
             Self::Symbol
@@ -61,7 +63,8 @@ impl McpTool for CtxSearchTool {
             "Search code; `action` picks the engine. regex (default): exact pattern, `pattern`\n\
              required, include='*.rs', paths=[..] multi-root. semantic: by meaning (BM25+embeddings),\n\
              `query`, mode=bm25|dense|hybrid.              symbol: one symbol's body by `name` (AST-precise),\n\
-             file/kind narrow. reindex / find_related(file_path,line).\n\
+             file/kind narrow, or `handle`=path#name@Lline for an exact stable reference.\n\
+             reindex / find_related(file_path,line).\n\
              anchored=true tags hits path:line:hh for ctx_patch. For end-to-end understanding,\n\
              use ctx_compose FIRST.",
             json!({
@@ -74,6 +77,7 @@ impl McpTool for CtxSearchTool {
                     "pattern": { "type": "string", "description": "Regex (action=regex)" },
                     "query": { "type": "string", "description": "Meaning query (action=semantic)" },
                     "name": { "type": "string", "description": "Symbol name (action=symbol)" },
+                    "handle": { "type": "string", "description": "Stable handle path#name@Lline (action=symbol): exact, bypasses fuzzy" },
                     "path": { "type": "string", "description": "Scope dir / project root" },
                     "paths": {
                         "type": "array",
@@ -265,10 +269,28 @@ fn handle_semantic(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolO
     Ok(semantic_output(result))
 }
 
-/// `action=symbol` — one symbol's body by name, routed to the shared core fn.
+/// `action=symbol` — one symbol's body. A `handle` (`path#name@Lline`) resolves
+/// deterministically (exact, no fuzzy/disambiguation); otherwise `name` runs the
+/// fuzzy lookup. Both route to the shared `ctx_symbol` core.
 fn handle_symbol(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutput, ErrorData> {
-    let name = get_str(args, "name")
-        .ok_or_else(|| ErrorData::invalid_params("name is required for action=symbol", None))?;
+    if let Some(handle) = get_str(args, "handle") {
+        let (result, original) =
+            crate::tools::ctx_symbol::render_by_handle(&handle, &ctx.project_root);
+        let sent = crate::core::tokens::count_tokens(&result);
+        return Ok(ToolOutput {
+            text: result,
+            original_tokens: original,
+            saved_tokens: original.saturating_sub(sent),
+            mode: Some("handle".to_string()),
+            path: None,
+            changed: false,
+            shell_outcome: None,
+        });
+    }
+
+    let name = get_str(args, "name").ok_or_else(|| {
+        ErrorData::invalid_params("name or handle is required for action=symbol", None)
+    })?;
     let file = get_str(args, "file");
     let kind = get_str(args, "kind");
 
@@ -489,6 +511,15 @@ mod tests {
         assert_eq!(
             SearchAction::resolve(&args(&[("file_path", json!("a.rs")), ("line", json!(10))])),
             SearchAction::FindRelated
+        );
+    }
+
+    #[test]
+    fn handle_infers_symbol_action() {
+        // A bare `handle` (no action) must route to the symbol engine.
+        assert_eq!(
+            SearchAction::resolve(&args(&[("handle", json!("src/lib.rs#Config::load@L22"))])),
+            SearchAction::Symbol
         );
     }
 
