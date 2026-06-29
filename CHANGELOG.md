@@ -39,6 +39,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   sanctioned rail reads healthy, while a `model_provider` pin or an
   `openai_base_url`/backend-api override stays flagged as a #597 artifact. Trades a
   hard dependency on a live proxy for compression, so it stays off by default.
+  The `LEAN_CTX_CODEX_CHATGPT_PROXY` opt-in is persisted to `[proxy]
+  codex_chatgpt_proxy` on `proxy enable`/`restart`, so the managed proxy and every
+  later env-less setup pass — which never inherit the shell env (#449/#590) — keep
+  routing Codex through the proxy instead of resetting its config to native.
   Picks up the goal of @ousatov-ua's PR #616 without its history-hiding config.
 - **Managed Connectors — hosted continuous source sync (#281).** The team server
   runs a scheduled, in-process sync of configured GitLab/GitHub sources into a

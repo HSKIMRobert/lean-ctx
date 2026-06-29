@@ -772,6 +772,53 @@ fn bridge_custom_upstream_optin() -> bool {
     }
 }
 
+/// Pure decision for [`bridge_codex_chatgpt_optin`]: persist the env opt-in only
+/// when it is present in the shell and `[proxy] codex_chatgpt_proxy` has not
+/// already enabled it (idempotent).
+#[cfg(feature = "http-server")]
+fn should_persist_codex_chatgpt_optin(env_present: bool, current: Option<bool>) -> bool {
+    env_present && current != Some(true)
+}
+
+/// Bridges the shell's `LEAN_CTX_CODEX_CHATGPT_PROXY` opt-in into `config.toml` so
+/// the managed proxy and every env-less setup pass (the LaunchAgent / systemd
+/// proxy, the lean-ctx daemon, editor integrations, `lean-ctx setup`) honor it —
+/// none of them inherit the shell env (#449 / #590). Without this the foreground
+/// `proxy enable` writes Codex's local `chatgpt_base_url`, but the next env-less
+/// `install_proxy_env` pass sees the opt-in as `false` and strips it straight back
+/// to native, so a ChatGPT subscription never actually routes through the proxy
+/// (#603 / #616).
+///
+/// No-op unless the env opt-in is present and the config flag is not already
+/// `true` (idempotent). Returns true when it persisted the flag.
+#[cfg(feature = "http-server")]
+fn bridge_codex_chatgpt_optin() -> bool {
+    let env_present = std::env::var("LEAN_CTX_CODEX_CHATGPT_PROXY").is_ok();
+    let current = crate::core::config::Config::load()
+        .proxy
+        .codex_chatgpt_proxy;
+    if !should_persist_codex_chatgpt_optin(env_present, current) {
+        return false;
+    }
+    match crate::core::config::Config::update_global(|c| {
+        c.proxy.codex_chatgpt_proxy = Some(true);
+    }) {
+        Ok(_) => {
+            println!(
+                "  \x1b[32m✓\x1b[0m Codex ChatGPT proxy opt-in persisted: [proxy] codex_chatgpt_proxy = true"
+            );
+            println!(
+                "  \x1b[2m  (so the managed proxy and every env-less setup pass route Codex through it — the shell env never reaches them, #603/#616)\x1b[0m"
+            );
+            true
+        }
+        Err(e) => {
+            tracing::warn!("could not persist codex_chatgpt_proxy: {e}");
+            false
+        }
+    }
+}
+
 pub(super) fn cmd_proxy(rest: &[String]) {
     #[cfg(feature = "http-server")]
     {
@@ -825,6 +872,10 @@ pub(super) fn cmd_proxy(rest: &[String]) {
                     // #590: persist the shell's custom-upstream opt-in to config
                     // before the restart so the re-read picks up the custom host.
                     bridge_custom_upstream_optin();
+                    // #603/#616: likewise persist the Codex ChatGPT-subscription
+                    // opt-in so the restarted service keeps routing Codex through
+                    // the proxy (the service never sees the shell env var).
+                    bridge_codex_chatgpt_optin();
                     // Managed service (LaunchAgent / systemd): a clean bootout +
                     // bootstrap restarts the proxy so it re-reads config.toml. It
                     // deliberately drops any `LEAN_CTX_*_UPSTREAM` env override
@@ -925,6 +976,12 @@ pub(super) fn cmd_proxy(rest: &[String]) {
                 // the managed proxy starts, so it reads the flag on startup (the
                 // service never inherits the shell's env var).
                 bridge_custom_upstream_optin();
+                // #603/#616: same hazard for the Codex ChatGPT-subscription opt-in.
+                // The env var only reaches this foreground process; persist it so
+                // the managed proxy and every later env-less `install_proxy_env`
+                // pass route Codex through the proxy instead of stripping its
+                // `chatgpt_base_url` back to native.
+                bridge_codex_chatgpt_optin();
 
                 let port = crate::proxy_setup::default_port();
                 crate::proxy_autostart::install(port, false);
@@ -1501,6 +1558,24 @@ mod tests {
         assert!(wants_help(&args(&["restart", "--help"])));
         assert!(wants_help(&args(&["help"])));
         assert!(wants_help(&args(&["--help"])));
+    }
+
+    // #603/#616: the Codex ChatGPT-subscription opt-in must be bridged from the
+    // shell env into config.toml (the managed proxy / env-less setup passes never
+    // see the env var), but only once and never overriding an explicit config.
+    #[cfg(feature = "http-server")]
+    #[test]
+    fn codex_chatgpt_optin_persists_only_when_env_set_and_not_already_on() {
+        use super::should_persist_codex_chatgpt_optin as persist;
+        // Env opt-in present and config has not enabled it yet → persist.
+        assert!(persist(true, None));
+        assert!(persist(true, Some(false)));
+        // Already enabled in config → idempotent no-op.
+        assert!(!persist(true, Some(true)));
+        // Env absent → never touch config; config stays the source of truth.
+        assert!(!persist(false, None));
+        assert!(!persist(false, Some(false)));
+        assert!(!persist(false, Some(true)));
     }
 
     #[test]
