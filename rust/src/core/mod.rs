@@ -31,6 +31,7 @@ pub mod process_guard;
 pub mod progressive_compression;
 pub mod protect;
 pub mod rabin_karp;
+pub mod rule_artifacts;
 pub mod rules_canonical;
 pub mod rules_channel;
 pub mod rules_overhead;
