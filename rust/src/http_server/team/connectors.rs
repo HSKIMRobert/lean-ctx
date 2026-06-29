@@ -525,4 +525,102 @@ mod tests {
         let err = fetch(&c).unwrap_err();
         assert!(err.contains("no credential"));
     }
+
+    /// End-to-end: a real sync against a live HTTP source must land in the target
+    /// workspace's BM25 store and be searchable afterwards. A tiny axum server
+    /// stands in for the GitHub REST API and answers with a fixture in GitHub's
+    /// exact wire shape; the production sync path
+    /// (HTTP fetch → parse → chunk → consolidate → store) runs for real against
+    /// it. Nothing in the code under test is mocked — only the remote endpoint is
+    /// local so the test is hermetic and needs no credentials or network.
+    #[tokio::test]
+    async fn sync_lands_in_searchable_store_end_to_end() {
+        use axum::Router;
+        use axum::routing::get;
+
+        let issues = serde_json::json!([
+            {
+                "number": 1,
+                "title": "Zephyr crash on cold start",
+                "state": "open",
+                "user": { "login": "alice" },
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-02T00:00:00Z",
+                "html_url": "http://example.test/1",
+                "labels": [{ "name": "bug" }],
+                "body": "Service panics in the Zephyr boot path on a cold start."
+            },
+            {
+                "number": 2,
+                "title": "Add Borealis dashboard",
+                "state": "open",
+                "user": { "login": "bob" },
+                "created_at": "2026-01-03T00:00:00Z",
+                "updated_at": "2026-01-04T00:00:00Z",
+                "html_url": "http://example.test/2",
+                "labels": [],
+                "body": "A Borealis analytics panel for the team overview."
+            }
+        ]);
+
+        let app = Router::new().route(
+            "/repos/acme/widgets/issues",
+            get(move || {
+                let body = issues.clone();
+                async move { Json(body) }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let workspace = tempfile::tempdir().unwrap();
+        let ws_root = workspace.path().to_path_buf();
+
+        let cfg = ConnectorConfig {
+            id: "gh-e2e".into(),
+            provider: "github".into(),
+            display_name: None,
+            workspace_id: None,
+            resource: "issues".into(),
+            project: Some("acme/widgets".into()),
+            // `host` becomes the GitHub `api_base`, so we point the real provider
+            // at our local fixture server.
+            host: Some(format!("http://{addr}")),
+            state: Some("open".into()),
+            limit: Some(50),
+            interval_secs: 3_600,
+            secret: Some("test-token".into()),
+            enabled: true,
+        };
+
+        // `run_once` does blocking HTTP (ureq) + store writes; keep it off the
+        // async reactor so the fixture server can serve the request.
+        let ws_sync = ws_root.clone();
+        let ingested = tokio::task::spawn_blocking(move || run_once(&cfg, &ws_sync))
+            .await
+            .unwrap()
+            .expect("sync against the local source must succeed");
+        assert_eq!(ingested, 2, "both fixture issues must be ingested");
+
+        // The sync must have persisted a real, searchable BM25 index for the
+        // workspace. `load` reads the persisted artifact directly; the workspace
+        // safety/staleness guards in `load_or_build` are a separate concern of the
+        // workspace lifecycle, not of the connector's write path.
+        let hits = tokio::task::spawn_blocking(move || {
+            crate::core::bm25_index::BM25Index::load(&ws_root)
+                .expect("the sync must persist a BM25 index")
+                .search("Zephyr", 5)
+        })
+        .await
+        .unwrap();
+        assert!(
+            !hits.is_empty(),
+            "the synced GitHub issue must be findable in the persisted BM25 index"
+        );
+
+        server.abort();
+    }
 }
