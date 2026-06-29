@@ -23,6 +23,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, ServiceExt};
 use serde_json::json;
+use serial_test::serial;
 
 use lean_ctx::core::gateway::{ResolvedTransport, client, pool};
 
@@ -207,7 +208,11 @@ fn fixture_transport() -> ResolvedTransport {
 /// process, run the MCP handshake, `tools/list`, then `tools/call` — and confirm
 /// the session pool reuses one live child across both operations instead of
 /// respawning per call.
+// Serialized: both real-stdio tests drive the *global* session `pool` against
+// the *same* fixture wiring (same key) using `clear`/`len`, so the default
+// concurrent harness would let one test's reset corrupt the other's session.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial(gateway_stdio_pool)]
 async fn gateway_spawns_real_stdio_server_and_reuses_one_pooled_session() {
     if !node_available() {
         eprintln!("skipping gateway stdio E2E: `node` is not available on PATH");
@@ -250,6 +255,7 @@ async fn gateway_spawns_real_stdio_server_and_reuses_one_pooled_session() {
 /// the real stdio path with a fault-injecting `boom` tool that exits without
 /// replying.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial(gateway_stdio_pool)]
 async fn gateway_pool_evicts_a_dead_session_and_reopens_on_next_call() {
     if !node_available() {
         eprintln!("skipping gateway stdio self-heal E2E: `node` is not available on PATH");
