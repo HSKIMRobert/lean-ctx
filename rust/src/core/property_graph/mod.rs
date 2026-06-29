@@ -87,6 +87,23 @@ pub fn engine_outdated(project_root: &str) -> bool {
     load_meta(project_root).is_none_or(|m| m.engine_version < GRAPH_ENGINE_VERSION)
 }
 
+/// Whether an open error is a transient SQLite lock (BUSY/LOCKED) that a brief
+/// retry can clear — notably the `PRAGMA journal_mode=WAL` and initial-DDL races
+/// that SQLite reports *without* invoking the busy handler (so `busy_timeout`
+/// does not cover them).
+fn is_transient_lock(err: &anyhow::Error) -> bool {
+    use rusqlite::ErrorCode;
+    if let Some(rusqlite::Error::SqliteFailure(e, _)) = err.downcast_ref::<rusqlite::Error>()
+        && matches!(e.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+    {
+        return true;
+    }
+    // The schema initializer may surface the same condition wrapped; match the
+    // full error chain's text as a fallback.
+    let msg = format!("{err:#}").to_ascii_lowercase();
+    msg.contains("database is locked") || msg.contains("table is locked")
+}
+
 pub struct CodeGraph {
     conn: Connection,
     db_path: PathBuf,
@@ -98,10 +115,36 @@ impl CodeGraph {
         std::fs::create_dir_all(&db_dir)?;
         migrate_if_needed(project_root, &db_dir);
         let db_path = db_dir.join("graph.db");
-        let conn = Connection::open(&db_path)?;
+
+        // Concurrent opens race on `PRAGMA journal_mode=WAL` and the initial DDL,
+        // which SQLite reports as SQLITE_BUSY without invoking the busy handler
+        // (`busy_timeout` therefore does not apply). Deeper addon integration can
+        // have a gateway ingest thread and the main session's graph build open
+        // the same db at once (#1102); retry briefly so neither silently loses
+        // its writes. Once WAL is recorded in the file header, opens stop racing.
+        const MAX_ATTEMPTS: u32 = 12;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match Self::try_open(&db_path) {
+                Ok(graph) => return Ok(graph),
+                Err(e) if attempt < MAX_ATTEMPTS && is_transient_lock(&e) => {
+                    std::thread::sleep(std::time::Duration::from_millis(40 * u64::from(attempt)));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// One open attempt: connect, register the busy handler, ensure the schema.
+    fn try_open(db_path: &Path) -> anyhow::Result<Self> {
+        let conn = Connection::open(db_path)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         schema::initialize(&conn)?;
-        Ok(Self { conn, db_path })
+        Ok(Self {
+            conn,
+            db_path: db_path.to_path_buf(),
+        })
     }
 
     pub fn open_in_memory() -> anyhow::Result<Self> {

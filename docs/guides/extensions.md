@@ -79,6 +79,13 @@ Both connect to an external MCP server, but for **opposite purposes**:
 If you want the agent to *do something*, build an Addon. If you want lean-ctx to
 *know something*, configure a Provider/MCP Bridge.
 
+> The line is softer than it used to be: an Addon's output can **also** flow into
+> the consolidation pipeline when you enable the gateway's deep-integration flags
+> (`index_output`, and category adapters), so a tool's results become searchable
+> + graphable too. The split is now about intent (a callable *action* vs a
+> standing *data source*), not capability — see
+> [Why an addon goes deeper](addons.md#why-an-addon-goes-deeper-than-a-passthrough).
+
 ### Addon vs Plugin
 
 - **Addon** = an MCP server whose **tools** plug into the gateway. Cross-language
@@ -152,3 +159,4 @@ behaviour.
 - [Context policy packs](policy-packs.md)
 - [Provider framework contract](../contracts/provider-framework-contract-v1.md)
 - [Addon manifest contract](../contracts/addon-manifest-v1.md)
+

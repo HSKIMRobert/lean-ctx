@@ -10,6 +10,68 @@ covers using addons and **building & publishing your own**.
 
 Contract: [`addon-manifest-v1`](../contracts/addon-manifest-v1.md).
 
+## Why an addon goes deeper than a passthrough
+
+Most "MCP aggregators" stop at proxying: they forward a downstream tool's output
+to the model verbatim. lean-ctx can do that too (a **governed passthrough** —
+secrets redacted, output audit-tagged as untrusted), but it can also do something
+no aggregator does: run the addon's output through **its own context engine**, so
+the result is retrieved, searched, graphed and remembered through the *same* paths
+as your own code. One `ctx_expand`, one `ctx_search`, one `ctx_callgraph`, one
+`ctx_knowledge` — regardless of which addon produced the data.
+
+This is opt-in and **off by default** (pure passthrough until you enable it).
+Turn it on globally and/or per server:
+
+```toml
+[gateway]
+enabled = true
+compress_output      = true   # L1: format-aware compression (deterministic)
+handle_spill         = true   # L2: oversized output → ctx_expand retrieval handle
+index_output         = true   # L3: consolidate into BM25 + graph + knowledge
+output_budget_tokens = 2000   # L1 target / L2 spill threshold
+
+[[gateway.servers]]
+name = "repomix"
+# … command/args …
+integration = "codebase-pack" # L4 typed adapter (usually auto-derived; see below)
+```
+
+…or via the CLI: `lean-ctx config set gateway.index_output true`.
+
+### The four levels
+
+| Level | Flag | What happens to addon output |
+|---|---|---|
+| **L1 compress** | `compress_output` | Format-aware compression to `output_budget_tokens` — a deterministic function of (content, budget), so it never breaks provider prompt-caching ([#498](../reference/README.md)). |
+| **L2 handle/spill** | `handle_spill` | Output over budget is stored verbatim in the content-addressed archive; the model gets a summary + a `ctx_expand` handle instead of the blob. Generalizes Repomix's `outputId` and Headroom's CCR to **every** addon, through one retrieval path. |
+| **L3 consolidate** | `index_output` | A background side-channel feeds the output into the BM25 index (`ctx_search` / `ctx_semantic_search`), links file references as property-graph edges (`ctx_callgraph`), and remembers facts (`ctx_knowledge`). Never alters the returned text. |
+| **L4 typed adapters** | per-server `integration` | A category-aware adapter folds a known payload into the matching store (below). |
+
+Security and determinism are preserved at every level: post-processing runs
+**after** `scrub_output` (secrets already gone), L1/L2 are deterministic
+functions of the content, and L3 is a pure side-channel (like usage metering).
+
+### Typed adapters (L4) — competitors as first-class citizens
+
+When an addon belongs to a known category, a typed adapter understands its output
+and routes it into lean-ctx's native store. The `integration` slug is normally
+**auto-derived** from the addon's `categories`; set it explicitly only to force or
+disable an adapter (`none`).
+
+| `integration` | Example addons | What the adapter does |
+|---|---|---|
+| `codebase-pack` | Repomix | `pack_codebase` → archive + `ctx_expand` handle (keeps the repomix `outputId` for grep) |
+| `code-graph` | Graphify | nodes/edges → property graph → `ctx_callgraph` |
+| `code-symbols` | Serena | LSP-precise `find_referencing_symbols` → property-graph call edges (complements tree-sitter) |
+| `memory` | Mem0 / OpenMemory / Cognee / Letta | `search_memories` → `ctx_knowledge` facts |
+| `compression` | Headroom / RTK | registered as a named lean-ctx `Compressor` (selectable like the built-ins) |
+
+The positioning is deliberate **counter-lock-in**: a competing tool plugs in as
+one interchangeable component among many, while lean-ctx stays the unifying
+retrieval / search / graph / memory substrate. You can integrate the competition
+instead of being encapsulated by it.
+
 ## Use an addon
 
 ```bash
@@ -272,6 +334,11 @@ addon does (see
   gateway enabled; turn it off with `lean-ctx config set gateway.enabled false`.
 - Everything is local and deterministic: no network calls or telemetry in the
   add/list/search/info/remove paths.
+- **Output pipeline (opt-in).** Once a call returns, the gateway redacts secrets,
+  then — if the deep-integration flags are set — runs the output through L1–L4
+  (see [Why an addon goes deeper](#why-an-addon-goes-deeper-than-a-passthrough)).
+  Installing a categorized addon records its `integration` slug in the
+  `[[gateway.servers]]` entry, so routing needs no catalog lookup on the hot path.
 
 ### Discover & measure
 
@@ -358,3 +425,4 @@ lean-ctx status                   # MCP server / gateway status
 
 If a freshly installed addon's tools do not appear, restart your MCP client so
 it re-reads the gateway catalog.
+
