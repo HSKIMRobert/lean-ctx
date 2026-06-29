@@ -559,7 +559,12 @@ guessed.
 Accuracy isn't a vibe: the lossy stages are **CI-gated**. A model-free A/B gate
 proves the JSON crusher keeps *every* gold answer while cutting tokens, and proxy
 rewrites are byte-stable by contract, so Anthropic (90%) / OpenAI (50%) prompt-cache
-discounts survive compression.
+discounts survive compression. A deterministic **off-vs-on testbench**
+(`lean-ctx eval testbench`) extends the proof to *answers*: it runs pinned real repos
+through a raw-dump baseline and through lean-ctx at an identical token budget, grades
+free-form QA with an LLM judge and code with each repo's own tests, and emits
+`FINDINGS.md` (tokens / turns / walltime / quality) plus a regressions file — with a
+committed recorded subset that blocks CI on any regression.
 
 - **Latest snapshot**: [BENCHMARKS.md](BENCHMARKS.md)
 - **Reproduce**: `lean-ctx benchmark report .`
