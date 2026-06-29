@@ -397,10 +397,15 @@ async fn gateway_compressor_roundtrips_through_a_downstream_addon() {
     }
     ensure_env();
     let config_dir = tempfile::tempdir().unwrap();
+    // `FIXTURE` is absolute; on Windows it contains backslashes, which are escape
+    // sequences inside a TOML *basic* string. Escape them so the config parses on
+    // every platform — otherwise the server entry is dropped and the gateway
+    // silently falls back to defaults (the addon never runs).
+    let fixture = FIXTURE.replace('\\', "\\\\");
     let toml = format!(
         "[gateway]\nenabled = true\n\n\
          [[gateway.servers]]\nname = \"addonfix\"\ntransport = \"stdio\"\n\
-         command = \"node\"\nargs = [\"{FIXTURE}\"]\nintegration = \"compression\"\n"
+         command = \"node\"\nargs = [\"{fixture}\"]\nintegration = \"compression\"\n"
     );
     std::fs::write(config_dir.path().join("config.toml"), toml).unwrap();
     set_env("LEAN_CTX_CONFIG_DIR", config_dir.path().to_str().unwrap());
