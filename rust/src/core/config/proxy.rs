@@ -162,10 +162,13 @@ pub struct ProxyConfig {
     /// `false`. Env `LEAN_CTX_PROXY_VERBOSITY_STEER`. See
     /// [`ProxyConfig::verbosity_steer_enabled`].
     pub verbosity_steer: Option<bool>,
-    /// Legacy ChatGPT-subscription proxy opt-in flag. Current Codex setup detects
-    /// ChatGPT login from `auth.json` and writes the required ChatGPT provider
-    /// config automatically; this field/env helper remains for older configs and
-    /// compatibility with callers that still read it.
+    /// Opt-in: route a Codex *ChatGPT-subscription* login through the proxy for
+    /// model-turn compression. Default `None`/`false` keeps Codex native (history
+    /// visible, cloud/remote intact, no #597). When `true`, Codex setup pins the
+    /// generated `leanctx-chatgpt` provider + `chatgpt_base_url`; that scopes Codex
+    /// history to the provider (#597), so it stays opt-in. Toggle durably with
+    /// `lean-ctx proxy codex-chatgpt on|off`; resolved via
+    /// [`ProxyConfig::codex_chatgpt_proxy_enabled`].
     pub codex_chatgpt_proxy: Option<bool>,
 }
 
@@ -307,9 +310,9 @@ impl ProxyConfig {
         self.verbosity_steer.unwrap_or(false)
     }
 
-    /// Legacy helper for the old Codex ChatGPT-subscription proxy opt-in.
-    /// `LEAN_CTX_CODEX_CHATGPT_PROXY` (any value) wins, then
-    /// `[proxy] codex_chatgpt_proxy` in config.toml, else `false`.
+    /// Resolved Codex ChatGPT-subscription proxy opt-in (default off).
+    /// `LEAN_CTX_CODEX_CHATGPT_PROXY` (any value) forces it on for the current
+    /// process, then `[proxy] codex_chatgpt_proxy` in config.toml, else `false`.
     pub fn codex_chatgpt_proxy_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_CODEX_CHATGPT_PROXY").is_ok()
             || self.codex_chatgpt_proxy.unwrap_or(false)
@@ -1184,13 +1187,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_codex_chatgpt_proxy_flag_reads_config_and_env() {
+    fn codex_chatgpt_proxy_flag_reads_config_and_env() {
         // Isolate from a developer shell that may export the env override.
         let _lock = crate::core::data_dir::test_env_lock();
         crate::test_env::remove_var("LEAN_CTX_CODEX_CHATGPT_PROXY");
         assert!(
             !ProxyConfig::default().codex_chatgpt_proxy_enabled(),
-            "legacy Codex ChatGPT proxy flag defaults off"
+            "Codex ChatGPT proxy opt-in defaults off"
         );
         let cfg = ProxyConfig {
             codex_chatgpt_proxy: Some(true),

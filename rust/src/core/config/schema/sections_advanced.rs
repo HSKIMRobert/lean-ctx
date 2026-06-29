@@ -195,7 +195,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key_with_env(
             "bool",
             serde_json::json!(cfg.proxy.codex_chatgpt_proxy_enabled()),
-            "Legacy Codex ChatGPT-subscription proxy opt-in flag. Current setup detects ChatGPT login from Codex auth.json and writes the required model_provider = leanctx-chatgpt plus chatgpt_base_url config automatically; this key/env remains for older configs and callers that still read it. Default false",
+            "Opt-in routing of a Codex ChatGPT-subscription login through the proxy for model-turn compression (#603/#616). Default false leaves Codex native (history visible, cloud/remote intact, no #597). When true, setup pins model_provider = leanctx-chatgpt + chatgpt_base_url + a [model_providers.leanctx-chatgpt] block, so model turns route through /backend-api/codex/responses (the proxy strips the responses-lite marker so every model incl. gpt-5.5 works); pinning a provider scopes Codex history to it (#597), hence opt-in. Toggle durably with `lean-ctx proxy codex-chatgpt on|off|status`. Default false",
             "LEAN_CTX_CODEX_CHATGPT_PROXY",
         ),
     );
