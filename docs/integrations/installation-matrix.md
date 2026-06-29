@@ -44,7 +44,7 @@ Legend:
 | CodeBuddy (`codebuddy`) | `~/.codebuddy.json` (MCP enabled — Hybrid) | `~/.codebuddy/CODEBUDDY.md` block | `~/.codebuddy/settings.json` hook wiring (Bash rewrite + Read redirect) | `~/.codebuddy/skills/lean-ctx/SKILL.md` |
 | Codex (`codex`) | `~/.codex/config.toml` (MCP enabled — Hybrid) | `~/.codex/LEAN-CTX.md` + `~/.codex/AGENTS.md` | `~/.codex/hooks.json` (SessionStart/PreToolUse) | `~/.codex/skills/lean-ctx/SKILL.md` |
 | OpenCode (`opencode`) | `~/.config/opencode/opencode.json` (MCP enabled — Hybrid) | `~/.config/opencode/rules/lean-ctx.md` | `~/.config/opencode/plugins/lean-ctx.ts` | — |
-| Windsurf (`windsurf`) | `~/.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/rules/lean-ctx.md` | project `.windsurfrules` (when not global) | — |
+| Windsurf (`windsurf`) | `~/.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/rules/lean-ctx.md` (global) + project `.windsurfrules` | `~/.codeium/windsurf/hooks.json` (`observe` + `pre_mcp_tool_use`) | — (N/A by design) |
 | VS Code (`vscode`) | `~/Library/Application Support/Code/User/mcp.json` (macOS) · `~/.config/Code/User/mcp.json` (Linux) — native MCP, written by `setup` | `~/Library/Application Support/Code/User/.../copilot-instructions.md` | — | — |
 | GitHub Copilot CLI (`copilot`) | `~/.copilot/mcp-config.json` | (Copilot CLI reads MCP server instructions) | `~/.copilot` Bash hook (Hybrid) | — |
 | JetBrains (`jetbrains`) | `~/.jb-mcp.json` (snippet — **manual paste**, no auto-wiring) | `~/.jb-rules/lean-ctx.md` | — | — |
@@ -67,6 +67,18 @@ Legend:
 | Neovim (`neovim`, mcphub.nvim) | `~/.config/mcphub/servers.json` | — (MCP instructions) | — | — |
 | Emacs (`emacs`, mcp.el) | `~/.emacs.d/mcp.json` | — (MCP instructions) | — | — |
 | Sublime Text (`sublime`) | `~/.config/sublime-text/mcp.json` | — (MCP instructions) | — | — |
+
+### The Skill column: `—` means "none, by design"
+
+A `SKILL.md` is the **Claude Code / CodeBuddy / Cursor / Codex** on-demand
+instruction format. Agents that consume a **dedicated rules file** (Windsurf,
+OpenCode, Cline, Roo, Gemini, …) get their guidance from that rules file plus
+the MCP server, so a skill would be redundant — `—` is the intended state, not a
+missing feature. For **Windsurf** specifically this is a common point of
+confusion (GH #593): the integration is MCP + rules + Cascade hooks, and
+`lean-ctx doctor` shows `Skill  N/A by design` next to those checks so the
+absence is never misread. An empty `lean-ctx watch` likewise reflects no `ctx_*`
+**tool calls yet**, not a broken install — see `docs/guides/windsurf.md`.
 
 ### Rules delivery: dedicated files vs. MCP instructions
 
@@ -114,4 +126,3 @@ worth being explicit about what `lean-ctx setup` actually configures:
   - Hybrid additionally (re-)installs shell hooks; `update` refreshes them so they always point at the current binary (see `refresh_installed_hooks`).
   - Rules and skills are overwritten to the mode-correct versions.
   - Hook installation is merge-based where supported (preserves other hooks/plugins).
-

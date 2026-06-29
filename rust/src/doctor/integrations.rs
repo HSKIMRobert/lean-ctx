@@ -198,6 +198,17 @@ fn integration_generic(
         checks.push(check_rules_file(&rules_path));
     }
 
+    // #593: Windsurf is wired through MCP + dedicated rules + Cascade hooks, but
+    // has NO on-demand skill by design. Surface a consolidated status so an empty
+    // `watch` or a "missing skill" is not misread as a broken install, and show
+    // the last real ctx_* MCP call so users can see whether Cascade actually
+    // drives lean-ctx (GLM 5.2 and other weaker models often call native tools).
+    if target.name == "Windsurf" {
+        checks.push(check_windsurf_hooks(home));
+        checks.push(skill_not_applicable_note());
+        checks.push(last_ctx_call_check());
+    }
+
     let ok = checks.iter().all(|c| c.ok);
     IntegrationStatus {
         name: target.name.to_string(),
@@ -518,6 +529,85 @@ fn check_rules_file(path: &std::path::Path) -> NamedCheck {
         } else {
             format!("missing ({})", path.display())
         },
+    }
+}
+
+/// Cascade hook health for Windsurf (#593). `lean-ctx setup` writes observe +
+/// pre_mcp_tool_use hooks into `~/.codeium/windsurf/hooks.json`; the `hook
+/// observe` command is the stable marker. A missing file is genuine drift, fixed
+/// by re-running setup.
+fn check_windsurf_hooks(home: &std::path::Path) -> NamedCheck {
+    let path = home.join(".codeium/windsurf/hooks.json");
+    let ok = std::fs::read_to_string(&path).is_ok_and(|c| c.contains("hook observe"));
+    NamedCheck {
+        name: "Cascade hooks".to_string(),
+        ok,
+        detail: if ok {
+            format!("ok ({})", path.display())
+        } else {
+            "missing (run: lean-ctx setup)".to_string()
+        },
+    }
+}
+
+/// Skill is intentionally absent for agents that consume dedicated markdown rules
+/// (Windsurf): no `SKILL.md` is installed, by design. Stating it explicitly stops
+/// users from treating the absence as a fault (#593).
+fn skill_not_applicable_note() -> NamedCheck {
+    NamedCheck {
+        name: "Skill".to_string(),
+        ok: true,
+        detail: "N/A by design — Windsurf uses MCP + rules + Cascade hooks".to_string(),
+    }
+}
+
+/// Most recent real `ctx_*` MCP tool call from the event log ("12m ago" /
+/// "never"). #593: the clearest signal of whether the agent actually drives
+/// lean-ctx through MCP — an empty `watch` plus "never" means the agent is using
+/// native tools instead of `ctx_*`, not that lean-ctx is broken. Never fails
+/// (informational), and reads the live event log so it is naturally dynamic.
+fn last_ctx_call_check() -> NamedCheck {
+    let detail = match last_ctx_call_ago() {
+        Some(ago) => format!("{ago} (most recent ctx_* MCP call)"),
+        None => "never — the agent has not called any ctx_* MCP tool yet".to_string(),
+    };
+    NamedCheck {
+        name: "Last ctx_* call".to_string(),
+        ok: true,
+        detail,
+    }
+}
+
+fn last_ctx_call_ago() -> Option<String> {
+    let path = crate::core::paths::state_dir().ok()?.join("events.jsonl");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let ts = content
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<crate::core::events::LeanCtxEvent>(l).ok())
+        .find_map(|ev| match ev.kind {
+            crate::core::events::EventKind::ToolCall { tool, .. } if tool.starts_with("ctx_") => {
+                Some(ev.timestamp)
+            }
+            _ => None,
+        })?;
+    let parsed = chrono::NaiveDateTime::parse_from_str(&ts, "%Y-%m-%dT%H:%M:%S%.3f").ok()?;
+    let delta = chrono::Local::now()
+        .naive_local()
+        .signed_duration_since(parsed);
+    Some(humanize_ago(delta))
+}
+
+fn humanize_ago(d: chrono::Duration) -> String {
+    let secs = d.num_seconds().max(0);
+    if secs < 60 {
+        format!("{secs}s ago")
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86_400)
     }
 }
 

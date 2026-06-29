@@ -11,6 +11,18 @@ Complete guide to setting up and optimally using lean-ctx with Windsurf (Codeium
 | Rules file | `~/.codeium/windsurf/rules/lean-ctx.md` (dedicated) |
 | Setup command | `lean-ctx init --agent windsurf` |
 
+### What `lean-ctx init --agent windsurf` installs
+
+| Component | Path | Notes |
+|-----------|------|-------|
+| **MCP server** | `~/.codeium/windsurf/mcp_config.json` | The `ctx_*` tools Cascade calls |
+| **Dedicated rules** | `~/.codeium/windsurf/rules/lean-ctx.md` | Tool-mapping + output-style guidance |
+| **Project rules** | `.windsurfrules` (project root) | Strong "always call `ctx_*`" directive |
+| **Cascade hooks** | `~/.codeium/windsurf/hooks.json` | `observe` + `pre_mcp_tool_use` telemetry/redirect |
+| **Skill** | — | **N/A by design.** Windsurf consumes the dedicated rules above; there is no on-demand `SKILL.md` (that pattern is Claude Code / CodeBuddy only). A missing skill is **not** a fault. |
+
+`lean-ctx doctor` prints this exact breakdown under **Windsurf** (MCP / Rules / Cascade hooks / Skill = N/A) plus the time of the last real `ctx_*` MCP call.
+
 ## Quick Setup
 
 ```bash
@@ -263,6 +275,31 @@ lean-ctx init --global
 2. Check that rules file exists at `~/.codeium/windsurf/rules/lean-ctx.md`
 3. Start a new Cascade conversation (rules load at conversation start)
 4. Try explicitly asking: "Use ctx_read to read this file"
+
+### `lean-ctx watch` stays empty
+
+`watch` shows real **`ctx_*` MCP tool calls** — it measures *usage*, not whether
+lean-ctx is installed. An empty feed means Cascade has not called a `ctx_*` tool
+yet, not that the integration is broken.
+
+1. Run `lean-ctx doctor` — the **Windsurf** block confirms MCP / rules / Cascade
+   hooks are wired and shows the **last `ctx_*` call** (`never` if none yet).
+2. If `doctor` is green but the last call is `never`, Cascade is answering with
+   its **built-in** tools instead of `ctx_*`. The empty-state panel in `watch`
+   distinguishes this ("IDE hooks are firing → agent using native tools") from a
+   missing install.
+3. Nudge it: start a fresh Cascade (rules reload per conversation) and the
+   `.windsurfrules` "MANDATORY: call `ctx_*`" directive will steer it.
+
+### Model choice (GLM 5.2, etc.) does not toggle lean-ctx
+
+lean-ctx is **model-agnostic** — it activates from the MCP/rules/hooks wiring
+above, not from which model Cascade runs. Switching Cascade to GLM 5.2 (or any
+other model) neither enables nor disables lean-ctx. Weaker models sometimes
+*ignore* tool-use rules and reach for built-in tools; that surfaces as an empty
+`watch` (see above) and is addressed by the forceful `.windsurfrules` directive,
+not by a config switch. (The earlier GLM raw-mode handling is already resolved in
+the 3.8.x line.)
 
 ### Performance issues
 

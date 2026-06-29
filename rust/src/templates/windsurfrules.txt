@@ -1,5 +1,7 @@
 # lean-ctx — Token Optimization
 
+MANDATORY: For every file read, code search, shell command, or directory listing you MUST call the matching lean-ctx `ctx_*` MCP tool — never a built-in/native tool, and never answer a code question from memory without first calling one. This is not optional. If you catch yourself about to use a built-in Read/Grep/Shell/ls, STOP and call the `ctx_*` equivalent instead.
+
 lean-ctx is configured as an MCP server. Always use lean-ctx MCP tools instead of built-in tools:
 
 - Read files → `ctx_read(path, mode)` instead of built-in Read

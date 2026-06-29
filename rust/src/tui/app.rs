@@ -53,6 +53,9 @@ struct AppState {
     cache_hits: u64,
     cache_reads: u64,
     total_calls: u64,
+    /// IDE-hook observe events recorded so far (#593). Snapshotted once at
+    /// startup; used only to explain an empty live feed.
+    observe_events: usize,
     files: std::collections::HashMap<String, FileHeat>,
     gain_score: Option<GainScore>,
     last_gain_refresh: Instant,
@@ -142,6 +145,7 @@ impl AppState {
             cache_hits: store.cep.total_cache_hits,
             cache_reads: store.cep.total_cache_reads,
             total_calls: store.total_commands,
+            observe_events: crate::hook_handlers::radar_event_count(),
             files,
             gain_score: None,
             last_gain_refresh: Instant::now(),
@@ -526,23 +530,45 @@ fn draw_live_feed(f: &mut ratatui::Frame, area: Rect, state: &AppState) {
         .style(Style::default().bg(SURFACE));
 
     if state.events.is_empty() {
-        let msg = Paragraph::new(vec![
+        // #593: an empty feed is the most-misread state. Explain that `watch`
+        // measures MCP ctx_* usage (not install status), and use the IDE-hook
+        // count to tell "agent using native tools" from "nothing connected".
+        let mut lines = vec![
             Line::from(""),
             Line::from(Span::styled(
-                "  Waiting for events...",
+                "  Waiting for ctx_* events...",
                 Style::default().fg(MUTED),
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "  Use lean-ctx in your editor or run:",
+                "  watch shows MCP ctx_* tool calls, not whether lean-ctx is installed.",
                 Style::default().fg(MUTED),
             )),
-            Line::from(Span::styled(
-                "  lean-ctx -c \"git status\"",
-                Style::default().fg(BLUE),
-            )),
-        ])
-        .block(block);
+        ];
+        if state.observe_events > 0 {
+            lines.push(Line::from(Span::styled(
+                format!(
+                    "  IDE hooks are firing ({} events) -> the agent is using native tools, not ctx_*.",
+                    state.observe_events
+                ),
+                Style::default().fg(YELLOW),
+            )));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  No IDE-hook activity yet either -- verify the wiring below.",
+                Style::default().fg(MUTED),
+            )));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  Verify integration: ", Style::default().fg(MUTED)),
+            Span::styled("lean-ctx doctor", Style::default().fg(BLUE)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Generate an event:  ", Style::default().fg(MUTED)),
+            Span::styled("lean-ctx -c \"git status\"", Style::default().fg(BLUE)),
+        ]));
+        let msg = Paragraph::new(lines).block(block);
         f.render_widget(msg, area);
         return;
     }
@@ -952,6 +978,7 @@ mod tests {
             cache_hits: 0,
             cache_reads: 0,
             total_calls: 0,
+            observe_events: 0,
             files: std::collections::HashMap::new(),
             gain_score: None,
             last_gain_refresh: Instant::now(),
