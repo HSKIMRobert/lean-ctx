@@ -14,6 +14,43 @@
         "keywords": ["markdown", "plans", "macros", "directives", "phase-isolation", "subagents"],
         "min_lean_ctx": "3.8.0"
       }
+    },
+    {
+      "addon": {
+        "name": "sequential-thinking",
+        "display_name": "Sequential Thinking",
+        "description": "Structured step-by-step reasoning tool — the official MCP reference server for breaking a hard problem into revisable thoughts.",
+        "author": "modelcontextprotocol",
+        "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+        "license": "MIT",
+        "categories": ["workflow", "reasoning"],
+        "keywords": ["thinking", "reasoning", "planning", "chain-of-thought"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@2025.12.18"]
+      }
+    },
+    {
+      "addon": {
+        "name": "everything",
+        "display_name": "Everything (MCP smoke-test)",
+        "description": "Official MCP reference server that exercises every protocol feature — install it to verify your lean-ctx gateway can discover and call downstream tools.",
+        "author": "modelcontextprotocol",
+        "homepage": "https://github.com/modelcontextprotocol/servers/tree/main/src/everything",
+        "license": "MIT",
+        "categories": ["testing"],
+        "keywords": ["test", "reference", "diagnostics", "gateway"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-everything@2026.1.26"]
+      }
     }
   ]
 }
+

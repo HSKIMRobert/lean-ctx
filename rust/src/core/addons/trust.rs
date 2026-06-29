@@ -108,9 +108,26 @@ const SHELL_BINS: &[&str] = &["sh", "bash", "zsh", "dash", "fish", "ksh"];
 const FETCH_BINS: &[&str] = &["curl", "wget", "eval"];
 /// Package runners that execute remote code; risky when unpinned.
 const RUNNER_BINS: &[&str] = &["npx", "uvx", "pipx", "bunx", "pnpx"];
+/// Commands that fetch + execute a package from a registry, so they inherently
+/// need outbound network and a writable package cache. Superset of
+/// [`RUNNER_BINS`] with the package managers that also `exec` a fetched binary.
+/// Used by the `addon init` scaffold to pick capabilities that don't silently
+/// break the spawn (the secure default `network = none` would sandbox-block an
+/// `npx`/`npm` server — GH #1079).
+const PACKAGE_RUNNER_BINS: &[&str] = &[
+    "npx", "uvx", "pipx", "bunx", "pnpx", "npm", "pnpm", "yarn", "bun",
+];
 
 fn basename(cmd: &str) -> &str {
     cmd.rsplit(['/', '\\']).next().unwrap_or(cmd)
+}
+
+/// Whether `command` is a package runner that fetches + executes code from a
+/// registry (`npx`, `uvx`, `npm`, …) and therefore needs network + a writable
+/// package cache to even start. Pure; basename-aware (`/usr/bin/npx` counts).
+#[must_use]
+pub fn command_is_package_runner(command: &str) -> bool {
+    PACKAGE_RUNNER_BINS.contains(&basename(command.trim()))
 }
 
 /// Statically inspect an addon's `[mcp]` wiring. Pure + deterministic; the

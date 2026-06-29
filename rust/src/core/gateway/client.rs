@@ -1,10 +1,14 @@
 //! Downstream MCP client (#210).
 //!
 //! A *real* MCP client built on the official `rmcp` SDK — no bespoke JSON-RPC.
-//! Each operation opens a fresh connection (performs the `initialize`
-//! handshake), does its work, and shuts the connection down. This keeps the
-//! gateway stateless and robust (no stale child processes / sessions); the
-//! expensive part — listing the full catalog — is amortized by the TTL cache in
+//! [`open`] performs the MCP `initialize` handshake; sessions are then kept alive
+//! and reused by the [`super::pool`] (#1078), so list/call operations no longer
+//! pay spawn+handshake latency on every invocation. The pool only ever hands out
+//! a *live* session (it sweeps closed ones at acquire), so requests never reach a
+//! dead pipe. Listing is idempotent, so a mid-flight transport failure is evicted
+//! and reopened once; a *call* is never auto-retried (a downstream tool may be
+//! non-idempotent — re-issuing could double-execute a side effect), only evicted.
+//! The catalog-listing cost is additionally amortized by the TTL cache in
 //! [`super::catalog`].
 
 use std::time::Duration;
@@ -110,29 +114,57 @@ pub async fn call_tool_on(
         .and_then(|r| r.map_err(|e| format!("downstream tools/call failed: {e}")))
 }
 
-/// List a downstream server's tools (connect → `tools/list` → disconnect).
+/// List a downstream server's tools over a pooled session (`tools/list`).
+/// [`super::pool::acquire`] guarantees a live session, so the only failure left
+/// is a rare mid-flight transport death; because listing is idempotent we evict
+/// the suspect session and reopen once. A timeout is surfaced (not retried).
 pub async fn fetch_tools(
     transport: &ResolvedTransport,
     timeout: Duration,
 ) -> Result<Vec<Tool>, String> {
-    let service = open(transport, timeout).await?;
-    let listed = list_tools_on(&service, timeout).await;
-    let _ = service.cancel().await;
-    listed
+    let key = super::pool::key(transport);
+    let service = super::pool::acquire(transport, timeout).await?;
+    match list_tools_on(&service, timeout).await {
+        Ok(tools) => Ok(tools),
+        Err(e) => {
+            super::pool::evict(key);
+            if is_broken_connection(&e) {
+                let service = super::pool::acquire(transport, timeout).await?;
+                list_tools_on(&service, timeout).await
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
-/// Proxy a single tool call to a downstream server (connect → `tools/call` →
-/// disconnect).
+/// Proxy a single tool call to a downstream server over a pooled session
+/// (`tools/call`). [`super::pool::acquire`] only returns a live session, so the
+/// request is never sent into a dead pipe. A failed call is **never** retried:
+/// a downstream tool may be non-idempotent, so re-issuing could double-execute a
+/// side effect. On any failure we evict the (now-suspect) session — the next
+/// call reopens cleanly — and surface the error for the caller to decide.
 pub async fn proxy_call(
     transport: &ResolvedTransport,
     tool: &str,
     arguments: Map<String, Value>,
     timeout: Duration,
 ) -> Result<CallToolResult, String> {
-    let service = open(transport, timeout).await?;
-    let called = call_tool_on(&service, tool, arguments, timeout).await;
-    let _ = service.cancel().await;
-    called
+    let key = super::pool::key(transport);
+    let service = super::pool::acquire(transport, timeout).await?;
+    let result = call_tool_on(&service, tool, arguments, timeout).await;
+    if result.is_err() {
+        super::pool::evict(key);
+    }
+    result
+}
+
+/// Whether `err` indicates the pooled connection is broken (so a fresh reopen +
+/// retry of an *idempotent* op is safe), as opposed to a timeout (the request
+/// may still be running) or a higher-level failure. Errors here are produced by
+/// this module, so the match is on our own stable strings.
+fn is_broken_connection(err: &str) -> bool {
+    !err.contains("timed out")
 }
 
 /// Flatten a downstream [`CallToolResult`] into plain text. Text blocks are

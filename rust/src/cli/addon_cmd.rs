@@ -312,6 +312,21 @@ fn cmd_add(target: &str, args: &[String]) {
         std::process::exit(1);
     }
 
+    let force = args.iter().any(|a| a == "--force" || a == "-f");
+    let no_verify = args.iter().any(|a| a == "--no-verify");
+    let cfg = crate::core::config::Config::load();
+
+    // Fail fast (#1080): run the full pre-persist gate — policy, kill-switch,
+    // capability coherence — before rendering the preview or spawning a probe,
+    // so a rejected addon surfaces a clear verdict and nothing is touched.
+    let server = match install::preflight(&manifest, &cfg.addons, force) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
+
     println!("About to install `{}`:\n", manifest.addon.name);
     print_install_preview(&manifest);
     println!(
@@ -326,7 +341,35 @@ fn cmd_add(target: &str, args: &[String]) {
         return;
     }
 
-    match install::install(&manifest, &source) {
+    // Health probe (#1076): confirm the server actually speaks MCP *before* we
+    // wire it, so a broken command/args fails now with a clear message instead
+    // of opaquely at first `ctx_tools` use. Skip with `--no-verify`.
+    let mut verified: Option<usize> = None;
+    if !no_verify {
+        // First spawn may download a package (npx/uvx), so allow extra headroom
+        // over the per-call timeout.
+        let timeout = std::time::Duration::from_secs(cfg.gateway.call_timeout_secs.max(60));
+        print!("Verifying the MCP server responds… ");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        match crate::core::addons::health::probe(&server, timeout) {
+            Ok(report) => {
+                println!("ok ({} tool(s)).", report.tool_count);
+                verified = Some(report.tool_count);
+            }
+            Err(e) => {
+                println!("failed.");
+                eprintln!(
+                    "Error: `{}` did not pass its health check: {e}\n  \
+                     Nothing was installed. Check the command/args (and capabilities), then retry \
+                     — or skip the check with `--no-verify`.",
+                    manifest.addon.name
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+
+    match install::install(&manifest, &source, force) {
         Ok(outcome) => {
             println!(
                 "\n✓ Installed `{}` → gateway server `{}`.",
@@ -334,6 +377,9 @@ fn cmd_add(target: &str, args: &[String]) {
             );
             if outcome.enabled_gateway {
                 println!("  Enabled the MCP gateway (gateway.enabled = true).");
+            }
+            if let Some(n) = verified {
+                println!("  Verified: {n} tool(s) reachable.");
             }
             println!(
                 "  Its tools are reachable via `ctx_tools` (find/call). \
@@ -498,6 +544,13 @@ fn cmd_init(args: &[String]) {
     };
     let force = args.iter().any(|a| a == "--force" || a == "-f");
 
+    // `--command "npx -y pkg@1.2.3"` (stdio only): wire a real command and let
+    // the scaffold pick capabilities that actually let it run (GH #1079).
+    let command: Option<Vec<String>> = (transport == TransportKind::Stdio)
+        .then(|| flag_value(args, "--command"))
+        .flatten()
+        .map(|spec| spec.split_whitespace().map(str::to_string).collect());
+
     // Slug: explicit positional, else the current directory name.
     let slug = positional(args).or_else(|| {
         std::env::current_dir()
@@ -523,7 +576,7 @@ fn cmd_init(args: &[String]) {
         std::process::exit(1);
     }
 
-    let contents = scaffold::addon_manifest(&slug, transport);
+    let contents = scaffold::addon_manifest(&slug, transport, command.as_deref());
     if let Err(e) = std::fs::write(path, contents) {
         eprintln!("Error writing {}: {e}", scaffold::MANIFEST_FILENAME);
         std::process::exit(1);
@@ -828,7 +881,8 @@ fn print_help() {
          ACTIONS:\n    \
              list                 List installed addons + the registry\n    \
              init [name]          Scaffold a lean-ctx-addon.toml here\n                         \
-                                  [--http] [--force]\n    \
+                                  [--http] [--force]\n                         \
+                                  [--command \"npx -y pkg@1.2.3\"]\n    \
              search [query]       Search the registry (empty = list all)\n    \
              categories           Browse the registry by category\n    \
              usage                Per-addon / per-tool call counters\n    \
@@ -850,7 +904,10 @@ fn print_help() {
              help                 Show this help\n\
          \n\
          FLAGS:\n    \
-             -y, --yes            Skip the confirmation prompt (scripts/CI)\n\
+             -y, --yes            Skip the confirmation prompt (scripts/CI)\n    \
+             --no-verify          add: skip the post-install MCP health probe\n    \
+             --force, -f          add: install despite an under-declared\n                         \
+                                  capability warning (init: overwrite)\n\
          \n\
          BUILD YOUR OWN ADDON:\n    \
              1. Expose your tool as an MCP server (stdio binary or HTTP endpoint).\n    \

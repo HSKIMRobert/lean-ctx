@@ -15,6 +15,7 @@
 pub mod catalog;
 pub mod client;
 pub mod config;
+pub mod pool;
 pub mod router;
 
 pub use catalog::Catalog;
