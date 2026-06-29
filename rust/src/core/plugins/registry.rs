@@ -157,11 +157,10 @@ pub fn default_plugin_dir() -> PathBuf {
     {
         return PathBuf::from(dir);
     }
-    if let Some(config_dir) = dirs::config_dir() {
-        config_dir.join("lean-ctx").join("plugins")
-    } else {
-        PathBuf::from("~/.config/lean-ctx/plugins")
-    }
+    // #594: resolve through the unified config base (matches `config.toml`),
+    // adopting any copy older builds left under `dirs::config_dir()`.
+    crate::core::paths::config_dir_member("plugins")
+        .unwrap_or_else(|_| PathBuf::from("~/.config/lean-ctx/plugins"))
 }
 
 #[derive(Debug)]

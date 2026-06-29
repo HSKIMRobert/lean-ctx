@@ -354,11 +354,13 @@ pub struct RootInfo {
 }
 
 /// Returns the path to the multi-repo config file.
+///
+/// #594: resolved through the unified config base so it matches `config.toml`
+/// (on macOS this no longer diverges to `~/Library/Application Support`); any
+/// legacy copy at the old location is adopted on first access.
 pub fn config_file_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join("lean-ctx")
-        .join("multi-repo.toml")
+    crate::core::paths::config_dir_member("multi-repo.toml")
+        .unwrap_or_else(|_| PathBuf::from("~/.config/lean-ctx/multi-repo.toml"))
 }
 
 /// Global multi-repo manager instance (lazily initialized).

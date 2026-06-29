@@ -796,16 +796,18 @@ fn cmd_cloud_pull() {
         }
     };
 
-    let mut knowledge = core::knowledge::ProjectKnowledge::load_or_create(&project_root);
-    let result = knowledge.import_facts(
-        facts,
-        core::knowledge::ImportMerge::SkipExisting,
-        "cloud-pull",
-        &policy,
-    );
-
-    match knowledge.save() {
-        Ok(()) => {
+    // #326/#594-A4: import under the project lock so a cloud-pull cannot clobber
+    // a concurrent foreground remember/import. The closure reloads the latest
+    // on-disk state inside the lock before merging.
+    match core::knowledge::ProjectKnowledge::mutate_locked(&project_root, |knowledge| {
+        knowledge.import_facts(
+            facts,
+            core::knowledge::ImportMerge::SkipExisting,
+            "cloud-pull",
+            &policy,
+        )
+    }) {
+        Ok((_, result)) => {
             println!(
                 "  Knowledge: {} restored, {} already present (into {project_root})",
                 result.added, result.skipped
@@ -813,7 +815,7 @@ fn cmd_cloud_pull() {
             println!("Pull complete.");
         }
         Err(e) => {
-            tracing::error!("Restored {} facts but save failed: {e}", result.added);
+            tracing::error!("Knowledge restore failed: {e}");
             std::process::exit(1);
         }
     }

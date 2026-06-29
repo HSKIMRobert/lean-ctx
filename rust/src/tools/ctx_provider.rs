@@ -218,8 +218,8 @@ fn handle_configure(
         "paths" => {
             let mut out = String::from("Provider config locations (checked in order):\n");
             out.push_str("  Single-file (providers.toml):\n");
-            if let Some(config_dir) = dirs::config_dir() {
-                let p = config_dir.join("lean-ctx").join("providers.toml");
+            if let Ok(config_dir) = crate::core::paths::config_dir() {
+                let p = config_dir.join("providers.toml");
                 let exists = if p.exists() { " ✓" } else { "" };
                 out.push_str(&format!("    {}{exists}\n", p.display()));
             }
@@ -235,8 +235,8 @@ fn handle_configure(
             out.push_str(&format!("    {}{exists}\n", p.display()));
 
             out.push_str("  Per-file (one provider per file):\n");
-            if let Some(config_dir) = dirs::config_dir() {
-                let p = config_dir.join("lean-ctx").join("providers");
+            if let Ok(config_dir) = crate::core::paths::config_dir() {
+                let p = config_dir.join("providers");
                 let exists = if p.exists() { " ✓" } else { "" };
                 out.push_str(&format!("    {}/{exists}\n", p.display()));
             }

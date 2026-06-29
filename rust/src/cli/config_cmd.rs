@@ -100,11 +100,14 @@ pub fn cmd_config(args: &[String]) {
         "show" | "effective" => {
             cmd_show_effective();
         }
+        "path" | "which" => {
+            cmd_config_path();
+        }
         "apply" | "reload" => {
             cmd_apply();
         }
         _ => {
-            eprintln!("Usage: lean-ctx config [init|set|show|schema|validate|apply]");
+            eprintln!("Usage: lean-ctx config [init|set|show|schema|validate|apply|path]");
             std::process::exit(1);
         }
     }
@@ -316,6 +319,22 @@ fn cmd_apply() {
     if let Some(ref root) = cfg.project_root {
         println!("  Project root: {root}");
     }
+}
+
+/// Print the absolute path of the resolved global `config.toml` (one line,
+/// scriptable).
+///
+/// This is the canonical way to verify that the CLI and the MCP server resolve
+/// the *same* config file (GH #594): run `lean-ctx config path` in a terminal
+/// and from the editor's MCP context, then compare. Output is the bare path so
+/// it can be diffed/captured in scripts and tests; it exits non-zero only when
+/// no config directory can be resolved at all.
+fn cmd_config_path() {
+    let Some(p) = config::Config::path() else {
+        eprintln!("Error: cannot resolve a config directory");
+        std::process::exit(1);
+    };
+    println!("{}", p.display());
 }
 
 fn cmd_validate() {

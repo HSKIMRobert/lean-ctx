@@ -514,22 +514,21 @@ fn cmd_import(args: &[String], project_root: &str) {
         }
     };
 
-    let mut knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(project_root);
     let session_id = cli_session_id();
-    let result = knowledge.import_facts(facts, merge, &session_id, &policy);
-
-    match knowledge.save() {
-        Ok(()) => {
+    // #326/#594-A4: import under the project lock so a parallel CLI/daemon/MCP
+    // write cannot clobber the store (load_or_create + save outside the lock
+    // lost updates). The closure reloads the latest state inside the lock.
+    match crate::core::knowledge::ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        knowledge.import_facts(facts, merge, &session_id, &policy)
+    }) {
+        Ok((_, result)) => {
             println!(
                 "Import complete: {} added, {} skipped, {} replaced (merge={})",
                 result.added, result.skipped, result.replaced, merge_str
             );
         }
         Err(e) => {
-            eprintln!(
-                "Import done ({} added, {} skipped, {} replaced) but save failed: {e}",
-                result.added, result.skipped, result.replaced
-            );
+            eprintln!("Import failed: {e}");
             std::process::exit(1);
         }
     }

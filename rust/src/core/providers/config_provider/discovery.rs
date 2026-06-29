@@ -76,9 +76,11 @@ pub struct DiscoveredConfig {
 fn providers_toml_paths(project_root: Option<&Path>) -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
-    // 1. Global: ~/.config/lean-ctx/providers.toml
-    if let Some(config_dir) = dirs::config_dir() {
-        paths.push(config_dir.join("lean-ctx").join("providers.toml"));
+    // 1. Global: $XDG_CONFIG_HOME/lean-ctx/providers.toml — unified config base
+    //    so this matches `config.toml` on every OS (macOS no longer diverges to
+    //    ~/Library/Application Support, #594).
+    if let Ok(global) = crate::core::paths::config_dir_member("providers.toml") {
+        paths.push(global);
     }
 
     // 2. Global alt: ~/.lean-ctx/providers.toml
@@ -136,9 +138,9 @@ fn load_providers_toml(path: &Path) -> Vec<DiscoveredConfig> {
 fn config_directories(project_root: Option<&Path>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
-    // 1. Global: ~/.config/lean-ctx/providers/
-    if let Some(config_dir) = dirs::config_dir() {
-        dirs.push(config_dir.join("lean-ctx").join("providers"));
+    // 1. Global: $XDG_CONFIG_HOME/lean-ctx/providers/ — unified config base (#594).
+    if let Ok(global) = crate::core::paths::config_dir_member("providers") {
+        dirs.push(global);
     }
 
     // 2. Global alt: ~/.lean-ctx/providers/

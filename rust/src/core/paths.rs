@@ -102,6 +102,17 @@ fn is_standard_xdg_data_dir(p: &Path) -> bool {
         .is_ok_and(|standard| standard.as_path() == p)
 }
 
+/// Whether an editor-baked `LEAN_CTX_DATA_DIR` value (`pin`) would make that
+/// editor's MCP server resolve a *different* `config.toml` than the terminal
+/// CLI. Only a **non-standard** pin collapses config/state/cache onto the data
+/// dir (#594); a pin equal to the standard `$XDG_DATA_HOME/lean-ctx` is a
+/// data-only pin and keeps config parity. Pure function of `pin` + the current
+/// process' env/HOME (the terminal's view), so `doctor` can compare an editor's
+/// baked pin against the CLI's own resolution without mutating env or spawning.
+pub(crate) fn data_pin_diverges_config(pin: &Path) -> bool {
+    !is_standard_xdg_data_dir(pin)
+}
+
 /// Filesystem half of [`single_dir_override`], parameterized for hermetic tests.
 fn single_dir_override_fs(home: &Path, xdg_config_base: &Path) -> Option<PathBuf> {
     // A committed XDG install is the single source of truth: never re-collapse
@@ -155,6 +166,77 @@ fn category_dir(cat_env: &str, xdg_env: &str, home_fallback: &str) -> Result<Pat
 /// Override: `LEAN_CTX_CONFIG_DIR`; default `$XDG_CONFIG_HOME/lean-ctx`.
 pub fn config_dir() -> Result<PathBuf, String> {
     category_dir("LEAN_CTX_CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+}
+
+/// Resolve a member (a file or sub-directory) of the config dir, adopting a copy
+/// that older builds wrote under the OS-native `dirs::config_dir()` location.
+///
+/// Before #594 (A3), providers/personas/plugins/multi-repo config resolved via
+/// `dirs::config_dir()` — on macOS `~/Library/Application Support`, a *different*
+/// base than the `$XDG_CONFIG_HOME/lean-ctx` dir used for `config.toml`, so those
+/// features silently diverged from the main config. Routing them through
+/// [`config_dir`] unifies the base; this helper performs a one-time,
+/// non-destructive adoption so a user who already had config at the old path
+/// keeps it. The canonical location always wins — an existing canonical entry is
+/// never overwritten — and adoption is skipped entirely in tests so it can never
+/// touch a developer's real `~/Library/Application Support`.
+pub fn config_dir_member(sub: &str) -> Result<PathBuf, String> {
+    let canonical = config_dir()?.join(sub);
+    #[cfg(not(test))]
+    adopt_legacy_config_member(sub, &canonical);
+    Ok(canonical)
+}
+
+/// Decide whether a legacy config member should be adopted: only when the
+/// canonical entry is still absent, the legacy entry actually exists, and the two
+/// paths genuinely differ (on Linux the two bases coincide, making this a no-op).
+fn legacy_adoption_source(legacy: &Path, canonical: &Path) -> Option<PathBuf> {
+    if canonical.exists() || legacy == canonical || !legacy.exists() {
+        return None;
+    }
+    Some(legacy.to_path_buf())
+}
+
+/// Move `src` onto `dst` (file or directory). Prefers an atomic rename on the
+/// same filesystem; falls back to a recursive copy for the rare cross-device
+/// case so no config is ever left stranded. The caller guarantees `dst`'s parent
+/// exists.
+fn relocate(src: &Path, dst: &Path) -> std::io::Result<()> {
+    if std::fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    if src.is_dir() {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            relocate(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+        std::fs::remove_dir_all(src)?;
+    } else {
+        std::fs::copy(src, dst)?;
+        std::fs::remove_file(src)?;
+    }
+    Ok(())
+}
+
+/// One-time adoption of a legacy `dirs::config_dir()/lean-ctx/<sub>` member into
+/// the canonical config dir. Best-effort: any IO failure leaves the legacy copy
+/// in place and resolution simply proceeds against the canonical path.
+#[cfg(not(test))]
+fn adopt_legacy_config_member(sub: &str, canonical: &Path) {
+    let Some(legacy_base) = dirs::config_dir() else {
+        return;
+    };
+    let legacy = legacy_base.join("lean-ctx").join(sub);
+    let Some(src) = legacy_adoption_source(&legacy, canonical) else {
+        return;
+    };
+    if let Some(parent) = canonical.parent()
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
+    let _ = relocate(&src, canonical);
 }
 
 /// Data directory — sessions, vectors, graphs, knowledge, archives, memory.
@@ -377,6 +459,59 @@ mod tests {
         // Unset var → falls back to $HOME/<home_fallback>.
         let fallback = xdg_base("LEAN_CTX_NONEXISTENT_XDG_VAR", ".cache").unwrap();
         assert!(fallback.ends_with(".cache"), "got: {}", fallback.display());
+    }
+
+    #[test]
+    fn legacy_adoption_source_only_when_canonical_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("legacy");
+        let canonical = tmp.path().join("canonical");
+
+        // Legacy missing → nothing to adopt.
+        assert_eq!(legacy_adoption_source(&legacy, &canonical), None);
+
+        // Legacy present, canonical absent → adopt the legacy copy.
+        std::fs::create_dir_all(&legacy).unwrap();
+        assert_eq!(
+            legacy_adoption_source(&legacy, &canonical),
+            Some(legacy.clone())
+        );
+
+        // Canonical present → the newer location wins, never overwrite it.
+        std::fs::create_dir_all(&canonical).unwrap();
+        assert_eq!(legacy_adoption_source(&legacy, &canonical), None);
+    }
+
+    #[test]
+    fn relocate_moves_file_then_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        // File: dst parent must be created by the caller (as adopt does).
+        let src_file = tmp.path().join("providers.toml");
+        std::fs::write(&src_file, "id = \"x\"\n").unwrap();
+        let dst_file = tmp.path().join("config/lean-ctx/providers.toml");
+        std::fs::create_dir_all(dst_file.parent().unwrap()).unwrap();
+        relocate(&src_file, &dst_file).unwrap();
+        assert!(!src_file.exists(), "source file must be moved, not copied");
+        assert_eq!(std::fs::read_to_string(&dst_file).unwrap(), "id = \"x\"\n");
+
+        // Directory with nested content.
+        let src_dir = tmp.path().join("personas");
+        std::fs::create_dir_all(src_dir.join("nested")).unwrap();
+        std::fs::write(src_dir.join("a.toml"), "a").unwrap();
+        std::fs::write(src_dir.join("nested/b.toml"), "b").unwrap();
+        let dst_dir = tmp.path().join("config/lean-ctx/personas");
+        std::fs::create_dir_all(dst_dir.parent().unwrap()).unwrap();
+        relocate(&src_dir, &dst_dir).unwrap();
+        assert!(!src_dir.exists(), "source dir must be moved");
+        assert_eq!(
+            std::fs::read_to_string(dst_dir.join("a.toml")).unwrap(),
+            "a"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst_dir.join("nested/b.toml")).unwrap(),
+            "b"
+        );
     }
 
     #[test]

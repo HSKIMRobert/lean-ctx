@@ -309,11 +309,10 @@ pub fn personas_dir() -> PathBuf {
     {
         return PathBuf::from(dir);
     }
-    if let Some(config_dir) = dirs::config_dir() {
-        config_dir.join("lean-ctx").join("personas")
-    } else {
-        PathBuf::from("~/.config/lean-ctx/personas")
-    }
+    // #594: resolve through the unified config base (matches `config.toml`),
+    // adopting any copy older builds left under `dirs::config_dir()`.
+    crate::core::paths::config_dir_member("personas")
+        .unwrap_or_else(|_| PathBuf::from("~/.config/lean-ctx/personas"))
 }
 
 /// Load a persona from `<personas_dir>/<name>.toml`. `Ok(None)` if absent.

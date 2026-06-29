@@ -225,60 +225,62 @@ fn merge_knowledge(
     manifest: &PackageManifest,
     report: &mut LoadReport,
 ) -> Result<(), String> {
-    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let policy = MemoryPolicy::default();
     let source_tag = format!("{}@{}", manifest.name, manifest.version);
 
-    for fact in &layer.facts {
-        let exists = knowledge
-            .facts
-            .iter()
-            .any(|f| f.category == fact.category && f.key == fact.key && f.value == fact.value);
+    // #326/#594-A4: merge under the project lock so a package install cannot
+    // clobber a concurrent foreground knowledge write; the closure reloads the
+    // latest store inside the lock before deduping/merging.
+    ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        for fact in &layer.facts {
+            let exists = knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == fact.category && f.key == fact.key && f.value == fact.value);
 
-        if exists {
-            report.knowledge_facts_skipped += 1;
-            continue;
+            if exists {
+                report.knowledge_facts_skipped += 1;
+                continue;
+            }
+
+            knowledge.remember(
+                &fact.category,
+                &fact.key,
+                &fact.value,
+                &fact.source_session,
+                fact.confidence.min(0.8),
+                &policy,
+            );
+            if let Some(last) = knowledge.facts.last_mut() {
+                last.imported_from = Some(source_tag.clone());
+            }
+            report.knowledge_facts_merged += 1;
         }
 
-        knowledge.remember(
-            &fact.category,
-            &fact.key,
-            &fact.value,
-            &fact.source_session,
-            fact.confidence.min(0.8),
-            &policy,
-        );
-        if let Some(last) = knowledge.facts.last_mut() {
-            last.imported_from = Some(source_tag.clone());
+        for pattern in &layer.patterns {
+            let exists = knowledge.patterns.iter().any(|p| {
+                p.pattern_type == pattern.pattern_type && p.description == pattern.description
+            });
+
+            if !exists {
+                knowledge.patterns.push(pattern.clone());
+                report.knowledge_patterns_merged += 1;
+            }
         }
-        report.knowledge_facts_merged += 1;
-    }
 
-    for pattern in &layer.patterns {
-        let exists = knowledge.patterns.iter().any(|p| {
-            p.pattern_type == pattern.pattern_type && p.description == pattern.description
-        });
+        for insight in &layer.insights {
+            let exists = knowledge
+                .history
+                .iter()
+                .any(|h| h.summary == insight.summary);
 
-        if !exists {
-            knowledge.patterns.push(pattern.clone());
-            report.knowledge_patterns_merged += 1;
+            if !exists {
+                knowledge.history.push(insight.clone());
+                report.knowledge_insights_merged += 1;
+            }
         }
-    }
-
-    for insight in &layer.insights {
-        let exists = knowledge
-            .history
-            .iter()
-            .any(|h| h.summary == insight.summary);
-
-        if !exists {
-            knowledge.history.push(insight.clone());
-            report.knowledge_insights_merged += 1;
-        }
-    }
-
-    knowledge.save()?;
-    Ok(())
+    })
+    .map(|_| ())
 }
 
 fn import_graph(
@@ -377,23 +379,21 @@ fn import_patterns(
     _manifest: &PackageManifest,
     report: &mut LoadReport,
 ) -> Result<(), String> {
-    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
+    // #326/#594-A4: import under the project lock; the closure reloads the latest
+    // store inside the lock so a concurrent write is never clobbered.
+    ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        for pattern in &layer.patterns {
+            let exists = knowledge.patterns.iter().any(|p| {
+                p.pattern_type == pattern.pattern_type && p.description == pattern.description
+            });
 
-    for pattern in &layer.patterns {
-        let exists = knowledge.patterns.iter().any(|p| {
-            p.pattern_type == pattern.pattern_type && p.description == pattern.description
-        });
-
-        if !exists {
-            knowledge.patterns.push(pattern.clone());
-            report.patterns_imported += 1;
+            if !exists {
+                knowledge.patterns.push(pattern.clone());
+                report.patterns_imported += 1;
+            }
         }
-    }
-
-    if report.patterns_imported > 0 {
-        knowledge.save()?;
-    }
-    Ok(())
+    })
+    .map(|_| ())
 }
 
 fn import_gotchas(
@@ -471,55 +471,56 @@ fn import_session(
     manifest: &PackageManifest,
     report: &mut LoadReport,
 ) {
-    let mut knowledge = ProjectKnowledge::load_or_create(project_root);
     let policy = MemoryPolicy::default();
     let source_tag = format!("{}@{} (session)", manifest.name, manifest.version);
 
-    for finding in &layer.findings {
-        let key = finding.file.as_deref().unwrap_or("general");
-        let exists = knowledge
-            .facts
-            .iter()
-            .any(|f| f.category == "session_finding" && f.value == finding.summary);
-        if !exists {
-            knowledge.remember(
-                "session_finding",
-                key,
-                &finding.summary,
-                &source_tag,
-                0.6,
-                &policy,
-            );
-            report.session_findings_merged += 1;
+    // #326/#594-A4: merge session findings/decisions under the project lock so a
+    // package install never clobbers a concurrent foreground write.
+    let outcome = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        for finding in &layer.findings {
+            let key = finding.file.as_deref().unwrap_or("general");
+            let exists = knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == "session_finding" && f.value == finding.summary);
+            if !exists {
+                knowledge.remember(
+                    "session_finding",
+                    key,
+                    &finding.summary,
+                    &source_tag,
+                    0.6,
+                    &policy,
+                );
+                report.session_findings_merged += 1;
+            }
         }
-    }
 
-    for decision in &layer.decisions {
-        let value = if let Some(ref rationale) = decision.rationale {
-            format!("{} (rationale: {})", decision.summary, rationale)
-        } else {
-            decision.summary.clone()
-        };
-        let exists = knowledge
-            .facts
-            .iter()
-            .any(|f| f.category == "session_decision" && f.value == decision.summary);
-        if !exists {
-            knowledge.remember(
-                "session_decision",
-                "decision",
-                &value,
-                &source_tag,
-                0.7,
-                &policy,
-            );
-            report.session_decisions_merged += 1;
+        for decision in &layer.decisions {
+            let value = if let Some(ref rationale) = decision.rationale {
+                format!("{} (rationale: {})", decision.summary, rationale)
+            } else {
+                decision.summary.clone()
+            };
+            let exists = knowledge
+                .facts
+                .iter()
+                .any(|f| f.category == "session_decision" && f.value == decision.summary);
+            if !exists {
+                knowledge.remember(
+                    "session_decision",
+                    "decision",
+                    &value,
+                    &source_tag,
+                    0.7,
+                    &policy,
+                );
+                report.session_decisions_merged += 1;
+            }
         }
-    }
+    });
 
-    if (report.session_findings_merged > 0 || report.session_decisions_merged > 0)
-        && let Err(e) = knowledge.save()
-    {
+    if let Err(e) = outcome {
         report
             .warnings
             .push(format!("session knowledge save failed: {e}"));
