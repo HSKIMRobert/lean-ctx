@@ -720,13 +720,19 @@ pub fn proxy_timeout() -> std::time::Duration {
     std::time::Duration::from_millis(200)
 }
 
-fn is_proxy_reachable(port: u16) -> bool {
+pub(crate) fn is_proxy_reachable(port: u16) -> bool {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     TcpStream::connect_timeout(&addr, proxy_timeout()).is_ok()
 }
 
-fn install_codex_env(home: &Path, port: u16, quiet: bool) {
+/// (Re)apply ONLY the Codex CLI proxy env from the current config — used by
+/// `proxy codex-chatgpt on|off` to write/strip Codex's `chatgpt_base_url`
+/// immediately after persisting the `[proxy] codex_chatgpt_proxy` opt-in, without
+/// touching Claude/Pi/shell exports. The opt-in is resolved from `config.toml`
+/// (env-independent), so this works for the env-less managed proxy and every
+/// later setup pass too (#603/#616).
+pub(crate) fn install_codex_env(home: &Path, port: u16, quiet: bool) {
     let config_dir = crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
     let mode = if codex_uses_chatgpt_login(home) {
         CodexProxyMode::ChatGpt

@@ -39,11 +39,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   sanctioned rail reads healthy, while a `model_provider` pin or an
   `openai_base_url`/backend-api override stays flagged as a #597 artifact. Trades a
   hard dependency on a live proxy for compression, so it stays off by default.
-  The `LEAN_CTX_CODEX_CHATGPT_PROXY` opt-in is persisted to `[proxy]
-  codex_chatgpt_proxy` on `proxy enable`/`restart`, so the managed proxy and every
-  later env-less setup pass — which never inherit the shell env (#449/#590) — keep
-  routing Codex through the proxy instead of resetting its config to native.
-  Picks up the goal of @ousatov-ua's PR #616 without its history-hiding config.
+  Turn it on durably with **`lean-ctx proxy codex-chatgpt on`** (`off`/`status`
+  too): it writes the opt-in straight to `[proxy] codex_chatgpt_proxy` — the single
+  source of truth the env-less managed proxy, editor integrations and every later
+  setup pass read (none inherit the shell env, #449/#590) — and re-applies Codex's
+  `chatgpt_base_url` immediately, with clear feedback (and a heads-up when the proxy
+  isn't running yet). Exporting `LEAN_CTX_CODEX_CHATGPT_PROXY` still works and is
+  bridged to config on `proxy enable`/`restart`. This closes the trap where a shell
+  env opt-in never reached the process that actually rewrote the Codex config —
+  leaving it native (no proxy entries) despite the opt-in. Picks up the goal of
+  @ousatov-ua's PR #616 without its history-hiding config.
 - **Managed Connectors — hosted continuous source sync (#281).** The team server
   runs a scheduled, in-process sync of configured GitLab/GitHub sources into a
   workspace's BM25/graph/knowledge stores, so every seat's `ctx_semantic_search` /
