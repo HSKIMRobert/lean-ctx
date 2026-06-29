@@ -198,7 +198,7 @@ pub struct Config {
     /// Existing installs default to "power" (backward compat).
     #[serde(default)]
     pub tool_profile: Option<String>,
-    /// Explicit list of enabled tool names (overrides tool_profile when non-empty).
+    /// Explicit list of enabled tool names. Used only when no tool_profile is pinned (tool_profile takes precedence); leave tool_profile unset to apply this list.
     /// Example: `tools_enabled = ["ctx_read", "ctx_shell", "ctx_search"]`
     #[serde(default)]
     pub tools_enabled: Vec<String>,

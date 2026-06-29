@@ -161,7 +161,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             key_enum(
                 &["minimal", "standard", "power"],
                 cfg.tool_profile.as_deref().unwrap_or(""),
-                "Tool visibility profile: minimal (6 tools), standard (17), power (all). Override via LEAN_CTX_TOOL_PROFILE",
+                "Tool visibility profile: minimal (5 tools), standard (15), power (all). Override via LEAN_CTX_TOOL_PROFILE",
             ),
         );
     root.insert(
@@ -169,7 +169,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key(
             "string[]",
             serde_json::json!(cfg.tools_enabled),
-            "Explicit list of enabled tool names (overrides tool_profile when non-empty)",
+            "Explicit list of enabled tool names. Used only when no tool_profile is pinned (tool_profile takes precedence); leave tool_profile unset to apply this list.",
         ),
     );
     root.insert(
