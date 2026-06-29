@@ -33,6 +33,9 @@ pub enum Manager {
     /// Homebrew — `brew install <formula>` (version pinned via the formula name,
     /// e.g. `node@22`; the `version` field documents the expected version).
     Brew,
+    /// .NET SDK — `dotnet tool install --global <pkg> --version <ver>` (.NET
+    /// global tools published to NuGet, e.g. `CodeCompress.Server`).
+    Dotnet,
 }
 
 impl Manager {
@@ -45,6 +48,7 @@ impl Manager {
             "cargo" => Some(Self::Cargo),
             "npm" => Some(Self::Npm),
             "brew" | "homebrew" => Some(Self::Brew),
+            "dotnet" => Some(Self::Dotnet),
             _ => None,
         }
     }
@@ -58,6 +62,7 @@ impl Manager {
             Self::Cargo => "cargo",
             Self::Npm => "npm",
             Self::Brew => "brew",
+            Self::Dotnet => "dotnet",
         }
     }
 
@@ -83,6 +88,7 @@ impl Manager {
             Self::Cargo => "install Rust (cargo) → https://rustup.rs",
             Self::Npm => "install Node.js (ships npm) → https://nodejs.org/",
             Self::Brew => "install Homebrew → https://brew.sh",
+            Self::Dotnet => "install the .NET SDK → https://dotnet.microsoft.com/download",
         }
     }
 
@@ -118,6 +124,14 @@ impl Manager {
             // Homebrew cannot install an arbitrary historical version; the
             // formula name carries the pin (`node@22`), so we install it verbatim.
             Self::Brew => vec!["install".into(), pkg.into()],
+            Self::Dotnet => vec![
+                "tool".into(),
+                "install".into(),
+                "--global".into(),
+                package_base(pkg).into(),
+                "--version".into(),
+                ver.into(),
+            ],
         }
     }
 
@@ -130,6 +144,12 @@ impl Manager {
             Self::Pip => vec!["uninstall".into(), "-y".into(), base.into()],
             Self::Npm => vec!["rm".into(), "-g".into(), base.into()],
             Self::Cargo | Self::Brew => vec!["uninstall".into(), base.into()],
+            Self::Dotnet => vec![
+                "tool".into(),
+                "uninstall".into(),
+                "--global".into(),
+                base.into(),
+            ],
         }
     }
 }
@@ -141,7 +161,7 @@ impl Manager {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AddonInstall {
-    /// Package manager: `uv` | `pip` | `cargo` | `npm` | `brew`.
+    /// Package manager: `uv` | `pip` | `cargo` | `npm` | `brew` | `dotnet`.
     pub manager: String,
     /// Package/formula to install (may carry extras, e.g. `headroom-ai[all]`).
     pub package: String,
@@ -196,7 +216,7 @@ impl AddonInstall {
         }
         if self.manager().is_none() {
             return Err(format!(
-                "[install] manager `{}` is not supported — use one of: uv, pip, cargo, npm, brew",
+                "[install] manager `{}` is not supported — use one of: uv, pip, cargo, npm, brew, dotnet",
                 self.manager.trim()
             ));
         }
@@ -525,6 +545,17 @@ mod tests {
             declared("brew", "node@22", "22.0.0").install_argv(),
             ["install", "node@22"]
         );
+        assert_eq!(
+            declared("dotnet", "CodeCompress.Server", "0.15.0").install_argv(),
+            [
+                "tool",
+                "install",
+                "--global",
+                "CodeCompress.Server",
+                "--version",
+                "0.15.0"
+            ]
+        );
     }
 
     #[test]
@@ -540,6 +571,10 @@ mod tests {
         assert_eq!(
             declared("pip", "cognee==0.1.0", "0.1.0").uninstall_argv(),
             ["uninstall", "-y", "cognee"]
+        );
+        assert_eq!(
+            declared("dotnet", "CodeCompress.Server", "0.15.0").uninstall_argv(),
+            ["tool", "uninstall", "--global", "CodeCompress.Server"]
         );
     }
 
@@ -655,6 +690,7 @@ mod tests {
             Manager::Cargo,
             Manager::Npm,
             Manager::Brew,
+            Manager::Dotnet,
         ] {
             assert!(!m.install_hint().is_empty(), "{m:?} needs an install hint");
         }

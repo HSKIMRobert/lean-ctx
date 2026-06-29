@@ -78,7 +78,7 @@ pub struct AddonsConfig {
     /// P5). On by default; set `false` to disable all usage accounting.
     pub metering: bool,
     /// Allow `addon add` to provision an addon's upstream package via a pinned
-    /// package manager (uv/pip/cargo/npm/brew) — the `[install]` block (#1105).
+    /// package manager (uv/pip/cargo/npm/brew/dotnet) — the `[install]` block (#1105).
     /// On by default: `add` is the user's explicit, consented action, and the
     /// bootstrap is fully disclosed + pinned + audited before it runs. An org
     /// that forbids local package-manager execution sets this to `false`.

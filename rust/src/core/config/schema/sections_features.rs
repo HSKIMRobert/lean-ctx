@@ -617,7 +617,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key(
             "bool",
             serde_json::json!(cfg.addons.allow_bootstrap),
-            "Allow `addon add` to install an addon's upstream package via a pinned manager (uv/pip/cargo/npm/brew). Off = refuse bootstrap installs",
+            "Allow `addon add` to install an addon's upstream package via a pinned manager (uv/pip/cargo/npm/brew/dotnet). Off = refuse bootstrap installs",
         ),
     );
     sections.insert(

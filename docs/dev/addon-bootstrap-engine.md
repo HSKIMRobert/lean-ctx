@@ -47,7 +47,7 @@ as the rest of the addon system.
 
 ```toml
 [install]
-manager = "uv"                     # one of: pip | uv | cargo | npm | brew
+manager = "uv"                     # one of: pip | uv | cargo | npm | brew | dotnet
 package = "headroom-ai[mcp]"       # the package spec the manager understands
 version = "0.27.0"                 # MANDATORY exact pin (no ranges, no "latest")
 bin     = "headroom"               # binary the [mcp] command expects (PATH idempotency)
@@ -55,7 +55,7 @@ bin     = "headroom"               # binary the [mcp] command expects (PATH idem
 ```
 
 Rules (enforced by `AddonInstall::validate()`, called from `manifest.validate()`):
-- `manager` ∈ a fixed allowlist (`uv`/`pip`/`cargo`/`npm`/`brew`). Each manager
+- `manager` ∈ a fixed allowlist (`uv`/`pip`/`cargo`/`npm`/`brew`/`dotnet`). Each manager
   maps to a **fixed argv template** the engine owns — the manifest never supplies
   raw shell.
 - `version` is required and must be an exact pin (empty / `latest` / `*` are
@@ -79,6 +79,7 @@ Rules (enforced by `AddonInstall::validate()`, called from `manifest.validate()`
 | `cargo`   | `cargo install {base} --version {version}`       | `cargo uninstall {base}`         |
 | `npm`     | `npm install -g {package}@{version}`             | `npm rm -g {base}`               |
 | `brew`    | `brew install {package}` (formula carries the pin, e.g. `node@22`) | `brew uninstall {base}` |
+| `dotnet`  | `dotnet tool install --global {package} --version {version}`       | `dotnet tool uninstall --global {base}` |
 
 `{base}` is `{package}` with extras and any inline version stripped
 (`headroom-ai[mcp]` → `headroom-ai`), keeping an npm scope intact

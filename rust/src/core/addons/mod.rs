@@ -12,7 +12,7 @@
 //! - [`store`]    — what is installed locally (`<data_dir>/addons/installed.json`).
 //! - [`install`]  — wires an addon into the gateway and records it in the store.
 //! - [`bootstrap`] — `[install]` block executor: provisions an addon's upstream
-//!   package via a pinned package manager (uv/pip/cargo/npm/brew) on `add`,
+//!   package via a pinned package manager (uv/pip/cargo/npm/brew/dotnet) on `add`,
 //!   uninstalls it on `remove` (#1105, Phase 2). Never goes through a shell.
 //! - [`scaffold`] — `addon init` starter manifest generator (DX, P4).
 //!

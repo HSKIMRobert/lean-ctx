@@ -4,20 +4,6 @@
   "addons": [
     {
       "addon": {
-        "name": "lmd",
-        "display_name": "Lean-MarkDown (LMD)",
-        "description": "Directive-driven Markdown for agent plans. Reusable macros, phase-isolation and single-sourcing keep plans token-lean and cache-safe — written hard against lean-ctx, inspired by MarkdownAI.",
-        "author": "dasTholo",
-        "homepage": "https://github.com/dasTholo/lean-ctx/tree/feat-lmd-v1",
-        "license": "Apache-2.0",
-        "categories": ["plans", "workflow"],
-        "integration": "none",
-        "keywords": ["markdown", "plans", "macros", "directives", "phase-isolation", "subagents"],
-        "min_lean_ctx": "3.8.0"
-      }
-    },
-    {
-      "addon": {
         "name": "headroom",
         "display_name": "Headroom",
         "description": "Reversible context compression for tool outputs, logs, files and RAG chunks — 60–95% fewer tokens, originals retrievable on demand. Installs on add (uv tool install) and wires its MCP server (headroom mcp serve) into the lean-ctx gateway.",
@@ -43,28 +29,39 @@
     },
     {
       "addon": {
+        "name": "sophon",
+        "display_name": "Sophon",
+        "description": "Deterministic context compressor for MCP agents — shrinks prompts, conversation history, code digests, file deltas and shell output with zero ML at query time. Single Rust binary; installs on add (npm) and wires its MCP server (sophon serve) into the lean-ctx gateway.",
+        "author": "lacausecrypto",
+        "homepage": "https://github.com/lacausecrypto/mcp-sophon",
+        "license": "MIT",
+        "categories": ["compression"],
+        "integration": "compression",
+        "keywords": ["compression", "deterministic", "rust", "tokens", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "sophon",
+        "args": ["serve"]
+      },
+      "install": {
+        "manager": "npm",
+        "package": "mcp-sophon",
+        "version": "0.5.4",
+        "bin": "sophon"
+      }
+    },
+    {
+      "addon": {
         "name": "rtk",
         "display_name": "RTK (Rust Token Killer)",
-        "description": "Single-binary CLI proxy that filters and compresses shell command output by 60–90%. Reaches MCP clients through the rtk-mcp bridge, so the lean-ctx gateway can run commands through it.",
+        "description": "Single-binary CLI proxy that filters and compresses shell command output by 60–90%. Reaches MCP clients through the community rtk-mcp bridge (built from source), so the lean-ctx gateway can run commands through it.",
         "author": "rtk-ai",
         "homepage": "https://github.com/rtk-ai/rtk",
         "categories": ["compression"],
         "integration": "compression",
         "keywords": ["compression", "shell", "cli", "tokens", "competitor", "mcp"],
-        "min_lean_ctx": "3.8.0"
-      }
-    },
-    {
-      "addon": {
-        "name": "graphify",
-        "display_name": "Graphify",
-        "description": "Turns code, docs, schemas and more into one queryable knowledge graph for agents. Ships an MCP server (stdio + HTTP) exposing query_graph, get_node, get_neighbors and shortest_path.",
-        "author": "safishamsi",
-        "homepage": "https://graphifylabs.ai/",
-        "license": "MIT",
-        "categories": ["code-intelligence", "memory"],
-        "integration": "code-graph",
-        "keywords": ["knowledge-graph", "code", "graphrag", "ast", "memory", "competitor", "mcp"],
         "min_lean_ctx": "3.8.0"
       }
     },
@@ -108,9 +105,85 @@
     },
     {
       "addon": {
+        "name": "mcp-code-context",
+        "display_name": "MCP Code Context",
+        "description": "Compresses any codebase into LLM-ready semantic context with Tree-sitter WASM (TypeScript, JavaScript, Python, PHP, Dart) — symbol-level reads and AST-aware edits. Runs on add via npx; no install or native build needed.",
+        "author": "achatainga",
+        "homepage": "https://github.com/achatainga/mcp-code-context",
+        "license": "MIT",
+        "categories": ["code-intelligence"],
+        "integration": "code-symbols",
+        "keywords": ["ast", "tree-sitter", "symbols", "codebase", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "mcp-code-context@3.7.1"]
+      }
+    },
+    {
+      "addon": {
+        "name": "codebase-intelligence",
+        "display_name": "Codebase Intelligence",
+        "description": "Parses your whole repo with Tree-sitter into a semantic graph of symbols, references and dependencies — symbol search, call graphs and impact analysis. 18 tools, 8 languages, zero infrastructure or keys. Runs on add via npx.",
+        "author": "g-tiwari",
+        "homepage": "https://github.com/g-tiwari/mcp-codebase-intelligence",
+        "license": "MIT",
+        "categories": ["code-intelligence"],
+        "integration": "code-graph",
+        "keywords": ["call-graph", "symbols", "references", "tree-sitter", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "mcp-codebase-intelligence@0.3.0"]
+      }
+    },
+    {
+      "addon": {
+        "name": "codecompress",
+        "display_name": "CodeCompress",
+        "description": "Local code-intelligence index that gives agents surgical access to symbols — project outline, get/expand symbol, hot-path and references — backed by a SQLite index. Installs on add (.NET global tool) and wires its MCP server.",
+        "author": "MCrank",
+        "homepage": "https://github.com/MCrank/code-compress",
+        "license": "MIT",
+        "categories": ["code-intelligence"],
+        "integration": "code-symbols",
+        "keywords": ["symbols", "index", "outline", "references", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "codecompress-server"
+      },
+      "install": {
+        "manager": "dotnet",
+        "package": "CodeCompress.Server",
+        "version": "0.15.0",
+        "bin": "codecompress-server"
+      }
+    },
+    {
+      "addon": {
+        "name": "graphify",
+        "display_name": "Graphify",
+        "description": "Turns code, docs, schemas and more into one queryable knowledge graph for agents. Ships an MCP server (stdio + HTTP), but serving needs a graph built by `graphify extract` (an LLM-backed step), so it is listed rather than auto-installed.",
+        "author": "safishamsi",
+        "homepage": "https://github.com/safishamsi/graphify",
+        "license": "MIT",
+        "categories": ["code-intelligence", "memory"],
+        "integration": "code-graph",
+        "keywords": ["knowledge-graph", "code", "graphrag", "ast", "memory", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      }
+    },
+    {
+      "addon": {
         "name": "claude-context",
         "display_name": "Claude Context",
-        "description": "Semantic code search over an entire codebase (hybrid BM25 + dense vectors). Ships an MCP server (@zilliz/claude-context-mcp) so any coding agent can index and query millions of lines.",
+        "description": "Semantic code search over an entire codebase (hybrid BM25 + dense vectors) via @zilliz/claude-context-mcp. Needs a Milvus/Zilliz vector database and an embedding API key to run, so it is listed rather than auto-installed.",
         "author": "zilliztech",
         "homepage": "https://github.com/zilliztech/claude-context",
         "license": "MIT",
@@ -122,9 +195,34 @@
     },
     {
       "addon": {
+        "name": "context-mem",
+        "display_name": "Context-Mem",
+        "description": "Local long-term memory and context compression for coding agents — a markdown vault with hybrid BM25 + vector search and progressive disclosure, no API key required. Installs on add (npm) and wires its MCP server (context-mem serve).",
+        "author": "JubaKitiashvili",
+        "homepage": "https://github.com/jubakitiashvili/context-mem",
+        "license": "MIT",
+        "categories": ["memory"],
+        "integration": "memory",
+        "keywords": ["memory", "compression", "local", "recall", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      },
+      "mcp": {
+        "transport": "stdio",
+        "command": "context-mem",
+        "args": ["serve"]
+      },
+      "install": {
+        "manager": "npm",
+        "package": "context-mem",
+        "version": "4.0.0",
+        "bin": "context-mem"
+      }
+    },
+    {
+      "addon": {
         "name": "mem0",
         "display_name": "Mem0",
-        "description": "Drop-in long-term memory for agents (vector + graph + key-value). Provides an official MCP server so agents can write and recall user/session/agent memories.",
+        "description": "Drop-in long-term memory for agents (vector + graph + key-value). Provides an official MCP server, but needs an API key/backend to run, so it is listed rather than auto-installed.",
         "author": "mem0ai",
         "homepage": "https://github.com/mem0ai/mem0",
         "license": "Apache-2.0",
@@ -138,7 +236,7 @@
       "addon": {
         "name": "cognee",
         "display_name": "Cognee",
-        "description": "Builds a queryable knowledge graph plus vector store from your data (ECL / GraphRAG pipeline). Ships an MCP server for structured memory, recall and forgetting.",
+        "description": "Builds a queryable knowledge graph plus vector store from your data (ECL / GraphRAG pipeline). Ships an MCP server with local default databases, but needs an LLM API key to process, so it is listed rather than auto-installed.",
         "author": "topoteretes",
         "homepage": "https://github.com/topoteretes/cognee",
         "license": "Apache-2.0",
@@ -152,13 +250,41 @@
       "addon": {
         "name": "letta",
         "display_name": "Letta (MemGPT)",
-        "description": "Stateful agent runtime that manages its own memory like an operating system (core + archival tiers). Exposes MCP-compatible tools and a server endpoint.",
+        "description": "Stateful agent runtime that manages its own memory like an operating system (core + archival tiers). Exposes MCP-compatible tools, but needs a running server + database, so it is listed rather than auto-installed.",
         "author": "letta-ai",
         "homepage": "https://github.com/letta-ai/letta",
         "license": "Apache-2.0",
         "categories": ["memory"],
         "integration": "memory",
         "keywords": ["memory", "agent-runtime", "stateful", "memgpt", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      }
+    },
+    {
+      "addon": {
+        "name": "graphiti",
+        "display_name": "Graphiti (Zep)",
+        "description": "Temporal knowledge-graph memory for agents — a bi-temporal entity/edge graph with hybrid semantic, keyword and graph search. Ships an MCP server, but needs a Neo4j/FalkorDB backend and an LLM API key, so it is listed rather than auto-installed.",
+        "author": "getzep",
+        "homepage": "https://github.com/getzep/graphiti",
+        "license": "Apache-2.0",
+        "categories": ["memory"],
+        "integration": "memory",
+        "keywords": ["memory", "knowledge-graph", "temporal", "graphrag", "competitor", "mcp"],
+        "min_lean_ctx": "3.8.0"
+      }
+    },
+    {
+      "addon": {
+        "name": "zep",
+        "display_name": "Zep",
+        "description": "Memory platform for AI agents — persistent threads, a knowledge graph and semantic recall via a managed cloud or self-hosted Community Edition. Reaches agents over MCP, but needs an account/API key, so it is listed rather than auto-installed.",
+        "author": "getzep",
+        "homepage": "https://github.com/getzep/zep",
+        "license": "Apache-2.0",
+        "categories": ["memory"],
+        "integration": "memory",
+        "keywords": ["memory", "recall", "knowledge-graph", "cloud", "competitor", "mcp"],
         "min_lean_ctx": "3.8.0"
       }
     },
@@ -179,6 +305,20 @@
         "transport": "stdio",
         "command": "npx",
         "args": ["-y", "@modelcontextprotocol/server-sequential-thinking@2025.12.18"]
+      }
+    },
+    {
+      "addon": {
+        "name": "lmd",
+        "display_name": "Lean-MarkDown (LMD)",
+        "description": "Directive-driven Markdown for agent plans. Reusable macros, phase-isolation and single-sourcing keep plans token-lean and cache-safe — written hard against lean-ctx, inspired by MarkdownAI.",
+        "author": "dasTholo",
+        "homepage": "https://github.com/dasTholo/lean-ctx/tree/feat-lmd-v1",
+        "license": "Apache-2.0",
+        "categories": ["plans", "workflow"],
+        "integration": "none",
+        "keywords": ["markdown", "plans", "macros", "directives", "phase-isolation", "subagents"],
+        "min_lean_ctx": "3.8.0"
       }
     },
     {

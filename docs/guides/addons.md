@@ -103,7 +103,7 @@ There are two ways `add` makes a tool runnable, both pinned and disclosed:
 
 ```toml
 [install]
-manager = "uv"               # uv | pip | cargo | npm | brew
+manager = "uv"               # uv | pip | cargo | npm | brew | dotnet
 package = "headroom-ai[mcp]"  # the package spec the manager understands
 version = "0.27.0"            # mandatory exact pin (no ranges / latest)
 bin     = "headroom"          # binary the [mcp] command needs (PATH idempotency)
