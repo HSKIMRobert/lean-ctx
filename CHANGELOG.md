@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Managed Connectors — hosted continuous source sync (#281).** The team server
+  runs a scheduled, in-process sync of configured GitLab/GitHub sources into a
+  workspace's BM25/graph/knowledge stores, so every seat's `ctx_semantic_search` /
+  `ctx_knowledge` surfaces the source's issues/PRs/pipelines without per-call
+  credentials or manual `ctx_provider` runs. Per-connector credentials live only
+  in the private `team.json` (encrypted at rest by the control plane) and are
+  never returned; `GET /v1/connectors` exposes a secret-free roster plus
+  per-connector health, audit-scope gated. Ingestion honours the hosted storage
+  quota as a non-destructive backstop (pauses, never deletes — #282), and
+  connector activity is rolled into the `/v1/usage` snapshot (#283). The
+  `managed_connectors` count remains entitlement-gated by the control plane at
+  provisioning.
 - **Context Time Machine — git-anchored, signed snapshots of the layer state
   (epic #1022).** The state of the context layer (what the model saw, why, and at
   what token ROI) becomes a navigable, reproducible, shareable artifact — the
