@@ -195,7 +195,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key_with_env(
             "bool",
             serde_json::json!(cfg.proxy.codex_chatgpt_proxy_enabled()),
-            "Opt-in: route a Codex ChatGPT subscription login through the proxy for context compression (#603/#616 follow-up). Off by default — a ChatGPT subscription is flat-rate (compression saves no money) and the safe default leaves Codex talking directly to chatgpt.com (#597). When enabled, `lean-ctx` setup writes a single top-level chatgpt_base_url = http://127.0.0.1:<port>/backend-api/ and NO custom model_provider (the model_provider key is what hid Codex history in #597), so history stays under the native provider. The proxy compresses only the model-turn rail (/backend-api/codex/responses) and forwards every other /backend-api/* call (auth, cloud/remote, MCP) credential-preserving, so codex cloud/remote keep working. Trades a hard dependency on a live proxy for compression. Default false",
+            "Legacy Codex ChatGPT-subscription proxy opt-in flag. Current setup detects ChatGPT login from Codex auth.json and writes the required model_provider = leanctx-chatgpt plus chatgpt_base_url config automatically; this key/env remains for older configs and callers that still read it. Default false",
             "LEAN_CTX_CODEX_CHATGPT_PROXY",
         ),
     );
