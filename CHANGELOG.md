@@ -26,6 +26,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
     measures answer quality, tokens, turns and walltime across pinned real
     repos, with a deterministic recorded subset that gates CI and a
     `FINDINGS.md` + regressions report.
+- **Codex ChatGPT-subscription proxy — opt-in compression without the #597
+  regression (#603/#616 follow-up).** New `[proxy] codex_chatgpt_proxy` (env
+  `LEAN_CTX_CODEX_CHATGPT_PROXY`, default `false`). A ChatGPT-subscription login is
+  flat-rate, so the safe default still leaves Codex talking directly to
+  chatgpt.com (#597). When enabled, `lean-ctx` setup writes a single top-level
+  `chatgpt_base_url = http://127.0.0.1:<port>/backend-api/` and **no** custom
+  `model_provider`, so Codex keeps history under its native provider; the proxy
+  compresses only the model-turn rail (`/backend-api/codex/responses`) and forwards
+  every other `/backend-api/*` call (auth, cloud/remote, MCP) credential-preserving,
+  so `codex cloud`/remote keep working. `lean-ctx doctor` is opt-in-aware — the
+  sanctioned rail reads healthy, while a `model_provider` pin or an
+  `openai_base_url`/backend-api override stays flagged as a #597 artifact. Trades a
+  hard dependency on a live proxy for compression, so it stays off by default.
+  Picks up the goal of @ousatov-ua's PR #616 without its history-hiding config.
 - **Managed Connectors — hosted continuous source sync (#281).** The team server
   runs a scheduled, in-process sync of configured GitLab/GitHub sources into a
   workspace's BM25/graph/knowledge stores, so every seat's `ctx_semantic_search` /
