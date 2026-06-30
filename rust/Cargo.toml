@@ -417,4 +417,3 @@ harness = false
 [[bench]]
 name = "efficiency"
 harness = false
-
