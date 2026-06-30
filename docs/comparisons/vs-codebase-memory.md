@@ -11,7 +11,7 @@
 | **Language** | Rust | C |
 | **License** | Apache 2.0 | Proprietary |
 | **MCP Tools** | 68+ | 14 |
-| **Tree-sitter Languages** | 21 | 155 |
+| **Tree-sitter Languages** | 26 | 155 |
 | **Token Reduction** | Up to 99% (context-aware, 10 modes) | 99%+ (graph-derived structural queries) |
 
 ## The Core Difference
@@ -64,7 +64,7 @@ Both tools share important qualities that set them apart from lighter alternativ
 ## Where codebase-memory Leads
 
 ### Language Coverage
-codebase-memory supports 155 languages via tree-sitter (expanded from 66 in v0.6.1). lean-ctx currently supports 21. For polyglot codebases with uncommon languages (COBOL, Fortran, Verilog, GLSL), codebase-memory has broader coverage.
+codebase-memory supports 155 languages via tree-sitter (expanded from 66 in v0.6.1). lean-ctx currently supports 26. For polyglot codebases with uncommon languages (COBOL, Fortran, Verilog, GLSL), codebase-memory has broader coverage.
 
 ### Indexing Speed
 codebase-memory claims the Linux kernel (28M LOC, 75K files) indexes in 3 minutes with sub-millisecond query latency. It's specifically optimized for raw structural indexing speed.

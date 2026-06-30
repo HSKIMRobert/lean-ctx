@@ -18,7 +18,7 @@ Source files referenced here:
 
 All code-intelligence features read from one **property graph** of your repo:
 files, symbols (functions/types), and the edges between them (imports, calls,
-references). It's built with tree-sitter (18 languages) and stored at
+references). It's built with tree-sitter (26 languages) and stored at
 `graphs/<project-hash>/index.json.zst`.
 
 You usually don't build it by hand — it builds lazily on first use and updates in

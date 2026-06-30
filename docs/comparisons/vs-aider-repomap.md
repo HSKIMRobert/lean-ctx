@@ -119,7 +119,7 @@ lean-ctx is a context engineering layer — repo-map is one tool among 68+. The 
 
 ## Language Support
 
-Aider supports 40+ languages through tree-sitter. lean-ctx currently supports 21. For codebases in less common languages, Aider has broader coverage. lean-ctx's language support is actively expanding.
+Aider supports 40+ languages through tree-sitter. lean-ctx currently supports 26. For codebases in less common languages, Aider has broader coverage. lean-ctx's language support is actively expanding.
 
 | Language Category | lean-ctx | Aider |
 |-------------------|:--------:|:-----:|

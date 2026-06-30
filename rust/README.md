@@ -727,7 +727,7 @@ Opens `http://localhost:3333` with:
 | **File reading** | `rtk read` (signatures mode) | **Modes: full (cached), map, signatures, diff, aggressive, entropy, lines:N-M** |
 | **File caching** | ✗ | ✓ MD5 session cache (re-reads = ~13 tokens) |
 | **Signature engine** | Line-by-line regex | **tree-sitter AST (26 languages)** |
-| **Dependency maps** | ✗ | ✓ import/export extraction (18 languages via tree-sitter) |
+| **Dependency maps** | ✗ | ✓ import/export extraction (26 languages via tree-sitter) |
 | **Context checkpoints** | ✗ | ✓ `ctx_compress` for long conversations |
 | **Token counting** | Estimated | tiktoken-exact (o200k_base) |
 | **Entropy analysis** | ✗ | ✓ Shannon entropy + Jaccard similarity |

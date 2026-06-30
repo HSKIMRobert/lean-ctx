@@ -38,7 +38,7 @@
 | Security scanning | PathJail, shell allowlist | Secretlint |
 | Observability dashboard | Real-time token tracking, budgets | No |
 | VS Code extension | Planned | No |
-| Tree-sitter languages | 21 | 30+ |
+| Tree-sitter languages | 26 | 30+ |
 | Agent support | 28 agents auto-configured | Works with any MCP client |
 | Privacy | 100% local, no telemetry by default | 100% local |
 | Installation | Single binary, `lean-ctx setup` | `npx repomix` or npm install |

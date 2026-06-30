@@ -18,7 +18,7 @@ every byte of noise stripped away is a byte of reasoning gained.
 
 1. **Compression layer (input efficiency)** — AST-based signatures, delta
    loading, session caching (re-reads ~13 tokens), entropy filtering, 95+ CLI
-   compression patterns, 18 tree-sitter languages, 10 read modes.
+   compression patterns, 26 tree-sitter languages, 10 read modes.
 2. **Semantic router (model selection)** — intent detection, mode prediction
    learned per file type, LITM-aware positioning per model family.
 3. **Context manager (memory architecture)** — Context Continuity Protocol

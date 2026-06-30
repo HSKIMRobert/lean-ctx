@@ -25,7 +25,7 @@ Source files referenced here:
 Clean code is cheaper for a model to read for the same reason it is cheaper for a
 human: less to hold in working memory. LeanCTX already compresses *how* code
 reaches the model; the Code Health Engine attacks the *intrinsic* cost of the
-code itself. It reuses the same tree-sitter AST (18 languages) as the rest of
+code itself. It reuses the same tree-sitter AST (26 languages) as the rest of
 code intelligence, so the score is computed **once per index build** and read
 (never recomputed) everywhere else.
 
