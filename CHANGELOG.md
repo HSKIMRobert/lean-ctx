@@ -15,8 +15,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   remote control stayed broken. The proxy now detects a WebSocket upgrade on
   `/backend-api` and tunnels it verbatim through to `wss://chatgpt.com`, replaying
   the client's auth plus the shared Cloudflare clearance and relaying every frame
-  in both directions. Model-turn compression on `/backend-api/codex/responses` is
-  unchanged, and the default native ChatGPT path (opt-in off) was never affected.
+  in both directions. Opening that `wss://` socket needs a process-default rustls
+  `CryptoProvider`; because the dependency tree pulls **both** aws-lc-rs (reqwest)
+  and ring (lettre/ureq), `tokio-tungstenite` couldn't auto-pick one and the TLS
+  handshake aborted — so the proxy now installs aws-lc-rs (reqwest's provider) at
+  startup. Model-turn compression on `/backend-api/codex/responses` is unchanged,
+  and the default native ChatGPT path (opt-in off) was never affected.
+  Verified end-to-end against the live ChatGPT backend: the remote-control enroll
+  + WebSocket now reach chatgpt.com identically whether Codex connects directly or
+  through the proxy (the proxy is fully transparent).
 
 ## [3.8.16] — 2026-06-30
 

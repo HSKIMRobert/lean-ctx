@@ -2415,6 +2415,7 @@ dependencies = [
  "rmcp",
  "rpassword",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "serial_test",

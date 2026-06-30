@@ -410,8 +410,25 @@ fn effective_auth_token(auth_token: Option<String>) -> String {
         .unwrap_or_else(|| crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN"))
 }
 
+/// Install the process-default rustls `CryptoProvider` for the Codex ChatGPT
+/// WebSocket passthrough (#597).
+///
+/// `tokio-tungstenite`'s rustls connector builds its `ClientConfig` from the
+/// process-default provider. Our tree pulls *both* aws-lc-rs (reqwest) and ring
+/// (lettre/ureq), so rustls cannot auto-pick one and the `wss://chatgpt.com`
+/// handshake aborts with *"Could not automatically determine the process-level
+/// CryptoProvider"*. reqwest is unaffected (it configures aws-lc-rs explicitly),
+/// so we match it here. Idempotent: a prior install just returns the provider
+/// back as `Err`, which we ignore.
+fn install_default_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
     use crate::core::config::{Config, is_local_proxy_url};
+
+    // Must run before any WebSocket passthrough opens a wss:// upstream (#597).
+    install_default_crypto_provider();
 
     let auth_token = effective_auth_token(auth_token);
 
@@ -903,6 +920,19 @@ mod auth_tests {
         assert!(!blank.trim().is_empty(), "blank tokens must be replaced");
 
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+    }
+
+    // #597: the Codex ChatGPT WS passthrough opens a wss://chatgpt.com socket via
+    // tokio-tungstenite, which needs a process-default rustls CryptoProvider. The
+    // tree has both aws-lc-rs and ring, so one must be installed explicitly or the
+    // handshake aborts. Guards against that regression.
+    #[test]
+    fn installs_default_crypto_provider_for_ws_passthrough() {
+        install_default_crypto_provider();
+        assert!(
+            rustls::crypto::CryptoProvider::get_default().is_some(),
+            "WS passthrough needs a process-default CryptoProvider"
+        );
     }
 
     #[test]
