@@ -96,6 +96,17 @@ To skip indexing entirely (e.g. an ephemeral CI job that only needs reads):
 LEAN_CTX_NO_INDEX=1 lean-ctx <cmd>          # or LEAN_CTX_DISABLE_SEARCH_INDEX=1
 ```
 
+The resident `ctx_search` trigram index verifies freshness against the live
+filesystem on **every** lookup via a cheap corpus signature, so an edit — even
+through a tool lean-ctx never sees (native editors, `git checkout`) — is
+reflected on the next search. On very large *indexed* trees you can coalesce that
+per-lookup stat-walk under bursty search load, trading a bounded staleness window
+for fewer walks:
+
+```bash
+LEAN_CTX_SEARCH_INDEX_COALESCE_MS=1000 lean-ctx <cmd>   # default 0 = always verify
+```
+
 ---
 
 ## 4. Disk / RAM / staleness budgets
@@ -254,3 +265,4 @@ modes are the right lever here.
 | Host supplies its own steering | `rules_injection = "off"` |
 | Phase-isolated / non-caching harness | `LEAN_CTX_MINIMAL=1` + persona `default_read_mode = "map"` + `proxy enable` |
 | Reach another server's tool output | `lean-ctx proxy enable` |
+
