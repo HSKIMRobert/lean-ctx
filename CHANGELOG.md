@@ -3,6 +3,26 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+- **`ctx_search` no longer returns a false `No matches` for content edited after
+  the index warmed (#624).** The resident trigram index treated itself as *fresh*
+  for a fixed 15 s TTL with no per-file change detection, so in hybrid setups
+  where edits are applied natively a freshly edited or created file was invisible
+  to trigram narrowing — for a word-literal query a missing trigram made the
+  candidate set provably empty, yielding `0 matches` even though the text was on
+  disk (and `get_fresh` even served a stale index past the TTL, so results
+  flipped between hits and misses depending on timing). Index freshness is now a
+  function of *corpus state*, not the clock: the build records a cheap,
+  order-independent signature over the eligible files' `(path, mtime, size)`, and
+  every lookup re-derives it via a stat-only walk that shares the build's exact
+  filter path — the resident index is served only when the signature matches the
+  live filesystem, otherwise lean-ctx walks accurately for that call and rebuilds
+  the index in the background. The optional `LEAN_CTX_SEARCH_INDEX_COALESCE_MS`
+  (default `0` = always verify) coalesces the stat-walk under bursty load on very
+  large indexed trees. `ctx_read` was never affected (it is mtime + MD5 verified).
+
 ## [3.8.17] — 2026-06-30
 
 ### Fixed

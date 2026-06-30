@@ -920,6 +920,67 @@ mod tests {
     }
 
     #[test]
+    fn search_finds_word_literals_added_after_index_warm() {
+        // #624 regression: a native edit or add after the trigram index was
+        // warmed must be found immediately. The resident index is gated by a live
+        // corpus signature, so stale trigrams can never hide on-disk content from
+        // a word-literal query — the very path that uses trigram narrowing.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_DISABLE_SEARCH_INDEX");
+        crate::test_env::remove_var("LEAN_CTX_SEARCH_INDEX_COALESCE_MS");
+
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.rs"), "fn existing() {}\n").unwrap();
+        std::fs::write(dir.path().join("b.rs"), "fn other() {}\n").unwrap();
+        let root = dir.path().to_string_lossy().to_string();
+
+        assert!(
+            crate::core::search_index::warm_blocking(&root, true, false),
+            "index should warm for a small clean corpus"
+        );
+
+        // (1) A brand-new file created after the warm.
+        std::fs::write(dir.path().join("c.rs"), "fn added_after_warm_zzz() {}\n").unwrap();
+        let out_new = handle(
+            "added_after_warm_zzz",
+            &root,
+            None,
+            10,
+            CrpMode::Off,
+            true,
+            false,
+            false,
+        )
+        .text;
+        assert!(
+            out_new.contains("c.rs") && out_new.contains("added_after_warm_zzz"),
+            "a file created after the index warm must be found: {out_new}"
+        );
+
+        // (2) An in-place edit of a file that existed at warm time.
+        std::fs::write(
+            dir.path().join("a.rs"),
+            "fn existing() {}\nfn edited_after_warm_zzz() {}\n",
+        )
+        .unwrap();
+        let out_edit = handle(
+            "edited_after_warm_zzz",
+            &root,
+            None,
+            10,
+            CrpMode::Off,
+            true,
+            false,
+            false,
+        )
+        .text;
+        assert!(
+            out_edit.contains("a.rs") && out_edit.contains("edited_after_warm_zzz"),
+            "content appended after the index warm must be found: {out_edit}"
+        );
+    }
+
+    #[test]
     fn symbol_substitution_is_off_by_default() {
         let _lock = crate::core::data_dir::test_env_lock();
         crate::test_env::remove_var("LEAN_CTX_SYMBOL_MAP");
