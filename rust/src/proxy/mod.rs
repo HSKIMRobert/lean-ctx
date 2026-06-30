@@ -9,6 +9,7 @@ pub mod ccr;
 mod ccr_robustness_tests;
 pub mod chatgpt;
 pub mod chatgpt_cookies;
+pub mod chatgpt_ws;
 pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
@@ -56,6 +57,10 @@ pub struct ProxyState {
     /// Live provider upstreams, refreshed from config.toml without a proxy
     /// restart (#449). Read per request via [`ProxyState::openai_upstream`] etc.
     pub upstreams: tokio::sync::watch::Receiver<Arc<Upstreams>>,
+    /// Shared Cloudflare cookie jar (also wired into `client`), so the Codex
+    /// ChatGPT WebSocket passthrough replays the same clearance to chatgpt.com
+    /// that the reqwest rail accumulated (#597).
+    pub(crate) chatgpt_cookies: Arc<chatgpt_cookies::ChatGptCloudflareCookieStore>,
 }
 
 impl ProxyState {
@@ -82,6 +87,16 @@ impl ProxyState {
     /// Current Gemini upstream (live).
     pub fn gemini_upstream(&self) -> String {
         self.upstreams.borrow().gemini.clone()
+    }
+
+    /// Cloudflare `Cookie` header for the current ChatGPT upstream, used by the
+    /// WebSocket passthrough handshake (#597). `None` until a request on the
+    /// reqwest rail has seen Cloudflare clearance.
+    pub fn chatgpt_cookie_header(&self) -> Option<String> {
+        let url = reqwest::Url::parse(&self.chatgpt_upstream()).ok()?;
+        self.chatgpt_cookies
+            .cookie_header(&url)
+            .and_then(|v| v.to_str().ok().map(str::to_owned))
     }
 }
 
@@ -395,8 +410,25 @@ fn effective_auth_token(auth_token: Option<String>) -> String {
         .unwrap_or_else(|| crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN"))
 }
 
+/// Install the process-default rustls `CryptoProvider` for the Codex ChatGPT
+/// WebSocket passthrough (#597).
+///
+/// `tokio-tungstenite`'s rustls connector builds its `ClientConfig` from the
+/// process-default provider. Our tree pulls *both* aws-lc-rs (reqwest) and ring
+/// (lettre/ureq), so rustls cannot auto-pick one and the `wss://chatgpt.com`
+/// handshake aborts with *"Could not automatically determine the process-level
+/// CryptoProvider"*. reqwest is unaffected (it configures aws-lc-rs explicitly),
+/// so we match it here. Idempotent: a prior install just returns the provider
+/// back as `Err`, which we ignore.
+fn install_default_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> anyhow::Result<()> {
     use crate::core::config::{Config, is_local_proxy_url};
+
+    // Must run before any WebSocket passthrough opens a wss:// upstream (#597).
+    install_default_crypto_provider();
 
     let auth_token = effective_auth_token(auth_token);
 
@@ -404,10 +436,14 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     // a big refactor) mid-response. Use a connect timeout plus a read (idle)
     // timeout instead: a genuinely hung upstream still fails, but a slow-but-
     // alive stream is never cut off. Both are configurable for edge networks.
-    let client = chatgpt_cookies::with_chatgpt_cloudflare_cookie_store(reqwest::Client::builder())
-        .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs()))
-        .read_timeout(std::time::Duration::from_secs(read_idle_timeout_secs()))
-        .build()?;
+    let chatgpt_cookies = chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store();
+    let client = chatgpt_cookies::with_chatgpt_cloudflare_cookie_store(
+        reqwest::Client::builder(),
+        chatgpt_cookies.clone(),
+    )
+    .connect_timeout(std::time::Duration::from_secs(connect_timeout_secs()))
+    .read_timeout(std::time::Duration::from_secs(read_idle_timeout_secs()))
+    .build()?;
 
     // Seed the measured-spend meter from disk so a proxy restart never zeroes
     // the user's cumulative real provider bill.
@@ -441,6 +477,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         stats: Arc::new(ProxyStats::default()),
         introspect: Arc::new(introspect::IntrospectState::default()),
         upstreams: upstream_rx,
+        chatgpt_cookies,
     };
 
     let mut app = Router::new()
@@ -885,6 +922,19 @@ mod auth_tests {
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 
+    // #597: the Codex ChatGPT WS passthrough opens a wss://chatgpt.com socket via
+    // tokio-tungstenite, which needs a process-default rustls CryptoProvider. The
+    // tree has both aws-lc-rs and ring, so one must be installed explicitly or the
+    // handshake aborts. Guards against that regression.
+    #[test]
+    fn installs_default_crypto_provider_for_ws_passthrough() {
+        install_default_crypto_provider();
+        assert!(
+            rustls::crypto::CryptoProvider::get_default().is_some(),
+            "WS passthrough needs a process-default CryptoProvider"
+        );
+    }
+
     #[test]
     fn is_provider_route_v1() {
         assert!(is_provider_route("/v1/chat/completions"));
@@ -1157,6 +1207,7 @@ mod upstream_tests {
             stats: Arc::new(ProxyStats::default()),
             introspect: Arc::new(introspect::IntrospectState::default()),
             upstreams: rx,
+            chatgpt_cookies: chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store(),
         };
         assert_eq!(state.openai_upstream(), "https://old.example");
 

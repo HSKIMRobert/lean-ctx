@@ -62,10 +62,18 @@ fn chatgpt_responses_ws_fallback_response() -> Response {
 
 /// ChatGPT backend calls outside the model rail are not model JSON and must not be
 /// compressed or cost-metered. They are credential-preserving passthroughs.
+///
+/// A WebSocket upgrade (Codex Desktop remote-control pairing, #597) is tunnelled
+/// verbatim to chatgpt.com by [`super::chatgpt_ws`]; plain HTTP/SSE falls through
+/// to the reqwest forward below.
 pub async fn backend_api_handler(
     State(state): State<ProxyState>,
     req: Request<Body>,
 ) -> Result<Response, StatusCode> {
+    if super::chatgpt_ws::is_websocket_upgrade(req.headers()) {
+        return Ok(super::chatgpt_ws::passthrough(state, req).await);
+    }
+
     let (parts, body) = req.into_parts();
     let body_bytes = axum::body::to_bytes(body, forward::max_body_bytes())
         .await
@@ -179,6 +187,8 @@ mod tests {
             stats: Arc::new(crate::proxy::ProxyStats::default()),
             introspect: Arc::new(crate::proxy::introspect::IntrospectState::default()),
             upstreams: rx,
+            chatgpt_cookies: crate::proxy::chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store(
+            ),
         }
     }
 
