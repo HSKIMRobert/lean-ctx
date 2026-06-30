@@ -2365,7 +2365,7 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "lean-ctx"
-version = "3.8.16"
+version = "3.8.17"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2429,6 +2429,7 @@ dependencies = [
  "tikv-jemallocator",
  "tokio",
  "tokio-postgres",
+ "tokio-tungstenite",
  "tokio-util",
  "toml",
  "toml_edit",
@@ -2516,7 +2517,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "url",
- "webpki-roots",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -5281,8 +5282,12 @@ checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -5782,6 +5787,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.4",
+ "rustls",
+ "rustls-pki-types",
  "sha1 0.10.6",
  "thiserror 2.0.18",
 ]
@@ -5931,7 +5938,7 @@ dependencies = [
  "socks",
  "ureq-proto",
  "utf8-zero",
- "webpki-roots",
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]
@@ -6316,6 +6323,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d46a5a140e6f7afeccd8eae97eff335163939eac8b929834875168b29b3d267"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "0.26.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
+dependencies = [
+ "webpki-roots 1.0.8",
 ]
 
 [[package]]

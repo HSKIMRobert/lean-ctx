@@ -4,8 +4,18 @@ use reqwest::cookie::{CookieStore, Jar};
 use reqwest::header::HeaderValue;
 
 #[derive(Debug, Default)]
-struct ChatGptCloudflareCookieStore {
+pub(crate) struct ChatGptCloudflareCookieStore {
     jar: Jar,
+}
+
+impl ChatGptCloudflareCookieStore {
+    /// Current allowed Cloudflare `Cookie` header for `url`, if any. Lets the
+    /// WebSocket passthrough (#597) replay the same `cf_clearance`/`__cf_bm`
+    /// clearance the reqwest rail accumulated, so the upstream handshake to
+    /// chatgpt.com is not bounced by Cloudflare.
+    pub(super) fn cookie_header(&self, url: &reqwest::Url) -> Option<HeaderValue> {
+        self.cookies(url)
+    }
 }
 
 impl CookieStore for ChatGptCloudflareCookieStore {
@@ -34,10 +44,17 @@ impl CookieStore for ChatGptCloudflareCookieStore {
     }
 }
 
+/// A fresh shared Cloudflare cookie store. Held by `ProxyState` so both the
+/// reqwest rail and the WebSocket passthrough (#597) read/write the same jar.
+pub(super) fn shared_chatgpt_cloudflare_cookie_store() -> Arc<ChatGptCloudflareCookieStore> {
+    Arc::new(ChatGptCloudflareCookieStore::default())
+}
+
 pub(super) fn with_chatgpt_cloudflare_cookie_store(
     builder: reqwest::ClientBuilder,
+    store: Arc<ChatGptCloudflareCookieStore>,
 ) -> reqwest::ClientBuilder {
-    builder.cookie_provider(Arc::new(ChatGptCloudflareCookieStore::default()))
+    builder.cookie_provider(store)
 }
 
 fn is_chatgpt_cookie_url(url: &reqwest::Url) -> bool {
