@@ -265,4 +265,3 @@ modes are the right lever here.
 | Host supplies its own steering | `rules_injection = "off"` |
 | Phase-isolated / non-caching harness | `LEAN_CTX_MINIMAL=1` + persona `default_read_mode = "map"` + `proxy enable` |
 | Reach another server's tool output | `lean-ctx proxy enable` |
-
