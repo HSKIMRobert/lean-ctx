@@ -17,6 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   asserts every runnable bundled addon carries a capability block.
 
 ### Added
+- **Portable OKF knowledge export/import** (`knowledge export --format okf` /
+  `knowledge import <dir>`, `ctx_knowledge`). Renders facts, patterns and typed
+  relations from one shared `KnowledgeSnapshot` to the vendor-neutral Open
+  Knowledge Format (git-diffable Markdown + YAML, relations as Markdown links) or
+  the signed `.ctxpkg` bundle. Round-trips byte-identically, accepts foreign OKF
+  bundles, and never leaves dangling relations. Fully local and free.
 - **Addon registry version-staleness check (`scripts/check-addon-versions.py`).**
   Resolves every pinned upstream (PyPI / npm / NuGet / crates.io) against its
   registry and reports drift as GitHub annotations. Wired into a dedicated,
