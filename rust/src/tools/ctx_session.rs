@@ -19,7 +19,8 @@ pub fn handle(
     opts: SessionToolOptions<'_>,
 ) -> String {
     match action {
-        "status" => session.format_compact(),
+        // "show" is the natural synonym agents reach for first (#658).
+        "status" | "show" => session.format_compact(),
 
         "load" => {
             let loaded = if let Some(id) = session_id {

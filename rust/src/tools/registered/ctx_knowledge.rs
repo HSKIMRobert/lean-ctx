@@ -19,8 +19,8 @@ impl McpTool for CtxKnowledgeTool {
             "ctx_knowledge",
             "Persistent memory across sessions — remember decisions, patterns, and facts for recall.\n\
              WORKFLOW: save after completing significant tasks; recall at session start.\n\
-             action=remember key='X' value='Y' saves a fact (both required).\n\
-             action=recall query='X' retrieves it. action=status shows all categories.\n\
+             action=remember value='Y' saves a fact (key optional — derived from value; content= is an accepted alias).\n\
+             action=recall query='X' retrieves it (bare recall lists recent facts). action=status shows all categories.\n\
 action=consolidate imports latest session if present, runs lifecycle, then frees 25% facts/history/procedures capacity.\n\
              action=gotcha trigger='X' resolution='Y' for known pitfalls.\n\
              mode=semantic|exact for recall. category groups related facts.",
@@ -64,7 +64,9 @@ action=consolidate imports latest session if present, runs lifecycle, then frees
             .ok_or_else(|| ErrorData::invalid_params("action is required", None))?;
         let category = get_str(args, "category");
         let key = get_str(args, "key");
-        let value = get_str(args, "value");
+        // `content` is the wording our own workflow docs use for remember;
+        // accept it as an alias so agents following those docs succeed (#658).
+        let value = get_str(args, "value").or_else(|| get_str(args, "content"));
         let query = get_str(args, "query");
         let mode = get_str(args, "mode");
         let as_of = get_str(args, "as_of");

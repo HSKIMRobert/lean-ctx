@@ -59,8 +59,19 @@ impl LeanCtxServer {
 
         match name {
             "ctx_call" => {
-                let inner = get_str(args, "name")
-                    .ok_or_else(|| ErrorData::invalid_params("name is required", None))?;
+                let inner = get_str(args, "name").ok_or_else(|| {
+                    // Agents commonly guess {"tool": …}; name the fix explicitly.
+                    let hint = args
+                        .and_then(|m| {
+                            ["tool", "tool_name", "toolName"]
+                                .iter()
+                                .find(|k| m.contains_key(**k))
+                        })
+                        .map_or(String::new(), |bad| {
+                            format!(" (found '{bad}' — the key is 'name')")
+                        });
+                    ErrorData::invalid_params(format!("name is required{hint}"), None)
+                })?;
                 if inner == "ctx_call" {
                     return Err(ErrorData::invalid_params(
                         "ctx_call cannot invoke itself",
@@ -69,7 +80,25 @@ impl LeanCtxServer {
                 }
 
                 let arg_map = match args.and_then(|m| m.get("arguments")) {
-                    None | Some(Value::Null) => None,
+                    None | Some(Value::Null) => {
+                        // Common misspellings would silently invoke the inner
+                        // tool with NO arguments — the inner error ("x is
+                        // required") then points at the wrong culprit (#658).
+                        if let Some(m) = args
+                            && let Some(bad) = ["args", "params", "parameters", "arg"]
+                                .iter()
+                                .find(|k| m.contains_key(**k))
+                        {
+                            return Err(ErrorData::invalid_params(
+                                format!(
+                                    "unknown key '{bad}' — pass the inner tool's arguments \
+                                     under 'arguments'"
+                                ),
+                                None,
+                            ));
+                        }
+                        None
+                    }
                     Some(Value::Object(map)) => Some(map.clone()),
                     Some(_) => {
                         return Err(ErrorData::invalid_params(

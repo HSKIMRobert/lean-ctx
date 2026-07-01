@@ -346,8 +346,8 @@ Parameters: `format`, `project_root`, `query`*
 
 Persistent memory across sessions — remember decisions, patterns, and facts for recall.
 WORKFLOW: save after completing significant tasks; recall at session start.
-action=remember key='X' value='Y' saves a fact (both required).
-action=recall query='X' retrieves it. action=status shows all categories.
+action=remember value='Y' saves a fact (key optional — derived from value; content= is an accepted alias).
+action=recall query='X' retrieves it (bare recall lists recent facts). action=status shows all categories.
 action=consolidate imports latest session if present, runs lifecycle, then frees 25% facts/history/procedures capacity.
 action=gotcha trigger='X' resolution='Y' for known pitfalls.
 mode=semantic|exact for recall. category groups related facts.

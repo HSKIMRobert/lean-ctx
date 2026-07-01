@@ -145,6 +145,61 @@ mod tests {
     }
 
     #[test]
+    fn rust_calls_inside_macros_are_extracted() {
+        // #658: `main` only calls `greet` inside println!/assert_eq! — the call
+        // graph must still see the edge, or a fresh Rust project shows 0 edges.
+        let src = r#"
+fn main() {
+    println!("{}", greet("world"));
+}
+fn greet(name: &str) -> String {
+    format!("Hello, {name}!")
+}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn t() {
+        assert_eq!(super::greet("a"), "Hello, a!");
+    }
+}
+"#;
+        let analysis = analyze(src, "rs");
+        let callees: Vec<&str> = analysis.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(
+            callees.contains(&"greet"),
+            "macro-interior call must be visible, got: {callees:?}"
+        );
+        // The macro names themselves must NOT appear as callees.
+        assert!(
+            !callees.contains(&"println") && !callees.contains(&"assert_eq"),
+            "macro names are not calls: {callees:?}"
+        );
+    }
+
+    #[test]
+    fn rust_macro_interior_path_calls_use_last_segment() {
+        let src = r#"
+fn f() {
+    log::info!("x = {}", helpers::compute(1).len());
+}
+"#;
+        let analysis = analyze(src, "rs");
+        let callees: Vec<&str> = analysis.calls.iter().map(|c| c.callee.as_str()).collect();
+        assert!(
+            callees.contains(&"compute"),
+            "path call inside macro resolves to last segment: {callees:?}"
+        );
+        assert!(
+            callees.contains(&"len"),
+            "method call inside macro is visible: {callees:?}"
+        );
+        assert!(
+            !callees.contains(&"helpers") && !callees.contains(&"info"),
+            "path prefixes / macro names are not callees: {callees:?}"
+        );
+    }
+
+    #[test]
     fn ts_named_import() {
         let src = r"import { useState, useEffect } from 'react';";
         let analysis = analyze(src, "ts");

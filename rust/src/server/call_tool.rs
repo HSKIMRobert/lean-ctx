@@ -505,6 +505,13 @@ impl LeanCtxServer {
                 post_process::compress_terse(result_text, name, args, &config, is_raw_shell);
         }
 
+        // Snapshot BEFORE any decoration (auto-context prefix, throttle/budget
+        // warnings, hints): auto-findings must parse the clean tool output, or
+        // the injected "--- AUTO CONTEXT ---" header itself becomes a junk
+        // finding ("Read ---") that pollutes the session, the knowledge store,
+        // and every subsequent wakeup briefing (#658).
+        let findings_source = result_text.clone();
+
         // Resolve the active profile once per dispatch: it is stable for the
         // lifetime of a single tool call, and `active_profile()` is an expensive
         // resolve (config load + disk reads + inheritance merge). Reused below
@@ -763,7 +770,12 @@ impl LeanCtxServer {
             bypass_hint::record_lctx_call();
         }
 
-        if let Some(finding) = crate::core::auto_findings::extract(name, &result_text) {
+        let finding_path_hint = helpers::get_str(args, "path");
+        if let Some(finding) = crate::core::auto_findings::extract(
+            name,
+            &findings_source,
+            finding_path_hint.as_deref(),
+        ) {
             let mut session = self.session.write().await;
             session.add_finding(finding.file.as_deref(), None, &finding.summary);
             let project_root = session.project_root.clone();
@@ -776,7 +788,7 @@ impl LeanCtxServer {
                 });
             }
         }
-        if let Some(extra) = crate::core::auto_capture::extract_extra(name, &result_text) {
+        if let Some(extra) = crate::core::auto_capture::extract_extra(name, &findings_source) {
             let session = self.session.read().await;
             let project_root = session.project_root.clone();
             drop(session);

@@ -266,6 +266,30 @@ pub fn run() {
                 return;
             }
             "setup" => {
+                // Safety (#476 class): `--help`/`-h` — or any unknown flag —
+                // must NEVER fall through to a real setup run that mutates
+                // shell + agent configs. Short-circuit before any side effect.
+                if rest.iter().any(|a| a == "--help" || a == "-h") {
+                    print_setup_help();
+                    return;
+                }
+                const KNOWN: &[&str] = &[
+                    "--non-interactive",
+                    "--yes",
+                    "-y",
+                    "--fix",
+                    "--json",
+                    "--no-auto-approve",
+                    "--skip-rules",
+                ];
+                if let Some(unknown) = rest
+                    .iter()
+                    .find(|a| a.starts_with('-') && !KNOWN.contains(&a.as_str()))
+                {
+                    eprintln!("setup: unknown flag '{unknown}'\n");
+                    print_setup_help();
+                    std::process::exit(2);
+                }
                 let non_interactive = rest.iter().any(|a| a == "--non-interactive");
                 let yes = rest.iter().any(|a| a == "--yes" || a == "-y");
                 let fix = rest.iter().any(|a| a == "--fix");
@@ -307,6 +331,14 @@ pub fn run() {
                 return;
             }
             "onboard" => {
+                // Same #476-class guard as `setup`: help must not run onboard.
+                if rest.iter().any(|a| a == "--help" || a == "-h") {
+                    println!("Usage: lean-ctx onboard");
+                    println!("Connect your AI tools with one command: detects installed");
+                    println!("agents, installs hooks/rules/MCP registrations, verifies.");
+                    println!("Fine-grained control: lean-ctx setup --help");
+                    return;
+                }
                 setup::run_onboard();
                 return;
             }
@@ -816,6 +848,26 @@ pub fn run() {
 /// Long-lived server entry points keep Rust's default ignored SIGPIPE: they
 /// must survive peers closing sockets/pipes early. Bare `lean-ctx` counts as
 /// a server because MCP clients spawn the binary without a subcommand.
+/// Help for `lean-ctx setup`. Printed for `--help`/`-h` and unknown flags so
+/// asking about setup can never accidentally *run* setup (#476 class, #658).
+fn print_setup_help() {
+    println!("Usage: lean-ctx setup [options]");
+    println!();
+    println!("Guided setup: shell hook, agent hooks/rules, MCP registrations.");
+    println!("Interactive by default; runs non-interactively without a TTY.");
+    println!();
+    println!("Options:");
+    println!("  --non-interactive   No prompts; apply defaults");
+    println!("  --yes, -y           Assume yes for all prompts");
+    println!("  --fix               Repair an existing installation");
+    println!("  --json              Machine-readable report (implies non-interactive)");
+    println!("  --no-auto-approve   Skip auto-approve configuration");
+    println!("  --skip-rules        Do not write agent rules files");
+    println!("  --help, -h          Show this help (never runs setup)");
+    println!();
+    println!("See also: lean-ctx onboard (one-command setup), lean-ctx doctor");
+}
+
 fn is_server_mode(args: &[String]) -> bool {
     args.len() == 1
         || args.get(1).is_some_and(|a| {

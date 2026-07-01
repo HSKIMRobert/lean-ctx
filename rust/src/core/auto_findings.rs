@@ -18,9 +18,13 @@ const MAX_SUMMARY_LEN: usize = 120;
 
 /// Extract a finding from a tool call result. Returns `None` if the output
 /// is not interesting or if a duplicate was emitted within the dedup window.
-pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
+///
+/// `path_hint` carries the `path` argument of the originating call (when the
+/// caller knows it): small full-mode reads emit raw content without a header
+/// line, so the path cannot be recovered from the output alone.
+pub fn extract(tool_name: &str, output: &str, path_hint: Option<&str>) -> Option<AutoFinding> {
     let finding = match tool_name {
-        "ctx_read" => extract_ctx_read(output),
+        "ctx_read" => extract_ctx_read(output, path_hint),
         "ctx_search" => extract_ctx_search(output),
         "ctx_shell" => extract_ctx_shell(output),
         "ctx_graph" => extract_ctx_graph(output),
@@ -50,7 +54,7 @@ pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
     Some(finding)
 }
 
-fn extract_ctx_read(output: &str) -> Option<AutoFinding> {
+fn extract_ctx_read(output: &str, path_hint: Option<&str>) -> Option<AutoFinding> {
     let first_line = output.lines().next().unwrap_or("");
     if first_line.is_empty() || output.len() < 20 {
         return None;
@@ -62,7 +66,20 @@ fn extract_ctx_read(output: &str) -> Option<AutoFinding> {
         .unwrap_or("")
         .trim_end_matches([':', ']']);
 
-    let path = strip_cache_ref(raw_path);
+    let header_path = strip_cache_ref(raw_path);
+
+    // Prefer the header path, but only when it plausibly IS a path: small
+    // full-mode reads emit raw content without a header, and decorated blocks
+    // start with separators — "fn", "#", "---" must not become a junk
+    // "Read ---" finding that pollutes the session and every wakeup briefing
+    // (#658). In those cases fall back to the caller-supplied path argument.
+    let headerless =
+        header_path.is_empty() || header_path.starts_with('[') || !looks_like_path(header_path);
+    let path = if headerless {
+        path_hint?.trim()
+    } else {
+        header_path
+    };
 
     if path.is_empty() || path.starts_with('[') || path.starts_with("ERROR") {
         return None;
@@ -77,8 +94,14 @@ fn extract_ctx_read(output: &str) -> Option<AutoFinding> {
         .find(|w| w.ends_with('L') && w[..w.len() - 1].parse::<usize>().is_ok())
         .unwrap_or("");
 
-    // Extract a content hint from first few meaningful lines
-    let content_hint = extract_content_hint(output);
+    // Extract a content hint from the first few meaningful lines. The helper
+    // skips line 1 (normally the path header); for headerless raw content
+    // line 1 IS content, so pad with a synthetic header to keep it in scope.
+    let content_hint = if headerless {
+        extract_content_hint(&format!("\n{output}"))
+    } else {
+        extract_content_hint(output)
+    };
 
     let short_path = shorten_path(path);
     let summary = match (line_count.is_empty(), content_hint.is_empty()) {
@@ -98,6 +121,16 @@ fn extract_ctx_read(output: &str) -> Option<AutoFinding> {
         file: Some(path.to_string()),
         summary,
     })
+}
+
+/// Heuristic: does this first-line token plausibly name a file (as opposed to
+/// raw file content like `fn`, `#`, `---`, `import`)? A path token contains a
+/// separator or an extension dot, and never consists solely of punctuation.
+fn looks_like_path(token: &str) -> bool {
+    if !token.contains('/') && !token.contains('\\') && !token.contains('.') {
+        return false;
+    }
+    token.chars().any(char::is_alphanumeric)
 }
 
 fn extract_ctx_search(output: &str) -> Option<AutoFinding> {
@@ -550,7 +583,7 @@ mod tests {
     #[test]
     fn ctx_read_extracts_path_and_content() {
         let output = "src/server/mod.rs 1400L\n   deps: tokio, serde\n\npub struct Server {";
-        let f = extract_ctx_read(output).unwrap();
+        let f = extract_ctx_read(output, None).unwrap();
         assert_eq!(f.file.as_deref(), Some("src/server/mod.rs"));
         assert!(f.summary.contains("1400L"));
         assert!(
@@ -563,15 +596,15 @@ mod tests {
     #[test]
     fn ctx_read_with_bracket_info() {
         let output = "src/lib.rs [45L, full mode, 320 tok]\npub fn main() {}";
-        let f = extract_ctx_read(output).unwrap();
+        let f = extract_ctx_read(output, None).unwrap();
         assert_eq!(f.file.as_deref(), Some("src/lib.rs"));
         assert!(f.summary.contains("pub fn main"));
     }
 
     #[test]
     fn ctx_read_ignores_errors() {
-        assert!(extract_ctx_read("ERROR: file not found").is_none());
-        assert!(extract_ctx_read("").is_none());
+        assert!(extract_ctx_read("ERROR: file not found", None).is_none());
+        assert!(extract_ctx_read("", None).is_none());
     }
 
     #[test]
@@ -609,9 +642,15 @@ mod tests {
     #[test]
     fn ctx_read_skips_dependency_path() {
         assert!(
-            extract_ctx_read("node_modules/react/index.js 50L\nexport default React;").is_none()
+            extract_ctx_read(
+                "node_modules/react/index.js 50L\nexport default React;",
+                None
+            )
+            .is_none()
         );
-        assert!(extract_ctx_read("project/target/debug/build.rs 10L\nfn main() {}").is_none());
+        assert!(
+            extract_ctx_read("project/target/debug/build.rs 10L\nfn main() {}", None).is_none()
+        );
     }
 
     #[test]
@@ -667,9 +706,9 @@ mod tests {
     #[serial]
     fn dedup_prevents_duplicate_within_window() {
         clear_recent();
-        let f1 = extract("ctx_read", "src/dedup_test.rs 100L\npub fn test() {}");
+        let f1 = extract("ctx_read", "src/dedup_test.rs 100L\npub fn test() {}", None);
         assert!(f1.is_some());
-        let f2 = extract("ctx_read", "src/dedup_test.rs 100L\npub fn test() {}");
+        let f2 = extract("ctx_read", "src/dedup_test.rs 100L\npub fn test() {}", None);
         assert!(f2.is_none());
     }
 
@@ -677,16 +716,61 @@ mod tests {
     #[serial]
     fn different_files_not_deduped() {
         clear_recent();
-        let f1 = extract("ctx_read", "src/unique_a.rs 50L\nstruct A;");
+        let f1 = extract("ctx_read", "src/unique_a.rs 50L\nstruct A;", None);
         assert!(f1.is_some());
-        let f2 = extract("ctx_read", "src/unique_b.rs 50L\nstruct B;");
+        let f2 = extract("ctx_read", "src/unique_b.rs 50L\nstruct B;", None);
         assert!(f2.is_some());
+    }
+
+    #[test]
+    fn ctx_read_rejects_decorated_output_without_hint() {
+        // Regression #658: a decorated block starting with "--- AUTO CONTEXT ---"
+        // (or raw content like "fn main() {" / "# Heading") must not turn its
+        // first token into a junk "Read ---" finding.
+        assert!(
+            extract_ctx_read(
+                "--- AUTO CONTEXT ---\nPROJECT OVERVIEW 1 files\n--- END ---",
+                None
+            )
+            .is_none()
+        );
+        assert!(extract_ctx_read("fn main() {\n    println!(\"hi\");\n}", None).is_none());
+        assert!(extract_ctx_read("# Fresh Demo\n\nA demo project for auditing.", None).is_none());
+    }
+
+    #[test]
+    fn ctx_read_uses_path_hint_for_headerless_output() {
+        // Small full-mode reads emit raw content without a path header; the
+        // caller-supplied `path` argument must fill the gap (#658).
+        let f = extract_ctx_read(
+            "# Fresh Demo\n\nA demo project used to audit the journey.",
+            Some("README.md"),
+        )
+        .unwrap();
+        assert_eq!(f.file.as_deref(), Some("README.md"));
+        assert!(
+            f.summary.starts_with("Read README.md"),
+            "got: {}",
+            f.summary
+        );
+        assert!(f.summary.contains("# Fresh Demo"), "got: {}", f.summary);
+    }
+
+    #[test]
+    fn ctx_read_hint_still_respects_noise_paths() {
+        assert!(
+            extract_ctx_read(
+                "content here that is long enough",
+                Some("node_modules/x.js")
+            )
+            .is_none()
+        );
     }
 
     #[test]
     fn ctx_read_strips_cache_ref_prefix() {
         let output = "F1=main.rs 10L\nfn main() {}";
-        let f = extract_ctx_read(output).unwrap();
+        let f = extract_ctx_read(output, None).unwrap();
         assert_eq!(f.file.as_deref(), Some("main.rs"));
         assert!(f.summary.starts_with("Read main.rs"));
     }
@@ -694,14 +778,14 @@ mod tests {
     #[test]
     fn ctx_read_strips_multi_digit_ref() {
         let output = "F12=src/lib.rs 120L\npub mod core;";
-        let f = extract_ctx_read(output).unwrap();
+        let f = extract_ctx_read(output, None).unwrap();
         assert_eq!(f.file.as_deref(), Some("src/lib.rs"));
     }
 
     #[test]
     fn unknown_tool_returns_none() {
-        assert!(extract("ctx_compile", "some output").is_none());
-        assert!(extract("ctx_overview", "overview data").is_none());
+        assert!(extract("ctx_compile", "some output", None).is_none());
+        assert!(extract("ctx_overview", "overview data", None).is_none());
     }
 
     #[test]
@@ -794,7 +878,7 @@ mod tests {
         // char boundary here (#379 class). Must return a finding, not panic.
         clear_recent();
         let output = format!("exit: 1\n$ x{}\nerror: {}", "я".repeat(60), "ж".repeat(60));
-        let f = extract("ctx_shell", &output).expect("failed-command finding");
+        let f = extract("ctx_shell", &output, None).expect("failed-command finding");
         assert!(f.summary.contains("FAILED"), "got: {}", f.summary);
 
         // Test-result path slices cmd@30.
@@ -803,7 +887,7 @@ mod tests {
             "$ cargo test {}\n   test result: ok. 5 passed; 0 failed;",
             "я".repeat(40)
         );
-        let t = extract("ctx_shell", &test_out).expect("test-result finding");
+        let t = extract("ctx_shell", &test_out, None).expect("test-result finding");
         assert!(t.summary.contains("Test"), "got: {}", t.summary);
     }
 
@@ -815,7 +899,7 @@ mod tests {
         // must be char-boundary safe.
         clear_recent();
         let output = format!("pattern: \"{}\"\nsrc/main.rs:10: match", "я".repeat(50));
-        let f = extract("ctx_search", &output).expect("search finding");
+        let f = extract("ctx_search", &output, None).expect("search finding");
         assert!(f.summary.contains("Found"), "got: {}", f.summary);
     }
 }

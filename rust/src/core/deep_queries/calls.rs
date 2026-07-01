@@ -17,8 +17,44 @@ pub(super) fn extract_calls(root: Node, src: &str, ext: &str) -> Vec<CallSite> {
         {
             calls.push(call);
         }
+        // Rust: calls written inside macro bodies (`println!("{}", greet(x))`,
+        // `assert_eq!(foo(), 1)`) are token trees to tree-sitter, not
+        // `call_expression`s — a file whose calls all sit inside macros used to
+        // produce ZERO call edges (#658). Recover them at the token level.
+        if ext == "rs"
+            && let Some(call) = parse_macro_interior_call(node, src)
+        {
+            calls.push(call);
+        }
     });
     calls
+}
+
+/// Detect a call-like pattern inside a Rust macro `token_tree`: an
+/// `identifier` token immediately followed by a parenthesized `token_tree`
+/// (`name(...)`). Path segments (`foo::bar(...)`) resolve to the last segment
+/// because the earlier identifiers are followed by `::`, not by `(…)`. A `.`
+/// before the identifier marks a method call. Nested macro names never match:
+/// their identifier is followed by `!`.
+#[cfg(feature = "tree-sitter")]
+fn parse_macro_interior_call(node: Node, src: &str) -> Option<CallSite> {
+    if node.kind() != "identifier" || node.parent()?.kind() != "token_tree" {
+        return None;
+    }
+    let next = node.next_sibling()?;
+    if next.kind() != "token_tree" || !node_text(next, src).starts_with('(') {
+        return None;
+    }
+    let is_method = node
+        .prev_sibling()
+        .is_some_and(|p| node_text(p, src) == ".");
+    Some(CallSite {
+        callee: node_text(node, src).to_string(),
+        line: node.start_position().row + 1,
+        col: node.start_position().column,
+        receiver: None,
+        is_method,
+    })
 }
 
 /// Call-like AST node kinds across the supported tree-sitter grammars.

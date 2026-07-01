@@ -17,11 +17,18 @@ pub(crate) fn handle_remember(
     let Some(cat) = category else {
         return "Error: category is required for remember".to_string();
     };
-    let Some(k) = key else {
-        return "Error: key is required for remember".to_string();
-    };
     let Some(v) = value else {
         return "Error: value is required for remember".to_string();
+    };
+    // `key` is optional: agents (and our own injected instructions) commonly
+    // call remember with just category+content. Derive a deterministic slug
+    // from the value so the call succeeds instead of erroring (#658).
+    let derived_key;
+    let k = if let Some(k) = key {
+        k
+    } else {
+        derived_key = derive_key_from_value(v);
+        derived_key.as_str()
     };
     let conf = confidence.unwrap_or(0.8);
     let (v, _secret_matches) = crate::core::secret_detection::scan_and_redact_from_config(v);
@@ -249,6 +256,35 @@ pub(crate) fn handle_remember(
     result
 }
 
+/// Deterministic key slug from a fact's value: the first four words,
+/// lowercased, non-alphanumerics collapsed to single dashes, capped at 48
+/// bytes. A pure function of the content (no timestamps/counters, #498) so
+/// repeated remembers of the same value merge into the same key.
+pub(crate) fn derive_key_from_value(value: &str) -> String {
+    let words: Vec<&str> = value.split_whitespace().take(4).collect();
+    let joined = words.join(" ").to_lowercase();
+    let mut slug = String::with_capacity(joined.len());
+    let mut last_dash = true; // suppress a leading dash
+    for c in joined.chars() {
+        if c.is_alphanumeric() {
+            slug.push(c);
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+        if slug.len() >= 48 {
+            break;
+        }
+    }
+    let slug = slug.trim_end_matches('-');
+    if slug.is_empty() {
+        "note".to_string()
+    } else {
+        slug.to_string()
+    }
+}
+
 pub(crate) fn handle_recall(
     project_root: &str,
     category: Option<&str>,
@@ -399,7 +435,29 @@ pub(crate) fn handle_recall(
         return out;
     }
 
-    "Error: provide query or category for recall".to_string()
+    // Bare recall (no query, no category): show the most recent current facts
+    // instead of erroring — "what do we know?" is the natural first call (#658).
+    let limit = policy.knowledge.recall_facts_limit;
+    let mut current: Vec<&crate::core::knowledge::KnowledgeFact> =
+        knowledge.facts.iter().filter(|f| f.is_current()).collect();
+    if current.is_empty() {
+        return "No knowledge stored for this project yet.".to_string();
+    }
+    current.sort_by(|a, b| sort_fact_for_output(a, b));
+    let total = current.len();
+    current.truncate(limit);
+    let mut out = format!("Recent facts (showing {}/{total}):\n", current.len());
+    for f in &current {
+        out.push_str(&format!(
+            "  [{}/{}]: {} (confidence: {:.0}%)\n",
+            f.category,
+            f.key,
+            f.value,
+            f.confidence * 100.0
+        ));
+    }
+    out.push_str("→ narrow with query=… or category=…");
+    out
 }
 
 /// Parse an `as_of` timestamp: RFC 3339 (`2026-06-01T12:00:00Z`) or a bare
@@ -669,6 +727,43 @@ fn score_placement_misses(query: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derive_key_is_deterministic_slug() {
+        let v = "fresh-demo uses greet() as the single formatting entry point";
+        let k1 = derive_key_from_value(v);
+        let k2 = derive_key_from_value(v);
+        assert_eq!(k1, k2, "must be a pure function of the value");
+        assert_eq!(k1, "fresh-demo-uses-greet-as");
+        assert!(k1.len() <= 48);
+    }
+
+    #[test]
+    fn derive_key_handles_degenerate_values() {
+        assert_eq!(derive_key_from_value("---"), "note");
+        assert_eq!(derive_key_from_value(""), "note");
+        assert_eq!(
+            derive_key_from_value("Fix: обновление конфига"),
+            "fix-обновление-конфига"
+        );
+    }
+
+    #[test]
+    fn remember_without_key_derives_one() {
+        let out = handle_remember(
+            "/tmp/test-remember-derived-key",
+            Some("decision"),
+            None,
+            Some("uses BTreeSet for deterministic iteration"),
+            "s1",
+            None,
+        );
+        assert!(
+            out.contains("uses-btreeset-for-deterministic"),
+            "derived key expected in: {out}"
+        );
+        assert!(!out.starts_with("Error"), "must not error: {out}");
+    }
 
     #[test]
     fn parse_as_of_accepts_rfc3339() {
