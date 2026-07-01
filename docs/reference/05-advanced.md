@@ -232,6 +232,54 @@ default_project = "billing"      # optional
 - Compute a key's hash with `shasum -a 256` (or `sha256sum`):
   `printf '%s' "gk-alice-secret" | shasum -a 256`.
 
+**Active routing — `[proxy.routing]`.** The gateway can rewrite the requested
+model in-flight: exact **aliases** (stable org names, transparent swaps) and
+intent-based **tier downgrades** (the last user message is classified
+`fast|standard|premium`; the tier picks a target). Targets are `"model"` (same
+upstream) or `"provider:model"` (re-target to a `[[proxy.providers]]` entry or a
+built-in `anthropic|openai|gemini` — same wire shape only; cross-shape
+translation is not in M1):
+
+```toml
+[proxy.routing]
+enabled = true
+
+[proxy.routing.aliases]
+"acme/fast" = "foundry:Phi-4-mini-instruct"   # stable org-level model name
+"claude-opus-4-5" = "claude-sonnet-4-5"       # transparent downgrade, same upstream
+
+[proxy.routing.tiers]
+fast     = "foundry:Phi-4-mini-instruct"      # explore/debug-style requests
+standard = ""                                 # "" / absent = keep requested model
+premium  = ""                                 # premium work is never auto-downgraded
+```
+
+- **Fail-open by construction:** any miss (rule/classification/unknown provider/
+  shape mismatch) forwards the request unchanged — a routing bug can cost
+  savings, never availability. Aliases win over tiers.
+- Routed usage events carry `routed_from` (the originally requested model) and
+  the serving provider, so the savings ledger can prove what the router did.
+- Gemini (model in URL path) and the ChatGPT/Codex OAuth route stay passthrough
+  in M1.
+
+**Counterfactual baseline — `[proxy.baseline]`.** The parameters that make
+avoided-cost claims auditable. Frozen per deployment (contract annex), not
+tunable at runtime by the vendor:
+
+```toml
+[proxy.baseline]
+reference_model = "claude-opus-4.5"   # what the org would have used without lean-ctx
+local_shadow_rate_per_mtok = 0.25     # USD/MTok booked for local/loopback inference
+```
+
+- Every usage event stores `reference_cost_usd` = the request's **uncompressed**
+  input tokens priced at the reference model's input rate — the counterfactual
+  the ledger settles against. Unset `reference_model` = no counterfactual is
+  claimed.
+- `is_local` traffic books the **shadow rate** as its actual cost (default 0.25
+  USD/MTok, never 0): local compute is free of provider fees, not of hardware
+  and power — keeping "savings vs. local" honest instead of infinite.
+
 **Live upstream — `config.toml` is the source of truth for a running proxy**
 ([#449](https://github.com/yvgude/lean-ctx/issues/449)). A long-lived proxy
 (LaunchAgent / systemd / IDE-spawned) re-reads its upstreams from `config.toml`

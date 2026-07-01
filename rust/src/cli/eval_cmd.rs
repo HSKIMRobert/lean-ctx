@@ -13,6 +13,7 @@ use crate::core::eval_ab::footprint::{
 };
 use crate::core::eval_ab::model::{ModelRunner, OpenAiRunner, RecordedRunner, RecordingRunner};
 use crate::core::eval_ab::report::ReportConfig;
+use crate::core::eval_ab::routing_eval::{RoutingEvalConfig, run_routing_eval};
 use crate::core::eval_ab::suite::EvalSuite;
 use crate::core::eval_ab::testbench::lockfile::TestbenchLock;
 use crate::core::eval_ab::testbench::{self, TestbenchConfig, TestbenchReport, findings};
@@ -28,6 +29,7 @@ pub fn cmd_eval(args: &[String]) {
     match args.first().map(String::as_str) {
         Some("ab") => cmd_ab(&args[1..]),
         Some("footprint" | "delta") => cmd_footprint(&args[1..]),
+        Some("routing") => cmd_routing(&args[1..]),
         Some("testbench") => cmd_testbench(&args[1..]),
         Some("verify") => cmd_verify(&args[1..]),
         Some("init") => cmd_init(&args[1..]),
@@ -47,6 +49,7 @@ USAGE:\n\
   lean-ctx eval init <dir>                 Scaffold a runnable starter suite\n\
   lean-ctx eval ab --suite <file> [opts]   Run the A/B quality comparison\n\
   lean-ctx eval footprint --suite <f> [o]  Ablate lean-ctx's OWN injected context (#959)\n\
+  lean-ctx eval routing --suite <f> [o]    Router off-vs-on rate-card savings proof\n\
   lean-ctx eval testbench --lock <f> [o]   Off-vs-on across pinned real repos (#611)\n\
   lean-ctx eval verify <artifact.json>     Verify signature + determinism digest\n\n\
 ab OPTIONS:\n\
@@ -64,6 +67,12 @@ footprint OPTIONS (also: `eval --delta`):\n\
   --replay <file>    Replay a recording (deterministic); --record to capture live\n\
   --json             Emit the full JSON report instead of the side-by-side table\n\
   --gate             Exit non-zero if any injected element is actively harmful\n\n\
+routing OPTIONS:\n\
+  --suite <file>     NDJSON suite of real task prompts (required)\n\
+  --requested <m>    Model the off-arm assumes (default: [proxy.baseline].reference_model)\n\
+  --json             Emit the full JSON report instead of the table\n\
+  --gate             Exit non-zero if routing downgraded premium work\n\
+  Rules come from [proxy.routing] in config.toml — the deployment's live rule set.\n\n\
 testbench OPTIONS:\n\
   --lock <file>      Pinned-repo lockfile (default eval/testbench/testbench.lock.json)\n\
   --out <dir>        Output dir for FINDINGS.md + regressions.json (default testbench-out)\n\
@@ -198,6 +207,68 @@ fn run_or_exit(
             eprintln!("eval ab: run failed: {e:#}");
             std::process::exit(1);
         }
+    }
+}
+
+/// `eval routing`: off-vs-on rate-card savings proof for the active router
+/// (enterprise#13/#21). Runs the deployment's `[proxy.routing]` rules and the
+/// production intent classifier over a suite's real prompts, priced from the
+/// shared pricing table; gates on "premium is never downgraded".
+fn cmd_routing(args: &[String]) {
+    let Some(suite_path) = flag_value(args, "--suite") else {
+        eprintln!("eval routing: --suite <file> is required");
+        std::process::exit(2);
+    };
+    let suite_path = PathBuf::from(suite_path);
+    let suite = match EvalSuite::load(&suite_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("eval routing: {e:#}");
+            std::process::exit(1);
+        }
+    };
+    let suite_name = suite_path
+        .file_name()
+        .map_or_else(|| "suite".to_string(), |s| s.to_string_lossy().into_owned());
+
+    let config = crate::core::config::Config::load();
+    let requested_model = flag_value(args, "--requested")
+        .map(str::to_string)
+        .or_else(|| config.proxy.baseline.reference_model.clone());
+    let Some(requested_model) = requested_model else {
+        eprintln!(
+            "eval routing: no requested model — pass --requested <model> or set \
+             [proxy.baseline].reference_model in config.toml"
+        );
+        std::process::exit(2);
+    };
+
+    let cfg = RoutingEvalConfig {
+        requested_model,
+        rules: config.proxy.routing.clone(),
+    };
+    let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+    let report = match run_routing_eval(&suite, &suite_name, &pricing, &cfg) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("eval routing: {e:#}");
+            std::process::exit(1);
+        }
+    };
+
+    if has_flag(args, "--json") {
+        println!("{}", report.to_json());
+    } else {
+        println!("{}", report.render());
+    }
+    println!("determinism digest: {}", report.determinism_digest());
+
+    if has_flag(args, "--gate") && !report.gate_passes() {
+        eprintln!(
+            "\nrouting gate FAILED: {} premium task(s) downgraded",
+            report.premium_downgrades
+        );
+        std::process::exit(1);
     }
 }
 

@@ -40,17 +40,39 @@ pub async fn forward_request(
     provider_label: &str,
     extra_stream_types: &[&str],
 ) -> Result<Response, StatusCode> {
-    let (parts, body) = req.into_parts();
+    let (mut parts, body) = req.into_parts();
     let body_bytes = axum::body::to_bytes(body, max_body_bytes())
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
 
-    let prepared = prepare_request_body(&parts, &body_bytes, compress_body)?;
+    // Active router (enterprise#13): may rewrite `model` in the parsed body
+    // (before compression, so exactly one serialization) and re-target the
+    // upstream within the same wire shape. Fail-open: any miss routes nothing.
+    let routing_rules = crate::core::config::Config::load().proxy.routing.clone();
+    let route_upstreams = routing_rules.is_active().then(|| state.upstream_snapshot());
+    let route_hook = |parsed: &mut serde_json::Value| {
+        route_upstreams.as_ref().and_then(|up| {
+            super::routing::route_request(parsed, provider_label, up, &routing_rules)
+        })
+    };
+
+    let prepared = prepare_request_body(&parts, &body_bytes, compress_body, route_hook)?;
     let original_size = prepared.original_size;
     let compressed_size = prepared.compressed_size;
     let compression_candidate = prepared.compression_candidate;
     let preserve_content_encoding = prepared.preserve_content_encoding;
+    let route = prepared.route;
     let parsed = prepared.parsed;
+
+    // Apply the routing decision to the wire: re-target the upstream and — for
+    // registry providers holding their own key — swap the credential headers.
+    let upstream_base = route
+        .as_ref()
+        .and_then(|r| r.upstream_base.as_deref())
+        .unwrap_or(upstream_base);
+    if let Some(provider) = route.as_ref().and_then(|r| r.credential.as_ref()) {
+        super::providers::inject_gateway_credential(provider, &mut parts.headers)?;
+    }
     if let Some(ref parsed) = parsed {
         let provider = match provider_label {
             "Anthropic" => super::introspect::Provider::Anthropic,
@@ -109,13 +131,22 @@ pub async fn forward_request(
 
     // Gateway context (enterprise#11/#17/#18): identity tags from the auth
     // guard + wire savings + baseline inputs, stamped onto the usage record.
-    let wire = Some(wire_context(
+    // A routed request is attributed to the provider actually serving it, and
+    // carries the originally requested model as routed_from (enterprise#13).
+    let mut wire = wire_context(
         &parts,
         provider_label,
         upstream_base,
         tokens_saved,
         original_size,
-    ));
+    );
+    if let Some(route) = &route {
+        wire.routed_from = Some(route.routed_from.clone());
+        if let Some(id) = &route.provider_id {
+            wire.provider = id.clone();
+        }
+    }
+    let wire = Some(wire);
 
     build_response(
         response,
@@ -211,6 +242,8 @@ struct PreparedRequestBody {
     compressed_size: usize,
     compression_candidate: bool,
     preserve_content_encoding: bool,
+    /// Routing decision applied to the body (enterprise#13); `None` = passthrough.
+    route: Option<super::routing::RouteDecision>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -225,6 +258,7 @@ fn prepare_request_body(
     parts: &Parts,
     body_bytes: &[u8],
     compress_body: impl FnOnce(serde_json::Value, usize) -> (Vec<u8>, usize, usize),
+    route_hook: impl FnOnce(&mut serde_json::Value) -> Option<super::routing::RouteDecision>,
 ) -> Result<PreparedRequestBody, StatusCode> {
     let encoding = request_body_encoding(parts);
     let decoded = match encoding {
@@ -239,11 +273,12 @@ fn prepare_request_body(
                 compressed_size: body_bytes.len(),
                 compression_candidate: false,
                 preserve_content_encoding: true,
+                route: None,
             });
         }
     };
 
-    let Some(parsed) = serde_json::from_slice::<serde_json::Value>(&decoded).ok() else {
+    let Some(mut parsed) = serde_json::from_slice::<serde_json::Value>(&decoded).ok() else {
         return Ok(PreparedRequestBody {
             body: body_bytes.to_vec(),
             parsed: None,
@@ -251,8 +286,13 @@ fn prepare_request_body(
             compressed_size: body_bytes.len(),
             compression_candidate: false,
             preserve_content_encoding: encoding != RequestBodyEncoding::Identity,
+            route: None,
         });
     };
+
+    // Router runs on the freshly parsed body, before compression: the model
+    // swap lands in the same single serialization as the compression pass.
+    let route = route_hook(&mut parsed);
 
     let original_size = decoded.len();
     let (logical_body, _, compressed_size) = compress_body(parsed.clone(), original_size);
@@ -270,6 +310,7 @@ fn prepare_request_body(
         compressed_size,
         compression_candidate: true,
         preserve_content_encoding: encoding != RequestBodyEncoding::Identity,
+        route,
     })
 }
 
@@ -612,7 +653,7 @@ mod tests {
             .into_parts()
             .0;
 
-        let prepared = prepare_request_body(&parts, &encoded, add_test_marker).unwrap();
+        let prepared = prepare_request_body(&parts, &encoded, add_test_marker, |_| None).unwrap();
         assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Zstd);
         assert_eq!(prepared.original_size, json.len());
         assert!(prepared.compression_candidate);
@@ -639,7 +680,7 @@ mod tests {
             .into_parts()
             .0;
 
-        let prepared = prepare_request_body(&parts, &encoded, add_test_marker).unwrap();
+        let prepared = prepare_request_body(&parts, &encoded, add_test_marker, |_| None).unwrap();
         assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Gzip);
         assert_eq!(prepared.original_size, json.len());
         assert!(prepared.compression_candidate);
@@ -675,9 +716,12 @@ mod tests {
             .0;
         let body = b"not-json";
 
-        let prepared = prepare_request_body(&parts, body, |_, _| {
-            panic!("unknown encodings must not be JSON-rewritten")
-        })
+        let prepared = prepare_request_body(
+            &parts,
+            body,
+            |_, _| panic!("unknown encodings must not be JSON-rewritten"),
+            |_| None,
+        )
         .unwrap();
 
         assert_eq!(
@@ -700,9 +744,12 @@ mod tests {
             .0;
         let body = b"not-json";
 
-        let prepared = prepare_request_body(&parts, body, |_, _| {
-            panic!("invalid JSON must not enter the compression pipeline")
-        })
+        let prepared = prepare_request_body(
+            &parts,
+            body,
+            |_, _| panic!("invalid JSON must not enter the compression pipeline"),
+            |_| None,
+        )
         .unwrap();
 
         assert_eq!(request_body_encoding(&parts), RequestBodyEncoding::Identity);

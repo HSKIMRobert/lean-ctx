@@ -36,9 +36,10 @@ pub use enums::{
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use provenance::{ConfigProvenance, EnvOverride};
 pub use proxy::{
-    HistoryMode, ProseRanker, ProseRole, ProviderEntry, ProxyConfig, ProxyProvider,
-    ResolvedProvider, RoleAggressiveness, UpstreamDrift, Upstreams, WireShape, diagnose_drift,
-    env_upstream_override, is_local_proxy_url, normalize_url, normalize_url_opt,
+    BaselineConfig, DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK, HistoryMode, ProseRanker, ProseRole,
+    ProviderEntry, ProxyConfig, ProxyProvider, ResolvedProvider, RoleAggressiveness, RoutingRules,
+    UpstreamDrift, Upstreams, WireShape, diagnose_drift, env_upstream_override, is_local_proxy_url,
+    normalize_url, normalize_url_opt, parse_route_target,
 };
 pub use read_redirect::ReadRedirect;
 pub use shell_activation::ShellActivation;

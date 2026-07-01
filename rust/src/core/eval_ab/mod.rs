@@ -20,6 +20,7 @@ pub mod footprint;
 pub mod judge;
 pub mod model;
 pub mod report;
+pub mod routing_eval;
 pub mod scorers;
 pub mod suite;
 pub mod testbench;

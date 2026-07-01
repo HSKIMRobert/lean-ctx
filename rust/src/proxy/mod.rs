@@ -29,6 +29,7 @@ pub mod output_savings;
 pub mod prose;
 pub mod prose_ranker;
 pub mod providers;
+pub mod routing;
 pub mod tool_kind;
 pub mod tool_output;
 pub mod usage;

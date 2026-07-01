@@ -16,6 +16,7 @@
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::NoTls;
 
+use crate::core::config::BaselineConfig;
 use crate::core::gain::model_pricing::ModelPricing;
 use crate::proxy::usage::RealUsage;
 
@@ -105,26 +106,58 @@ const DEFAULT_PROJECT: &str = "default";
 
 impl UsageEvent {
     /// Derives the row from a measured turn, pricing both the actual cost and
-    /// the compression saving with the shared pricing table.
+    /// the compression saving with the shared pricing table, and stamping the
+    /// counterfactual baseline (enterprise#15/#18):
     ///
-    /// `saved_usd` here is the SEE (compression) component only: saved request
-    /// tokens priced at the *served* model's input rate. Routing/baseline
-    /// attribution (`reference_cost_usd` vs `cost_usd`) is computed by the
-    /// ledger against the frozen `reference_model` (wave 3, enterprise#15).
+    /// - `cost_usd`: served model's list price — except `is_local`, which books
+    ///   the transparent `local_shadow_rate` (never $0; Doc 04 §6).
+    /// - `reference_cost_usd`: the request's **uncompressed** input tokens
+    ///   priced at the contract-frozen `reference_model`'s input rate (Doc 08
+    ///   §2) — the counterfactual the avoided-cost ledger settles against.
+    /// - `saved_usd`: the SEE (compression) component only — saved request
+    ///   tokens at the served model's input rate. Full mechanism attribution
+    ///   (routing/caching) is the signed ledger's job (wave 4, enterprise#19).
     #[must_use]
-    pub fn from_usage(usage: &RealUsage, pricing: &ModelPricing) -> Self {
+    pub fn from_usage(
+        usage: &RealUsage,
+        pricing: &ModelPricing,
+        baseline: &BaselineConfig,
+    ) -> Self {
         let wire = usage.wire.as_deref();
         let quote = pricing.quote(Some(&usage.model));
-        let cost_usd = quote.cost.estimate_usd(
-            usage.input_tokens,
-            usage.output_tokens,
-            usage.cache_write_tokens,
-            usage.cache_read_tokens,
-        );
+        let is_local = wire.is_some_and(|w| w.is_local);
+        #[allow(clippy::cast_precision_loss)]
+        let cost_usd = if is_local {
+            let billable = usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_read_tokens
+                + usage.cache_write_tokens;
+            baseline.effective_local_shadow_rate() / 1_000_000.0 * billable as f64
+        } else {
+            quote.cost.estimate_usd(
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_write_tokens,
+                usage.cache_read_tokens,
+            )
+        };
         let saved_tokens = wire.map_or(0, |w| w.saved_tokens);
         // Input-side saving: input-rate USD per token × saved request tokens.
         #[allow(clippy::cast_precision_loss)]
         let saved_usd = quote.cost.input_per_m / 1_000_000.0 * saved_tokens as f64;
+
+        let uncompressed_input_tokens = wire.map_or(0, |w| w.uncompressed_input_tokens);
+        let reference_model = baseline
+            .reference_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .map(str::to_string);
+        #[allow(clippy::cast_precision_loss)]
+        let reference_cost_usd = reference_model.as_deref().map_or(0.0, |reference| {
+            pricing.quote(Some(reference)).cost.input_per_m / 1_000_000.0
+                * uncompressed_input_tokens as f64
+        });
 
         Self {
             person: wire
@@ -145,10 +178,10 @@ impl UsageEvent {
             cost_usd,
             saved_tokens: to_i64(saved_tokens),
             saved_usd,
-            uncompressed_input_tokens: to_i64(wire.map_or(0, |w| w.uncompressed_input_tokens)),
-            reference_model: None, // frozen per deployment; stamped in wave 3 (enterprise#15)
-            reference_cost_usd: 0.0,
-            is_local: wire.is_some_and(|w| w.is_local),
+            uncompressed_input_tokens: to_i64(uncompressed_input_tokens),
+            reference_model,
+            reference_cost_usd,
+            is_local,
         }
     }
 }
@@ -206,11 +239,13 @@ pub fn spawn_writer(pool: Pool) -> bool {
         return false;
     }
     tokio::spawn(async move {
-        // One pricing table for the writer's lifetime: rows are priced at
-        // insert time (the ledger re-values against frozen references).
+        // One pricing table + baseline for the writer's lifetime: rows are
+        // priced at insert time (the ledger re-values against frozen
+        // references); the baseline is contract-frozen anyway (#41).
         let pricing = ModelPricing::load();
+        let baseline = crate::core::config::Config::load().proxy.baseline.clone();
         while let Some(usage) = rx.recv().await {
-            let event = UsageEvent::from_usage(&usage, &pricing);
+            let event = UsageEvent::from_usage(&usage, &pricing, &baseline);
             match pool.get().await {
                 Ok(client) => {
                     if let Err(e) = insert_event(&client, &event).await {
@@ -256,7 +291,14 @@ mod tests {
             is_local: false,
             routed_from: Some("claude-opus-4-5".into()),
         })));
-        let event = UsageEvent::from_usage(&usage, &ModelPricing::load());
+        let event = UsageEvent::from_usage(
+            &usage,
+            &ModelPricing::load(),
+            &BaselineConfig {
+                reference_model: Some("claude-opus-4.5".into()),
+                local_shadow_rate_per_mtok: None,
+            },
+        );
 
         assert_eq!(event.person, "yves");
         assert_eq!(event.team.as_deref(), Some("platform"));
@@ -273,14 +315,19 @@ mod tests {
             event.saved_usd > 0.0,
             "saved tokens on a priced model must yield saved USD"
         );
-        // Wave 3 stamps these; until then the columns hold their defaults.
-        assert_eq!(event.reference_model, None);
-        assert_eq!(event.reference_cost_usd, 0.0);
+        // Counterfactual (enterprise#15): 5000 uncompressed input tokens at
+        // claude-opus-4.5's $5/MTok input rate = $0.025.
+        assert_eq!(event.reference_model.as_deref(), Some("claude-opus-4.5"));
+        assert!((event.reference_cost_usd - 0.025).abs() < 1e-9);
     }
 
     #[test]
     fn event_without_wire_context_uses_honest_fallbacks() {
-        let event = UsageEvent::from_usage(&usage_with_wire(None), &ModelPricing::load());
+        let event = UsageEvent::from_usage(
+            &usage_with_wire(None),
+            &ModelPricing::load(),
+            &BaselineConfig::default(),
+        );
         assert_eq!(event.person, ANONYMOUS_PERSON);
         assert_eq!(event.project, DEFAULT_PROJECT);
         assert_eq!(event.team, None);
@@ -288,6 +335,45 @@ mod tests {
         assert_eq!(event.saved_usd, 0.0);
         assert_eq!(event.uncompressed_input_tokens, 0);
         assert!(!event.is_local);
+        // No reference model configured → no counterfactual claimed.
+        assert_eq!(event.reference_model, None);
+        assert_eq!(event.reference_cost_usd, 0.0);
+    }
+
+    #[test]
+    fn local_usage_books_shadow_rate_never_zero() {
+        // enterprise#15/#18: local inference is billed via the transparent
+        // shadow rate — savings against local models stay honest, not infinite.
+        let usage = usage_with_wire(Some(Box::new(WireContext {
+            provider: "ollama".into(),
+            person: Some("yves".into()),
+            team: None,
+            project: None,
+            saved_tokens: 0,
+            uncompressed_input_tokens: 2000,
+            is_local: true,
+            routed_from: None,
+        })));
+        let event =
+            UsageEvent::from_usage(&usage, &ModelPricing::load(), &BaselineConfig::default());
+        assert!(event.is_local);
+        // billable = 1000 in + 500 out + 200 cache-read + 100 cache-write =
+        // 1800 tokens × $0.25/MTok default shadow rate.
+        assert!((event.cost_usd - 0.25 / 1_000_000.0 * 1800.0).abs() < 1e-12);
+        assert!(event.cost_usd > 0.0, "local cost must never be zero");
+
+        // A configured rate wins; a zero/negative config falls back to default.
+        let cfg = BaselineConfig {
+            reference_model: None,
+            local_shadow_rate_per_mtok: Some(1.0),
+        };
+        let event = UsageEvent::from_usage(&usage, &ModelPricing::load(), &cfg);
+        assert!((event.cost_usd - 1.0 / 1_000_000.0 * 1800.0).abs() < 1e-12);
+        let zero = BaselineConfig {
+            reference_model: None,
+            local_shadow_rate_per_mtok: Some(0.0),
+        };
+        assert!(zero.effective_local_shadow_rate() > 0.0);
     }
 
     #[test]

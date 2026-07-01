@@ -108,7 +108,7 @@ pub async fn handler(
 /// entry's `api_key_env`, in the header dialect of the provider's shape. A
 /// configured-but-missing env var is a deployment error and must surface
 /// loudly (502), never silently forward the caller's lean-ctx token upstream.
-fn inject_gateway_credential(
+pub(super) fn inject_gateway_credential(
     provider: &ResolvedProvider,
     headers: &mut HeaderMap,
 ) -> Result<(), StatusCode> {
