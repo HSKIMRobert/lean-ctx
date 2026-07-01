@@ -15,6 +15,7 @@ mod enums;
 mod memory;
 mod provenance;
 mod proxy;
+mod read_redirect;
 mod render;
 pub mod risk;
 pub mod schema;
@@ -39,6 +40,7 @@ pub use proxy::{
     UpstreamDrift, Upstreams, diagnose_drift, env_upstream_override, is_local_proxy_url,
     normalize_url, normalize_url_opt,
 };
+pub use read_redirect::ReadRedirect;
 pub use shell_activation::ShellActivation;
 
 /// Default BM25 cache cap from config (also used by `bm25_index` heuristics).
@@ -394,6 +396,16 @@ pub struct Config {
     /// Override via `LEAN_CTX_SHELL_ACTIVATION` env var.
     #[serde(default)]
     pub shell_activation: ShellActivation,
+    /// Controls the native-Read → `ctx_read` redirect hook (#637).
+    /// - `auto`: (Default) redirect everywhere except hosts with a native
+    ///   read-before-write guard (Claude Code / CodeBuddy), where the path-swap
+    ///   would break native Write/Edit.
+    /// - `on`: always redirect (legacy behavior).
+    /// - `off`: never redirect native Read.
+    ///
+    /// Override via the `LEAN_CTX_READ_REDIRECT` env var.
+    #[serde(default)]
+    pub read_redirect: ReadRedirect,
     /// Disable the daily version check against leanctx.com/version.txt.
     /// Override via LEAN_CTX_NO_UPDATE_CHECK env var.
     #[serde(default)]
@@ -663,6 +675,7 @@ impl Default for Config {
             shadow_mode: false,
             debug_log: false,
             shell_activation: ShellActivation::default(),
+            read_redirect: ReadRedirect::default(),
             update_check_disabled: false,
             updates: UpdatesConfig::default(),
             context: ContextConfig::default(),
@@ -1688,6 +1701,9 @@ impl Config {
         }
         if local.shell_activation != ShellActivation::default() {
             self.shell_activation = local.shell_activation.clone();
+        }
+        if local.read_redirect != ReadRedirect::default() {
+            self.read_redirect = local.read_redirect;
         }
         if local.bm25_max_cache_mb != default_bm25_max_cache_mb() {
             self.bm25_max_cache_mb = local.bm25_max_cache_mb;

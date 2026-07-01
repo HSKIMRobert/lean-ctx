@@ -818,6 +818,26 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
         );
         return build_dual_allow_output();
     };
+    // #637: on hosts with a native read-before-write guard (Claude Code /
+    // CodeBuddy), rewriting the Read to a temp `.lctx` copy makes the guard track
+    // the temp path, so a later native Write/Edit to the real file fails with
+    // "File has not been read yet". `read_redirect = auto` (default) disables the
+    // Read redirect there so native Read reads the real file and the guard stays
+    // intact; compression flows through the explicit ctx_read MCP tool instead.
+    // Evaluated per hook fire (fresh Config + env), so it also covers headless
+    // `claude -p` and never needs to fight the settings.json self-heal.
+    if !crate::core::config::ReadRedirect::read_redirect_enabled(
+        &crate::core::config::Config::load(),
+    ) {
+        debug_log::log_hook_decision(
+            "redirect",
+            "Read",
+            Route::Native,
+            &path,
+            "read redirect disabled (host guard/config)",
+        );
+        return build_dual_allow_output();
+    }
     if should_passthrough(&path) {
         debug_log::log_hook_decision(
             "redirect",

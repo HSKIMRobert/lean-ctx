@@ -426,6 +426,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             ),
         );
     root.insert(
+        "read_redirect".into(),
+        key_enum_with_env(
+            &["auto", "on", "off"],
+            "auto",
+            "Controls the native-Read → ctx_read redirect hook. auto (default): redirect everywhere except hosts with a native read-before-write guard (Claude Code / CodeBuddy), where rewriting Read to a temp copy breaks native Write/Edit (#637). on: always redirect. off: never redirect native Read (ctx_read MCP tool + Grep/Glob redirect stay active)",
+            "LEAN_CTX_READ_REDIRECT",
+        ),
+    );
+    root.insert(
         "debug_log".into(),
         key_with_env(
             "bool",

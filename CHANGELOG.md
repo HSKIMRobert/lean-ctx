@@ -36,6 +36,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - Refreshed bundled addon pins to current upstream: Headroom `0.27.0 → 0.28.0`,
   Repomix `1.15.0 → 1.16.0`.
 
+### Fixed
+- **Native Read no longer breaks Claude Code's read-before-write guard (#637).**
+  The `PreToolUse` redirect hook rewrote a native `Read` to a temp `.lctx` copy, so
+  Claude Code's Write/Edit read-before-write guard tracked the temp path and a
+  follow-up native Write/Edit to the *real* file failed with "File has not been read
+  yet" — worst in headless `claude -p`, with no supported off-switch (the hook
+  self-healed back into `settings.json`). A new `read_redirect = auto | on | off`
+  key (env `LEAN_CTX_READ_REDIRECT`) now governs the Read redirect and is evaluated
+  per hook fire, so it also covers headless runs and never fights the self-heal. The
+  default `auto` disables only the Read path-swap on hosts carrying that guard —
+  Claude Code / CodeBuddy, detected inside the hook via the `CLAUDE_PROJECT_DIR`
+  marker Claude Code exports to every hook subprocess (`CLAUDECODE` / `CODEBUDDY` are
+  honored too) — so native Read → Write/Edit works out of the box; the `ctx_read` MCP
+  tool and the Grep/Glob redirects keep compressing. `on` restores always-redirect;
+  `off` disables the Read redirect everywhere.
+
 ## [3.8.18] — 2026-06-30
 
 ### Added

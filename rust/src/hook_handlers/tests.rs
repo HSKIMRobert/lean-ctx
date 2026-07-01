@@ -1017,6 +1017,62 @@ fn redirect_output_omits_additional_context_without_shadow() {
 }
 
 #[test]
+fn redirect_read_passes_through_when_disabled_by_config() {
+    // #637: read_redirect=off must make a native Read fall through untouched —
+    // the exact dual-allow response, with no path-swap to a temp copy — so the
+    // host's read-before-write guard tracks the real file and Write/Edit works.
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
+    crate::test_env::remove_var("CLAUDECODE");
+    crate::test_env::remove_var("CODEBUDDY");
+    crate::test_env::set_var("LEAN_CTX_READ_REDIRECT", "off");
+
+    let tool_input = serde_json::json!({ "file_path": "/repo/src/main.rs" });
+    let out = redirect_read(Some(&tool_input));
+
+    crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
+
+    assert_eq!(
+        out,
+        build_dual_allow_output(),
+        "disabled Read redirect must emit the plain dual-allow passthrough"
+    );
+    assert!(
+        !out.contains(".lctx") && !out.contains("updatedInput") && !out.contains("modifiedArgs"),
+        "disabled Read redirect must not rewrite the path to a temp copy: {out}"
+    );
+}
+
+#[test]
+fn redirect_read_auto_passes_through_under_claude_code() {
+    // #637: with the default `auto`, the marker Claude Code exports to hook
+    // subprocesses — CLAUDE_PROJECT_DIR — must disable the Read path-swap out of the
+    // box, no config edit. This is exactly what fixes headless `claude -p`
+    // (CLAUDECODE is NOT propagated to hook children, so it cannot be the signal).
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_READ_REDIRECT", "auto");
+    crate::test_env::remove_var("CLAUDECODE");
+    crate::test_env::remove_var("CODEBUDDY");
+    crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
+
+    let tool_input = serde_json::json!({ "file_path": "/repo/src/main.rs" });
+    let out = redirect_read(Some(&tool_input));
+
+    crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
+    crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
+
+    assert_eq!(
+        out,
+        build_dual_allow_output(),
+        "auto must disable the Read redirect under Claude Code hooks (#637)"
+    );
+    assert!(
+        !out.contains(".lctx"),
+        "no temp path-swap under Claude Code: {out}"
+    );
+}
+
+#[test]
 fn gating_decision_returns_work_result_when_fast() {
     // The normal path: work finishes well within budget, so its decision is used.
     let out = decide_with_timeout(
