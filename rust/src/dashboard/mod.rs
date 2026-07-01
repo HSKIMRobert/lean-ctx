@@ -596,7 +596,14 @@ fn open_browser(url: &str) {
     }
 }
 
-fn dashboard_responding(host: &str, port: u16) -> bool {
+/// Probes `http://{host}:{port}/api/version` (auth-aware) and returns true only
+/// when it answers `200` with the lean-ctx dashboard's own version JSON. Single
+/// source of truth for "is *our* dashboard already live on this port": used both
+/// when opening the browser (avoids spawning a second instance) and by `doctor`'s
+/// port check, so port 3333 held by our own dashboard reads as healthy instead of
+/// a false conflict (#644). The body check is what tells our dashboard apart from
+/// an unrelated service that merely answers 200 on the same port.
+pub(crate) fn dashboard_responding(host: &str, port: u16) -> bool {
     use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;
@@ -616,19 +623,29 @@ fn dashboard_responding(host: &str, port: u16) -> bool {
     let auth_header = load_saved_token()
         .map(|t| format!("Authorization: Bearer {t}\r\n"))
         .unwrap_or_default();
-
     let req = format!(
         "GET /api/version HTTP/1.1\r\nHost: localhost\r\n{auth_header}Connection: close\r\n\r\n"
     );
     if s.write_all(req.as_bytes()).is_err() {
         return false;
     }
-    let mut buf = [0u8; 256];
-    let Ok(n) = s.read(&mut buf) else {
-        return false;
-    };
-    let head = String::from_utf8_lossy(&buf[..n]);
-    head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200")
+
+    // Read until the peer closes (Connection: close) so the JSON body — not just
+    // the status line — is captured, bounded so a rogue peer can't stream forever.
+    // Field markers mirror `version_check::version_info_json`.
+    let mut resp = Vec::new();
+    let mut buf = [0u8; 1024];
+    while resp.len() < 8 * 1024 {
+        match s.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => resp.extend_from_slice(&buf[..n]),
+        }
+    }
+    let resp = String::from_utf8_lossy(&resp);
+    (resp.starts_with("HTTP/1.1 200") || resp.starts_with("HTTP/1.0 200"))
+        && resp.contains(r#""current":"#)
+        && resp.contains(r#""latest":"#)
+        && resp.contains(r#""update_available":"#)
 }
 
 const MAX_HTTP_MESSAGE: usize = 2 * 1024 * 1024;
@@ -1077,6 +1094,50 @@ mod tests {
         assert!(!"/".starts_with("/api/"));
         assert!(!"/index.html".starts_with("/api/"));
         assert!(!"/favicon.ico".starts_with("/api/"));
+    }
+
+    #[test]
+    fn dashboard_responding_true_for_lean_ctx_version_endpoint() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut req = [0u8; 512];
+            let n = stream.read(&mut req).unwrap();
+            assert!(String::from_utf8_lossy(&req[..n]).starts_with("GET /api/version HTTP/1.1"));
+            let body = r#"{"current":"3.8.18","latest":"3.8.18","update_available":false,"checked_age_secs":null}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        });
+
+        assert!(dashboard_responding("127.0.0.1", port));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn dashboard_responding_false_for_non_dashboard_service() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut req = [0u8; 512];
+            let _ = stream.read(&mut req);
+            // A 200 from an unrelated service must NOT be mistaken for our dashboard.
+            let response = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+            let _ = stream.write_all(response.as_bytes());
+        });
+
+        assert!(!dashboard_responding("127.0.0.1", port));
+        handle.join().unwrap();
     }
 
     #[test]

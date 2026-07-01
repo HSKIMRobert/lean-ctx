@@ -474,6 +474,15 @@ pub(super) fn port_3333_outcome() -> Outcome {
             ok: true,
             line: format!("{BOLD}Dashboard port 3333{RST}  {GREEN}available on 127.0.0.1{RST}"),
         },
+        // #644: a busy port is only a problem if it's *not* us. Reuse the dashboard's
+        // own auth-aware /api/version probe (single source of truth) so our own
+        // running dashboard reads as healthy rather than a false conflict.
+        Err(_) if crate::dashboard::dashboard_responding("127.0.0.1", 3333) => Outcome {
+            ok: true,
+            line: format!(
+                "{BOLD}Dashboard port 3333{RST}  {GREEN}already serving lean-ctx dashboard{RST}  {DIM}(http://localhost:3333){RST}"
+            ),
+        },
         Err(e) => Outcome {
             ok: false,
             line: format!("{BOLD}Dashboard port 3333{RST}  {RED}not available: {e}{RST}"),

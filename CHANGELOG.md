@@ -43,6 +43,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Repomix `1.15.0 → 1.16.0`.
 
 ### Fixed
+- **`doctor` recognizes its own running dashboard on port 3333 (#644).** The
+  dashboard port check reported a conflict whenever port 3333 was busy — even when
+  the occupant was lean-ctx's own dashboard. It now probes `/api/version` on bind
+  failure and reads the port as healthy only when the response is the dashboard's
+  own version JSON; unrelated services still surface the conflict. Implemented by
+  strengthening and reusing the dashboard's existing `dashboard_responding` probe,
+  so the browser-open guard and `doctor` share one source of truth.
 - **Native Read no longer breaks Claude Code's read-before-write guard (#637).**
   The `PreToolUse` redirect hook rewrote a native `Read` to a temp `.lctx` copy, so
   Claude Code's Write/Edit read-before-write guard tracked the temp path and a
