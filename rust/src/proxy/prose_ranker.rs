@@ -98,6 +98,11 @@ mod tests {
 
     #[test]
     fn squeeze_is_stable_across_calls() {
+        // Serialize with `truncate_mode_bypasses_memo_and_matches_squeeze_prose`:
+        // that test flips LEAN_CTX_PROXY_PROSE_RANKER process-wide, and a flip
+        // between our two calls would legitimately change the selected path.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_PROSE_RANKER");
         // In `cargo test` the engine is never loaded, so this exercises the
         // memoized truncate fallback — which must be byte-identical across calls.
         let text = long_unique_prose();
