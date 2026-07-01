@@ -489,6 +489,22 @@ jobs:
       - name: Build lean-ctx
         working-directory: rust
         run: cargo build --quiet
+      # Self-footprint gate (#578/#964): the fixed per-session cost lean-ctx
+      # itself injects (advertised tool schemas + MCP instructions + wakeup)
+      # must stay under budget. Runs in a scratch HOME + empty cwd so only OUR
+      # footprint is measured — no repo rules files, no developer state.
+      # Baseline after the diet: ~2147 tok (schemas 1685, instructions 462).
+      - name: Self-footprint gate (doctor overhead)
+        shell: bash
+        env:
+          LEAN_CTX_CONTEXT_BUDGET_TOKENS: "2600"
+        run: |
+          set -euo pipefail
+          BIN="$GITHUB_WORKSPACE/rust/target/debug/lean-ctx"
+          SCRATCH=$(mktemp -d)
+          mkdir -p "$SCRATCH/home" "$SCRATCH/data" "$SCRATCH/work"
+          cd "$SCRATCH/work"
+          HOME="$SCRATCH/home" LEAN_CTX_DATA_DIR="$SCRATCH/data" "$BIN" doctor overhead --gate
       # Deterministic with/without output-quality proof. Three modes, in priority order:
       #   1. A committed recording (rust/eval/recording.json) → byte-stable replay, no secrets,
       #      and the gate BLOCKS on a regression.
