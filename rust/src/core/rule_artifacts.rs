@@ -16,15 +16,17 @@ use crate::core::rules_canonical::{self, Wrapper};
 /// real rule artifacts here — not docs examples or templates.
 pub const ARTIFACT_PATHS: &[&str] = &["LEAN-CTX.md", "rust/LEAN-CTX.md"];
 
-/// Canonical body of a project `LEAN-CTX.md`: the owner banner, the default
-/// dedicated rules block (non-shadow, compression `Off`), and a trailing
-/// newline. Inverse of what the drift gate reads back.
+/// Canonical body of a project `LEAN-CTX.md`: the owner banner, the long-form
+/// rules block (non-shadow, compression `Off`), and a trailing newline.
+/// Inverse of what the drift gate reads back. Longform because `LEAN-CTX.md`
+/// is opened on demand (AGENTS.md pointer), never auto-loaded — it can afford
+/// the verbose teaching sections the injected profiles fold away (#578).
 #[must_use]
 pub fn canonical_body() -> String {
     format!(
         "{}\n{}\n",
         rules_canonical::PROJECT_LEAN_CTX_OWNED_MARKER,
-        rules_canonical::render(false, Wrapper::Dedicated, CompressionLevel::Off)
+        rules_canonical::render(false, Wrapper::Longform, CompressionLevel::Off)
     )
 }
 

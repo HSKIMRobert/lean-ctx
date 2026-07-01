@@ -500,9 +500,11 @@ const AGENTS_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
 
 fn ensure_project_agents_integration(cwd: &std::path::Path) {
     let lean_ctx_md = cwd.join(PROJECT_LEAN_CTX_MD);
+    // Longform (#578): LEAN-CTX.md is opened on demand via the AGENTS.md
+    // pointer, never auto-loaded, so it carries the verbose teaching profile.
     let desired = format!(
         "{PROJECT_LEAN_CTX_MD_MARKER}\n{}\n",
-        crate::rules_inject::rules_dedicated_markdown()
+        crate::rules_inject::rules_longform_markdown()
     );
 
     if !lean_ctx_md.exists() {

@@ -1064,6 +1064,34 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
     }
     steps.push(rules_step);
 
+    // Step: rules dedup (#578) — auto-heal duplicated lean-ctx guidance so a
+    // client never pays for the rules block twice per session. Only
+    // lean-ctx-owned files / marked blocks are touched (backups for edits);
+    // user-maintained content is left alone by `auto_apply`.
+    if should_inject {
+        let mut dedup_step = SetupStepReport {
+            name: "rules_dedup".to_string(),
+            ok: true,
+            items: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        };
+        let project = std::env::current_dir().unwrap_or_else(|_| home.clone());
+        for line in crate::cli::rules_dedup::auto_apply(&home, &project) {
+            let failed = line.starts_with("FAILED");
+            if failed {
+                dedup_step.warnings.push(line.clone());
+            }
+            dedup_step.items.push(SetupItem {
+                name: "dedup".to_string(),
+                status: if failed { "failed" } else { "applied" }.to_string(),
+                path: None,
+                note: Some(line),
+            });
+        }
+        steps.push(dedup_step);
+    }
+
     // Step: Skill files — respect config
     let mut skill_step = SetupStepReport {
         name: "skill_files".to_string(),

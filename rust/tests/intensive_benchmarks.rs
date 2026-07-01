@@ -93,11 +93,10 @@ fn bench_system_instructions_token_count() {
     // runner. Measuring the static surface keeps the assertion deterministic
     // (#498) instead of order/state-dependent.
     //
-    // Budget history: 2048 → 2400 (#609). The agent-loop taxonomy added the
-    // `LOOP_NAV_COMPACT` one-liner to the COMPACT/Bare channel the cold handshake
-    // renders, growing it to 2201 bytes on Unix; Windows adds the platform shell
-    // hint (~48 bytes) on top, so 2400 clears every runner with headroom while
-    // still catching a runaway regression.
+    // Budget history: 2048 → 2400 (#609), then the v5 rules diet (#578) folded
+    // the loop/paradox guidance into INTENT and shrank the COMPACT/Bare channel
+    // the cold handshake renders. 2400 stays as the ceiling (upper bound only —
+    // it catches a runaway regression, shrinking is always fine).
     let claude_code_instr = lean_ctx::server::build_claude_code_static_instructions_for_test();
     let claude_chars = claude_code_instr.len();
     let claude_tokens = count_tokens(&claude_code_instr);

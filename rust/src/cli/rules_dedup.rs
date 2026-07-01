@@ -258,6 +258,18 @@ fn apply(action: &Action) -> String {
     }
 }
 
+/// Non-interactive auto-heal used by `lean-ctx setup` and `doctor --fix`
+/// (#578): applies every *fixable* dedup action (owned duplicates deleted,
+/// marked blocks stripped with `.bak` backups) and returns one result line per
+/// action. `Report`-only findings (user-maintained content) are never touched.
+pub fn auto_apply(home: &Path, project: &Path) -> Vec<String> {
+    plan(home, project)
+        .iter()
+        .filter(|a| !matches!(a, Action::Report { .. }))
+        .map(apply)
+        .collect()
+}
+
 /// CLI entry: `lean-ctx rules dedup [--apply]`.
 pub fn run(apply_changes: bool) -> i32 {
     let Some(home) = dirs::home_dir() else {

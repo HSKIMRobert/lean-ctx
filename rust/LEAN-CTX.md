@@ -1,31 +1,27 @@
 <!-- lean-ctx-owned: PROJECT-LEAN-CTX.md v1 -->
 <!-- lean-ctx-rules -->
-<!-- version: 4 -->
+<!-- version: 5 -->
 
 CRITICAL: ALWAYS use lean-ctx ctx_* tools instead of native equivalents. This is NOT optional.
 
-MUST actually CALL the ctx_* MCP tools, not just describe them: before reading, searching, or running a shell command, emit the matching ctx_* tool call (ctx_compose first, then ctx_read / ctx_search / ctx_shell).
+ACTUALLY EMIT the ctx_* tool call (ctx_compose first) — describing a tool is not calling it.
 
-MANDATORY MAPPING (4 core redirects first):
+MANDATORY MAPPING:
 • Read/cat -> ctx_read(path, mode)
 • Grep -> ctx_search(pattern, path)
 • Shell/bash -> ctx_shell(command)
 • Glob/find -> ctx_glob(pattern)
 • ls/find -> ctx_tree(path, depth)
 
-NEVER use native Read/Grep/Shell/Glob when a ctx_* equivalent exists. SELF-CORRECT: the moment you reach for a native Read/Grep/Shell/Glob, stop and call the ctx_* tool instead.
+NEVER use native Read/Grep/Shell/Glob when a ctx_* equivalent exists. SELF-CORRECT: the moment you reach for one, stop and call the ctx_* tool instead.
 
 Tool selection by intent:
-• Understand code / find answers / before editing -> ctx_compose (call FIRST)
-• Read a file -> ctx_read(path, mode=signatures|map|full)
-• Edit code you've read -> ctx_patch (hash-anchored, no exact-recall; read mode=anchored first)
-• Find a symbol by name (exact) -> ctx_symbol
-• Search code by pattern (fuzzy) -> ctx_search
-• Search by meaning (concepts) -> ctx_semantic_search
-• Find files by pattern (glob) -> ctx_glob
-• Project structure -> ctx_tree
-• Who calls this / call graph -> ctx_callgraph
-• Session state / memory -> ctx_session / ctx_knowledge
+• Orient / understand code (call FIRST) -> ctx_compose
+• Read a file -> ctx_read(path, mode=signatures|map|full); edit after reading -> ctx_patch
+• Exact symbol -> ctx_symbol; pattern -> ctx_search; by meaning -> ctx_semantic_search
+• Files by glob -> ctx_glob; structure -> ctx_tree; callers/impact -> ctx_callgraph
+• Verify after edits -> ctx_shell(test/build); memory -> ctx_session / ctx_knowledge
+Semantic questions -> search tools, not whole-file reads: reading more ≠ understanding more.
 
 AGENT LOOP (phase -> tool):
 • Orient — understand before acting -> ctx_compose
@@ -37,21 +33,18 @@ AGENT LOOP (phase -> tool):
 
 Anti-patterns — do NOT:
 • Chain ctx_search -> ctx_read -> ctx_symbol — one ctx_compose replaces all three
-• Grep for symbol definitions — ctx_symbol is faster + more precise
 • Use ctx_read(mode=full) for orientation — use mode=signatures
-• Use ctx_callgraph or ctx_graph for const/static/variable references — they track
-function call edges and file-level deps only. Use grep or ctx_compose instead
+• Use ctx_callgraph/ctx_graph for const/static/variable refs — they track call
+edges and file deps only; use ctx_search instead
 
 NAVIGATION PARADOX: reading more ≠ understanding more.
 • Semantic question ("where/how is X handled?") -> ctx_search (BM25) + ctx_semantic_search (meaning), not whole-file reads
 • Hidden architectural deps (who calls this, what breaks) -> ctx_callgraph / ctx_graph — for these only
 • Navigate structure (signatures, symbols) before reading entire files
 
-PARALLEL tool calls: fire independent calls in the SAME turn — don't sequence them.
-ctx_compose bundles multiple lookups into one call; for anything it doesn't
-cover, batch independent reads/searches together.
+PARALLEL: fire independent tool calls in the SAME turn — ctx_compose bundles multiple lookups into one call.
 
-Auto: preload/dedup/compress run in background. ctx_session=memory, ctx_knowledge=facts, ctx_semantic_search=meaning search, ctx_shell raw=true=uncompressed. Details: LEAN-CTX.md
+Auto: preload/dedup/compress run in background. ctx_session=memory, ctx_knowledge=facts, ctx_shell raw=true=uncompressed. Full guide: LEAN-CTX.md
 
 RECOVER: compressed output is reversible — never re-read line-by-line. Need full/exact? Read the shown file path with any tool (no MCP), or ctx_read(mode=full|raw=true); [Archived]/tee/firewall → ctx_expand(id=...).
 

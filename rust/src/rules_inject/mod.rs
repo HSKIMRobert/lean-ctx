@@ -52,6 +52,20 @@ pub fn rules_dedicated_markdown() -> String {
     )
 }
 
+/// Long-form rules for the on-demand project `LEAN-CTX.md` (#578). Same
+/// config-driven shadow/compression handling as the dedicated render, but the
+/// LONGFORM profile with the verbose teaching sections.
+pub fn rules_longform_markdown() -> String {
+    let cfg = crate::core::config::Config::load();
+    let shadow = cfg.shadow_mode;
+    let level = crate::core::config::CompressionLevel::effective(&cfg);
+    crate::core::rules_canonical::render(
+        shadow,
+        crate::core::rules_canonical::Wrapper::Longform,
+        level,
+    )
+}
+
 /// The canonical rules block lean-ctx would write for each target, keyed by the
 /// target's display name.
 ///
