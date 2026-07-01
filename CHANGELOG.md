@@ -40,6 +40,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`session new` aliases `session reset` (#653).** `lean-ctx session new` now clears
   the active session just like `session reset`, matching the "start a new session"
   mental model; covered by a CLI characterization test.
+- **Deterministic markdown compaction + progress-log folding in aggressive
+  compression (#655).** `.md`/`.markdown`/`.mdown` reads (and `.txt` files that
+  carry a real ATX heading) are structurally compacted: every heading survives,
+  fenced code blocks are atomic (kept verbatim or dropped whole, never split by
+  an omission marker), and body lines are ranked by an IDF-style scorer over
+  ordered token sets so the output is byte-stable (#498). Shell compression now
+  folds repetitive cargo/pytest/package-manager progress runs into stable
+  markers while still honoring the verbatim token cap — diagnostics stay
+  verbatim, oversized logs keep safety-needle preservation. Thanks @ousatov-ua!
 
 ### Changed
 - Refreshed bundled addon pins to current upstream: Headroom `0.27.0 → 0.28.0`,
