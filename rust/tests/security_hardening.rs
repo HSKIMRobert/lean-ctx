@@ -127,13 +127,25 @@ fn lineage_filters_by_workspace() {
 fn effective_cwd_calls_jail() {
     let src = include_str!("../src/core/session/state.rs");
 
+    // `effective_cwd` must not bypass the jail: it delegates to the checked
+    // variant, which is the single enforcement point (#629/#633 refactor).
     let ecwd_fn = src
         .find("fn effective_cwd(")
         .expect("effective_cwd missing");
     let ecwd_body = &src[ecwd_fn..ecwd_fn + 500];
     assert!(
-        ecwd_body.contains("jail_cwd(cwd, root)"),
-        "H1: effective_cwd must call jail_cwd for explicit cwd"
+        ecwd_body.contains("effective_cwd_checked("),
+        "H1: effective_cwd must delegate to effective_cwd_checked"
+    );
+
+    // The checked variant enforces the project-root jail for an explicit cwd.
+    let checked_fn = src
+        .find("fn effective_cwd_checked(")
+        .expect("effective_cwd_checked missing");
+    let checked_body = &src[checked_fn..checked_fn + 500];
+    assert!(
+        checked_body.contains("jail_cwd(cwd, root)"),
+        "H1: effective_cwd_checked must call jail_cwd for explicit cwd"
     );
 }
 
