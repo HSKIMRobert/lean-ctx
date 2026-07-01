@@ -16,7 +16,11 @@ jobs:
     # GL #395: an engine release must never ship while a first-party SDK
     # cannot speak its http_mcp contract version. Minor-version drift across
     # the SDK family surfaces as a warning annotation.
-    name: SDK release gate
+    #
+    # Also gates the engine-coupled npm wrappers (pi-lean-ctx, lean-ctx-bin):
+    # a stale package.json would let the publish step silently skip, shipping a
+    # release whose Pi extension / npx wrapper lags the engine.
+    name: Release gates (SDK + package versions)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -25,6 +29,8 @@ jobs:
           persist-credentials: false
       - name: Check SDK ↔ engine coupling
         run: python3 scripts/check-sdk-versions.py
+      - name: Check npm package ↔ engine version coupling
+        run: python3 scripts/check-package-versions.py
 
   build:
     name: Build ${{ matrix.target }}
