@@ -180,6 +180,7 @@ mod tests {
             openai: "https://api.openai.com".into(),
             chatgpt: chatgpt_upstream,
             gemini: "https://generativelanguage.googleapis.com".into(),
+            providers: Vec::new(),
         }));
         ProxyState {
             client: reqwest::Client::new(),

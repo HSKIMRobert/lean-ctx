@@ -36,9 +36,9 @@ pub use enums::{
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use provenance::{ConfigProvenance, EnvOverride};
 pub use proxy::{
-    HistoryMode, ProseRanker, ProseRole, ProxyConfig, ProxyProvider, RoleAggressiveness,
-    UpstreamDrift, Upstreams, diagnose_drift, env_upstream_override, is_local_proxy_url,
-    normalize_url, normalize_url_opt,
+    HistoryMode, ProseRanker, ProseRole, ProviderEntry, ProxyConfig, ProxyProvider,
+    ResolvedProvider, RoleAggressiveness, UpstreamDrift, Upstreams, WireShape, diagnose_drift,
+    env_upstream_override, is_local_proxy_url, normalize_url, normalize_url_opt,
 };
 pub use read_redirect::ReadRedirect;
 pub use shell_activation::ShellActivation;
@@ -145,6 +145,31 @@ pub struct Config {
     /// require the token; clients must then send `Authorization: Bearer <token>`.
     #[serde(default)]
     pub proxy_require_token: bool,
+    /// Bind address for the proxy listener (gateway mode, enterprise#8).
+    /// Default `None` = `127.0.0.1` — local-safe, nothing changes for existing
+    /// installs. Set `"0.0.0.0"` (or a specific interface IP) to serve a whole
+    /// org from one host; any non-loopback bind hard-disables the provider-key
+    /// auth fallback (Bearer token becomes mandatory) and enables the
+    /// `proxy_allowed_hosts` Host-header allowlist. Env override:
+    /// `LEAN_CTX_PROXY_BIND_HOST`. An unparseable value falls back to loopback,
+    /// never to an open bind.
+    #[serde(default)]
+    pub proxy_bind_host: Option<String>,
+    /// Host-header allowlist for a non-loopback proxy bind (gateway mode):
+    /// DNS-rebinding protection. Entries are hostnames or IPs without port
+    /// (e.g. `"gateway.example.com"`). Loopback names are always allowed.
+    /// Ignored (loopback-only guard, today's behavior) while the bind is
+    /// loopback. Empty + non-loopback bind = only loopback Host headers pass,
+    /// so configure this when exposing the gateway.
+    #[serde(default)]
+    pub proxy_allowed_hosts: Vec<String>,
+    /// Proxy-wide request rate limit in requests/second (token bucket, burst =
+    /// 2x). `None` (default) = unlimited on a loopback bind — today's behavior —
+    /// and 50 rps with burst 100 on a non-loopback bind (gateway mode ships a
+    /// sane floor, enterprise#37). `0` disables the limiter even in gateway
+    /// mode (explicit opt-out).
+    #[serde(default)]
+    pub proxy_max_rps: Option<u32>,
     /// Require Bearer-token authentication for the dashboard. Default `true`:
     /// the dashboard generates (or uses the pinned) token and rejects `/api/*`
     /// and `/metrics` without it. Set to `false` to run the dashboard with **no
@@ -627,6 +652,9 @@ impl Default for Config {
             proxy_port: None,
             proxy_timeout_ms: None,
             proxy_require_token: false,
+            proxy_bind_host: None,
+            proxy_allowed_hosts: Vec::new(),
+            proxy_max_rps: None,
             dashboard_auth: true,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
@@ -829,6 +857,28 @@ impl Config {
     /// `crush_verbatim_json` config flag, else `false`.
     pub fn crush_verbatim_json_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_CRUSH_VERBATIM_JSON").is_ok() || self.crush_verbatim_json
+    }
+
+    /// Effective proxy bind address (gateway mode, enterprise#8). Precedence:
+    /// `LEAN_CTX_PROXY_BIND_HOST` env > `proxy_bind_host` config > loopback.
+    /// The value must parse as an IP address; anything else (including a blank)
+    /// resolves to `127.0.0.1` — a typo can only ever *narrow* exposure, never
+    /// silently open the listener.
+    #[must_use]
+    pub fn resolved_proxy_bind_host(&self) -> std::net::IpAddr {
+        let raw = std::env::var("LEAN_CTX_PROXY_BIND_HOST")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| self.proxy_bind_host.clone());
+        match raw.as_deref().map(str::trim) {
+            Some(v) if !v.is_empty() => v.parse().unwrap_or_else(|_| {
+                tracing::warn!(
+                    "proxy_bind_host '{v}' is not a valid IP address — binding 127.0.0.1"
+                );
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            }),
+            _ => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        }
     }
 
     /// Returns the effective rules scope, preferring env var over config file.

@@ -373,6 +373,7 @@ mod tests {
             openai: "https://api.openai.com".into(),
             chatgpt: format!("http://{upstream_addr}"),
             gemini: "https://generativelanguage.googleapis.com".into(),
+            providers: Vec::new(),
         }));
         let state = ProxyState {
             client: reqwest::Client::new(),

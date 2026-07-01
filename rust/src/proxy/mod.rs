@@ -27,6 +27,7 @@ pub mod openai_responses_ws;
 pub mod output_savings;
 pub mod prose;
 pub mod prose_ranker;
+pub mod providers;
 pub mod tool_kind;
 pub mod tool_output;
 pub mod usage;
@@ -393,6 +394,10 @@ fn log_upstream_change(old: &Upstreams, new: &Upstreams) {
     if old.gemini != new.gemini {
         println!("  ↻ Gemini upstream → {}", new.gemini);
     }
+    if old.providers != new.providers {
+        let ids: Vec<&str> = new.providers.iter().map(|p| p.id.as_str()).collect();
+        println!("  ↻ provider registry → [{}]", ids.join(", "));
+    }
 }
 
 pub async fn start_proxy(port: u16) -> anyhow::Result<()> {
@@ -454,7 +459,28 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
 
     let cfg = Config::load();
     // Read once at startup — avoids a Config::load() on every proxied request.
-    let require_token = cfg.proxy_require_token;
+    let bind_host = cfg.resolved_proxy_bind_host();
+    let loopback_bind = bind_host.is_loopback();
+    // Gateway mode (non-loopback bind, enterprise#8) hard-requires the Bearer
+    // token: the provider-key fallback's whole justification is "loopback only",
+    // so it is disabled by construction once the listener is reachable from the
+    // network — regardless of the config flag.
+    let require_token = cfg.proxy_require_token || !loopback_bind;
+    let allowed_hosts: Arc<Vec<String>> = Arc::new(
+        cfg.proxy_allowed_hosts
+            .iter()
+            .map(|h| h.trim().trim_end_matches('.').to_ascii_lowercase())
+            .filter(|h| !h.is_empty())
+            .collect(),
+    );
+    // Rate limit (enterprise#37): explicit config wins; gateway mode ships a
+    // sane default floor; loopback stays unlimited unless configured. `0`
+    // disables the limiter explicitly.
+    let rate_limiter = match (cfg.proxy_max_rps, loopback_bind) {
+        (Some(rps), _) if rps > 0 => Some(Arc::new(RateLimiter::new(rps, rps.saturating_mul(2)))),
+        (None, false) => Some(Arc::new(RateLimiter::new(50, 100))),
+        _ => None,
+    };
     let initial = cfg.proxy.resolve_all();
 
     // The proxy reads its upstreams live from a watch channel: a background task
@@ -469,6 +495,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         openai: openai_upstream,
         chatgpt: chatgpt_upstream,
         gemini: gemini_upstream,
+        providers: initial_providers,
     } = initial;
 
     let state = ProxyState {
@@ -521,8 +548,15 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         // Drop-in `compress(messages, model)` contract (#739): deterministic
         // messages-in / messages-out compression for SDK clients.
         .route("/v1/compress", post(compress_api::handler))
+        // Universal provider registry (`[[proxy.providers]]`, enterprise#7):
+        // `/providers/{id}/...` forwards to the registry entry with that id,
+        // speaking its declared wire shape. New provider = config, not code.
+        .route("/providers/{id}/{*rest}", any(providers::handler))
         .fallback(fallback_router)
-        .layer(axum::middleware::from_fn(host_guard))
+        .layer(axum::middleware::from_fn(move |req, next| {
+            let allowed = allowed_hosts.clone();
+            host_guard(req, next, allowed)
+        }))
         .with_state(state);
 
     {
@@ -533,13 +567,26 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         }));
     }
 
+    if let Some(limiter) = rate_limiter {
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            let limiter = limiter.clone();
+            rate_limit_guard(req, next, limiter)
+        }));
+    }
+
     // Outermost layer (runs first): normalize bare provider endpoints to their
     // canonical `/v1/...` form so auth, routing and upstream forwarding all agree,
     // regardless of whether the client's base URL includes `/v1` (#353).
     app = app.layer(axum::middleware::from_fn(normalize_provider_path));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from((bind_host, port));
     println!("lean-ctx proxy listening on http://{addr} (token auth enabled)");
+    if !loopback_bind {
+        println!(
+            "  ⚠ gateway mode: non-loopback bind — Bearer token REQUIRED (provider-key \
+             fallback disabled), Host allowlist + rate limit active"
+        );
+    }
     println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
     println!("  OpenAI:    POST /v1/chat/completions → {openai_upstream}");
     println!(
@@ -555,6 +602,19 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     println!(
         "  Codex:     WS  ws://{addr}/responses → bridged to {openai_upstream} (HTTP/SSE, #440)"
     );
+    for p in &initial_providers {
+        println!(
+            "  Provider:  any  /providers/{}/... → {} ({} shape{})",
+            p.id,
+            p.base_url,
+            p.shape.as_str(),
+            if p.api_key_env.is_some() {
+                ", gateway-held key"
+            } else {
+                ""
+            }
+        );
+    }
     if openai_upstream.starts_with("http://") && !is_local_proxy_url(&openai_upstream) {
         println!(
             "  ⚠ OpenAI upstream is plaintext HTTP to a non-loopback host \
@@ -653,6 +713,14 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
             "chatgpt": up.chatgpt.clone(),
             "gemini": up.gemini.clone(),
         },
+        // Universal registry (`[[proxy.providers]]`, enterprise#7). Key names
+        // only — never the key material.
+        "providers": up.providers.iter().map(|p| serde_json::json!({
+            "id": p.id,
+            "shape": p.shape.as_str(),
+            "base_url": p.base_url,
+            "gateway_key": p.api_key_env.is_some(),
+        })).collect::<Vec<_>>(),
         "requests_total": s.requests_total.load(Relaxed),
         "requests_compressed": s.requests_compressed.load(Relaxed),
         "tokens_saved": s.tokens_saved.load(Relaxed),
@@ -784,9 +852,11 @@ fn is_provider_route(path: &str) -> bool {
 /// Decides whether a request authenticates via a provider API key alone, without
 /// the lean-ctx Bearer token. True only in the default, loopback-friendly mode
 /// where a local AI tool's own provider key is accepted on a provider route. When
-/// `require_token` is set (strict, shared-host mode) the fallback is disabled and
-/// the Bearer token becomes mandatory. Pure, so the policy is unit-testable
-/// without axum middleware plumbing.
+/// `require_token` is set the fallback is disabled and the Bearer token becomes
+/// mandatory — the startup path forces this whenever the listener binds a
+/// non-loopback address (gateway mode, enterprise#8), because the fallback's
+/// justification is strictly "loopback only". Pure, so the policy is
+/// unit-testable without axum middleware plumbing.
 fn provider_key_fallback_allowed(
     require_token: bool,
     has_provider_key: bool,
@@ -868,14 +938,90 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 async fn host_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
+    allowed_hosts: Arc<Vec<String>>,
 ) -> Result<Response, StatusCode> {
-    if let Some(host) = req.headers().get("host").and_then(|v| v.to_str().ok()) {
-        let h = host.split(':').next().unwrap_or(host);
-        if matches!(h, "127.0.0.1" | "localhost" | "[::1]") {
-            return Ok(next.run(req).await);
-        }
+    if let Some(host) = req.headers().get("host").and_then(|v| v.to_str().ok())
+        && host_allowed(host, &allowed_hosts)
+    {
+        return Ok(next.run(req).await);
     }
     Err(StatusCode::FORBIDDEN)
+}
+
+/// DNS-rebinding guard: loopback Host headers always pass (today's local
+/// behavior); in gateway mode the operator additionally allowlists the names
+/// the gateway is reachable under (`proxy_allowed_hosts`, enterprise#8).
+/// Matching is case-insensitive on the host with the port stripped.
+fn host_allowed(host_header: &str, allowed: &[String]) -> bool {
+    // `[::1]:8080` carries the port after the bracket; plain hosts after `:`.
+    let host = host_header.trim();
+    let h = if let Some(bracketed) = host.strip_prefix('[') {
+        bracketed
+            .split(']')
+            .next()
+            .map(|inner| format!("[{inner}]"))
+    } else {
+        host.split(':').next().map(str::to_string)
+    };
+    let Some(h) = h else {
+        return false;
+    };
+    let h = h.trim_end_matches('.').to_ascii_lowercase();
+    matches!(h.as_str(), "127.0.0.1" | "localhost" | "[::1]") || allowed.contains(&h)
+}
+
+/// Proxy-wide token-bucket rate limit (enterprise#37). `/health` is exempt so
+/// orchestrator liveness probes never get throttled into a false restart.
+async fn rate_limit_guard(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+    limiter: Arc<RateLimiter>,
+) -> Result<Response, StatusCode> {
+    if req.uri().path() != "/health" && !limiter.allow().await {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+    Ok(next.run(req).await)
+}
+
+/// Token bucket: `max_rps` sustained, `burst` peak. Mirrors the team server's
+/// limiter; lives here so the proxy stays independent of `http_server`
+/// internals.
+pub(crate) struct RateLimiter {
+    max_rps: f64,
+    burst: f64,
+    state: tokio::sync::Mutex<RateLimiterState>,
+}
+
+struct RateLimiterState {
+    tokens: f64,
+    last: std::time::Instant,
+}
+
+impl RateLimiter {
+    pub(crate) fn new(max_rps: u32, burst: u32) -> Self {
+        Self {
+            max_rps: f64::from(max_rps.max(1)),
+            burst: f64::from(burst.max(1)),
+            state: tokio::sync::Mutex::new(RateLimiterState {
+                tokens: f64::from(burst.max(1)),
+                last: std::time::Instant::now(),
+            }),
+        }
+    }
+
+    pub(crate) async fn allow(&self) -> bool {
+        let mut s = self.state.lock().await;
+        let now = std::time::Instant::now();
+        let refill = now.saturating_duration_since(s.last).as_secs_f64() * self.max_rps;
+        s.tokens = (s.tokens + refill).min(self.burst);
+        s.last = now;
+        if s.tokens >= 1.0 {
+            s.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 async fn fallback_router(State(state): State<ProxyState>, req: Request<Body>) -> Response {
@@ -1179,6 +1325,59 @@ mod auth_tests {
         let uri: Uri = "/v1/responses".parse().unwrap();
         assert!(normalized_provider_uri(&uri).is_none());
     }
+
+    // --- enterprise#8: gateway mode (non-loopback bind) hardening ---
+
+    #[test]
+    fn resolved_bind_host_defaults_to_loopback_and_never_opens_on_typo() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PROXY_BIND_HOST");
+        let cfg = crate::core::config::Config::default();
+        assert!(cfg.resolved_proxy_bind_host().is_loopback());
+
+        // A typo in the config must narrow to loopback — never open the bind.
+        let typo = crate::core::config::Config {
+            proxy_bind_host: Some("all-interfaces-please".into()),
+            ..Default::default()
+        };
+        assert!(typo.resolved_proxy_bind_host().is_loopback());
+
+        let open = crate::core::config::Config {
+            proxy_bind_host: Some("0.0.0.0".into()),
+            ..Default::default()
+        };
+        assert!(!open.resolved_proxy_bind_host().is_loopback());
+    }
+
+    #[test]
+    fn host_allowed_loopback_always_passes_and_allowlist_extends() {
+        let allowed = vec!["gateway.example.com".to_string()];
+        for h in ["127.0.0.1", "127.0.0.1:4444", "localhost:9999", "[::1]:80"] {
+            assert!(host_allowed(h, &allowed), "loopback host must pass: {h}");
+        }
+        assert!(host_allowed("gateway.example.com", &allowed));
+        assert!(host_allowed("Gateway.Example.COM:443", &allowed));
+        // Trailing-dot FQDN normalizes to the same allowlisted name.
+        assert!(host_allowed("gateway.example.com.:443", &allowed));
+        assert!(!host_allowed("evil.example.com", &allowed));
+        assert!(!host_allowed("gateway.example.com.evil.io", &allowed));
+        // Empty allowlist (gateway not configured) → only loopback passes.
+        assert!(!host_allowed("gateway.example.com", &[]));
+    }
+
+    // --- enterprise#37: proxy rate limiting ---
+
+    #[tokio::test]
+    async fn rate_limiter_enforces_burst_then_recovers() {
+        let limiter = RateLimiter::new(10, 3);
+        assert!(limiter.allow().await);
+        assert!(limiter.allow().await);
+        assert!(limiter.allow().await);
+        assert!(!limiter.allow().await, "burst of 3 must exhaust the bucket");
+        // 10 rps refill → one token back after ~100ms.
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert!(limiter.allow().await, "bucket must refill at max_rps");
+    }
 }
 
 #[cfg(test)]
@@ -1191,6 +1390,7 @@ mod upstream_tests {
             openai: openai.into(),
             chatgpt: "https://chatgpt.com".into(),
             gemini: "https://generativelanguage.googleapis.com".into(),
+            providers: Vec::new(),
         }
     }
 

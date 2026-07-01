@@ -158,6 +158,56 @@ allow_custom_upstream = true
 > `LEAN_CTX_ALLOW_CUSTOM_UPSTREAM` set and a custom upstream configured — or set the
 > flag yourself with `lean-ctx config set proxy.allow_custom_upstream true`.
 
+**Universal provider registry — `[[proxy.providers]]`.** Beyond the four built-in
+provider routes, any OpenAI/Anthropic/Gemini-*compatible* endpoint (Azure AI
+Foundry, OpenRouter, Groq, vLLM, Ollama, a corporate gateway…) can be declared as
+data — no code change. Each entry is served under `/providers/{id}/...` with full
+compression, introspection and usage metering for its wire shape:
+
+```toml
+[[proxy.providers]]
+id = "foundry"                                          # route: /providers/foundry/...
+shape = "openai"                                        # anthropic | openai | gemini
+base_url = "https://acme.services.ai.azure.com"
+api_key_env = "FOUNDRY_API_KEY"                         # optional: gateway-held key
+
+[[proxy.providers]]
+id = "openrouter"
+shape = "openai"
+base_url = "https://openrouter.ai/api"
+```
+
+- **Shape ≠ identity.** The proxy speaks three wire dialects; any number of
+  provider identities map onto them. A declared HTTPS entry is itself the
+  custom-host opt-in (no separate `allow_custom_upstream` needed); plaintext HTTP
+  still requires loopback or `allow_insecure_http_upstream`.
+- **`api_key_env` set** → the gateway holds the upstream credential: every caller
+  credential header is stripped and replaced (callers authenticate with the
+  lean-ctx Bearer token and never see the provider key). Unset → the caller's own
+  credentials are forwarded verbatim, exactly like the built-ins.
+- Invalid entries are logged and skipped; the registry is hot-reloaded from
+  `config.toml` like every upstream. Active entries appear on `/status` under
+  `providers`.
+
+**Gateway mode — serving a whole org from one host** (`proxy_bind_host`). By
+default the proxy binds `127.0.0.1` (nothing changes for local installs). Binding
+a non-loopback address turns on gateway hardening **by construction**:
+
+```toml
+proxy_bind_host = "0.0.0.0"                       # env: LEAN_CTX_PROXY_BIND_HOST
+proxy_allowed_hosts = ["ai-gateway.example.com"]  # Host-header allowlist (DNS rebinding)
+proxy_max_rps = 100                               # optional; gateway default: 50 rps
+```
+
+- The provider-API-key auth fallback is **hard-disabled** (its justification is
+  strictly "loopback only") — every caller must send `Authorization: Bearer
+  <LEAN_CTX_PROXY_TOKEN>`, regardless of `proxy_require_token`.
+- The Host allowlist extends the loopback-only guard; loopback names always pass.
+- A token-bucket rate limit activates (default 50 rps, burst 100; `proxy_max_rps`
+  overrides, `0` disables). `/health` is exempt for orchestrator liveness probes.
+- An unparseable bind value falls back to `127.0.0.1` — a typo can only ever
+  narrow exposure, never open the listener.
+
 **Live upstream — `config.toml` is the source of truth for a running proxy**
 ([#449](https://github.com/yvgude/lean-ctx/issues/449)). A long-lived proxy
 (LaunchAgent / systemd / IDE-spawned) re-reads its upstreams from `config.toml`

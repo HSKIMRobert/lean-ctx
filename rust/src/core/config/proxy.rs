@@ -10,6 +10,15 @@ pub struct ProxyConfig {
     pub openai_upstream: Option<String>,
     pub chatgpt_upstream: Option<String>,
     pub gemini_upstream: Option<String>,
+    /// Universal provider registry (`[[proxy.providers]]`): additional upstream
+    /// providers beyond the four built-ins, declared as data — id + wire shape +
+    /// base URL — so a new OpenAI/Anthropic/Gemini-compatible endpoint (Azure AI
+    /// Foundry, OpenRouter, Groq, vLLM/Ollama, a corporate gateway…) is a pure
+    /// config entry, never a code change. Reachable under
+    /// `/providers/{id}/...` on the proxy and addressable by the router.
+    /// The legacy `*_upstream` fields above stay authoritative for the four
+    /// built-in provider routes (backwards compatible).
+    pub providers: Vec<ProviderEntry>,
     /// History-pruning strategy for proxied chat requests.
     /// "cache-aware" (default) | "rolling" | "off". See [`HistoryMode`].
     pub history_mode: Option<String>,
@@ -170,6 +179,79 @@ pub struct ProxyConfig {
     /// `lean-ctx proxy codex-chatgpt on|off`; resolved via
     /// [`ProxyConfig::codex_chatgpt_proxy_enabled`].
     pub codex_chatgpt_proxy: Option<bool>,
+}
+
+/// The API dialect an upstream endpoint speaks — deliberately separate from the
+/// provider's *identity*. lean-ctx understands three wire shapes; any number of
+/// configured providers (Foundry, OpenRouter, Groq, a local vLLM…) map onto
+/// them. New shape = code; new provider = config (universal-provider-framework).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WireShape {
+    /// Anthropic Messages API (`/v1/messages`).
+    Anthropic,
+    /// OpenAI Chat Completions / Responses API (also spoken by Azure AI
+    /// Foundry, OpenRouter, Groq, vLLM, Ollama, LM Studio…).
+    OpenAi,
+    /// Google Gemini `generateContent` API.
+    Gemini,
+}
+
+impl WireShape {
+    /// Stable lowercase name (serde representation) for logs and `/status`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WireShape::Anthropic => "anthropic",
+            WireShape::OpenAi => "openai",
+            WireShape::Gemini => "gemini",
+        }
+    }
+}
+
+/// One `[[proxy.providers]]` registry entry (see [`ProxyConfig::providers`]).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderEntry {
+    /// Registry id, used in the `/providers/{id}/...` route and in routing
+    /// rules. Lowercase alphanumeric plus `-`/`_`; must not shadow a built-in
+    /// provider name (`anthropic`, `openai`, `chatgpt`, `gemini`).
+    pub id: String,
+    /// Which API dialect the endpoint speaks (`anthropic|openai|gemini`).
+    pub shape: WireShape,
+    /// Endpoint base URL. HTTPS for any non-loopback host; a declared registry
+    /// entry is itself the custom-host opt-in (no separate allowlist flag).
+    pub base_url: String,
+    /// Name of the environment variable holding the upstream API key the
+    /// gateway injects (replacing the caller's credential headers). `None` =
+    /// forward the caller's own credentials verbatim (default, loopback mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_env: Option<String>,
+    /// Set `false` to keep the entry in config but take it out of service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// A validated, ready-to-serve registry provider (runtime view of
+/// [`ProviderEntry`], published inside [`Upstreams`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedProvider {
+    pub id: String,
+    pub shape: WireShape,
+    pub base_url: String,
+    pub api_key_env: Option<String>,
+}
+
+/// Built-in provider route names a registry entry must not shadow.
+const BUILTIN_PROVIDER_IDS: &[&str] = &["anthropic", "openai", "chatgpt", "gemini"];
+
+/// True when `id` is usable as a registry id: non-empty, lowercase alnum plus
+/// `-`/`_` (it becomes a URL path segment), and not a built-in provider name.
+fn is_valid_provider_id(id: &str) -> bool {
+    !id.is_empty()
+        && !BUILTIN_PROVIDER_IDS.contains(&id)
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
 /// Per-role prose-compression intensity for the proxy's frozen request region.
@@ -620,7 +702,55 @@ impl ProxyConfig {
             openai: self.resolve_upstream(ProxyProvider::OpenAi),
             chatgpt: self.resolve_upstream(ProxyProvider::ChatGpt),
             gemini: self.resolve_upstream(ProxyProvider::Gemini),
+            providers: self.resolve_providers(),
         }
+    }
+
+    /// Validate + resolve the `[[proxy.providers]]` registry. Invalid entries
+    /// are logged and skipped (one typo must never take the proxy down or
+    /// disable the remaining registry); duplicates keep the first occurrence.
+    /// A declared registry entry is itself the deliberate custom-host opt-in,
+    /// so any HTTPS host is accepted; plaintext HTTP still requires loopback or
+    /// the explicit insecure-HTTP opt-in (same rule as the built-ins).
+    #[must_use]
+    pub fn resolve_providers(&self) -> Vec<ResolvedProvider> {
+        let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for entry in &self.providers {
+            if !entry.enabled.unwrap_or(true) {
+                continue;
+            }
+            let id = entry.id.trim();
+            if !is_valid_provider_id(id) {
+                tracing::warn!(
+                    "[proxy.providers] invalid id '{id}' (lowercase alnum/-/_ only, \
+                     must not shadow a built-in provider) — entry skipped"
+                );
+                continue;
+            }
+            if !seen.insert(id) {
+                tracing::warn!("[proxy.providers] duplicate id '{id}' — keeping first entry");
+                continue;
+            }
+            match validate_upstream_url(&entry.base_url, self.allows_insecure_http_upstream(), true)
+            {
+                Ok(base_url) => out.push(ResolvedProvider {
+                    id: id.to_string(),
+                    shape: entry.shape,
+                    base_url,
+                    api_key_env: entry
+                        .api_key_env
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .map(str::to_string),
+                }),
+                Err(e) => {
+                    tracing::warn!("[proxy.providers] '{id}' has invalid base_url — skipped: {e}");
+                }
+            }
+        }
+        out
     }
 
     /// Resolve all upstreams from config.toml only (ignoring `LEAN_CTX_*` env) —
@@ -636,6 +766,7 @@ impl ProxyConfig {
             openai: pick(ProxyProvider::OpenAi),
             chatgpt: pick(ProxyProvider::ChatGpt),
             gemini: pick(ProxyProvider::Gemini),
+            providers: self.resolve_providers(),
         }
     }
 
@@ -655,11 +786,15 @@ impl ProxyConfig {
             openai: keep(ProxyProvider::OpenAi, &last.openai),
             chatgpt: keep(ProxyProvider::ChatGpt, &last.chatgpt),
             gemini: keep(ProxyProvider::Gemini, &last.gemini),
+            // Registry re-resolution is deterministic from config; an entry
+            // that turned invalid is dropped with a warning (see
+            // `resolve_providers`), the rest keep serving.
+            providers: self.resolve_providers(),
         }
     }
 }
 
-/// The three resolved provider upstreams a running proxy forwards to. Published
+/// The resolved provider upstreams a running proxy forwards to. Published
 /// to request handlers via a `tokio::sync::watch` channel so a config change is
 /// picked up live, without a proxy restart (#449).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -668,6 +803,18 @@ pub struct Upstreams {
     pub openai: String,
     pub chatgpt: String,
     pub gemini: String,
+    /// Registry providers from `[[proxy.providers]]` (universal framework),
+    /// validated and live-reloadable exactly like the built-ins.
+    pub providers: Vec<ResolvedProvider>,
+}
+
+impl Upstreams {
+    /// Look up a registry provider by id (`/providers/{id}/...` route, router
+    /// upstream overrides). Built-ins are not addressed here.
+    #[must_use]
+    pub fn provider_by_id(&self, id: &str) -> Option<&ResolvedProvider> {
+        self.providers.iter().find(|p| p.id == id)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1299,6 +1446,7 @@ mod tests {
             openai: "http://127.0.0.1:19101".into(),
             chatgpt: "https://chatgpt.com".into(),
             gemini: "https://generativelanguage.googleapis.com".into(),
+            providers: Vec::new(),
         };
         let cfg = ProxyConfig {
             openai_upstream: Some("not-a-valid-url".into()),
@@ -1321,6 +1469,7 @@ mod tests {
             openai: "http://127.0.0.1:19101".into(),
             chatgpt: "https://chatgpt.com".into(),
             gemini: "https://generativelanguage.googleapis.com".into(),
+            providers: Vec::new(),
         };
         let cfg = ProxyConfig {
             openai_upstream: Some("http://127.0.0.1:19102".into()),
@@ -1373,6 +1522,124 @@ mod tests {
             diagnose_drift(None, "https://api.openai.com", "https://api.openai.com"),
             None
         );
+    }
+
+    fn entry(id: &str, shape: WireShape, base_url: &str) -> ProviderEntry {
+        ProviderEntry {
+            id: id.into(),
+            shape,
+            base_url: base_url.into(),
+            api_key_env: None,
+            enabled: None,
+        }
+    }
+
+    #[test]
+    fn provider_registry_resolves_valid_entries() {
+        // enterprise#7: a new OpenAI-compatible provider is pure config. A
+        // declared HTTPS entry is its own custom-host opt-in (no extra flag).
+        let cfg = ProxyConfig {
+            providers: vec![
+                entry(
+                    "foundry",
+                    WireShape::OpenAi,
+                    "https://acme.services.ai.azure.com/",
+                ),
+                entry("local-vllm", WireShape::OpenAi, "http://127.0.0.1:8000"),
+            ],
+            ..Default::default()
+        };
+        let resolved = cfg.resolve_providers();
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].id, "foundry");
+        assert_eq!(resolved[0].shape, WireShape::OpenAi);
+        assert_eq!(
+            resolved[0].base_url, "https://acme.services.ai.azure.com",
+            "base_url must be normalized (trailing slash stripped)"
+        );
+        assert_eq!(resolved[1].base_url, "http://127.0.0.1:8000");
+    }
+
+    #[test]
+    fn provider_registry_skips_invalid_entries_without_killing_rest() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_ALLOW_INSECURE_HTTP_UPSTREAM");
+        let cfg = ProxyConfig {
+            providers: vec![
+                // Shadows a built-in name → skipped.
+                entry("openai", WireShape::OpenAi, "https://evil.example"),
+                // Uppercase/slash ids are unusable as a path segment → skipped.
+                entry("Bad/Id", WireShape::OpenAi, "https://ok.example"),
+                // Non-loopback plaintext HTTP without the opt-in → skipped.
+                entry("insecure", WireShape::OpenAi, "http://gw.corp.example"),
+                // Duplicate id → first wins.
+                entry("groq", WireShape::OpenAi, "https://api.groq.com"),
+                entry("groq", WireShape::OpenAi, "https://other.example"),
+            ],
+            ..Default::default()
+        };
+        let resolved = cfg.resolve_providers();
+        assert_eq!(resolved.len(), 1, "only the first 'groq' entry survives");
+        assert_eq!(resolved[0].id, "groq");
+        assert_eq!(resolved[0].base_url, "https://api.groq.com");
+    }
+
+    #[test]
+    fn provider_registry_respects_enabled_flag_and_trims_key_env() {
+        let mut disabled = entry("foundry", WireShape::OpenAi, "https://f.example");
+        disabled.enabled = Some(false);
+        let mut keyed = entry("router", WireShape::Anthropic, "https://r.example");
+        keyed.api_key_env = Some("  ROUTER_KEY  ".into());
+        let cfg = ProxyConfig {
+            providers: vec![disabled, keyed],
+            ..Default::default()
+        };
+        let resolved = cfg.resolve_providers();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].api_key_env.as_deref(), Some("ROUTER_KEY"));
+        assert_eq!(
+            Upstreams {
+                anthropic: String::new(),
+                openai: String::new(),
+                chatgpt: String::new(),
+                gemini: String::new(),
+                providers: resolved,
+            }
+            .provider_by_id("router")
+            .map(|p| p.shape),
+            Some(WireShape::Anthropic)
+        );
+    }
+
+    #[test]
+    fn provider_entry_toml_round_trip() {
+        // The `[[proxy.providers]]` TOML surface: shape names are lowercase,
+        // api_key_env/enabled optional.
+        let toml_src = r#"
+            anthropic_upstream = "https://api.anthropic.com"
+
+            [[providers]]
+            id = "foundry"
+            shape = "openai"
+            base_url = "https://acme.services.ai.azure.com"
+            api_key_env = "FOUNDRY_API_KEY"
+
+            [[providers]]
+            id = "claude-gw"
+            shape = "anthropic"
+            base_url = "https://gw.corp.example/anthropic"
+            enabled = false
+        "#;
+        let cfg: ProxyConfig = toml::from_str(toml_src).expect("parse [[providers]]");
+        assert_eq!(cfg.providers.len(), 2);
+        assert_eq!(cfg.providers[0].shape, WireShape::OpenAi);
+        assert_eq!(
+            cfg.providers[0].api_key_env.as_deref(),
+            Some("FOUNDRY_API_KEY")
+        );
+        assert_eq!(cfg.providers[1].enabled, Some(false));
+        // Only the enabled entry resolves.
+        assert_eq!(cfg.resolve_providers().len(), 1);
     }
 
     #[test]

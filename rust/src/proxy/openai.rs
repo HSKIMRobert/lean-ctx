@@ -29,7 +29,10 @@ pub async fn handler(
     .await
 }
 
-fn compress_request_body(parsed: Value, original_size: usize) -> (Vec<u8>, usize, usize) {
+pub(super) fn compress_request_body(
+    parsed: Value,
+    original_size: usize,
+) -> (Vec<u8>, usize, usize) {
     let mut doc = parsed;
     let mut modified = false;
 

@@ -32,7 +32,7 @@ pub async fn handler(
     .await
 }
 
-fn compress_request_body(
+pub(super) fn compress_request_body(
     parsed: Value,
     original_size: usize,
     model: Option<&str>,

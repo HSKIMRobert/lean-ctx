@@ -234,6 +234,8 @@ fn build_upstream_url(parts: &Parts, base: &str, default_path: &str) -> String {
 pub(super) const ALLOWED_REQUEST_HEADERS: &[&str] = &[
     "authorization",
     "x-api-key",
+    // Azure OpenAI / AI Foundry credential header (universal providers, #7).
+    "api-key",
     "content-type",
     "accept",
     "user-agent",
