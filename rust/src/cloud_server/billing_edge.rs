@@ -426,7 +426,8 @@ async fn billing_forward(
     let url = format!("{base}{path}");
     let (code, text) = tokio::task::spawn_blocking(move || -> Result<(u16, String), String> {
         // Read non-2xx as a normal response so the upstream status is preserved.
-        let agent: ureq::Agent = ureq::Agent::config_builder()
+        let agent: ureq::Agent = ureq::config::Config::builder()
+            .tls_config(crate::core::http_client::platform_tls_config())
             .http_status_as_error(false)
             .build()
             .into();
@@ -1132,7 +1133,8 @@ async fn billing_forward_text(
     };
     let url = format!("{base}{path}");
     let (code, text) = tokio::task::spawn_blocking(move || -> Result<(u16, String), String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
+        let agent: ureq::Agent = ureq::config::Config::builder()
+            .tls_config(crate::core::http_client::platform_tls_config())
             .http_status_as_error(false)
             .build()
             .into();

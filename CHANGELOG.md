@@ -43,6 +43,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Repomix `1.15.0 → 1.16.0`.
 
 ### Fixed
+- **Enterprise/OS TLS roots are honored by every HTTP client (#643).** All ureq
+  clients are now built through `core::http_client`, which injects
+  `RootCerts::PlatformVerifier` so requests trust the system/enterprise trust store
+  instead of only the bundled WebPKI roots — fixing `UnknownIssuer` failures behind
+  TLS-intercepting corporate proxies (updates, version check, embeddings download,
+  Qdrant, Datadog/FinOps export, LLM enhance, SSO/billing, web fetch, webhooks).
+- **Shell hook is quiet by default (#646).** The activation notice (`lean-ctx: ON …`)
+  no longer prints on every new interactive terminal; mode-change notices now route
+  through a `_lean_ctx_notice` helper that speaks only when `LEAN_CTX_DEBUG=1` (and
+  stdout is a TTY). `lean-ctx-status` still reports the current state on demand.
 - **`doctor` recognizes its own running dashboard on port 3333 (#644).** The
   dashboard port check reported a conflict whenever port 3333 was busy — even when
   the occupant was lean-ctx's own dashboard. It now probes `/api/version` on bind

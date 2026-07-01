@@ -154,7 +154,8 @@ pub fn publish(
     bytes: &[u8],
 ) -> Result<PublishReceipt, String> {
     let url = format!("{base}/v1/packages/{ns}/{name}/{version}");
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let agent: ureq::Agent = ureq::config::Config::builder()
+        .tls_config(crate::core::http_client::platform_tls_config())
         .http_status_as_error(false)
         .build()
         .into();
@@ -247,7 +248,8 @@ fn payment_hint(body: &str) -> String {
 }
 
 fn http_get(url: &str, token: Option<&str>) -> Result<String, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let agent: ureq::Agent = ureq::config::Config::builder()
+        .tls_config(crate::core::http_client::platform_tls_config())
         .http_status_as_error(false)
         .build()
         .into();
@@ -276,7 +278,8 @@ fn http_get(url: &str, token: Option<&str>) -> Result<String, String> {
 }
 
 fn http_get_bytes(url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let agent: ureq::Agent = ureq::config::Config::builder()
+        .tls_config(crate::core::http_client::platform_tls_config())
         .http_status_as_error(false)
         .build()
         .into();

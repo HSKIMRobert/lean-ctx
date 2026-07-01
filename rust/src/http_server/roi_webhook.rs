@@ -237,7 +237,8 @@ fn payload_for(url: &str, text: &str) -> serde_json::Value {
 
 /// POST the payload. Synchronous (callers run it inside `spawn_blocking`).
 fn post_webhook(url: &str, payload: &serde_json::Value) -> Result<(), String> {
-    let agent: ureq::Agent = ureq::Agent::config_builder()
+    let agent: ureq::Agent = ureq::config::Config::builder()
+        .tls_config(crate::core::http_client::platform_tls_config())
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(15)))
         .build()
