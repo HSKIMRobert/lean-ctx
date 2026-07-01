@@ -55,9 +55,26 @@ export interface PiLeanCtxFileConfig {
    * `LEAN_CTX_PI_TOOL_PREFIX`.
    */
   toolPrefix?: string;
+  /**
+   * Which lean-ctx tool surface the embedded MCP bridge requests. Maps to the
+   * engine's `LEAN_CTX_TOOL_PROFILE`:
+   *   "lean" (default) — 11 lazy-core tools + the `ctx_call` gateway (exact
+   *                      parity with a normal default install; ctx_edit/ctx_patch
+   *                      and every other tool stay reachable through `ctx_call`).
+   *   "standard"       — 15 balanced tools.
+   *   "power"          — the whole registry as first-class Pi tools (ctx_edit,
+   *                      ctx_patch, architecture/quality tools, …). Higher token
+   *                      cost. Pi's native `edit`/`write` stay available in every
+   *                      mode regardless of this setting.
+   * Env `LEAN_CTX_PI_TOOL_PROFILE` overrides this; `full`/`all` alias `power`.
+   */
+  toolProfile?: string;
 }
 
 export type PiMode = "additive" | "replace";
+
+/** The lean-ctx tool surface the embedded bridge advertises (→ LEAN_CTX_TOOL_PROFILE). */
+export type PiToolProfile = "lean" | "standard" | "power";
 
 /** Fully resolved configuration after merging file, env vars and defaults. */
 export interface ResolvedPiConfig {
@@ -73,6 +90,8 @@ export interface ResolvedPiConfig {
   disabledTools: Set<string>;
   /** Optional prefix for bridge-registered MCP tools (#359). */
   toolPrefix?: string;
+  /** Tool surface the embedded bridge advertises (maps to LEAN_CTX_TOOL_PROFILE). */
+  toolProfile: PiToolProfile;
   /** Absolute path the loader looked at (whether or not it existed). */
   configPath: string;
   /** True when the file existed and parsed into a JSON object. */
@@ -195,6 +214,33 @@ function resolveToolPrefix(filePrefix: unknown): string | undefined {
 }
 
 /**
+ * The lean-ctx tool surface the embedded bridge requests, mapped to the engine's
+ * `LEAN_CTX_TOOL_PROFILE`. Env `LEAN_CTX_PI_TOOL_PROFILE` wins over the file
+ * `toolProfile`; `full`/`all` alias `power`; anything unset or unrecognized falls
+ * back to `lean` — the lazy-core default that matches a normal install (every
+ * other tool stays reachable via `ctx_call`). `power` promotes the whole registry
+ * (ctx_edit/ctx_patch included) to first-class Pi tools.
+ */
+export function resolveToolProfile(fileProfile: unknown): PiToolProfile {
+  const raw = (process.env.LEAN_CTX_PI_TOOL_PROFILE
+    ?? (typeof fileProfile === "string" ? fileProfile : undefined)
+    ?? "lean")
+    .trim()
+    .toLowerCase();
+  switch (raw) {
+    case "power":
+    case "full":
+    case "all":
+      return "power";
+    case "standard":
+    case "std":
+      return "standard";
+    default:
+      return "lean";
+  }
+}
+
+/**
  * Loads and resolves the Pi override config. Precedence per setting is
  * "most explicit wins": an explicit `LEAN_CTX_PI_*` / `LEAN_CTX_BIN` env var
  * overrides `config.json`, which overrides the built-in default. This keeps
@@ -227,6 +273,21 @@ export function loadPiConfig(): ResolvedPiConfig {
 
   const mode = resolveMode(cfg.mode);
 
+  // Translate the Pi-facing tool profile into the engine env the spawned MCP
+  // server reads, so `standard`/`power` widen the advertised surface (ctx_edit /
+  // ctx_patch and the rest become first-class Pi tools via the bridge). Never
+  // override an explicit LEAN_CTX_TOOL_PROFILE — whether from the real env or the
+  // config.json `env` map — so "most explicit wins" holds. `lean` is the default
+  // and adds nothing (identical to a normal default install).
+  const toolProfile = resolveToolProfile(cfg.toolProfile);
+  if (
+    toolProfile !== "lean"
+    && forwardedEnv.LEAN_CTX_TOOL_PROFILE === undefined
+    && process.env.LEAN_CTX_TOOL_PROFILE === undefined
+  ) {
+    forwardedEnv.LEAN_CTX_TOOL_PROFILE = toolProfile;
+  }
+
   return {
     mode,
     routeShell: resolveRouteShell(mode, cfg.routeShell),
@@ -235,6 +296,7 @@ export function loadPiConfig(): ResolvedPiConfig {
     forwardedEnv,
     disabledTools: resolveDisabledTools(cfg.disableTools),
     toolPrefix: resolveToolPrefix(cfg.toolPrefix),
+    toolProfile,
     configPath,
     loaded,
   };

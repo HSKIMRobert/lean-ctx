@@ -1,15 +1,19 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  loadPiConfig,
   REPLACEABLE_BUILTIN_TOOLS,
   resolveRouteShell,
   resolveSuppressedBuiltins,
+  resolveToolProfile,
 } from "../extensions/config.js";
 
 const ENV_KEY = "LEAN_CTX_PI_ROUTE_SHELL";
+const PROFILE_ENV_KEYS = ["LEAN_CTX_PI_TOOL_PROFILE", "LEAN_CTX_TOOL_PROFILE"];
 
 afterEach(() => {
   delete process.env[ENV_KEY];
+  for (const key of PROFILE_ENV_KEYS) delete process.env[key];
 });
 
 describe("resolveRouteShell", () => {
@@ -66,5 +70,60 @@ describe("resolveSuppressedBuiltins", () => {
         }
       }
     }
+  });
+});
+
+describe("resolveToolProfile", () => {
+  it("defaults to lean (parity with a normal default install)", () => {
+    expect(resolveToolProfile(undefined)).toBe("lean");
+    expect(resolveToolProfile("")).toBe("lean");
+  });
+
+  it("honors the file value when no env var is set", () => {
+    expect(resolveToolProfile("power")).toBe("power");
+    expect(resolveToolProfile("standard")).toBe("standard");
+    expect(resolveToolProfile("lean")).toBe("lean");
+  });
+
+  it("treats full/all as aliases for power and std for standard", () => {
+    expect(resolveToolProfile("full")).toBe("power");
+    expect(resolveToolProfile("all")).toBe("power");
+    expect(resolveToolProfile("std")).toBe("standard");
+  });
+
+  it("is case-insensitive and trims surrounding whitespace", () => {
+    expect(resolveToolProfile("  Power ")).toBe("power");
+    expect(resolveToolProfile("STANDARD")).toBe("standard");
+  });
+
+  it("falls back to lean on an unrecognized value (never crashes the agent)", () => {
+    expect(resolveToolProfile("bogus")).toBe("lean");
+    expect(resolveToolProfile("minimal")).toBe("lean");
+  });
+
+  it("env LEAN_CTX_PI_TOOL_PROFILE wins over the file value", () => {
+    process.env.LEAN_CTX_PI_TOOL_PROFILE = "power";
+    expect(resolveToolProfile("lean")).toBe("power");
+    process.env.LEAN_CTX_PI_TOOL_PROFILE = "lean";
+    expect(resolveToolProfile("power")).toBe("lean");
+  });
+});
+
+describe("loadPiConfig tool-profile mapping", () => {
+  it("maps a non-lean profile onto LEAN_CTX_TOOL_PROFILE for the spawned engine", () => {
+    process.env.LEAN_CTX_PI_TOOL_PROFILE = "power";
+    const cfg = loadPiConfig();
+    expect(cfg.toolProfile).toBe("power");
+    expect(cfg.forwardedEnv.LEAN_CTX_TOOL_PROFILE).toBe("power");
+  });
+
+  it("never overrides an explicit LEAN_CTX_TOOL_PROFILE (most explicit wins)", () => {
+    process.env.LEAN_CTX_PI_TOOL_PROFILE = "power";
+    process.env.LEAN_CTX_TOOL_PROFILE = "minimal";
+    const cfg = loadPiConfig();
+    // Pi-facing resolution still reports what the user asked for…
+    expect(cfg.toolProfile).toBe("power");
+    // …but the pre-existing engine env var is left untouched.
+    expect(cfg.forwardedEnv.LEAN_CTX_TOOL_PROFILE).toBeUndefined();
   });
 });

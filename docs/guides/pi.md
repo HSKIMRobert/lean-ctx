@@ -86,6 +86,26 @@ This spawns lean-ctx as an embedded MCP server and registers additional tools:
 | `ctx_metrics` | Token savings dashboard |
 | `ctx_multi_read` | Batch file reads |
 
+### Tool surface: lean / standard / power
+
+The MCP bridge advertises whatever surface it requests from lean-ctx. By default
+that's the **lean core** + the `ctx_call` gateway — identical to a normal lean-ctx
+install, with every other tool (including the editors `ctx_edit` / `ctx_patch`)
+reachable through `ctx_call`. Pi's native `edit` / `write` builtins stay available
+in every mode, so you can always edit files regardless of this setting.
+
+To surface the **whole** registry (`ctx_edit`, `ctx_patch`, architecture/quality
+tools, …) as first-class Pi tools:
+
+```bash
+export LEAN_CTX_PI_TOOL_PROFILE=power   # or "standard" for a balanced 15-tool set
+```
+
+or set `"toolProfile": "power"` in `config.json`. Values: `lean` (default) ·
+`standard` · `power` (`full`/`all` alias `power`). It maps to the engine's
+`LEAN_CTX_TOOL_PROFILE`, so it mirrors `lean-ctx profile <name>`. `power` widens
+the surface at some prompt-token cost. Run `/lean-ctx` to see the active profile.
+
 ## Configuration
 
 ### Environment Variables
@@ -93,6 +113,7 @@ This spawns lean-ctx as an embedded MCP server and registers additional tools:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LEAN_CTX_PI_MODE` | `additive` | `additive` or `replace` |
+| `LEAN_CTX_PI_TOOL_PROFILE` | `lean` | Bridge tool surface: `lean`, `standard`, or `power` (all tools incl. `ctx_edit`/`ctx_patch`) |
 | `LEAN_CTX_PI_ENABLE_MCP` | `0` | Set to `1` to enable MCP bridge |
 | `LEAN_CTX_PI_MCP_TOOLS` | (all) | Comma-separated list of MCP tools to register |
 | `LEAN_CTX_EMBEDDING_MODEL` | `minilm` | Embedding model: `minilm`, `jina-code`, `nomic` |
@@ -110,6 +131,7 @@ instead of juggling env vars and `~/.lean-ctx/config.toml`. Create:
 {
   "mode": "replace",
   "enableMcp": true,
+  "toolProfile": "power",
   "binary": "/opt/lean-ctx/bin/lean-ctx",
   "env": {
     "LEAN_CTX_COMPRESSION": "aggressive"
@@ -120,6 +142,7 @@ instead of juggling env vars and `~/.lean-ctx/config.toml`. Create:
 | Key | Equivalent to | Notes |
 |-----|---------------|-------|
 | `mode` | `LEAN_CTX_PI_MODE` | `additive` (default) or `replace` |
+| `toolProfile` | `LEAN_CTX_PI_TOOL_PROFILE` | `lean` (default), `standard`, or `power` — see [Tool surface](#tool-surface-lean--standard--power) |
 | `enableMcp` | `LEAN_CTX_PI_ENABLE_MCP` | Start the embedded MCP bridge |
 | `binary` | `LEAN_CTX_BIN` | Absolute path to the `lean-ctx` binary |
 | `env` | — | Extra env forwarded to every `lean-ctx` subprocess; use it to override `~/.lean-ctx/config.toml` engine settings (the engine honours `LEAN_CTX_*` vars) |

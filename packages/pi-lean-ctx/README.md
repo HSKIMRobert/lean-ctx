@@ -16,6 +16,27 @@ To switch to **replace mode** (disables Pi builtins, only `ctx_*` tools availabl
 export LEAN_CTX_PI_MODE=replace
 ```
 
+## Tool surface (lean / standard / power)
+
+The embedded bridge advertises whatever tool surface it requests from lean-ctx —
+by default the **lean core** (the essential tools) plus the `ctx_call` gateway,
+exactly like a normal lean-ctx install. Every other tool, including the editors
+`ctx_edit` / `ctx_patch`, stays reachable through `ctx_call`, and Pi's own native
+`edit` / `write` builtins are available in every mode regardless of this setting.
+
+To promote the **whole** lean-ctx registry (`ctx_edit`, `ctx_patch`, architecture
+and quality tools, …) to first-class Pi tools, set `toolProfile`:
+
+```bash
+export LEAN_CTX_PI_TOOL_PROFILE=power   # or "standard" for the balanced 15-tool set
+```
+
+or in `config.json`: `"toolProfile": "power"`. Values: `lean` (default) ·
+`standard` · `power` (`full`/`all` alias `power`). It maps to the engine's
+`LEAN_CTX_TOOL_PROFILE`, so it mirrors `lean-ctx profile <name>` on a normal
+install. `power` costs more prompt tokens (more tool schemas) — opt in when you
+want the full surface in Pi. Check the active profile any time with `/lean-ctx`.
+
 ## Config file
 
 If you only use lean-ctx through Pi, keep every setting in one file instead of
@@ -25,13 +46,15 @@ env vars — `~/.pi/agent/extensions/pi-lean-ctx/config.json`:
 {
   "mode": "replace",
   "enableMcp": true,
+  "toolProfile": "power",
   "binary": "/opt/lean-ctx/bin/lean-ctx",
   "env": { "LEAN_CTX_COMPRESSION": "aggressive" }
 }
 ```
 
 `mode` → `LEAN_CTX_PI_MODE`, `enableMcp` → `LEAN_CTX_PI_ENABLE_MCP`,
-`binary` → `LEAN_CTX_BIN`, `disableTools` → `LEAN_CTX_PI_DISABLE_TOOLS`,
+`toolProfile` → `LEAN_CTX_PI_TOOL_PROFILE`, `binary` → `LEAN_CTX_BIN`,
+`disableTools` → `LEAN_CTX_PI_DISABLE_TOOLS`,
 `toolPrefix` → `LEAN_CTX_PI_TOOL_PREFIX` (see
 [Coexisting with AFT and magic-context](#coexisting-with-aft-and-magic-context)).
 The `env` map is forwarded to every `lean-ctx` subprocess, so it can override
@@ -118,8 +141,11 @@ On by default, pi-lean-ctx spawns the `lean-ctx` binary as an MCP server (JSON-R
 This persistent process holds the **session cache**: `ctx_read` (every mode, including line
 ranges) is routed through the bridge, so an unchanged re-read costs ~13 tokens instead of the
 full file and the read registers as a real CEP session (counted by `lean-ctx gain`). The bridge
-also discovers the server's advanced tools (`ctx_edit`, `ctx_overview`, `ctx_graph`, …),
+also discovers the server's advertised tools (`ctx_overview`, `ctx_graph`, `ctx_session`, …),
 filters out those already exposed as `ctx_` CLI tools, and registers the rest as native Pi tools.
+By default that surface is the lean core + `ctx_call`; set `toolProfile: power` (see the
+[Tool surface](#tool-surface-lean--standard--power) section) to also surface `ctx_edit` /
+`ctx_patch` and the rest of the registry as first-class Pi tools.
 
 The bridge wins over `~/.pi/agent/mcp.json`: a `lean-ctx` entry there (written by
 `lean-ctx init --agent pi`) does **not** disable the embedded bridge, because Pi has no native
