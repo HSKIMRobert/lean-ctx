@@ -10,7 +10,7 @@
 | | lean-ctx | Naive RAG |
 |---|---|---|
 | **Core idea** | Two halves under one pipeline: *compress into the window* when the material fits, *retrieve when it's too big* | Retrieve top-k chunks by vector similarity, always |
-| **Retrieval** | Hybrid: BM25 + dense vectors + Reciprocal Rank Fusion + rerank | Single-signal: dense cosine top-k |
+| **Retrieval** | Hybrid: BM25 + learned-sparse SPLADE + dense vectors, fused with RRF, then reranked | Single-signal: dense cosine top-k |
 | **Structure awareness** | Tree-sitter AST + code graph (calls, deps, blast radius) | None — text chunks only |
 | **Determinism** | Byte-stable outputs (prompt-cache safe) | Depends on the embedding/index; often not |
 | **Locality** | 100% local single binary | Usually an external vector DB + embedding API |
@@ -42,14 +42,20 @@ pipeline.
 
 A codebase is not a bag of paragraphs. Functions call functions; a change has a
 blast radius; a symbol has a definition and references. lean-ctx is
-**structure-aware**: it parses 26 languages with tree-sitter, builds a code
+**structure-aware**: it parses 20+ languages with tree-sitter, builds a code
 graph, and can answer "who calls this / what breaks if I change it" — questions a
 pile of embedded text chunks fundamentally cannot answer.
 
 Naive vector search treats `getUser()` and the string "get user" as roughly the
 same thing. lean-ctx knows one is a symbol with callers and the other is prose.
 That structural signal is the moat: it's what makes retrieval *precise* on code,
-and it's why lean-ctx doesn't rely on embeddings alone.
+and it's why lean-ctx doesn't rely on embeddings alone. The graph is used at
+*retrieval* time too — associative spreading activation (ACT-R style) surfaces
+structurally close code, and the reranker is grounded in 2025 code-retrieval
+research (CoRNStack, SACL, SweRank). Embeddings come from a **local ONNX model**
+(swappable; a model2vec fast path skips the attention pass), so this runs with no
+external vector DB, no embedding API, and no minutes-long, CPU-melting index
+build — the exact overhead that makes people wary of RAG.
 
 ## Trust: a reproducible retrieval floor
 

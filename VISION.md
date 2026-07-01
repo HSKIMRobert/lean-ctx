@@ -42,8 +42,12 @@ tools only solve one:
   crushing, cached re-reads). Embedding-and-retrieving here throws away
   information you already had room for.
 - **Retrieve what doesn't.** A large or dynamic knowledge base has to be
-  retrieved — and lean-ctx does it *hybrid* (BM25 + dense vectors + Reciprocal
-  Rank Fusion + rerank), never a single cosine signal.
+  retrieved — and lean-ctx does it with a *hybrid* retriever: lexical BM25 +
+  learned-sparse SPLADE + dense vectors, fused with Reciprocal Rank Fusion and
+  reranked, never a single cosine signal. Embeddings run from a **local ONNX
+  model** (swappable; a model2vec fast path skips the attention pass), so recall
+  is strong without an external vector DB, an embedding API, or a minutes-long,
+  CPU-melting index build.
 
 The failure mode of naive RAG is applying *retrieve* to everything, including
 material that never needed it — more chunks, less signal, quiet drift. lean-ctx
@@ -51,14 +55,19 @@ runs both halves under **one pipeline** and picks the right one for the material
 
 **The moat is structure.** A codebase is not a bag of paragraphs: functions call
 functions, changes have a blast radius, symbols have definitions and references.
-lean-ctx is structure-aware (tree-sitter AST + code graph across 26 languages),
-so retrieval is *precise on code* in a way pure text-embedding search cannot be.
+lean-ctx is structure-aware (tree-sitter AST + a code graph) and *uses* that
+graph at retrieval time — associative spreading activation surfaces structurally
+close code, and reranking grounded in 2025 code-retrieval research (CoRNStack,
+SACL, SweRank) sharpens the top results. Retrieval is *precise on code* in a way
+pure text-embedding search cannot be.
 
 **Knowledge stays yours.** What the engine learns is portable, not harvested:
-export it as open, git-diffable **OKF** Markdown (no lock-in), or as a signed,
-versioned **`.ctxpkg`** for distribution through the registry. One knowledge
-model, many renderings — the same source of truth whether you open it up or ship
-it out.
+export it as open, git-diffable **OKF** Markdown (interop with any OKF reader, no
+lock-in) or as a signed, versioned **`.ctxpkg`** for distribution — the same
+snapshot rendered for reading or shipping. Portability is a property of the
+format, not a paid feature. And when a team wants a heavier, external RAG across
+many repos and document types, that plugs in as an **addon** rather than bloating
+the always-local core.
 
 ## Principles
 
