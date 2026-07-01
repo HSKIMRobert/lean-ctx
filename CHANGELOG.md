@@ -37,6 +37,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   remaining memory/graph listings (mem0, graphiti, zep, letta, claude-context)
   stay directory-only because they need external infrastructure (a vector/graph
   DB, or a managed account) that a one-command install cannot provision.
+- **`session new` aliases `session reset` (#653).** `lean-ctx session new` now clears
+  the active session just like `session reset`, matching the "start a new session"
+  mental model; covered by a CLI characterization test.
 
 ### Changed
 - Refreshed bundled addon pins to current upstream: Headroom `0.27.0 → 0.28.0`,
@@ -52,6 +55,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   marker-bearing project derived from the requested path — the same rationale as
   the agent-config-dir case (#580) — while a markerless target with no derivable
   project stays blocked, so PathJail enforcement is unchanged.
+- **Local daemon IPC no longer 401s on tool calls (#651, #652).** The daemon writes
+  an auto-generated auth token, but the IPC client (Unix domain socket / Windows
+  named pipe) sends no `Authorization` header, so `/v1/tools/call` failed with 401
+  while `/health` passed. Router construction is now split: TCP HTTP keeps Bearer
+  auth, while local IPC serving disables the HTTP Bearer — the socket/pipe is already
+  a user-local OS boundary (Unix `0o600`, user-specific pipe name). TCP auth is
+  unchanged, a regression test guards the IPC path, and a security review found no
+  weakening of network auth.
+- **Codex stops reconstructing compressed shell output in chunks (#625, #654).** The
+  SessionStart hint now states plainly that compressed output is not exact evidence
+  and hard-requires re-running `lean-ctx raw "<exact command>"` for exact content,
+  forbidding chunked reconstruction (`cat`/`sed`/`head`/`tail`) and quoting
+  compressed output as exact — so Codex uses the reversible raw escape instead of
+  re-reading the compressed view piecemeal.
 - **Enterprise/OS TLS roots are honored by every HTTP client (#643).** All ureq
   clients are now built through `core::http_client`, which injects
   `RootCerts::PlatformVerifier` so requests trust the system/enterprise trust store
