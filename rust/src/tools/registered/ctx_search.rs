@@ -60,11 +60,10 @@ impl McpTool for CtxSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_search",
-            "Search code; `action` picks the engine. regex (default): `pattern` exact, \
-             include='*.rs', paths=[..] multi-root. semantic: by meaning (BM25+embeddings), \
-             `query`, mode=bm25|dense|hybrid. symbol: one body by `name` (AST), file/kind narrow, \
-             or `handle`=path#name@Lline (exact, stable). reindex / find_related(file_path,line). \
-             anchored=true tags hits path:line:hh for ctx_patch. Run ctx_compose FIRST.",
+            "Search code; `action` picks the engine (default regex). \
+             regex(pattern) | semantic(query, by meaning) | symbol(name, AST-exact; \
+             or handle=path#name@Lline) | reindex | find_related(file_path,line). \
+             anchored=true tags hits for ctx_patch. Run ctx_compose FIRST.",
             json!({
                 "type": "object",
                 "properties": {
@@ -72,22 +71,18 @@ impl McpTool for CtxSearchTool {
                         "type": "string",
                         "enum": ["regex", "semantic", "symbol", "reindex", "find_related"]
                     },
-                    "pattern": { "type": "string", "description": "Regex pattern" },
-                    "query": { "type": "string", "description": "Meaning query" },
-                    "name": { "type": "string", "description": "Symbol name" },
-                    "handle": { "type": "string", "description": "Stable handle path#name@Lline (exact)" },
+                    "pattern": { "type": "string" },
+                    "query": { "type": "string" },
+                    "name": { "type": "string" },
+                    "handle": { "type": "string", "description": "path#name@Lline (exact, stable)" },
                     "path": { "type": "string", "description": "Scope dir/root" },
-                    "paths": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Multi-root regex"
-                    },
+                    "paths": { "type": "array", "items": { "type": "string" } },
                     "include": { "type": "string", "description": "Glob, e.g. *.rs" },
-                    "anchored": { "type": "boolean", "description": "Tag hits path:line:hh for ctx_patch" },
+                    "anchored": { "type": "boolean" },
                     "max_results": { "type": "integer" },
                     "top_k": { "type": "integer" },
                     "mode": { "type": "string", "enum": ["bm25", "dense", "hybrid"] },
-                    "file": { "type": "string", "description": "Narrow to file" },
+                    "file": { "type": "string" },
                     "kind": { "type": "string", "description": "fn|struct|class|trait|enum" },
                     "file_path": { "type": "string" },
                     "line": { "type": "integer" }

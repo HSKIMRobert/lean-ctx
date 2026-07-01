@@ -15,19 +15,18 @@ impl McpTool for CtxSessionTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_session",
-            "WORKFLOW: action=save at session end; action=load at session start.\n\
-             action=status (snapshot); task|finding|decision (progress).\n\
-             ANTIPATTERN: permanent project knowledge → ctx_knowledge.\n\
-             Also supports: profile|role|budget|slo|diff|verify|episodes|procedures.",
+            "Session memory. save at session end, load at start, status = snapshot;\n\
+             task|finding|decision record progress (value=text).\n\
+             ANTIPATTERN: permanent project knowledge → ctx_knowledge.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "status|load|save|task|finding|decision|reset|list|cleanup|snapshot|restore|resume|profile|role|budget|slo|diff|verify|episodes|procedures"
+                        "description": "status|load|save|task|finding|decision|list|… (invalid action lists all)"
                     },
-                    "value": { "type": "string", "description": "Value for task/finding/decision actions" },
-                    "session_id": { "type": "string", "description": "Session ID (omit for latest)" }
+                    "value": { "type": "string" },
+                    "session_id": { "type": "string", "description": "Omit for latest" }
                 },
                 "required": ["action"]
             }),

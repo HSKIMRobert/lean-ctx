@@ -61,11 +61,12 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         // Core: always visible. Must cover every CORE_TOOL_NAMES entry —
         // otherwise the category gate silently drops a lazy-core tool for
         // list_changed-capable clients (ctx_expand was lost this way, #575).
+        // ctx_callgraph joined the lazy core in #578 (INTENT routes
+        // callers/impact to it), so it must be Core here too.
         "ctx_read" | "ctx_search" | "ctx_shell" | "shell" | "ctx_tree" | "ctx_edit"
         | "ctx_session" | "ctx_checkpoint" | "ctx_knowledge" | "ctx_overview" | "ctx_graph"
-        | "ctx_call" | "ctx_compress" | "ctx_cache" | "ctx_retrieve" | "ctx_expand" => {
-            ToolCategory::Core
-        }
+        | "ctx_callgraph" | "ctx_call" | "ctx_compress" | "ctx_cache" | "ctx_retrieve"
+        | "ctx_expand" => ToolCategory::Core,
 
         // Merged tools (redirects in registry, treated as Core for backward compat)
         "ctx_multi_read" | "ctx_smart_read" | "ctx_delta" | "ctx_outline" | "ctx_context" => {
@@ -73,8 +74,8 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         }
 
         // Arch: on-demand architecture analysis
-        "ctx_architecture" | "ctx_impact" | "ctx_callgraph" | "ctx_refactor" | "ctx_symbol"
-        | "ctx_routes" | "ctx_smells" | "ctx_quality" | "ctx_index" => ToolCategory::Arch,
+        "ctx_architecture" | "ctx_impact" | "ctx_refactor" | "ctx_symbol" | "ctx_routes"
+        | "ctx_smells" | "ctx_quality" | "ctx_index" => ToolCategory::Arch,
 
         // Debug/Verify: on-demand quality analysis
         "ctx_benchmark" | "ctx_verify" | "ctx_analyze" | "ctx_profile" | "ctx_proof"

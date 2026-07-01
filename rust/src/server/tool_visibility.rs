@@ -379,11 +379,19 @@ mod tests {
     /// search + symbol lookup via an `action` enum, so `ctx_semantic_search` left
     /// the core set (it + `ctx_symbol` are deprecated aliases). `ctx_search` grew
     /// (~196 → ~318 tok) but the core total DROPPED (~2298 → ~2150, one fewer
-    /// tool), so the budgets are left unchanged with comfortable headroom.
+    /// tool), so the budgets were left unchanged with comfortable headroom.
+    ///
+    /// #578 schema diet: redundant per-property descriptions dropped (names +
+    /// enums self-explain), teaching paragraphs tightened, and `ctx_callgraph`
+    /// (~147 tok) replaced `ctx_graph` (~300 tok) in the lazy core so the
+    /// advertised set matches the injected INTENT playbook. Measured ~1685 tok
+    /// → budgets lowered 360→300 per tool, 2340→1780 total. What remains is
+    /// functional teaching (ctx_read mode enum, ctx_search action routing,
+    /// compose-first) — cut below this only with A/B efficacy evidence.
     #[test]
     fn core_tool_surface_stays_within_budget() {
-        const PER_TOOL_BUDGET: usize = 360;
-        const TOTAL_BUDGET: usize = 2340;
+        const PER_TOOL_BUDGET: usize = 300;
+        const TOTAL_BUDGET: usize = 1780;
 
         let _guard = crate::core::data_dir::isolated_data_dir();
         let core = crate::tool_defs::core_tool_names();

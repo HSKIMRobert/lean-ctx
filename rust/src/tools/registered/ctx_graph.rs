@@ -15,15 +15,12 @@ impl McpTool for CtxGraphTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_graph",
-            "Graph queries — find dependencies, relationships, and symbols.\n\
-             action=symbol path=\"file.rs::fnName\" returns the source (NOT usages).\n\
-             action=neighbors path=\"file.rs\" shows import neighbors with direction & confidence.\n\
-             action=impact path=\"file.rs\" shows reverse dependency tree (blast radius).\n\
-             action=path from→to shows shortest dependency chain between two files.\n\
-             action=diff since=HEAD~1 for git change impact.\n\
-             action=diagram kind=deps|calls renders a Mermaid diagram.\n\
-             For understanding code, use ctx_compose FIRST. Use ctx_graph for targeted structural queries.\n\
-             ANTIPATTERN: symbol returns only the DEFINITION — not usages. For REFERENCES use grep or ctx_compose.",
+            "File-level dependency graph queries.\n\
+             action=symbol path=\"file.rs::fnName\" returns the DEFINITION (not usages — \
+             use ctx_search for references). neighbors=imports±direction, \
+             impact=reverse-dep blast radius, path from→to=dependency chain, \
+             diff since=HEAD~1=git change impact, diagram kind=deps|calls (Mermaid).\n\
+             For understanding code use ctx_compose FIRST.",
             json!({
                 "type": "object",
                 "properties": {
@@ -36,11 +33,11 @@ impl McpTool for CtxGraphTool {
                         "description": "Path; file::symbol for symbol action"
                     },
                     "to": { "type": "string", "description": "Target file (action=path)" },
-                    "depth": { "type": "integer", "description": "Traversal depth" },
+                    "depth": { "type": "integer" },
                     "kind": { "type": "string", "description": "diagram: deps|calls" },
                     "format": { "type": "string", "description": "text|json" },
-                    "since": { "type": "string", "description": "Git ref for action=diff (default HEAD~1)" },
-                    "project_root": { "type": "string", "description": "Project root" }
+                    "since": { "type": "string", "description": "Git ref (default HEAD~1)" },
+                    "project_root": { "type": "string" }
                 },
                 "required": ["action"]
             }),

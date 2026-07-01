@@ -15,42 +15,22 @@ impl McpTool for CtxCallgraphTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_callgraph",
-            "Callers/callees analysis — who calls a function and what it calls.\n\
-             action=callers symbol='fn' returns every call site with file:line.\n\
-             For END-TO-END flow tracing (how does X reach Y), use ctx_compose FIRST\n\
-             — one call returns the path + source. Use ctx_callgraph only when you need\n\
-             exhaustive enumeration of ALL callers/callees for a single symbol.\n\
-             action=trace from→to finds path between two symbols. depth=N for BFS depth.",
+            "Callers/callees for one symbol (function call edges, not const/var refs).\n\
+             action=callers|callees symbol='fn' → every call site with file:line.\n\
+             action=trace from→to finds the path between two symbols (depth=N).\n\
+             For end-to-end flow understanding use ctx_compose FIRST.",
             json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "callers|callees|trace|risk",
                         "enum": ["callers", "callees", "trace", "risk"]
                     },
-                    "symbol": {
-                        "type": "string",
-                        "description": "Symbol name"
-                    },
-                    "file": {
-                        "type": "string",
-                        "description": "Scope results to file"
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "BFS depth (1-5)",
-                        "minimum": 1,
-                        "maximum": 5
-                    },
-                    "from": {
-                        "type": "string",
-                        "description": "Source symbol"
-                    },
-                    "to": {
-                        "type": "string",
-                        "description": "Target symbol"
-                    }
+                    "symbol": { "type": "string" },
+                    "file": { "type": "string", "description": "Scope results to file" },
+                    "depth": { "type": "integer", "minimum": 1, "maximum": 5 },
+                    "from": { "type": "string" },
+                    "to": { "type": "string" }
                 }
             }),
         )

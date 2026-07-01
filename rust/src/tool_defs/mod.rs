@@ -78,7 +78,11 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "ctx_tree",
     "ctx_session",
     "ctx_compose",
-    "ctx_graph",
+    // #578: the injected INTENT playbook routes "callers/impact" to
+    // ctx_callgraph, so the advertised core matches the rules. ctx_graph
+    // (file-level deps, ~300 tok schema) stays reachable via ctx_call and the
+    // standard/power profiles.
+    "ctx_callgraph",
     "ctx_call",
     "ctx_expand",
 ];

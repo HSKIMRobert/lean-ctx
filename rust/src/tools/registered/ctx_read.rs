@@ -36,25 +36,24 @@ impl McpTool for CtxReadTool {
         tool_def(
             "ctx_read",
             "Read source files. mode REQUIRED — choose by intent (see `mode` below).\n\
-             WORKFLOW: after ctx_compose identified relevant files.\n\
-             ANTIPATTERN: not for understanding code — use ctx_compose FIRST (saves tokens).\n\
+             To UNDERSTAND code run ctx_compose FIRST; ctx_read after it identified files.\n\
              anchored → edit by reference via ctx_patch (no exact-recall).",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Absolute path" },
-                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Batch-read many files (replaces ctx_multi_read)" },
+                    "paths": { "type": "array", "items": { "type": "string" }, "description": "Batch read" },
                     "mode": {
                         "type": "string",
                         "description": "REQUIRED. full=verbatim(edit-ready) anchored=full+N:hh|anchors(edit via ctx_patch) raw=exact-bytes signatures=API map=structure auto=smart diff=git-delta lines:N-M=window reference=quotes task=focus"
                     },
-                    "raw": { "type": "boolean", "description": "Verbatim, no compression (= mode=\"raw\" + fresh)" },
-                    "start_line": { "type": "integer", "description": "1-based first line (offset alias)" },
+                    "raw": { "type": "boolean", "description": "Verbatim (= mode=raw + fresh)" },
+                    "start_line": { "type": "integer", "description": "1-based" },
                     "offset": { "type": "integer", "description": "start_line alias" },
                     "limit": { "type": "integer", "description": "Max lines" },
-                    "fresh": { "type": "boolean", "description": "Bypass cache, disk re-read" },
-                    "aggressiveness": { "type": "number", "description": "0.0(lossless)–1.0(max). Without explicit mode→density; also tunes entropy/task. Omit for defaults" },
-                    "protect": { "type": "array", "items": { "type": "string" }, "description": "Symbols/strings force-kept verbatim in entropy/task modes" }
+                    "fresh": { "type": "boolean", "description": "Bypass cache" },
+                    "aggressiveness": { "type": "number", "description": "0.0–1.0 density (entropy/task)" },
+                    "protect": { "type": "array", "items": { "type": "string" }, "description": "Symbols kept verbatim" }
                 },
                 "required": []
             }),

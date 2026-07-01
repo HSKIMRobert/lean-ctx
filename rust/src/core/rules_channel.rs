@@ -104,6 +104,43 @@ pub fn client_autoloads_compression(client_name: &str, home: &Path) -> bool {
     false
 }
 
+fn file_has_canonical_rules(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .is_ok_and(|c| crate::core::rules_canonical::RulesFile::parse(&c).has_content())
+}
+
+/// For the MCP `instructions` block: does `client_name` already auto-load the
+/// *canonical rules* block (tool mapping, intent playbook, recovery line, …)
+/// from its own rule file? If so, repeating the whole skeleton in the
+/// per-session instructions bills the same guidance twice on every session
+/// (#578) — the builder collapses it to a one-line anchor instead.
+///
+/// Carrier per client (kept in sync with `rules_inject::targets`):
+///   * Cursor → `~/.cursor/rules/lean-ctx.mdc` (canonical rules block)
+///   * Codex → `$CODEX_HOME/instructions.md` (canonical rules block)
+///
+/// Claude Code deliberately does NOT count: its `CLAUDE.md` block is the
+/// custom tool-mapping summary (`hooks/agents/claude.rs`), not the canonical
+/// set — dropping the skeleton there would lose the intent playbook.
+///
+/// Conservative by construction: only clients whose auto-loaded carrier holds
+/// the canonical block *right now* count. Any stale/removed file falls back to
+/// the full skeleton.
+pub fn client_autoloads_rules(client_name: &str, home: &Path) -> bool {
+    let lower = client_name.to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    if lower.contains("cursor") {
+        return file_has_canonical_rules(&home.join(".cursor/rules/lean-ctx.mdc"));
+    }
+    if lower.contains("codex") {
+        return codex_present(home)
+            && file_has_canonical_rules(&codex_dir(home).join("instructions.md"));
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,6 +229,44 @@ mod tests {
         // Codex now covered by its own global AGENTS.md → safe to thin again.
         std::fs::write(home.join(".codex/AGENTS.md"), &comp).unwrap();
         assert!(agents_md_can_thin(home));
+        crate::test_env::remove_var("CODEX_HOME");
+    }
+
+    #[test]
+    fn client_autoloads_rules_requires_canonical_block_on_disk() {
+        let _guard = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        crate::test_env::set_var("CODEX_HOME", home.join(".codex"));
+
+        // Nothing installed → nobody is covered.
+        assert!(!client_autoloads_rules("cursor", home));
+        assert!(!client_autoloads_rules("codex", home));
+        assert!(!client_autoloads_rules("", home));
+        assert!(!client_autoloads_rules("claude-code", home));
+
+        // Cursor covered once the mdc carries the canonical block.
+        std::fs::create_dir_all(home.join(".cursor/rules")).unwrap();
+        std::fs::write(
+            home.join(".cursor/rules/lean-ctx.mdc"),
+            format!("{FULL_HEADER}\nbody\n"),
+        )
+        .unwrap();
+        assert!(client_autoloads_rules("cursor", home));
+        assert!(client_autoloads_rules("cursor-vscode", home));
+
+        // A pointer-only / non-canonical file must NOT count.
+        std::fs::write(home.join(".cursor/rules/lean-ctx.mdc"), "user notes\n").unwrap();
+        assert!(!client_autoloads_rules("cursor", home));
+
+        // Codex covered via $CODEX_HOME/instructions.md.
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::write(
+            home.join(".codex/instructions.md"),
+            format!("{FULL_HEADER}\nbody\n"),
+        )
+        .unwrap();
+        assert!(client_autoloads_rules("codex", home));
         crate::test_env::remove_var("CODEX_HOME");
     }
 

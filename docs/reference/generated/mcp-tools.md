@@ -76,12 +76,10 @@ Parameters: `arguments`, `name`*
 
 ## `ctx_callgraph`
 
-Callers/callees analysis — who calls a function and what it calls.
-action=callers symbol='fn' returns every call site with file:line.
-For END-TO-END flow tracing (how does X reach Y), use ctx_compose FIRST
-— one call returns the path + source. Use ctx_callgraph only when you need
-exhaustive enumeration of ALL callers/callees for a single symbol.
-action=trace from→to finds path between two symbols. depth=N for BFS depth.
+Callers/callees for one symbol (function call edges, not const/var refs).
+action=callers|callees symbol='fn' → every call site with file:line.
+action=trace from→to finds the path between two symbols (depth=N).
+For end-to-end flow understanding use ctx_compose FIRST.
 
 Parameters: `action`, `depth`, `file`, `from`, `symbol`, `to`
 
@@ -220,14 +218,8 @@ Parameters: `action`, `code`, `intent`, `items`, `language`, `path`, `timeout`
 
 ## `ctx_expand`
 
-Retrieve archived tool output by ID (e.g. id=@F1 from [Archived:ID] hints).
-WORKFLOW: see [Archived:ID] → ctx_expand id=ID to restore full content.
-Supports head/tail/search to filter lines and save tokens on re-read.
-action=list browses all archives. action=search_all queries across archives.
-Zero-loss: original preserved.
-NO MCP? The same bytes are a real file — every [Archived]/tee/firewall hint
-shows its on-disk path; read that path directly with any tool instead.
-ANTIPATTERN: not for reading project files — use ctx_read or ctx_compose.
+Retrieve archived tool output: see [Archived:ID] → ctx_expand id=ID (zero-loss, original preserved). head/tail/search filter lines; action=list|search_all browses/queries archives.
+ANTIPATTERN: not for project files — use ctx_read or ctx_compose.
 
 Parameters: `action`, `end_line`, `head`, `id`, `json_keys`, `json_path`, `query`, `search`, `session_id`, `start_line`, `tail`
 
@@ -281,23 +273,16 @@ Parameters: `max_tokens`, `mode`, `path`, `query`, `ref`, `timeout_secs`, `url`*
 
 ## `ctx_glob`
 
-Find files by glob pattern — locate by name or extension.
-Respects .gitignore. Supports multi-root via paths array. max_results=N sets limit.
-For file content search, use ctx_search (pattern) or ctx_semantic_search (meaning).
+Find files by glob pattern (respects .gitignore; multi-root via paths).
+For file CONTENT search use ctx_search.
 
 Parameters: `ignore_gitignore`, `max_results`, `path`, `paths`, `pattern`*
 
 ## `ctx_graph`
 
-Graph queries — find dependencies, relationships, and symbols.
-action=symbol path="file.rs::fnName" returns the source (NOT usages).
-action=neighbors path="file.rs" shows import neighbors with direction & confidence.
-action=impact path="file.rs" shows reverse dependency tree (blast radius).
-action=path from→to shows shortest dependency chain between two files.
-action=diff since=HEAD~1 for git change impact.
-action=diagram kind=deps|calls renders a Mermaid diagram.
-For understanding code, use ctx_compose FIRST. Use ctx_graph for targeted structural queries.
-ANTIPATTERN: symbol returns only the DEFINITION — not usages. For REFERENCES use grep or ctx_compose.
+File-level dependency graph queries.
+action=symbol path="file.rs::fnName" returns the DEFINITION (not usages — use ctx_search for references). neighbors=imports±direction, impact=reverse-dep blast radius, path from→to=dependency chain, diff since=HEAD~1=git change impact, diagram kind=deps|calls (Mermaid).
+For understanding code use ctx_compose FIRST.
 
 Parameters: `action`*, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
 
@@ -533,8 +518,7 @@ Parameters: `format`
 ## `ctx_read`
 
 Read source files. mode REQUIRED — choose by intent (see `mode` below).
-WORKFLOW: after ctx_compose identified relevant files.
-ANTIPATTERN: not for understanding code — use ctx_compose FIRST (saves tokens).
+To UNDERSTAND code run ctx_compose FIRST; ctx_read after it identified files.
 anchored → edit by reference via ctx_patch (no exact-recall).
 
 Parameters: `aggressiveness`, `fresh`, `limit`, `mode`, `offset`, `path`, `paths`, `protect`, `raw`, `start_line`
@@ -610,7 +594,7 @@ Parameters: `action`*, `agent`
 
 ## `ctx_search`
 
-Search code; `action` picks the engine. regex (default): `pattern` exact, include='*.rs', paths=[..] multi-root. semantic: by meaning (BM25+embeddings), `query`, mode=bm25|dense|hybrid. symbol: one body by `name` (AST), file/kind narrow, or `handle`=path#name@Lline (exact, stable). reindex / find_related(file_path,line). anchored=true tags hits path:line:hh for ctx_patch. Run ctx_compose FIRST.
+Search code; `action` picks the engine (default regex). regex(pattern) | semantic(query, by meaning) | symbol(name, AST-exact; or handle=path#name@Lline) | reindex | find_related(file_path,line). anchored=true tags hits for ctx_patch. Run ctx_compose FIRST.
 
 Parameters: `action`, `anchored`, `file`, `file_path`, `handle`, `include`, `kind`, `line`, `max_results`, `mode`, `name`, `path`, `paths`, `pattern`, `query`, `top_k`
 
@@ -624,10 +608,9 @@ Parameters: `action`, `file_path`, `languages`, `line`, `mode`, `path`, `path_gl
 
 ## `ctx_session`
 
-WORKFLOW: action=save at session end; action=load at session start.
-action=status (snapshot); task|finding|decision (progress).
+Session memory. save at session end, load at start, status = snapshot;
+task|finding|decision record progress (value=text).
 ANTIPATTERN: permanent project knowledge → ctx_knowledge.
-Also supports: profile|role|budget|slo|diff|verify|episodes|procedures.
 
 Parameters: `action`*, `session_id`, `value`
 
