@@ -427,6 +427,81 @@ pub fn embed_and_store(
     Ok(())
 }
 
+/// Per-`remember` cap for [`backfill_missing`]. One MiniLM mini-batch
+/// (`embed_batch` chunks at 64) — bounded latency on the write path while an
+/// actively-used project converges to full vector coverage within a few calls.
+pub const BACKFILL_PER_REMEMBER: usize = 32;
+
+/// Current facts that have no vector in the side-car index, most valuable
+/// first (same ordering as `embeddings_reindex`: confidence, then recency).
+/// Engine-free so the selection is unit-testable with raw indices.
+pub fn missing_current_facts<'a>(
+    index: &KnowledgeEmbeddingIndex,
+    knowledge: &'a ProjectKnowledge,
+    cap: usize,
+) -> Vec<&'a KnowledgeFact> {
+    use std::collections::HashSet;
+
+    let have: HashSet<(&str, &str)> = index
+        .entries
+        .iter()
+        .map(|e| (e.category.as_str(), e.key.as_str()))
+        .collect();
+
+    let mut missing: Vec<&KnowledgeFact> = knowledge
+        .facts
+        .iter()
+        .filter(|f| f.is_current() && !have.contains(&(f.category.as_str(), f.key.as_str())))
+        .collect();
+    missing.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.last_confirmed.cmp(&a.last_confirmed))
+            .then_with(|| a.category.cmp(&b.category))
+            .then_with(|| a.key.cmp(&b.key))
+    });
+    missing.truncate(cap);
+    missing
+}
+
+/// Lazy vector backfill: embeds up to `cap` current facts that are missing
+/// from the side-car index. Facts land without vectors on two paths — the
+/// consolidation/ETL writers never embed at all, and a non-blocking `remember`
+/// skips its side-car while the engine is still warming up. Without a healer
+/// those facts stay invisible to `mode=semantic` recall until a *manual*
+/// `embeddings_reindex`. Called from `remember` under the per-project lock
+/// once the engine is warm, so active projects self-heal incrementally.
+/// Returns the number of facts embedded.
+#[cfg(feature = "embeddings")]
+pub fn backfill_missing(
+    index: &mut KnowledgeEmbeddingIndex,
+    engine: &EmbeddingEngine,
+    knowledge: &ProjectKnowledge,
+    cap: usize,
+) -> usize {
+    let missing = missing_current_facts(index, knowledge, cap);
+    if missing.is_empty() {
+        return 0;
+    }
+
+    let texts: Vec<String> = missing
+        .iter()
+        .map(|f| format!("{} {}: {}", f.category, f.key, f.value))
+        .collect();
+    let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let Ok(vectors) = engine.embed_batch(&refs) else {
+        return 0;
+    };
+
+    let mut stored = 0usize;
+    for (fact, vector) in missing.iter().zip(vectors) {
+        index.upsert(&fact.category, &fact.key, &vector);
+        stored += 1;
+    }
+    stored
+}
+
 /// Embedding-based near-duplicate detection for `remember`. Mirrors the lexical
 /// [`find_cross_key_similar`] but scores cosine similarity, so paraphrases that
 /// share few tokens are still caught. Read-only against the *pre-upsert* index,
@@ -771,6 +846,39 @@ mod tests {
         assert_eq!(idx.entries.len(), 1);
         assert_eq!(idx.entries[0].category, "arch");
         assert_eq!(idx.entries[0].key, "db");
+    }
+
+    #[test]
+    fn missing_current_facts_selects_unindexed_by_confidence_capped() {
+        let mut knowledge = ProjectKnowledge::new("/tmp/project");
+
+        let indexed = fact_with("arch", "indexed", "s");
+        let mut high = fact_with("arch", "high", "s");
+        high.confidence = 0.95;
+        let mut low = fact_with("arch", "low", "s");
+        low.confidence = 0.5;
+        let mut archived = fact_with("arch", "archived", "s");
+        archived.valid_until = Some(chrono::Utc::now());
+        knowledge.facts.extend([indexed, high, low, archived]);
+
+        let mut idx = KnowledgeEmbeddingIndex::new("test");
+        idx.upsert("arch", "indexed", &[1.0, 0.0, 0.0]);
+
+        // Already-indexed and archived facts are excluded; rest ordered by
+        // confidence (the reindex ordering).
+        let missing = missing_current_facts(&idx, &knowledge, 10);
+        let keys: Vec<&str> = missing.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, vec!["high", "low"]);
+
+        // Cap bounds the batch (most valuable first).
+        let capped = missing_current_facts(&idx, &knowledge, 1);
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].key, "high");
+
+        // Full coverage → nothing to backfill.
+        idx.upsert("arch", "high", &[0.0, 1.0, 0.0]);
+        idx.upsert("arch", "low", &[0.0, 0.0, 1.0]);
+        assert!(missing_current_facts(&idx, &knowledge, 10).is_empty());
     }
 
     #[test]
