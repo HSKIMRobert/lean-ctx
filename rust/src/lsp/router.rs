@@ -178,6 +178,16 @@ pub(crate) fn seed_stub_backend(language: &str, backend: Box<dyn LspBackend>) {
     }
 }
 
+/// Serializes tests that seed [`BACKENDS`] stubs: `BACKENDS` is process-global,
+/// so two parallel tests seeding the same language would race (one stub
+/// overwrites the other between seed and use). Hold this for the whole test.
+#[cfg(test)]
+pub(crate) fn stub_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

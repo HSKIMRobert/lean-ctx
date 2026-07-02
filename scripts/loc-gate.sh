@@ -8,23 +8,16 @@ set -euo pipefail
 LIMIT=1500
 FROZEN_LIMIT=2000
 
-# Legacy files awaiting their split (Wave B and later). Paths relative to repo root.
+# Legacy files awaiting their split (Wave C and later). Paths relative to repo root.
 ALLOWLIST=(
   rust/src/proxy_setup.rs
   rust/src/core/config/mod.rs
   rust/src/core/config/proxy.rs
   rust/src/core/config/tests.rs
-  rust/src/cloud_server/billing_edge.rs
-  rust/src/cli/dispatch/network.rs
-  rust/src/cloud_server/wrapped.rs
-  rust/src/tools/ctx_refactor.rs
   rust/src/tools/ctx_read/tests.rs
-  rust/src/tools/ctx_refactor_tests.rs
-  rust/src/hooks/mod.rs
   rust/src/shell/compress/tests.rs
   rust/src/http_server/mod.rs
   rust/src/http_server/team/mod.rs
-  rust/src/dashboard/mod.rs
 )
 
 cd "$(dirname "$0")/.."
