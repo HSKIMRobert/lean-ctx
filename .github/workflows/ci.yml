@@ -139,6 +139,10 @@ jobs:
       - name: Run clippy
         working-directory: rust
         run: cargo clippy --all-features -- -D warnings
+      # Maintainability gate (#660): no Rust file grows past 1500 LOC
+      # (legacy files are frozen at 2000 via the script's allowlist).
+      - name: LOC gate (file size budget)
+        run: ./scripts/loc-gate.sh
 
   # Guards the no-ORT build (#586). The `embeddings`/`neural` features pull the
   # `ort` crate, whose `load-dynamic` dylib resolver has no fallback arm for

@@ -3,6 +3,8 @@
 
 #[allow(clippy::wildcard_imports)]
 use super::*;
+use chrono::Utc;
+
 use crate::core::knowledge::{AdmissionResult, sort_fact_for_output};
 use crate::core::plugins::{PluginManager, executor::HookPoint};
 
