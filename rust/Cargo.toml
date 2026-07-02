@@ -120,6 +120,9 @@ gateway-server = [
   "dep:webpki-roots",
   "dep:hex",
 ]
+# N×M shape translation (enterprise#16): Claude clients on OpenAI-shape
+# upstreams (Foundry, vLLM, Ollama…). LOCAL_OPTIONAL: compile-gated only.
+shape-xlat = ["http-server"]
 secure-update = []
 cloud-server = [
   "http-server",

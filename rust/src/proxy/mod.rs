@@ -33,6 +33,8 @@ pub mod prose;
 pub mod prose_ranker;
 pub mod providers;
 pub mod routing;
+#[cfg(feature = "shape-xlat")]
+pub mod shape_xlat;
 #[cfg(test)]
 mod stats_tests;
 pub mod tool_kind;

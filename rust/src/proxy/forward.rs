@@ -85,9 +85,19 @@ pub async fn forward_request(
     });
     let route_upstreams =
         (routing_rules.is_active() && !downgrade_forbidden).then(|| state.upstream_snapshot());
+    // Cross-shape translation (enterprise#16) only exists for the exact
+    // messages-create call — count_tokens/batches subpaths have no OpenAI
+    // equivalent and must stay within-shape.
+    let xlat_ok = cfg!(feature = "shape-xlat")
+        && provider_label == "Anthropic"
+        && parts
+            .uri
+            .path()
+            .trim_end_matches('/')
+            .ends_with("/v1/messages");
     let route_hook = |parsed: &mut serde_json::Value| {
         route_upstreams.as_ref().and_then(|up| {
-            super::routing::route_request(parsed, provider_label, up, &routing_rules)
+            super::routing::route_request(parsed, provider_label, up, &routing_rules, xlat_ok)
         })
     };
 
@@ -144,7 +154,15 @@ pub async fn forward_request(
         compressed_size as u64,
     );
 
-    let upstream_url = build_upstream_url(&parts, upstream_base, default_path);
+    // Cross-shape route (enterprise#16): the body now speaks OpenAI Chat
+    // Completions — address the matching endpoint instead of the caller's
+    // `/v1/messages` path, and scan the response with the OpenAI parser.
+    let xlat = route.as_ref().is_some_and(|r| r.xlat);
+    let upstream_url = if xlat {
+        format!("{upstream_base}/v1/chat/completions")
+    } else {
+        build_upstream_url(&parts, upstream_base, default_path)
+    };
     let response = send_upstream(
         &state,
         &parts,
@@ -157,7 +175,12 @@ pub async fn forward_request(
 
     // Measured usage: read the real model + billed tokens from the response.
     // Gemini puts the model in the URL path, not the request/response body.
-    let usage_provider = super::usage::Provider::from_label(provider_label);
+    // Translated requests get OpenAI-shape responses regardless of the label.
+    let usage_provider = if xlat {
+        super::usage::Provider::OpenAi
+    } else {
+        super::usage::Provider::from_label(provider_label)
+    };
     let url_model = if usage_provider == super::usage::Provider::Gemini {
         super::usage::gemini_model_from_path(parts.uri.path())
     } else {
@@ -195,6 +218,7 @@ pub async fn forward_request(
         url_model,
         cohort,
         wire,
+        xlat,
     )
     .await
 }
@@ -363,10 +387,27 @@ fn prepare_request_body(
 
     // Router runs on the freshly parsed body, before compression: the model
     // swap lands in the same single serialization as the compression pass.
-    let route = route_hook(&mut parsed);
+    let mut route = route_hook(&mut parsed);
 
     let original_size = decoded.len();
-    let (logical_body, _, compressed_size) = compress_body(parsed.clone(), original_size);
+    // Cross-shape route (enterprise#16): translate Messages→Chat-Completions
+    // and compress with the target shape's compressor. An untranslatable body
+    // fails open — the route is cancelled and the request forwards natively.
+    let (logical_body, _, compressed_size) =
+        if let Some(openai_body) = translated_openai_body(route.as_ref(), &parsed) {
+            super::openai::compress_request_body(openai_body, original_size)
+        } else {
+            if route.as_ref().is_some_and(|r| r.xlat) {
+                let decision = route.take().expect("checked is_some");
+                tracing::warn!(
+                    "lean-ctx proxy: request not translatable to OpenAI shape — \
+                 cancelling route to '{}', forwarding natively",
+                    decision.provider_id.as_deref().unwrap_or("?")
+                );
+                parsed["model"] = serde_json::Value::String(decision.routed_from);
+            }
+            compress_body(parsed.clone(), original_size)
+        };
     let body = match encoding {
         RequestBodyEncoding::Identity => logical_body,
         RequestBodyEncoding::Gzip => encode_gzip(&logical_body)?,
@@ -383,6 +424,26 @@ fn prepare_request_body(
         preserve_content_encoding: encoding != RequestBodyEncoding::Identity,
         route,
     })
+}
+
+/// The translated OpenAI body for a cross-shape route, or `None` when the
+/// route is within-shape / absent / the body is untranslatable.
+#[cfg(feature = "shape-xlat")]
+fn translated_openai_body(
+    route: Option<&super::routing::RouteDecision>,
+    parsed: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    route
+        .filter(|r| r.xlat)
+        .and_then(|_| super::shape_xlat::messages_to_chat(parsed))
+}
+
+#[cfg(not(feature = "shape-xlat"))]
+fn translated_openai_body(
+    _route: Option<&super::routing::RouteDecision>,
+    _parsed: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    None
 }
 
 fn build_upstream_url(parts: &Parts, base: &str, default_path: &str) -> String {
@@ -620,6 +681,7 @@ pub(super) fn is_forwarded_response_header(name: &str) -> bool {
         || name.starts_with("x-ratelimit-")
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn build_response(
     response: reqwest::Response,
     extra_stream_types: &[&str],
@@ -627,6 +689,7 @@ async fn build_response(
     url_model: Option<String>,
     cohort: Option<super::holdout::Arm>,
     wire: Option<Box<super::usage::WireContext>>,
+    xlat: bool,
 ) -> Result<Response, StatusCode> {
     let status = StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::OK);
     let resp_headers = response.headers().clone();
@@ -641,12 +704,15 @@ async fn build_response(
     if is_stream {
         // Tee the stream through a usage Scanner: each chunk is forwarded
         // byte-for-byte while the real model + billed tokens are extracted from
-        // the final event and recorded when the stream ends.
+        // the final event and recorded when the stream ends. A cross-shape
+        // route (enterprise#16) additionally translates the teed bytes back to
+        // Anthropic SSE — metering always reads the raw upstream stream.
         let scanner = super::usage::Scanner::new(usage_provider, url_model)
             .with_cohort(cohort)
             .with_wire_context(wire);
         let inner = Box::pin(response.bytes_stream());
-        let body = Body::from_stream(super::usage::tee_stream(inner, scanner));
+        let teed = Box::pin(super::usage::tee_stream(inner, scanner));
+        let body = xlat_stream_body(teed, xlat);
         let mut resp = Response::builder().status(status);
         for (k, v) in &resp_headers {
             let ks = k.as_str().to_lowercase();
@@ -673,6 +739,12 @@ async fn build_response(
         super::usage_meter::record(&usage);
     }
 
+    let resp_bytes = if xlat {
+        xlat_response_bytes(&resp_bytes, status)
+    } else {
+        resp_bytes.to_vec()
+    };
+
     let mut resp = Response::builder().status(status);
     for (k, v) in &resp_headers {
         let ks = k.as_str().to_lowercase();
@@ -682,6 +754,57 @@ async fn build_response(
     }
     resp.body(Body::from(resp_bytes))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+/// Streaming body, translated back to Anthropic SSE when `xlat` is set.
+#[cfg(feature = "shape-xlat")]
+fn xlat_stream_body<S>(teed: S, xlat: bool) -> Body
+where
+    S: futures::Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Send + Unpin + 'static,
+{
+    if xlat {
+        Body::from_stream(super::shape_xlat::to_anthropic_stream(teed))
+    } else {
+        Body::from_stream(teed)
+    }
+}
+
+#[cfg(not(feature = "shape-xlat"))]
+fn xlat_stream_body<S>(teed: S, _xlat: bool) -> Body
+where
+    S: futures::Stream<Item = Result<axum::body::Bytes, reqwest::Error>> + Send + Unpin + 'static,
+{
+    Body::from_stream(teed)
+}
+
+/// Non-streaming translated response: chat.completion → Anthropic message on
+/// success, error envelope on failure. Unrecognizable bodies pass unchanged
+/// (better a shape-mismatched body than a dropped one).
+#[cfg(feature = "shape-xlat")]
+fn xlat_response_bytes(resp_bytes: &[u8], status: StatusCode) -> Vec<u8> {
+    let translated = serde_json::from_slice::<serde_json::Value>(resp_bytes)
+        .ok()
+        .and_then(|v| {
+            if status.is_success() {
+                super::shape_xlat::chat_to_messages(&v)
+            } else {
+                super::shape_xlat::error_to_anthropic(&v)
+            }
+        });
+    if let Some(v) = translated {
+        serde_json::to_vec(&v).unwrap_or_else(|_| resp_bytes.to_vec())
+    } else {
+        tracing::warn!(
+            "lean-ctx proxy: cross-shape response not translatable (status {status}) — \
+             forwarding raw body"
+        );
+        resp_bytes.to_vec()
+    }
+}
+
+#[cfg(not(feature = "shape-xlat"))]
+fn xlat_response_bytes(resp_bytes: &[u8], _status: StatusCode) -> Vec<u8> {
+    resp_bytes.to_vec()
 }
 
 #[cfg(test)]

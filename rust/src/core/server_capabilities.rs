@@ -104,6 +104,8 @@ pub const LOCAL_OPTIONAL_FEATURES: &[&str] = &[
     // Self-hosted org gateway run-mode (remote bind + usage store + admin API).
     // Free to self-host; only compile-gated (`gateway-server` Cargo feature).
     "gateway_server",
+    // Cross-shape routing Anthropic→OpenAI (enterprise#16, `shape-xlat`).
+    "shape_translation",
 ];
 
 /// Commercial-plane capabilities — additive, opt-in, and never required for any
@@ -128,6 +130,7 @@ fn features() -> Value {
         "http_server": cfg!(feature = "http-server"),
         "wasm_runtime": cfg!(feature = "wasm"),
         "gateway_server": cfg!(feature = "gateway-server"),
+        "shape_translation": cfg!(feature = "shape-xlat"),
         "team_server": cfg!(feature = "team-server"),
         "cloud_server": cfg!(feature = "cloud-server"),
     })

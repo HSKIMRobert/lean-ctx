@@ -3,9 +3,11 @@
 //!
 //! Runs between body parse and body compression: it may replace the `model`
 //! field and re-target the request to another upstream of the **same wire
-//! shape** (within-shape M1; N×M shape translation is M2, enterprise#16).
-//! The decision is recorded as `routed_from` on the usage record, so savings
-//! attribution can prove what the router did (enterprise#15/#19).
+//! shape** — or, with the `shape-xlat` feature (enterprise#16), route an
+//! Anthropic `/v1/messages` request onto an OpenAI-shape upstream with the
+//! translation flag set. The decision is recorded as `routed_from` on the
+//! usage record, so savings attribution can prove what the router did
+//! (enterprise#15/#19).
 //!
 //! Two rule sources (`[proxy.routing]`, [`RoutingRules`]):
 //!
@@ -46,6 +48,10 @@ pub struct RouteDecision {
     /// Target's local-inference flag (shadow-rate billing): `Some` for
     /// registry targets, `None` for built-ins (URL heuristic applies).
     pub local: Option<bool>,
+    /// Cross-shape route (enterprise#16, feature `shape-xlat`): the Anthropic
+    /// request body must be translated to OpenAI Chat Completions before it
+    /// leaves, and the response translated back. Always `false` within-shape.
+    pub xlat: bool,
 }
 
 /// Maximum user-message prefix fed to the intent classifier. Classification is
@@ -56,18 +62,23 @@ const CLASSIFY_QUERY_CAP: usize = 2000;
 /// the body's `model` field is rewritten in place and the full decision is
 /// returned; on any miss/failure the body is untouched and `None` is returned
 /// (fail-open passthrough).
+///
+/// `xlat_ok` — the caller vouches that this request may be shape-translated
+/// (exact messages-create path, `shape-xlat` compiled in). Subpaths like
+/// `count_tokens`/`batches` have no OpenAI equivalent and must stay
+/// within-shape.
 pub fn route_request(
     parsed: &mut serde_json::Value,
     provider_label: &str,
     upstreams: &Upstreams,
     rules: &RoutingRules,
+    xlat_ok: bool,
 ) -> Option<RouteDecision> {
     if !rules.is_active() {
         return None;
     }
-    // Within-shape M1: only body-addressed model dialects route. Gemini keys
-    // the model in the URL path and ChatGPT-backend is OAuth'd Codex traffic —
-    // both stay passthrough until shape translation (M2).
+    // Body-addressed model dialects route. Gemini keys the model in the URL
+    // path and ChatGPT-backend is OAuth'd Codex traffic — both passthrough.
     let request_shape = match provider_label {
         "Anthropic" => WireShape::Anthropic,
         "OpenAI" => WireShape::OpenAi,
@@ -86,12 +97,12 @@ pub fn route_request(
     let (provider, new_model) = parse_route_target(&target)?;
     let new_model = new_model.to_string();
 
-    let (provider_id, upstream_base, credential, local) = match provider {
-        None => (None, None, None, None),
-        Some(p) => resolve_provider(p, request_shape, upstreams)?,
+    let resolved = match provider {
+        None => ResolvedTarget::default(),
+        Some(p) => resolve_provider(p, request_shape, upstreams, xlat_ok)?,
     };
 
-    if new_model == requested && upstream_base.is_none() {
+    if new_model == requested && resolved.upstream_base.is_none() {
         return None; // no-op rule
     }
 
@@ -99,27 +110,34 @@ pub fn route_request(
     Some(RouteDecision {
         model: new_model,
         routed_from: requested,
-        provider_id,
-        upstream_base,
-        credential,
-        local,
+        provider_id: resolved.provider_id,
+        upstream_base: resolved.upstream_base,
+        credential: resolved.credential,
+        local: resolved.local,
+        xlat: resolved.xlat,
     })
 }
 
-/// Resolves a route-target provider name to (id, upstream, credential, local),
-/// enforcing the within-shape rule. Unknown ids and shape mismatches are
-/// logged and route nothing.
-#[allow(clippy::type_complexity)]
+/// A resolved route target. `Default` = model-only rewrite (upstream unchanged).
+#[derive(Default)]
+struct ResolvedTarget {
+    provider_id: Option<String>,
+    upstream_base: Option<String>,
+    credential: Option<ResolvedProvider>,
+    local: Option<bool>,
+    xlat: bool,
+}
+
+/// Resolves a route-target provider name, enforcing the shape rules: same
+/// shape always routes; Anthropic→OpenAI routes with the translation flag when
+/// the `shape-xlat` feature is compiled in and the caller allowed it. Unknown
+/// ids and untranslatable shape pairs are logged and route nothing.
 fn resolve_provider(
     name: &str,
     request_shape: WireShape,
     upstreams: &Upstreams,
-) -> Option<(
-    Option<String>,
-    Option<String>,
-    Option<ResolvedProvider>,
-    Option<bool>,
-)> {
+    xlat_ok: bool,
+) -> Option<ResolvedTarget> {
     let (target_shape, base_url, credential, local) = match name {
         "anthropic" => (
             WireShape::Anthropic,
@@ -144,16 +162,61 @@ fn resolve_provider(
             )
         }
     };
-    if target_shape != request_shape {
+    let xlat = if target_shape == request_shape {
+        false
+    } else if can_translate(
+        request_shape,
+        target_shape,
+        xlat_ok,
+        credential.as_ref(),
+        local,
+    ) {
+        true
+    } else {
         tracing::warn!(
             "[proxy.routing] target '{name}' speaks {} but the request is {} — \
-             within-shape only in M1, passthrough",
+             not translatable here, passthrough",
             target_shape.as_str(),
             request_shape.as_str()
         );
         return None;
-    }
-    Some((Some(name.to_string()), Some(base_url), credential, local))
+    };
+    Some(ResolvedTarget {
+        provider_id: Some(name.to_string()),
+        upstream_base: Some(base_url),
+        credential,
+        local,
+        xlat,
+    })
+}
+
+/// Anthropic→OpenAI is the supported translation pair (enterprise#16). The
+/// upstream must be gateway-authenticated (`api_key_env`) or a local endpoint
+/// (no auth) — the caller's Anthropic credentials mean nothing to an
+/// OpenAI-shape provider.
+#[cfg(feature = "shape-xlat")]
+fn can_translate(
+    request_shape: WireShape,
+    target_shape: WireShape,
+    xlat_ok: bool,
+    credential: Option<&ResolvedProvider>,
+    local: Option<bool>,
+) -> bool {
+    xlat_ok
+        && request_shape == WireShape::Anthropic
+        && target_shape == WireShape::OpenAi
+        && (credential.is_some() || local == Some(true))
+}
+
+#[cfg(not(feature = "shape-xlat"))]
+fn can_translate(
+    _request_shape: WireShape,
+    _target_shape: WireShape,
+    _xlat_ok: bool,
+    _credential: Option<&ResolvedProvider>,
+    _local: Option<bool>,
+) -> bool {
+    false
 }
 
 /// Intent-tier target: classify the last user message, look the tier up in the
@@ -287,6 +350,7 @@ mod tests {
             "OpenAI",
             &upstreams_with_foundry(),
             &rules(&[("acme/fast", "foundry:gpt-4o-mini")], &[]),
+            false,
         )
         .expect("routed");
         assert_eq!(body["model"], "gpt-4o-mini");
@@ -311,6 +375,7 @@ mod tests {
             "Anthropic",
             &upstreams_with_foundry(),
             &rules(&[("claude-opus-4-5", "claude-sonnet-4-5")], &[]),
+            false,
         )
         .expect("routed");
         assert_eq!(body["model"], "claude-sonnet-4-5");
@@ -320,8 +385,9 @@ mod tests {
     }
 
     #[test]
-    fn cross_shape_target_is_passthrough() {
-        // Anthropic request → OpenAI-shape foundry: within-shape only in M1.
+    fn cross_shape_target_is_passthrough_when_xlat_not_allowed() {
+        // Anthropic request → OpenAI-shape foundry with xlat_ok=false (wrong
+        // path, e.g. count_tokens): must stay passthrough.
         let mut body =
             json!({"model": "claude-opus-4-5", "messages": [{"role":"user","content":"hi"}]});
         let before = body.clone();
@@ -330,9 +396,98 @@ mod tests {
             "Anthropic",
             &upstreams_with_foundry(),
             &rules(&[("claude-opus-4-5", "foundry:gpt-4o-mini")], &[]),
+            false,
         );
         assert_eq!(d, None);
         assert_eq!(body, before, "fail-open must leave the body untouched");
+    }
+
+    #[cfg(feature = "shape-xlat")]
+    #[test]
+    fn cross_shape_target_routes_with_translation_flag() {
+        // enterprise#16: with the feature compiled in and the caller vouching
+        // for the path, Anthropic → OpenAI-shape routes and marks xlat.
+        let mut body =
+            json!({"model": "claude-opus-4-5", "messages": [{"role":"user","content":"hi"}]});
+        let d = route_request(
+            &mut body,
+            "Anthropic",
+            &upstreams_with_foundry(),
+            &rules(&[("claude-opus-4-5", "foundry:gpt-4o-mini")], &[]),
+            true,
+        )
+        .expect("cross-shape route with translation");
+        assert!(d.xlat, "decision must carry the translation flag");
+        assert_eq!(body["model"], "gpt-4o-mini");
+        assert_eq!(d.provider_id.as_deref(), Some("foundry"));
+        assert!(d.credential.is_some());
+
+        // Within-shape decisions never set xlat.
+        let mut body2 = json!({"model": "acme/fast", "messages": [{"role":"user","content":"hi"}]});
+        let d2 = route_request(
+            &mut body2,
+            "OpenAI",
+            &upstreams_with_foundry(),
+            &rules(&[("acme/fast", "foundry:gpt-4o-mini")], &[]),
+            true,
+        )
+        .expect("within-shape route");
+        assert!(!d2.xlat);
+    }
+
+    #[cfg(feature = "shape-xlat")]
+    #[test]
+    fn cross_shape_needs_gateway_credential_or_local_target() {
+        // An OpenAI-shape target without api_key_env and not local cannot be
+        // reached with the caller's Anthropic credentials → passthrough.
+        let mut upstreams = upstreams_with_foundry();
+        upstreams.providers.push(ResolvedProvider {
+            id: "openaiish".into(),
+            shape: WireShape::OpenAi,
+            base_url: "https://oai-compat.example.com".into(),
+            api_key_env: None,
+            local: false,
+        });
+        let mut body =
+            json!({"model": "claude-opus-4-5", "messages": [{"role":"user","content":"hi"}]});
+        let before = body.clone();
+        let d = route_request(
+            &mut body,
+            "Anthropic",
+            &upstreams,
+            &rules(&[("claude-opus-4-5", "openaiish:gpt-4o-mini")], &[]),
+            true,
+        );
+        assert_eq!(d, None);
+        assert_eq!(body, before);
+
+        // The same target declared local (e.g. Ollama) needs no credential.
+        upstreams.providers.last_mut().unwrap().local = true;
+        let d = route_request(
+            &mut body,
+            "Anthropic",
+            &upstreams,
+            &rules(&[("claude-opus-4-5", "openaiish:llama3.3")], &[]),
+            true,
+        )
+        .expect("local cross-shape target routes");
+        assert!(d.xlat);
+        assert_eq!(d.local, Some(true));
+    }
+
+    #[cfg(feature = "shape-xlat")]
+    #[test]
+    fn openai_to_anthropic_direction_stays_passthrough() {
+        // Only Anthropic→OpenAI is translated; the reverse pair passes through.
+        let mut body = json!({"model": "gpt-5.2", "messages": [{"role":"user","content":"hi"}]});
+        let d = route_request(
+            &mut body,
+            "OpenAI",
+            &upstreams_with_foundry(),
+            &rules(&[("gpt-5.2", "claudeish:claude-sonnet-4-5")], &[]),
+            true,
+        );
+        assert_eq!(d, None);
     }
 
     #[test]
@@ -345,6 +500,7 @@ mod tests {
                 "OpenAI",
                 &upstreams_with_foundry(),
                 &rules(&[("m", "nope:x")], &[]),
+                false,
             ),
             None
         );
@@ -352,7 +508,7 @@ mod tests {
         let mut off = rules(&[("m", "foundry:x")], &[]);
         off.enabled = Some(false);
         assert_eq!(
-            route_request(&mut body, "OpenAI", &upstreams_with_foundry(), &off),
+            route_request(&mut body, "OpenAI", &upstreams_with_foundry(), &off, false),
             None
         );
         assert_eq!(body, before);
@@ -379,6 +535,7 @@ mod tests {
                 &[],
                 &[("fast", "foundry:phi-4"), ("standard", "foundry:phi-4")],
             ),
+            false,
         )
         .expect("non-premium query must route");
         assert_eq!(body["model"], "phi-4");
@@ -401,6 +558,7 @@ mod tests {
             "OpenAI",
             &upstreams_with_foundry(),
             &rules(&[], &[("fast", "foundry:phi-4"), ("premium", "")]),
+            false,
         );
         assert_eq!(d, None);
         assert_eq!(body, before);
@@ -439,6 +597,7 @@ mod tests {
                 "OpenAI",
                 &upstreams_with_foundry(),
                 &rules(&[], &[("fast", "foundry:phi-4")]),
+                false,
             ),
             None
         );
@@ -449,6 +608,7 @@ mod tests {
                 "OpenAI",
                 &upstreams_with_foundry(),
                 &rules(&[], &[("fast", "foundry:phi-4")]),
+                false,
             ),
             None
         );
@@ -464,6 +624,7 @@ mod tests {
                     label,
                     &upstreams_with_foundry(),
                     &rules(&[("m", "x")], &[]),
+                    false,
                 ),
                 None,
                 "{label} must not route in M1"
