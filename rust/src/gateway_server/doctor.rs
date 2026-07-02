@@ -185,7 +185,10 @@ pub async fn run_checks(dir: &Path, proxy_port: u16, admin_port: u16) -> Vec<Che
         .database_url
         .or_else(|| std::env::var(super::serve::DATABASE_URL_ENV).ok());
     match database_url {
-        Some(url) => results.push(check_postgres(&url).await),
+        Some(url) => {
+            results.push(check_pg_tls_posture(&url));
+            results.push(check_postgres(&url).await);
+        }
         None => results.push(warn(
             "postgres",
             "DATABASE_URL not set — metering/console off (traffic still works)",
@@ -229,6 +232,7 @@ fn check_config_values(v: &toml::Value) -> Vec<CheckResult> {
         )),
         _ => out.push(ok("bind posture", "loopback (solo mode)")),
     }
+    out.extend(check_security_posture(v));
     if v.get("proxy")
         .and_then(|p| p.get("baseline"))
         .and_then(|b| b.get("reference_model"))
@@ -243,6 +247,44 @@ fn check_config_values(v: &toml::Value) -> Vec<CheckResult> {
     } else {
         out.push(ok("baseline", "reference_model configured"));
     }
+    out
+}
+
+/// Security posture (#54/#60): admin exposure, plaintext upstreams, PG TLS.
+/// Advisory (`warn`), never `FAIL`: all three have legitimate pilot/in-cluster
+/// configurations — the point is that go-live sign-off *sees* them.
+fn check_security_posture(v: &toml::Value) -> Vec<CheckResult> {
+    let mut out = Vec::new();
+
+    let admin_bind = v
+        .get("gateway_server")
+        .and_then(|g| g.get("admin_bind_host"))
+        .and_then(|b| b.as_str())
+        .unwrap_or("127.0.0.1");
+    if admin_bind == "127.0.0.1" || admin_bind == "::1" {
+        out.push(ok("admin exposure", "loopback (host-local console)"));
+    } else {
+        out.push(warn(
+            "admin exposure",
+            format!("admin listener binds {admin_bind}"),
+            "fine in-container behind a host-local port mapping; on bare hosts keep 127.0.0.1 or front with TLS",
+        ));
+    }
+
+    if v.get("proxy")
+        .and_then(|p| p.get("allow_insecure_http_upstream"))
+        .and_then(toml::Value::as_bool)
+        .unwrap_or(false)
+    {
+        out.push(warn(
+            "upstream tls",
+            "allow_insecure_http_upstream = true (plaintext to non-loopback upstreams)",
+            "keep only for trusted-network local inference (Ollama/vLLM); never for internet upstreams",
+        ));
+    } else {
+        out.push(ok("upstream tls", "HTTPS-only to non-loopback upstreams"));
+    }
+
     out
 }
 
@@ -291,6 +333,26 @@ fn check_provider_credentials(v: &toml::Value, env_file_names: &[String]) -> Vec
         }
     }
     out
+}
+
+/// PG TLS posture (#54/#58): managed Postgres must say `sslmode=require`;
+/// plain is fine for in-cluster/compose-internal hosts only.
+fn check_pg_tls_posture(url: &str) -> CheckResult {
+    let requires_tls = url.contains("sslmode=require");
+    let internal_host = ["@postgres:", "@localhost:", "@127.0.0.1:", "@[::1]:"]
+        .iter()
+        .any(|h| url.contains(h));
+    if requires_tls {
+        ok("pg tls", "sslmode=require (rustls, verified)")
+    } else if internal_host {
+        ok("pg tls", "plain TCP to an in-cluster/local host")
+    } else {
+        warn(
+            "pg tls",
+            "remote Postgres without sslmode=require",
+            "append ?sslmode=require to DATABASE_URL (managed PG — Azure/AWS/GCP — enforces TLS)",
+        )
+    }
 }
 
 async fn check_postgres(url: &str) -> CheckResult {
@@ -418,6 +480,53 @@ mod tests {
 
         let present = check_provider_credentials(&cfg, &["FOUNDRY_API_KEY_DOCTOR_TEST".into()]);
         assert_eq!(present[0].severity, Severity::Ok);
+    }
+
+    #[test]
+    fn security_posture_flags_wide_admin_bind_and_insecure_upstreams() {
+        let hardened: toml::Value = toml::from_str(
+            "[gateway_server]\nadmin_bind_host = \"127.0.0.1\"\n[proxy]\nallow_insecure_http_upstream = false",
+        )
+        .unwrap();
+        let r = check_security_posture(&hardened);
+        assert!(r.iter().all(|c| c.severity == Severity::Ok));
+
+        let widened: toml::Value = toml::from_str(
+            "[gateway_server]\nadmin_bind_host = \"0.0.0.0\"\n[proxy]\nallow_insecure_http_upstream = true",
+        )
+        .unwrap();
+        let r = check_security_posture(&widened);
+        assert_eq!(
+            r.iter().filter(|c| c.severity == Severity::Warn).count(),
+            2,
+            "wide admin bind + plaintext upstream must both surface as warnings"
+        );
+
+        // Unset section: defaults are the hardened posture.
+        let empty: toml::Value = toml::from_str("").unwrap();
+        assert!(
+            check_security_posture(&empty)
+                .iter()
+                .all(|c| c.severity == Severity::Ok)
+        );
+    }
+
+    #[test]
+    fn pg_tls_posture_requires_tls_only_for_remote_hosts() {
+        assert_eq!(
+            check_pg_tls_posture("postgres://u:p@db.example.com:5432/app?sslmode=require").severity,
+            Severity::Ok
+        );
+        assert_eq!(
+            check_pg_tls_posture("postgres://u:p@postgres:5432/leanctx").severity,
+            Severity::Ok,
+            "compose-internal host stays plain without a warning"
+        );
+        assert_eq!(
+            check_pg_tls_posture("postgres://u:p@db.example.com:5432/app").severity,
+            Severity::Warn,
+            "remote host without sslmode=require must warn"
+        );
     }
 
     #[test]

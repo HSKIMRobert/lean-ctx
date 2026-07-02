@@ -15,6 +15,7 @@
 
 use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
 use tokio_postgres::NoTls;
+use tokio_postgres::config::SslMode;
 
 use crate::core::config::BaselineConfig;
 use crate::core::gain::model_pricing::ModelPricing;
@@ -24,16 +25,45 @@ use crate::proxy::usage::RealUsage;
 /// Sized for bursts (a full channel drops events, counted in `usage_sink`).
 pub const WRITER_QUEUE: usize = 4096;
 
+/// Builds the store pool from a `DATABASE_URL`, honoring `sslmode` (#54/#58).
+///
+/// - `sslmode=disable`/`prefer`/unset: plain TCP (the pilot/in-cluster case;
+///   `prefer`'s opportunistic upgrade would mask misconfiguration, so it stays
+///   plain — deployments that need TLS must say `require`).
+/// - `sslmode=require`: rustls with the webpki root store — the managed-
+///   Postgres case (Azure/AWS/GCP enforce TLS). Unlike libpq's `require`,
+///   certificate and hostname are **always verified** (verify-full rigor);
+///   lean-ctx does not implement an unverified-TLS downgrade.
 pub fn pool_from_database_url(database_url: &str) -> anyhow::Result<Pool> {
     let pg_cfg: tokio_postgres::Config = database_url.parse()?;
-    let mgr = Manager::from_config(
-        pg_cfg,
-        NoTls,
-        ManagerConfig {
-            recycling_method: RecyclingMethod::Fast,
-        },
-    );
+    let mgr_cfg = ManagerConfig {
+        recycling_method: RecyclingMethod::Fast,
+    };
+    let mgr = if wants_tls(&pg_cfg) {
+        // The pool is built before the proxy installs the process-default
+        // CryptoProvider (#597) — make sure one exists (idempotent).
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        let roots = rustls::RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        let tls_cfg = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Manager::from_config(
+            pg_cfg,
+            tokio_postgres_rustls::MakeRustlsConnect::new(tls_cfg),
+            mgr_cfg,
+        )
+    } else {
+        Manager::from_config(pg_cfg, NoTls, mgr_cfg)
+    };
     Ok(Pool::builder(mgr).max_size(8).build()?)
+}
+
+/// True when the URL's `sslmode` asks for TLS. tokio-postgres 0.7 models
+/// `disable`/`prefer`/`require`; anything else fails URL parsing upstream.
+fn wants_tls(cfg: &tokio_postgres::Config) -> bool {
+    matches!(cfg.get_ssl_mode(), SslMode::Require)
 }
 
 /// Idempotent DDL (Doc 08 §2): `IF NOT EXISTS` only, run on every start.
@@ -374,6 +404,29 @@ mod tests {
             local_shadow_rate_per_mtok: Some(0.0),
         };
         assert!(zero.effective_local_shadow_rate() > 0.0);
+    }
+
+    #[test]
+    fn sslmode_selects_tls_and_pool_builds_for_both() {
+        // require → TLS connector; disable/unset → plain (#54/#58).
+        let tls: tokio_postgres::Config = "postgres://u:p@db.example.com:5432/app?sslmode=require"
+            .parse()
+            .unwrap();
+        assert!(wants_tls(&tls));
+        let plain: tokio_postgres::Config = "postgres://u:p@localhost:5432/app".parse().unwrap();
+        assert!(!wants_tls(&plain));
+        let disabled: tokio_postgres::Config = "postgres://u:p@localhost:5432/app?sslmode=disable"
+            .parse()
+            .unwrap();
+        assert!(!wants_tls(&disabled));
+
+        // Pool construction (no connection attempt) must succeed on both paths —
+        // this exercises the rustls config + root store wiring.
+        assert!(
+            pool_from_database_url("postgres://u:p@db.example.com:5432/app?sslmode=require")
+                .is_ok()
+        );
+        assert!(pool_from_database_url("postgres://u:p@localhost:5432/app").is_ok());
     }
 
     #[test]

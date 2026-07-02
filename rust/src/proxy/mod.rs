@@ -793,7 +793,7 @@ fn attach_gateway_tags(req: &mut axum::extract::Request, mut tags: gateway_ident
         .get("x-leanctx-project")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .filter(|p| !p.is_empty() && p.len() <= 128)
+        .filter(|p| !p.is_empty() && p.len() <= 128 && !p.chars().any(char::is_control))
     {
         tags.project = Some(project.to_string());
     }

@@ -30,7 +30,8 @@
     <div id="login-error" class="login-error" hidden></div>
     <div class="login-hint">
       The token is the value of <code>LEAN_CTX_GATEWAY_ADMIN_TOKEN</code> on the
-      gateway host. It is kept in this tab's session only.
+      gateway host. It is kept in this tab's session only — never in URLs or
+      persistent storage. Failed attempts are rate-limited and logged.
     </div>
   </div>
 </div>
@@ -46,6 +47,7 @@
       </div>
     </div>
     <div class="topbar-right">
+      <span id="updated" class="updated" hidden><i class="pulse-dot"></i><span id="updated-text">live</span></span>
       <div id="window-picker" class="seg" role="tablist" aria-label="Time window">
         <button class="seg-btn" data-days="1">24h</button>
         <button class="seg-btn" data-days="7">7d</button>
@@ -102,7 +104,11 @@
         </div>
       </div>
       <div class="chart-wrap"><canvas id="trend-chart" height="240"></canvas></div>
-      <div id="trend-empty" class="empty" hidden>No usage in this window yet. Point a client at the proxy port and events will appear here within seconds.</div>
+      <div id="trend-empty" class="empty empty-onboard" hidden>
+        <p><b>No usage in this window yet.</b> Point a client at the gateway and events appear within seconds:</p>
+        <pre class="mono">export ANTHROPIC_BASE_URL=http://&lt;gateway-host&gt;:8484
+export ANTHROPIC_AUTH_TOKEN=&lt;personal key — see `lean-ctx gateway keys add`&gt;</pre>
+      </div>
     </section>
 
     <!-- Breakdown -->
@@ -117,6 +123,7 @@
             <button class="seg-btn" data-group="provider">Providers</button>
           </div>
           <input id="filter-input" class="filter-input" type="search" placeholder="Filter…" spellcheck="false">
+          <button id="export-breakdown" class="tool-btn" title="Download the current view as CSV">CSV ↓</button>
         </div>
       </div>
       <div class="table-wrap">
@@ -132,6 +139,9 @@
     <section class="panel">
       <div class="panel-head">
         <h2>All segments <span class="muted">person × project × model × provider</span></h2>
+        <div class="panel-tools">
+          <button id="export-detail" class="tool-btn" title="Download all segments as CSV">CSV ↓</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="data-table data-table-sm" id="detail-table">

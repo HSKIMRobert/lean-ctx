@@ -268,6 +268,32 @@ fn attach_gateway_tags_rejects_oversized_or_blank_header() {
 }
 
 #[test]
+fn attach_gateway_tags_rejects_control_characters() {
+    // #54/#59: control chars in the project header would poison usage rows
+    // and logs (log-injection). The tag is dropped, the key default stays.
+    // HTAB is the only control byte the HTTP layer lets through to us — the
+    // rest (`\n`, ESC, DEL, …) is rejected by HeaderValue itself.
+    let mut req = build_request(&[("x-leanctx-project", "bil\tling")], "/v1/messages");
+    attach_gateway_tags(
+        &mut req,
+        gateway_identity::GatewayTags {
+            person: Some("yves".into()),
+            team: None,
+            project: Some("default-proj".into()),
+        },
+    );
+    let tags = req
+        .extensions()
+        .get::<gateway_identity::GatewayTags>()
+        .expect("tags attached");
+    assert_eq!(
+        tags.project.as_deref(),
+        Some("default-proj"),
+        "control chars must not override"
+    );
+}
+
+#[test]
 fn x_leanctx_project_never_forwarded_upstream() {
     // Internal gateway header: it must NOT be on the upstream allowlist,
     // otherwise org-internal project names leak to the provider.

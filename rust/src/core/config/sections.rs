@@ -730,6 +730,35 @@ pub struct GatewayServerConfig {
     /// bearer token comes from `LEAN_CTX_GATEWAY_ADMIN_TOKEN` (never config).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_url: Option<String>,
+    /// Bind address of the admin listener (dashboard + `/api/admin/*` +
+    /// `/metrics`). Defaults to loopback — **secure by default** (#54/#56):
+    /// exposing the console is an explicit decision. Container deployments set
+    /// `"0.0.0.0"` here (the pod/compose port mapping stays the outer guard).
+    /// `LEAN_CTX_GATEWAY_ADMIN_BIND_HOST` overrides. Invalid values fall back
+    /// to loopback: a typo can only ever narrow exposure, never open it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_bind_host: Option<String>,
+}
+
+impl GatewayServerConfig {
+    /// Effective admin bind address (see `admin_bind_host`). Precedence:
+    /// `LEAN_CTX_GATEWAY_ADMIN_BIND_HOST` env > config > `127.0.0.1`.
+    #[must_use]
+    pub fn resolved_admin_bind_host(&self) -> std::net::IpAddr {
+        let raw = std::env::var("LEAN_CTX_GATEWAY_ADMIN_BIND_HOST")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| self.admin_bind_host.clone());
+        match raw.as_deref().map(str::trim) {
+            Some(v) if !v.is_empty() => v.parse().unwrap_or_else(|_| {
+                tracing::warn!(
+                    "gateway_server.admin_bind_host '{v}' is not a valid IP address — binding 127.0.0.1"
+                );
+                std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+            }),
+            _ => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -754,4 +783,34 @@ pub struct EmbeddingConfig {
     /// `LEAN_CTX_EMBEDDING_DETERMINISTIC` env var overrides this either way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deterministic: Option<bool>,
+}
+
+#[cfg(test)]
+mod gateway_server_tests {
+    use super::*;
+
+    #[test]
+    fn admin_bind_defaults_to_loopback_and_rejects_garbage() {
+        // Secure by default (#54/#56): unset and invalid both land on loopback.
+        let cfg = GatewayServerConfig::default();
+        assert!(cfg.resolved_admin_bind_host().is_loopback());
+
+        let cfg = GatewayServerConfig {
+            admin_bind_host: Some("not-an-ip".into()),
+            ..Default::default()
+        };
+        assert!(
+            cfg.resolved_admin_bind_host().is_loopback(),
+            "a typo must narrow exposure, never widen it"
+        );
+
+        let cfg = GatewayServerConfig {
+            admin_bind_host: Some("0.0.0.0".into()),
+            ..Default::default()
+        };
+        assert!(
+            !cfg.resolved_admin_bind_host().is_loopback(),
+            "explicit opt-in widens the bind"
+        );
+    }
 }

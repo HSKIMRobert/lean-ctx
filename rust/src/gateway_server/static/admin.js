@@ -17,11 +17,14 @@ const state = {
   groupBy: 'person',
   filter: '',
   sort: { key: 'cost_usd', dir: -1 },
+  breakdownSort: { key: 'cost_usd', dir: -1 },
   usage: null,
   series: null,
   status: null,
   chart: null,
   refreshTimer: null,
+  updatedTimer: null,
+  lastLoaded: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,6 +65,42 @@ async function loadAll() {
   state.usage = usage;
   state.series = series;
   state.status = status;
+  state.lastLoaded = Date.now();
+}
+
+/* csv export — the controller workflow: what you see is what you download */
+function csvEscape(v) {
+  const s = String(v ?? '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function downloadCsv(filename, header, rows) {
+  const lines = [header, ...rows].map((r) => r.map(csvEscape).join(','));
+  const blob = new Blob([`${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function stamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+function exportBreakdownCsv() {
+  const rows = visibleGroups().map((g) => [
+    g.key, g.requests, g.input_tokens, g.output_tokens,
+    g.saved_usd.toFixed(6), g.cost_usd.toFixed(6),
+  ]);
+  downloadCsv(`gateway-${state.groupBy}-${state.windowDays}d-${stamp()}.csv`,
+    [state.groupBy, 'requests', 'input_tokens', 'output_tokens', 'saved_usd', 'cost_usd'], rows);
+}
+function exportDetailCsv() {
+  const rows = visibleDetailRows().map((r) => [
+    r.person, r.project, r.model, r.provider, r.requests, r.input_tokens,
+    r.output_tokens, r.saved_tokens, r.saved_usd.toFixed(6), r.cost_usd.toFixed(6),
+  ]);
+  downloadCsv(`gateway-segments-${state.windowDays}d-${stamp()}.csv`,
+    ['person', 'project', 'model', 'provider', 'requests', 'input_tokens',
+      'output_tokens', 'saved_tokens', 'saved_usd', 'cost_usd'], rows);
 }
 
 /* ── formatters ────────────────────────────────────────────────────── */
@@ -103,14 +142,30 @@ function relTime(iso) {
 
 /* ── renderers ─────────────────────────────────────────────────────── */
 function renderAll() {
+  document.body.classList.remove('loading');
   renderHealth();
   renderKpis();
   renderTrend();
   renderBreakdown();
   renderDetail();
+  renderUpdated();
   const u = state.usage;
   $('#foot-window').textContent = `${u.from.slice(0, 16)}Z → ${u.to.slice(0, 16)}Z`;
   $$('.kpi-window-label').forEach((el) => { el.textContent = `· ${state.windowDays}d`; });
+}
+
+function renderUpdated() {
+  const el = $('#updated');
+  if (!state.lastLoaded) { el.hidden = true; return; }
+  el.hidden = false;
+  const secs = Math.round((Date.now() - state.lastLoaded) / 1000);
+  $('#updated-text').textContent = secs < 5 ? 'live' : `updated ${relTime(new Date(state.lastLoaded).toISOString())}`;
+  clearInterval(state.updatedTimer);
+  state.updatedTimer = setInterval(() => {
+    if (!state.lastLoaded) return;
+    const s = Math.round((Date.now() - state.lastLoaded) / 1000);
+    $('#updated-text').textContent = s < 5 ? 'live' : `updated ${relTime(new Date(state.lastLoaded).toISOString())}`;
+  }, 10_000);
 }
 
 function pill(stClass, label, value) {
@@ -232,15 +287,31 @@ function groupRows() {
     g.cost_usd += r.cost_usd; g.saved_usd += r.saved_usd;
     acc.set(key, g);
   }
-  return Array.from(acc.values()).sort((a, b) => b.cost_usd - a.cost_usd);
+  return Array.from(acc.values());
+}
+
+function sortBy(rows, { key, dir }) {
+  return rows.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    return (typeof av === 'string' ? av.localeCompare(bv) : av - bv) * dir;
+  });
+}
+
+function visibleGroups() {
+  const groups = groupRows().filter((g) => !state.filter || g.key.toLowerCase().includes(state.filter));
+  return sortBy(groups, state.breakdownSort);
 }
 
 function renderBreakdown() {
-  const groups = groupRows().filter((g) => !state.filter || g.key.toLowerCase().includes(state.filter));
+  const groups = visibleGroups();
   const label = { person: 'Person', project: 'Project', model: 'Model', provider: 'Provider' }[state.groupBy];
+  const { key: sk } = state.breakdownSort;
+  const th = (k, cls, text) =>
+    `<th class="${cls}${sk === k ? ' sorted' : ''}" data-sort="${k}">${text}</th>`;
   $('#breakdown-head').innerHTML =
-    `<th>${label}</th><th class="bar-cell">Spend share</th><th class="num">Req</th>` +
-    '<th class="num">In tok</th><th class="num">Out tok</th><th class="num">Saved</th><th class="num">Cost</th>';
+    th('key', '', label) + '<th class="bar-cell">Spend share</th>' + th('requests', 'num', 'Req') +
+    th('input_tokens', 'num', 'In tok') + th('output_tokens', 'num', 'Out tok') +
+    th('saved_usd', 'num', 'Saved') + th('cost_usd', 'num', 'Cost');
   const max = Math.max(...groups.map((g) => g.cost_usd), 1e-9);
   $('#breakdown-body').innerHTML = groups.map((g) => `
     <tr>
@@ -259,15 +330,15 @@ function renderBreakdown() {
 }
 
 /* detail table */
-function renderDetail() {
-  const { key, dir } = state.sort;
+function visibleDetailRows() {
   const rows = state.usage.rows
     .filter((r) => !state.filter ||
-      [r.person, r.project, r.model, r.provider].some((v) => v.toLowerCase().includes(state.filter)))
-    .sort((a, b) => {
-      const av = a[key], bv = b[key];
-      return (typeof av === 'string' ? av.localeCompare(bv) : av - bv) * dir;
-    });
+      [r.person, r.project, r.model, r.provider].some((v) => v.toLowerCase().includes(state.filter)));
+  return sortBy(rows.slice(), state.sort);
+}
+
+function renderDetail() {
+  const rows = visibleDetailRows();
   $('#detail-body').innerHTML = rows.map((r) => `
     <tr>
       <td>${esc(r.person)}</td><td>${esc(r.project)}</td><td>${esc(r.model)}</td><td>${esc(r.provider)}</td>
@@ -279,7 +350,7 @@ function renderDetail() {
     </tr>`).join('');
   $('#detail-empty').hidden = rows.length > 0;
   $$('#detail-table th').forEach((th) => {
-    th.classList.toggle('sorted', th.dataset.sort === key);
+    th.classList.toggle('sorted', th.dataset.sort === state.sort.key);
   });
 }
 
@@ -296,6 +367,7 @@ function showLogin(errorMsg) {
 async function startApp() {
   $('#login').hidden = true;
   $('#app').hidden = false;
+  document.body.classList.add('loading');
   await refresh();
   clearInterval(state.refreshTimer);
   state.refreshTimer = setInterval(() => refresh(true), 60_000);
@@ -390,6 +462,15 @@ document.addEventListener('DOMContentLoaded', () => {
     state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : -1 };
     renderDetail();
   });
+  $('#breakdown-table').addEventListener('click', (ev) => {
+    const th = ev.target.closest('th[data-sort]');
+    if (!th) return;
+    const key = th.dataset.sort;
+    state.breakdownSort = { key, dir: state.breakdownSort.key === key ? -state.breakdownSort.dir : -1 };
+    renderBreakdown();
+  });
+  $('#export-breakdown').addEventListener('click', exportBreakdownCsv);
+  $('#export-detail').addEventListener('click', exportDetailCsv);
 
   if (state.token) {
     startApp().catch(() => showLogin());

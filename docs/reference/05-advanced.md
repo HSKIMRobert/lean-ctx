@@ -310,14 +310,24 @@ lean-ctx gateway serve --port=8484 --admin-port=8485
   baseline fields). Schema is applied idempotently at start. **Fail-open:** an
   unreachable Postgres degrades metering (events dropped and counted), never
   live LLM traffic; without `DATABASE_URL` the store is simply off.
-- **Admin listener** (`--admin-port`, default proxy port + 1): keep it
-  cluster-internal (no ingress). Requires `LEAN_CTX_GATEWAY_ADMIN_TOKEN`
-  (env-only, like all tokens); without it only the proxy runs.
+  `?sslmode=require` in the URL activates TLS (rustls, webpki roots —
+  certificate *and* hostname always verified); required for managed Postgres
+  (Azure/AWS/GCP). Plain TCP stays available for in-cluster databases.
+- **Admin listener** (`--admin-port`, default proxy port + 1): binds
+  `127.0.0.1` by default — widening is an explicit decision via
+  `[gateway_server].admin_bind_host` (or `LEAN_CTX_GATEWAY_ADMIN_BIND_HOST`);
+  invalid values fall back to loopback. Keep it cluster-internal (no ingress).
+  Requires `LEAN_CTX_GATEWAY_ADMIN_TOKEN` (env-only, like all tokens); without
+  it only the proxy runs. Every response carries hardened headers (CSP
+  `default-src 'self'`, `frame-ancestors 'none'`, `nosniff`, `no-referrer`;
+  `Cache-Control: no-store` on APIs); failed auth is throttled per source IP
+  (10/min → 429) and audit-logged (IP + path, SIEM-collectable).
   - `GET /` — the **Gateway Console**: an embedded admin dashboard (login with
     the admin token; kept in `sessionStorage` only). Org overview, spend/savings
-    trend, breakdowns by person/project/model/provider, provider credential
-    status, drop counter, seat projection. No CDN, no build step — served from
-    the binary.
+    trend, sortable breakdowns by person/project/model/provider with one-click
+    CSV export, provider credential status, drop counter, seat projection,
+    live "last updated" indicator. No CDN, no build step — served from the
+    binary.
   - `GET /api/admin/usage?from=<ISO>&to=<ISO>` — person × project × model ×
     provider breakdown with cost/savings sums, totals and the seat projection
     (window defaults to the last 30 days).
@@ -335,6 +345,10 @@ lean-ctx gateway serve --port=8484 --admin-port=8485
 [gateway_server]
 seats     = 800                     # projection divisor ("if all seats saved like active users")
 org_label = "Acme AI Gateway"       # display name on cockpit + reports
+# Admin listener bind (default 127.0.0.1 — secure by default). Containers set
+# "0.0.0.0" so the pod/compose port mapping reaches it; exposure then stays
+# governed by the mapping/Service, not the bind.
+admin_bind_host = "127.0.0.1"
 # admin_url: set on *client* machines to show the org-wide breakdown in their
 # cockpit (ROI view) via GET /api/usage-breakdown; without it the cockpit shows
 # the local snapshot of this machine only.
@@ -359,6 +373,7 @@ lean-ctx gateway report --out=q3.html                         # printable value 
   policies, admin port bound to `127.0.0.1`), `gateway-keys.toml`, `.gitignore`
   and a README — and never overwrites an existing instance.
 - `doctor` checks config posture (open bind without required tokens = FAIL),
+  security posture (admin exposure, upstream-TLS and Postgres-TLS stance),
   key-set validity, token presence/strength, Postgres connectivity
   (`SELECT 1`), provider `api_key_env` presence and live ports — each line with
   a concrete fix command.

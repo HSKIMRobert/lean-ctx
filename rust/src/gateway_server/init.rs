@@ -150,6 +150,10 @@ fn render_config(opts: &InitOptions) -> String {
          proxy_require_token = true\n",
     );
     let _ = writeln!(out, "\n[gateway_server]");
+    // In-container the admin listener must bind all interfaces so the compose
+    // port mapping reaches it; exposure stays host-local via the mapping
+    // ("127.0.0.1:<port>:8485"). Outside containers the default is loopback.
+    let _ = writeln!(out, "admin_bind_host = \"0.0.0.0\"");
     if let Some(seats) = opts.seats {
         let _ = writeln!(out, "seats = {seats}");
     }

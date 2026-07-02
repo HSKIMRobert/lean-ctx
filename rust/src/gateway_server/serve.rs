@@ -100,13 +100,26 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
                 local_shadow_rate: cfg.proxy.baseline.effective_local_shadow_rate(),
             };
             let router = admin_router(state, token);
-            let addr = std::net::SocketAddr::from(([0, 0, 0, 0], admin_port));
+            // Secure by default (#54/#56): loopback unless explicitly widened
+            // via [gateway_server].admin_bind_host / the env override.
+            let bind_host = cfg.gateway_server.resolved_admin_bind_host();
+            let addr = std::net::SocketAddr::new(bind_host, admin_port);
             let listener = tokio::net::TcpListener::bind(addr).await?;
+            let exposure = if bind_host.is_loopback() {
+                "host-local"
+            } else {
+                "network-exposed — front with TLS"
+            };
             println!(
-                "  Admin:     http://{addr}/ (dashboard) + /api/admin/* + /metrics (Bearer via {ADMIN_TOKEN_ENV})"
+                "  Admin:     http://{addr}/ ({exposure}) — dashboard + /api/admin/* + /metrics (Bearer via {ADMIN_TOKEN_ENV})"
             );
             tokio::spawn(async move {
-                if let Err(e) = axum::serve(listener, router).await {
+                if let Err(e) = axum::serve(
+                    listener,
+                    router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                )
+                .await
+                {
                     tracing::warn!("admin listener terminated (proxy unaffected): {e:#}");
                 }
             });
@@ -158,23 +171,46 @@ fn admin_token() -> Option<String> {
 
 /// Admin router: `/healthz` and the dashboard's static shell open (the login
 /// screen must render without a token), all data APIs + /metrics Bearer-guarded.
+/// Every response passes the security-header layer (#54/#55); failed auth is
+/// throttled per IP and audit-logged (#54/#57).
 fn admin_router(state: super::admin_api::AdminState, token: String) -> axum::Router {
     let token = Arc::new(token);
+    let throttle = Arc::new(super::security::AuthThrottle::default());
     super::admin_api::router(state)
         .route("/metrics", axum::routing::get(metrics_handler))
         .layer(axum::middleware::from_fn(move |req, next| {
             let token = token.clone();
-            admin_auth_guard(req, next, token)
+            let throttle = throttle.clone();
+            admin_auth_guard(req, next, token, throttle)
         }))
         .route("/healthz", axum::routing::get(|| async { "ok" }))
         .merge(super::admin_ui::router())
+        .layer(axum::middleware::from_fn(super::security::security_headers))
 }
 
 async fn admin_auth_guard(
     req: axum::extract::Request,
     next: axum::middleware::Next,
     expected: Arc<String>,
+    throttle: Arc<super::security::AuthThrottle>,
 ) -> Result<axum::response::Response, axum::response::Response> {
+    let client_ip = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), |c| {
+            c.0.ip()
+        });
+
+    if throttle.is_blocked(client_ip) {
+        tracing::warn!("admin auth throttled: {client_ip} exceeded the failed-attempt budget");
+        return Err((
+            axum::http::StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, "60")],
+            axum::Json(serde_json::json!({"error": "too many failed attempts — retry later"})),
+        )
+            .into_response());
+    }
+
     let ok = req
         .headers()
         .get("authorization")
@@ -182,8 +218,14 @@ async fn admin_auth_guard(
         .and_then(|auth| auth.strip_prefix("Bearer "))
         .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
     if ok {
+        throttle.record_success(client_ip);
         Ok(next.run(req).await)
     } else {
+        // Audit trail (#57): one structured line per failure — SIEM-collectable
+        // via the standard log pipeline. Never logs the presented credential.
+        let failures = throttle.record_failure(client_ip);
+        let path = req.uri().path();
+        tracing::warn!("admin auth failed: ip={client_ip} path={path} window_failures={failures}");
         Err((
             axum::http::StatusCode::UNAUTHORIZED,
             axum::Json(

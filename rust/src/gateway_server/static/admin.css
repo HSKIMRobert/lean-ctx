@@ -154,6 +154,29 @@ code{font-family:var(--mono);font-size:11px;background:var(--surface-2);border:1
   color:var(--text);font-size:12px;padding:6px 10px;outline:none;width:180px;font-family:var(--font);
 }
 .filter-input:focus{border-color:var(--accent)}
+.tool-btn{
+  border:1px solid var(--border);background:var(--surface-2);color:var(--muted);
+  border-radius:var(--rs);font-size:10.5px;font-family:var(--mono);padding:6px 10px;
+  cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.tool-btn:hover{color:var(--accent);border-color:var(--accent)}
+
+/* last-updated pulse */
+.updated{display:inline-flex;align-items:center;gap:7px;font-size:10.5px;font-family:var(--mono);color:var(--muted);white-space:nowrap}
+.pulse-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green-glow);animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* first-load skeleton: KPI values shimmer until data lands */
+body.loading .kpi-value{
+  color:transparent!important;border-radius:5px;min-width:70px;
+  background:linear-gradient(100deg,var(--surface-2) 40%,var(--surface-3) 50%,var(--surface-2) 60%);
+  background-size:200% 100%;animation:shimmer 1.2s linear infinite;
+}
+body.loading .health-strip:empty{min-height:30px;border-radius:999px;
+  background:linear-gradient(100deg,var(--surface) 40%,var(--surface-2) 50%,var(--surface) 60%);
+  background-size:200% 100%;animation:shimmer 1.2s linear infinite;
+}
+@keyframes shimmer{to{background-position:-200% 0}}
 
 /* tables */
 .table-wrap{overflow-x:auto}
@@ -177,6 +200,13 @@ code{font-family:var(--mono);font-size:11px;background:var(--surface-2);border:1
 .saved-cell{color:var(--accent)!important}
 
 .empty{padding:28px 8px;text-align:center;font-size:12px;color:var(--muted)}
+.empty-onboard{text-align:left;max-width:640px;margin:0 auto;padding:22px 8px}
+.empty-onboard p{margin-bottom:10px}
+.empty-onboard b{color:var(--text)}
+.empty-onboard pre{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rs);
+  padding:12px 14px;font-size:11px;line-height:1.7;overflow-x:auto;color:var(--text);
+}
 
 .foot{
   display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;

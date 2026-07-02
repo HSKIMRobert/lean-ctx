@@ -21,5 +21,6 @@ pub mod doctor;
 pub mod init;
 pub mod keys_cli;
 pub mod report;
+pub mod security;
 pub mod serve;
 pub mod store;
