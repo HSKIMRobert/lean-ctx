@@ -36,6 +36,15 @@ use axum::{
 use super::{ProxyState, forward};
 use crate::core::config::{ResolvedProvider, WireShape};
 
+/// Request extension carrying the registry id of the serving provider.
+///
+/// Shape ≠ identity (module docs): the forward path only knows the wire shape
+/// ("OpenAI"), but usage metering must attribute to the provider *identity*
+/// ("foundry", "local") — otherwise every OpenAI-shaped registry entry shows
+/// up as "OpenAI" in `usage_events` and the admin breakdown (enterprise#20).
+#[derive(Debug, Clone)]
+pub(super) struct RegistryProviderId(pub String);
+
 pub async fn handler(
     State(state): State<ProxyState>,
     Path((id, rest)): Path<(String, String)>,
@@ -45,6 +54,8 @@ pub async fn handler(
         tracing::warn!("lean-ctx proxy: unknown registry provider '{id}' (404)");
         return Err(StatusCode::NOT_FOUND);
     };
+    req.extensions_mut()
+        .insert(RegistryProviderId(provider.id.clone()));
 
     // Strip the `/providers/{id}` prefix so the upstream sees the bare provider
     // path: `/providers/foundry/v1/chat/completions` → `/v1/chat/completions`.

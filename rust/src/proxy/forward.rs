@@ -176,8 +176,14 @@ fn wire_context(
         .get::<super::gateway_identity::GatewayTags>()
         .cloned()
         .unwrap_or_default();
+    // Registry routes attribute usage to the provider identity ("foundry",
+    // "local"), not the wire-shape label ("OpenAI") — shape ≠ identity.
+    let provider = parts
+        .extensions
+        .get::<super::providers::RegistryProviderId>()
+        .map_or(provider_label, |id| id.0.as_str());
     Box::new(super::usage::WireContext {
-        provider: provider_label.to_string(),
+        provider: provider.to_string(),
         person: tags.person,
         team: tags.team,
         project: tags.project,
@@ -627,6 +633,18 @@ mod tests {
         assert_eq!(wire.uncompressed_input_tokens, 1000);
         assert!(!wire.is_local);
         assert_eq!(wire.routed_from, None);
+    }
+
+    #[test]
+    fn wire_context_prefers_registry_provider_id_over_shape_label() {
+        // /providers/local/... speaks the OpenAI shape but must meter as
+        // "local" — the admin breakdown groups by provider identity (#20).
+        let mut parts = parts_for("/v1/chat/completions");
+        parts
+            .extensions
+            .insert(super::super::providers::RegistryProviderId("local".into()));
+        let wire = wire_context(&parts, "OpenAI", "http://127.0.0.1:11434", 0, 400);
+        assert_eq!(wire.provider, "local");
     }
 
     #[test]
