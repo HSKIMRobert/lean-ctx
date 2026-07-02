@@ -214,6 +214,18 @@ pub(crate) fn handle_remember(
                     Ok(()) => {
                         let fresh = ProjectKnowledge::load(project_root);
                         let kref = fresh.as_ref().unwrap_or(&knowledge);
+                        // Self-healing coverage: facts written while the engine
+                        // was still warming up (non-blocking remember) or via
+                        // the consolidation/ETL writers have no vector yet —
+                        // embed a bounded batch of them now that the engine is
+                        // warm, so semantic recall converges without a manual
+                        // embeddings_reindex.
+                        crate::core::knowledge_embedding::backfill_missing(
+                            &mut idx,
+                            engine,
+                            kref,
+                            crate::core::knowledge_embedding::BACKFILL_PER_REMEMBER,
+                        );
                         crate::core::knowledge_embedding::compact_against_knowledge(
                             &mut idx, kref, &policy,
                         );
