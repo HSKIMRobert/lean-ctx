@@ -20,6 +20,12 @@ pub(super) fn handle(
                         "total_analyzed": echo.total_analyzed,
                     }),
                 );
+                // Edit-efficiency channel (#1008): anchored vs str_replace
+                // counters for the ROI "Edit Efficiency" card.
+                obj.insert(
+                    "edit_efficiency".to_string(),
+                    crate::core::edit_metering::metrics_snapshot(),
+                );
             }
             let json = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))

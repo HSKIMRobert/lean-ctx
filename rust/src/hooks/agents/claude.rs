@@ -93,16 +93,18 @@ fn install_claude_mcp_server(home: &std::path::Path) {
 /// appended a duplicate (GH #549).
 pub(crate) const CLAUDE_MD_BLOCK_START: &str = crate::core::rules_canonical::AGENTS_BLOCK_START;
 const CLAUDE_MD_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
-const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v3";
+const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v4";
 
 // v3 (GL #555): self-contained, no `@rules/lean-ctx.md` import. Claude Code
 // expands `@` imports inline at launch ("imports do not reduce context usage"
 // — code.claude.com/docs/en/memory), so the old pointer silently tripled the
 // per-session footprint. Detail docs now live in the lean-ctx skill, which
 // loads on demand only.
+// v4 (#1008): editing routes to anchored `ctx_patch` (advertised in the lazy
+// core for Claude Code); `ctx_edit` demoted to a legacy power-profile mention.
 const CLAUDE_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v3 -->
+<!-- lean-ctx-claude-v4 -->
 ## lean-ctx — Context Runtime
 
 Always prefer lean-ctx MCP tools over native equivalents:
@@ -110,10 +112,10 @@ Always prefer lean-ctx MCP tools over native equivalents:
 - `ctx_shell` instead of `bash` / `Shell` (95+ compression patterns)
 - `ctx_search` instead of `Grep` / `rg` (compact results)
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
-- Native Edit/StrReplace stay unchanged. If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
+- Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). Native Edit/Write stay available; `ctx_edit` (str_replace) is the legacy power-profile fallback.
 - Write, Delete, Glob — use normally.
 
-Read modes: full (edit), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
+Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 <!-- /lean-ctx -->";
 

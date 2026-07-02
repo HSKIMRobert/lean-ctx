@@ -71,7 +71,7 @@ CLI for shell (no MCP schema overhead):
 - `lean-ctx ls [path]` instead of `ls`/`find`
 
 ## Mode Selection
-- Editing → `full` then `diff` for re-reads
+- Editing → `anchored` (full text + anchors), then `diff` for re-reads
 - Context only → `map` or `signatures`
 - Large file → `aggressive` or `entropy`
 - Specific lines → `lines:N-M`
@@ -79,7 +79,8 @@ CLI for shell (no MCP schema overhead):
 
 ## File Editing
 Use native Edit/StrReplace. Write/Delete/Glob → use normally.
-If Edit fails, use `ctx_edit(path, old_string, new_string)` immediately.
+If native Edit is unavailable, use the anchored editor: `ctx_read(mode="anchored")` →
+`ctx_patch` (reachable via `ctx_call` in the default profile).
 
 ## Session Documentation
 After significant work: `ctx_knowledge(action="remember", category="decision", content="...")`

@@ -115,12 +115,15 @@ class CockpitRoi extends HTMLElement {
         Fp.applyServerPricing(this._spend.pricing);
       }
       this._updatedAt = new Date();
-      // Output-echo summary (#501) rides on /api/stats; non-fatal if missing.
+      // Output-echo summary (#501) and edit-efficiency counters (#1008) ride
+      // on /api/stats; non-fatal if missing.
       try {
         var stats = await fetchJson('/api/stats', { timeoutMs: 8000 });
         this._outputEcho = stats && stats.output_echo ? stats.output_echo : null;
+        this._editEfficiency = stats && stats.edit_efficiency ? stats.edit_efficiency : null;
       } catch (e2) {
         this._outputEcho = null;
+        this._editEfficiency = null;
       }
       // Echo learning trend (#507) from /api/signals; non-fatal if missing.
       try {
@@ -173,6 +176,7 @@ class CockpitRoi extends HTMLElement {
     var body = this._renderHero(esc);
     body += this._renderLiveStamp(esc);
     body += this._renderOutputEfficiency(esc);
+    body += this._renderEditEfficiency(esc);
     body += this._renderOutputSavings(esc);
     body += this._renderVerification(esc);
     body += this._renderMethodology();
@@ -486,6 +490,57 @@ class CockpitRoi extends HTMLElement {
       '</div>' +
       '<p class="hs" style="margin-top:6px;color:var(--muted)">' + esc(verdict) + '</p>' +
       trendHtml +
+      '</div>'
+    );
+  }
+
+  /**
+   * Edit Efficiency (#1008): anchored editing (ctx_patch) vs str_replace
+   * (ctx_edit). "Avoided" is measured per applied op — tokens of the replaced
+   * span the model referenced by (line, hash) anchor instead of re-emitting it
+   * as old_string. A separate channel from read-gain; hidden until an edit
+   * path has been used at all.
+   */
+  _renderEditEfficiency(esc) {
+    var em = this._editEfficiency;
+    if (!em) return '';
+    var F = croiFmt();
+    var ff = F.ff || function (n) { return String(n); };
+    var n = function (x) { return Number(x || 0); };
+    var anchored = n(em.anchored_calls);
+    var sr = n(em.str_replace_calls);
+    var srMisses = n(em.str_replace_misses);
+    if (!anchored && !sr && !srMisses) return '';
+
+    var avoided = n(em.anchored_avoided_output_tokens);
+    var conflicts = n(em.anchored_conflicts);
+    var conflictPct = anchored + conflicts > 0
+      ? Math.round((conflicts / (anchored + conflicts)) * 100) : 0;
+
+    var anchoredRows = anchored
+      ? '<div class="sr"><span class="sl">Anchored (ctx_patch)</span><span class="sv">' +
+        esc(ff(anchored)) + ' edits \u00b7 ' + esc(ff(n(em.anchored_ops))) + ' ops \u00b7 ' +
+        '<b style="color:var(--green)">' + esc(ff(avoided)) + ' output tok avoided</b></span></div>' +
+        '<div class="sr"><span class="sl">Anchor conflicts</span><span class="sv">' +
+        esc(ff(conflicts)) + ' stale-anchor retries (' + esc(String(conflictPct)) + '% of attempts)</span></div>'
+      : '';
+    var srRows = (sr || srMisses)
+      ? '<div class="sr"><span class="sl">str_replace (ctx_edit)</span><span class="sv">' +
+        esc(ff(sr)) + ' edits \u00b7 ' + esc(ff(n(em.str_replace_old_string_tokens))) +
+        ' output tok paid on old_string \u00b7 ' + esc(ff(srMisses)) + ' old_string misses</span></div>'
+      : '';
+
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Edit Efficiency</h3>' +
+      '<span class="tag tg" title="Measured per applied op: tokens of the replaced span minus the anchor arguments the model sent instead. Never estimated.">measured</span></div>' +
+      '<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:6px">' +
+      '<div class="hv" style="color:var(--green)">' + esc(ff(avoided)) + '</div>' +
+      '<span class="hs">output tokens never re-emitted \u2014 anchored edits reference ' +
+      '<code>line:hash</code> instead of quoting the replaced span</span></div>' +
+      anchoredRows + srRows +
+      '<p class="hs" style="margin-top:8px;color:var(--muted)">Output tokens cost ~5\u00d7 input; ' +
+      'anchored editing (<code>ctx_read mode=anchored</code> \u2192 <code>ctx_patch</code>) saves them at the source.</p>' +
       '</div>'
     );
   }

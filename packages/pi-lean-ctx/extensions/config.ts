@@ -58,10 +58,11 @@ export interface PiLeanCtxFileConfig {
   /**
    * Which lean-ctx tool surface the embedded MCP bridge requests. Maps to the
    * engine's `LEAN_CTX_TOOL_PROFILE`:
-   *   "lean" (default) — 11 lazy-core tools + the `ctx_call` gateway (exact
-   *                      parity with a normal default install; ctx_edit/ctx_patch
-   *                      and every other tool stay reachable through `ctx_call`).
-   *   "standard"       — 15 balanced tools.
+   *   "lean" (default) — 12 lazy-core tools incl. `ctx_patch` and the `ctx_call`
+   *                      gateway (exact parity with a normal default install;
+   *                      ctx_edit and every other tool stay reachable through
+   *                      `ctx_call`).
+   *   "standard"       — 16 balanced tools.
    *   "power"          — the whole registry as first-class Pi tools (ctx_edit,
    *                      ctx_patch, architecture/quality tools, …). Higher token
    *                      cost. Pi's native `edit`/`write` stay available in every
@@ -217,9 +218,9 @@ function resolveToolPrefix(filePrefix: unknown): string | undefined {
  * The lean-ctx tool surface the embedded bridge requests, mapped to the engine's
  * `LEAN_CTX_TOOL_PROFILE`. Env `LEAN_CTX_PI_TOOL_PROFILE` wins over the file
  * `toolProfile`; `full`/`all` alias `power`; anything unset or unrecognized falls
- * back to `lean` — the lazy-core default that matches a normal install (every
- * other tool stays reachable via `ctx_call`). `power` promotes the whole registry
- * (ctx_edit/ctx_patch included) to first-class Pi tools.
+ * back to `lean` — the lazy-core default that matches a normal install (incl. the
+ * anchored editor `ctx_patch`; every other tool stays reachable via `ctx_call`).
+ * `power` promotes the whole registry (ctx_edit included) to first-class Pi tools.
  */
 export function resolveToolProfile(fileProfile: unknown): PiToolProfile {
   const raw = (process.env.LEAN_CTX_PI_TOOL_PROFILE
@@ -274,8 +275,8 @@ export function loadPiConfig(): ResolvedPiConfig {
   const mode = resolveMode(cfg.mode);
 
   // Translate the Pi-facing tool profile into the engine env the spawned MCP
-  // server reads, so `standard`/`power` widen the advertised surface (ctx_edit /
-  // ctx_patch and the rest become first-class Pi tools via the bridge). Never
+  // server reads, so `standard`/`power` widen the advertised surface (ctx_edit
+  // and the rest become first-class Pi tools via the bridge). Never
   // override an explicit LEAN_CTX_TOOL_PROFILE — whether from the real env or the
   // config.json `env` map — so "most explicit wins" holds. `lean` is the default
   // and adds nothing (identical to a normal default install).

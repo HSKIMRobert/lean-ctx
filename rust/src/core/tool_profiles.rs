@@ -10,8 +10,8 @@ use std::fmt;
 /// effective profile falls back to `Power` — which acts as a pure call-gate
 /// ("everything reachable via ctx_call"), not as an advertisement list.
 /// Pinning a profile makes the advertised set explicit and authoritative
-/// (#358), which costs schema tokens: `standard` advertises 19 full schemas,
-/// `power` the whole registry (#575).
+/// (#358), which costs schema tokens: `standard` advertises its 16 full
+/// schemas, `power` the whole registry (#575).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToolProfile {
     Minimal,
@@ -42,7 +42,7 @@ impl ToolProfile {
     pub fn description(&self) -> &str {
         match self {
             Self::Minimal => "5 surgical tools — each irreplaceable (recommended)",
-            Self::Standard => "15 balanced tools (adds compose, explore, callgraph, execute, more)",
+            Self::Standard => "16 balanced tools (adds compose, explore, callgraph, patch, more)",
             Self::Power => "All tools exposed",
             Self::Custom(v) => {
                 if v.is_empty() {
@@ -157,6 +157,10 @@ const MINIMAL_TOOLS: &[&str] = &[
 ///
 /// #509: `ctx_semantic_search` and `ctx_symbol` are folded into `ctx_search`
 /// (action="semantic"/"symbol") and dropped from the advertised set.
+///
+/// #1008: `ctx_patch` (hash-anchored editing) joins Standard — a pinned profile
+/// is the user's explicit, client-agnostic choice, so the anchored editor is
+/// always part of it. `ctx_edit` (str_replace) stays power-only.
 const STANDARD_TOOLS: &[&str] = &[
     "ctx_read",
     "ctx_shell",
@@ -173,6 +177,7 @@ const STANDARD_TOOLS: &[&str] = &[
     "ctx_expand",
     "ctx_overview",
     "ctx_url_read",
+    "ctx_patch",
 ];
 
 /// Available built-in profile names.
@@ -193,8 +198,8 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
         },
         ProfileInfo {
             name: "standard",
-            tool_count: "15",
-            description: "Balanced set — adds compose, explore, callgraph, execute, delta, more",
+            tool_count: "16",
+            description: "Balanced set — adds compose, explore, callgraph, patch, execute, more",
         },
         ProfileInfo {
             name: "power",
@@ -339,6 +344,8 @@ mod tests {
         assert!(!profile.is_tool_enabled("ctx_semantic_search"));
         assert!(!profile.is_tool_enabled("ctx_multi_read"));
         assert!(profile.is_tool_enabled("ctx_url_read"));
+        // #1008: anchored editing is part of the pinned Standard surface.
+        assert!(profile.is_tool_enabled("ctx_patch"));
         assert!(!profile.is_tool_enabled("ctx_benchmark"));
         assert!(!profile.is_tool_enabled("ctx_analyze"));
         assert!(!profile.is_tool_enabled("ctx_refactor"));
@@ -511,10 +518,15 @@ mod tests {
             profile.is_tool_enabled("ctx_execute"),
             "ctx_execute must be in standard (sandboxed code execution)"
         );
-        // ctx_edit is power-only — native Edit tool is preferred
+        // ctx_edit is power-only — for editing, Standard carries the anchored
+        // ctx_patch instead (#1008); str_replace stays a power fallback.
         assert!(
             !profile.is_tool_enabled("ctx_edit"),
-            "ctx_edit must NOT be in standard (native Edit preferred)"
+            "ctx_edit must NOT be in standard (ctx_patch is the standard editor)"
+        );
+        assert!(
+            profile.is_tool_enabled("ctx_patch"),
+            "ctx_patch must be in standard (#1008 anchored editing)"
         );
     }
 

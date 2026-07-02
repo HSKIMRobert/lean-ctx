@@ -325,7 +325,7 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
             let client = self.client_name.read().await.clone();
-            let is_zed = !client.is_empty() && client.to_lowercase().contains("zed");
+            let quirks = crate::server::tool_visibility::ClientQuirks::resolve(&client, candidate);
 
             let active_role = crate::core::roles::active_role();
             let tools: Vec<_> = all_tools
@@ -336,7 +336,7 @@ impl ServerHandler for LeanCtxServer {
                         name,
                         &tool_profile,
                         &disabled,
-                        is_zed,
+                        quirks,
                         active_role.is_tool_allowed(name),
                     )
                 })

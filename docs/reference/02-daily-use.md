@@ -208,7 +208,7 @@ AI sees. Fewer tools = less per-call overhead.
 
 ```bash
 lean-ctx tools minimal       # 5 essential tools
-lean-ctx tools standard      # 15 tools (balanced)
+lean-ctx tools standard      # 16 tools (balanced, incl. ctx_patch)
 lean-ctx tools power         # all 69 (default for existing installs)
 lean-ctx tools show          # current profile
 lean-ctx tools list          # what each profile contains

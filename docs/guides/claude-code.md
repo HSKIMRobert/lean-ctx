@@ -80,7 +80,7 @@ lean-ctx maintains a marker-delimited block in `~/.claude/CLAUDE.md`:
 
 ```markdown
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v3 -->
+<!-- lean-ctx-claude-v4 -->
 ## lean-ctx — Context Runtime
 
 Always prefer lean-ctx MCP tools over native equivalents:
@@ -88,10 +88,10 @@ Always prefer lean-ctx MCP tools over native equivalents:
 - `ctx_shell` instead of `bash` / `Shell` (95+ compression patterns)
 - `ctx_search` instead of `Grep` / `rg` (compact results)
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
-- Native Edit/StrReplace stay unchanged. If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)` instead.
+- Edits: `ctx_read(mode="anchored")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). Native Edit/Write stay available; `ctx_edit` (str_replace) is the legacy power-profile fallback.
 - Write, Delete, Glob — use normally.
 
-Read modes: full (edit), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
+Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 <!-- /lean-ctx -->
 ```

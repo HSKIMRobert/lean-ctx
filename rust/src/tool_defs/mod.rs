@@ -83,6 +83,13 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     // (file-level deps, ~300 tok schema) stays reachable via ctx_call and the
     // standard/power profiles.
     "ctx_callgraph",
+    // #1008 anchored editing: the rules route "edit after reading" to ctx_patch,
+    // so the default surface must advertise it — but only where it earns its
+    // tokens. Clients with a reliable native str-replace editor (Cursor, Zed,
+    // Windsurf, …) skip it via the lazy-core client quirk in
+    // `server::tool_visibility::ClientQuirks`; Claude Code, SDK harnesses and
+    // unknown/headless clients get it.
+    "ctx_patch",
     "ctx_call",
     "ctx_expand",
 ];

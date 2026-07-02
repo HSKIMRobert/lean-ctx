@@ -56,7 +56,7 @@ Gemini CLI reads `~/.gemini/GEMINI.md` for global instructions. lean-ctx **appen
 <!-- lean-ctx-rules -->
 
 ## Mode Selection
-- Editing the file? → `full` first, then `diff` for re-reads
+- Editing the file? → `anchored` first (full text + anchors), then `diff` for re-reads
 - Context only? → `map` or `signatures`
 - Large file? → `aggressive` or `entropy`
 - Specific lines? → `lines:N-M`
@@ -65,9 +65,10 @@ Gemini CLI reads `~/.gemini/GEMINI.md` for global instructions. lean-ctx **appen
 Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File Editing
-Use native Edit/Write/StrReplace — unchanged. lean-ctx replaces READ only.
-If Edit requires Read and Read is unavailable, use `ctx_edit(path, old_string, new_string)`.
-NEVER loop on Edit failures — switch to ctx_edit immediately.
+Anchored editing: `ctx_read(mode="anchored")` → `ctx_patch(path, op, line, hash, new_text)` —
+never echo old text; batch via `ops:[…]`; `op=create` for new files. Stale anchor → CONFLICT
+with fresh anchors (retry once). Native Edit/Write stay fine; `ctx_edit` is the legacy
+power-profile fallback.
 
 ## Session Documentation
 After significant work: ctx_knowledge(action=remember, category=decision, content=...)

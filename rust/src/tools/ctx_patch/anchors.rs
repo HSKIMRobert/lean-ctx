@@ -40,6 +40,11 @@ pub enum AnchorOp {
         end_line: usize,
         end_hash: String,
     },
+    /// Create a NEW file with `new_text` as its content. No anchors — the file
+    /// must not exist yet (strict, unlike `ctx_edit create=true` which
+    /// overwrites). Handled before the preimage read; cannot be mixed with
+    /// anchored ops in one call (a batch shares a single existing preimage).
+    Create { new_text: String },
 }
 
 /// A stale anchor: the line the model referenced no longer hashes to the value
@@ -83,7 +88,7 @@ pub(crate) fn parse_ops(args: &Map<String, Value>) -> Result<Vec<AnchorOp>, Stri
 
 fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
     let op = get_str(obj, "op").ok_or_else(|| {
-        "missing 'op' (one of: set_line, replace_lines, insert_after, delete)".to_string()
+        "missing 'op' (one of: set_line, replace_lines, insert_after, delete, create)".to_string()
     })?;
     match op.as_str() {
         "set_line" => Ok(AnchorOp::SetLine {
@@ -132,13 +137,16 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
                 })
             }
         }
+        "create" => Ok(AnchorOp::Create {
+            new_text: req_new_text_create(obj)?,
+        }),
         "replace_symbol" => Err(
             "replace_symbol cannot be batched in ops[] — it is a different (symbol \
              resolution) write path; send it as a single top-level op"
                 .to_string(),
         ),
         other => Err(format!(
-            "unknown op '{other}' (one of: set_line, replace_lines, insert_after, delete, replace_symbol)"
+            "unknown op '{other}' (one of: set_line, replace_lines, insert_after, delete, create, replace_symbol)"
         )),
     }
 }
@@ -157,6 +165,14 @@ fn req_new_text(obj: &Map<String, Value>) -> Result<String, String> {
         .and_then(|v| v.as_str())
         .map(String::from)
         .ok_or_else(|| "missing 'new_text' (use \"\" to delete)".to_string())
+}
+
+/// `new_text` for `create` — must be present; `""` creates an empty file.
+fn req_new_text_create(obj: &Map<String, Value>) -> Result<String, String> {
+    obj.get("new_text")
+        .and_then(|v| v.as_str())
+        .map(String::from)
+        .ok_or_else(|| "create requires 'new_text' (the full file content)".to_string())
 }
 
 /// A 1-based line number ≥ 1.
@@ -298,6 +314,30 @@ mod tests {
     fn unknown_op_is_rejected() {
         let err = parse_ops(&obj(json!({"op": "frobnicate", "line": 1}))).unwrap_err();
         assert!(err.contains("unknown op"), "got: {err}");
+    }
+
+    #[test]
+    fn parses_create_with_content() {
+        let ops = parse_ops(&obj(json!({"op": "create", "new_text": "fn main() {}\n"}))).unwrap();
+        assert_eq!(
+            ops,
+            vec![AnchorOp::Create {
+                new_text: "fn main() {}\n".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn create_requires_new_text() {
+        let err = parse_ops(&obj(json!({"op": "create"}))).unwrap_err();
+        assert!(err.contains("new_text"), "got: {err}");
+    }
+
+    #[test]
+    fn create_allows_empty_new_text() {
+        // "" is a valid empty file — unlike anchored ops where "" means delete.
+        let ops = parse_ops(&obj(json!({"op": "create", "new_text": ""}))).unwrap();
+        assert!(matches!(&ops[0], AnchorOp::Create { new_text } if new_text.is_empty()));
     }
 
     #[test]

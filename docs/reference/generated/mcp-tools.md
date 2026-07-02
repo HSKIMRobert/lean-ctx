@@ -428,14 +428,13 @@ Parameters: `action`, `description`, `path`
 
 ## `ctx_patch`
 
-Hash-anchored edit — edit by line ANCHOR, not by reproducing old text.
-First read with ctx_read(mode="anchored") to get N:hh|line anchors, then patch by (line, hash).
-op=set_line replaces one line; replace_lines a range; insert_after adds after a line (line 0 = top); delete removes.
-op=replace_symbol rewrites a whole symbol body by name (or path+line) via ctx_refactor — pass new_body.
-new_text="" deletes the line. Batch many line edits via ops:[…] — all validated against the same file, applied all-or-nothing.
-A stale anchor is REJECTED with fresh anchors to retry — no partial writes. Prefer this over native str_replace/Edit for reliability.
+Hash-anchored edit — patch by (line, hash) anchor; never reproduce old text byte-for-byte.
+Anchors N:hh| come from ctx_read(mode="anchored") or ctx_search(anchored=true).
+op=set_line one line; replace_lines start_*..end_* range; insert_after (line 0 = top); delete; replace_symbol (name + new_body); create writes a NEW file from new_text.
+new_text="" deletes. Batch via ops:[{op,line,hash,new_text},…] — one preimage, applied all-or-nothing.
+Stale anchor → CONFLICT with fresh anchors to retry (no partial writes).
 
-Parameters: `backup`, `end_hash`, `end_line`, `evidence`, `expected_md5`, `hash`, `line`, `name`, `new_body`, `new_text`, `op`, `ops`, `path`*, `start_hash`, `start_line`, `validate_syntax`
+Parameters: `end_hash`, `end_line`, `hash`, `line`, `name`, `new_body`, `new_text`, `op`, `ops`, `path`*, `start_hash`, `start_line`
 
 ## `ctx_plan`
 

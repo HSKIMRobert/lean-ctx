@@ -417,13 +417,18 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
     // imports inline at launch, so the old `@rules/lean-ctx.md` pointer
     // silently multiplied the per-session footprint. Detail docs moved to
     // the on-demand skill; the CLAUDE.md block itself must stay compact.
+    // v4 (#1008): edits route through anchored ctx_patch, ctx_edit is legacy.
     assert!(
-        claude_md.contains("lean-ctx-claude-v3"),
-        "CLAUDE.md must carry the v3 block version"
+        claude_md.contains("lean-ctx-claude-v4"),
+        "CLAUDE.md must carry the v4 block version"
+    );
+    assert!(
+        claude_md.contains("ctx_patch"),
+        "v4 block must route edits to the anchored editor (#1008)"
     );
     assert!(
         !claude_md.contains("@rules/"),
-        "v3 block must not @-import rules (inline expansion defeats #555)"
+        "v4 block must not @-import rules (inline expansion defeats #555)"
     );
     assert!(
         claude_md.len() < 2048,

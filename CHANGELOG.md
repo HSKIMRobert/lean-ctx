@@ -6,6 +6,55 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **Anchored editing end-to-end — `ctx_patch` becomes the first-class edit path
+  (#1008, "Edit Loop v1").** The anchored editor now closes the loop the rules
+  already routed: read with `ctx_read(mode="anchored")` (or tag hits via
+  `ctx_search(anchored=true)`), then patch by `line + hash` anchor — the agent
+  never reproduces old text byte-for-byte, saving output tokens (~5x input cost)
+  on every edit.
+  - **Advertised where it earns its tokens**: `ctx_patch` joins the lazy core
+    and the `standard` profile (now 16 tools). Client-aware quirks keep the
+    default surface lean — clients with a reliable native editor (Cursor, Zed,
+    Windsurf, Antigravity, OpenCode) skip it and pay zero extra schema tokens;
+    Claude Code, CodeBuddy, pi/SDK and headless clients get it. Pinned profiles
+    are client-agnostic and always include it.
+  - **Schema diet**: the advertised `ctx_patch` schema shrank ~625 → ~263
+    tokens; rarely-used params (`expected_md5`, `backup`, `validate_syntax`,
+    `evidence`) stay supported but are no longer advertised.
+  - **`op=create`**: `ctx_patch` can create new files (strictly new — existing
+    files are refused; not mixable with anchored ops in one batch), so MCP-only
+    harnesses get the complete edit story from one tool.
+  - **Guidance coherence**: Claude/CodeBuddy pointer blocks (v4/v2), agent
+    templates, skills and per-editor guides now teach anchored-editing-first;
+    `ctx_edit` (str_replace) is documented as the legacy power-profile fallback.
+    New troubleshooting FAQ: "Where did `ctx_edit` go?".
+  - **Edit-efficiency metering (honest, #361-style)**: a separate metric
+    channel measures the anchored-editing claim per applied op —
+    `tokens(replaced span) − tokens(anchor args)`, i.e. output the model did
+    not re-emit — plus stale-anchor `CONFLICT` retries, against the
+    str_replace baseline (`old_string` tokens paid, `old_string` misses).
+    Never estimated, never folded into the read-gain ledger, never printed in
+    tool bodies (#498). Surfaced in `ctx_metrics`, `/api/stats →
+    edit_efficiency` and a dashboard ROI "Edit Efficiency" card
+    (`~/.lean-ctx/edit_metering.json`). Contract:
+    `docs/contracts/edit-metering-v1.md`.
+  - **A/B benchmark, reliability + cost**: the hermetic `edit_reliability`
+    suite fixes identical mechanical bugs across 5 languages with both tools —
+    anchored 10/10 vs minimal str_replace 5/10 (recovering to 10/10 only by
+    paying extra recalled context), and ~41% fewer argument output tokens on
+    identical successful fixes (tiny-span exceptions reported honestly).
+
+### Security
+- **`ctx_call` can no longer bypass egress DLP or permission inheritance.** The
+  guarded dispatch path unwraps `ctx_call(name=…, args=…)` and runs both checks
+  against the *inner* tool and its arguments (nested `ctx_call` is already
+  refused by the handler). Egress payload extraction is centralized in one
+  helper shared by the MCP server and `lean-ctx policy enforce`, and now also
+  covers `ctx_patch` write bodies (`new_text`, `new_body`, `ops[].new_text`).
+  `prefer_native_editor` (#454) now hides/refuses `ctx_patch` alongside
+  `ctx_edit`.
+
+### Added
 - **Hybrid multi-repo search (Context Hub, GL#1133).** `ctx_multi_repo
   action=search` now runs the full hybrid stack per root — BM25 + dense
   embeddings + SPLADE boost + graph ranks, the same pipeline as single-root

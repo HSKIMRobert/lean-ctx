@@ -347,6 +347,7 @@ pub fn flush_all() {
     crate::core::path_mode_memory::flush();
     crate::core::auto_mode_resolver::flush_sources();
     crate::core::edit_quality::flush();
+    crate::core::edit_metering::flush();
     crate::core::mode_predictor::ModePredictor::flush();
     crate::core::feedback::FeedbackStore::flush();
     crate::core::threshold_learning::flush();

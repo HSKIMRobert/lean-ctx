@@ -35,6 +35,7 @@ use std::fs;
 use std::path::Path;
 
 use lean_ctx::core::anchor::{annotate, line_hash};
+use lean_ctx::core::tokens::count_tokens;
 use lean_ctx::tools::ctx_edit::{self, CacheEffect, EditParams};
 use lean_ctx::tools::ctx_patch::{self, AnchorOp, PatchParams};
 
@@ -364,6 +365,97 @@ fn anchored_editing_beats_str_replace_on_ambiguity_across_languages() {
     assert_eq!(
         str_replace_full_recall_ok, attempts,
         "ctx_edit recovers to 100% only by paying the extra-context recall tax"
+    );
+}
+
+/// A/B output-token cost on the exact same successful edits (#1008 metering).
+///
+/// Reliability (above) is one axis; the other is what each success *costs* in
+/// output tokens — the argument bytes the model must emit per tool call:
+///
+/// * `ctx_patch`: `line`, 4-hex `hash`, `new_text` — the old span is referenced,
+///   never reproduced.
+/// * `ctx_edit`:  `old_string` + `new_string` — the old span is paid verbatim,
+///   and on the ambiguity cases the *widened* variant (the one that actually
+///   succeeds, see test above) pays the recalled neighbour line twice: once in
+///   `old_string` and once again echoed in `new_string`.
+///
+/// Both sides are counted with the same tokenizer over the payload fields only
+/// (path/booleans are identical overhead on both tools and cancel out). This is
+/// the same preimage math the runtime meters per applied op via
+/// `edit_metering` (`anchored_avoided_output_tokens`), and the benchmark keeps
+/// the claim exactly as honest as the meter does: on a *tiny* span the 4-hex
+/// anchor can cost a token or two more than quoting the line (the meter floors
+/// that op at 0 rather than booking negative savings) — but every ambiguity
+/// case and the batch total must be strictly cheaper anchored.
+#[test]
+fn anchored_args_cost_fewer_output_tokens_on_identical_fixes() {
+    let langs = langs();
+    let mut anchored_total = 0usize;
+    let mut str_replace_total = 0usize;
+    let mut cases = 0usize;
+    let mut tiny_span_regressions = 0usize;
+
+    for lang in &langs {
+        // Control fix — both tools succeed with their minimal natural args.
+        // No per-case assertion here: one-liner spans are where the anchor
+        // overhead can outweigh the quote (the floor-at-0 case in metering).
+        let anchored_ctrl = count_tokens(&format!(
+            "{}:{} {}",
+            lang.ctrl_line,
+            line_hash(lang.ctrl_buggy),
+            lang.ctrl_fixed
+        ));
+        let sr_ctrl = count_tokens(lang.ctrl_buggy) + count_tokens(lang.ctrl_fixed);
+        tiny_span_regressions += usize::from(anchored_ctrl > sr_ctrl);
+
+        // Ambiguity fix — compare what each tool needs to SUCCEED: anchored
+        // stays minimal; str_replace must widen old_string with the duplicate
+        // sibling and echo it back in new_string (cf. the reliability test).
+        let anchored_amb = count_tokens(&format!(
+            "{}:{} {}",
+            lang.amb_line,
+            line_hash(lang.amb_buggy),
+            lang.amb_fixed
+        ));
+        let widened_old = format!("{}\n{}", lang.amb_buggy, lang.amb_buggy);
+        let widened_new = format!("{}\n{}", lang.amb_fixed, lang.amb_buggy);
+        let sr_amb = count_tokens(&widened_old) + count_tokens(&widened_new);
+        assert!(
+            anchored_amb < sr_amb,
+            "[{}] ambiguity: anchored args ({anchored_amb} tok) must beat the \
+             widened str_replace args ({sr_amb} tok)",
+            lang.name
+        );
+
+        anchored_total += anchored_ctrl + anchored_amb;
+        str_replace_total += sr_ctrl + sr_amb;
+        cases += 2;
+    }
+
+    let saved = str_replace_total.saturating_sub(anchored_total);
+    println!(
+        "\nA/B output-token cost ({cases} successful fixes across {} languages):",
+        langs.len()
+    );
+    println!("  ctx_patch (anchored) args : {anchored_total} tok");
+    println!("  ctx_edit  (str_replace)   : {str_replace_total} tok");
+    println!(
+        "  avoided                   : {saved} tok ({:.0}%)  [{tiny_span_regressions} tiny-span cases where the anchor cost more]",
+        (saved as f64 / str_replace_total as f64) * 100.0
+    );
+
+    assert!(
+        anchored_total < str_replace_total,
+        "anchored batch total ({anchored_total}) must undercut str_replace \
+         ({str_replace_total}) despite per-op line:hash overhead"
+    );
+    // The anchor-overhead exception must stay the exception: at most the
+    // one-liner control per language, never an ambiguity case.
+    assert!(
+        tiny_span_regressions <= langs.len(),
+        "anchor overhead exceeded str_replace on {tiny_span_regressions} cases — \
+         more than the tiny-span controls can explain"
     );
 }
 

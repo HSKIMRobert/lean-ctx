@@ -63,10 +63,11 @@ pub fn categorize_tool(name: &str) -> ToolCategory {
         // list_changed-capable clients (ctx_expand was lost this way, #575).
         // ctx_callgraph joined the lazy core in #578 (INTENT routes
         // callers/impact to it), so it must be Core here too.
+        // ctx_patch joined in #1008 (anchored editing is a core workflow).
         "ctx_read" | "ctx_search" | "ctx_shell" | "shell" | "ctx_tree" | "ctx_edit"
-        | "ctx_session" | "ctx_checkpoint" | "ctx_knowledge" | "ctx_overview" | "ctx_graph"
-        | "ctx_callgraph" | "ctx_call" | "ctx_compress" | "ctx_cache" | "ctx_retrieve"
-        | "ctx_expand" => ToolCategory::Core,
+        | "ctx_patch" | "ctx_session" | "ctx_checkpoint" | "ctx_knowledge" | "ctx_overview"
+        | "ctx_graph" | "ctx_callgraph" | "ctx_call" | "ctx_compress" | "ctx_cache"
+        | "ctx_retrieve" | "ctx_expand" => ToolCategory::Core,
 
         // Merged tools (redirects in registry, treated as Core for backward compat)
         "ctx_multi_read" | "ctx_smart_read" | "ctx_delta" | "ctx_outline" | "ctx_context" => {
@@ -617,6 +618,9 @@ mod tests {
     fn categorize_known_tools() {
         assert_eq!(categorize_tool("ctx_read"), ToolCategory::Core);
         assert_eq!(categorize_tool("ctx_graph"), ToolCategory::Core);
+        // #1008: anchored editing is a core workflow — an explicit Core entry so
+        // the category gate can never hide the lazy-core editor.
+        assert_eq!(categorize_tool("ctx_patch"), ToolCategory::Core);
         assert_eq!(categorize_tool("ctx_benchmark"), ToolCategory::Debug);
         assert_eq!(categorize_tool("ctx_semantic_search"), ToolCategory::Core);
         assert_eq!(categorize_tool("ctx_artifacts"), ToolCategory::Memory);

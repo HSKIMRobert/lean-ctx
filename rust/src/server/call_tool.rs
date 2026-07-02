@@ -62,26 +62,43 @@ impl LeanCtxServer {
             return Ok(denied);
         }
 
+        // ctx_call is a meta-dispatcher: the egress DLP and permission-
+        // inheritance gates below must inspect the INNER tool + arguments, or
+        // the universal invoker becomes a policy bypass (#1008 security pass).
+        // Role/rate/workflow gates for the inner tool already run inside the
+        // dispatch layer; these two ran only on the wrapper name before.
+        let inner_call: Option<(String, Option<serde_json::Map<String, serde_json::Value>>)> =
+            if name == "ctx_call" {
+                helpers::get_str(args, "name").map(|inner_name| {
+                    let inner_args = args
+                        .and_then(|m| m.get("arguments"))
+                        .and_then(serde_json::Value::as_object)
+                        .cloned();
+                    (inner_name, inner_args)
+                })
+            } else {
+                None
+            };
+        let (guard_name, guard_args): (&str, Option<&serde_json::Map<_, _>>) = match &inner_call {
+            Some((n, a)) => (n.as_str(), a.as_ref()),
+            None => (name, args),
+        };
+
         // #676 — egress / output DLP on agent writes & actions. Inspect the
         // payload of write/action tools BEFORE dispatch so a forbidden write
         // never touches disk and a forbidden command never runs. Only the
         // agent's tool-driven egress is governed here (a human's own editor
         // writes never pass through this path). No-op unless the active pack has
-        // an `[egress]` section.
+        // an `[egress]` section. Payload mapping (incl. all ctx_patch bodies)
+        // lives in `core::egress::write_payload` — shared with `policy enforce`.
         if let Some(active) = crate::core::policy::runtime::active()
             && active.egress.is_active()
         {
-            let target = match name {
-                "ctx_edit" => helpers::get_str(args, "new_string").map(|s| (s, "Write")),
-                "ctx_shell" | "ctx_execute" => {
-                    helpers::get_str(args, "command").map(|s| (s, "Action"))
-                }
-                _ => None,
-            };
+            let target = crate::core::egress::write_payload(guard_name, guard_args);
             if let Some((payload, kind)) = target {
                 if let Some(reason) = active.egress.check_content(&payload, &active.redaction) {
-                    tracing::warn!(tool = name, %reason, "agent egress blocked by policy");
-                    policy_guard::audit_egress(name, &reason);
+                    tracing::warn!(tool = guard_name, %reason, "agent egress blocked by policy");
+                    policy_guard::audit_egress(guard_name, &reason);
                     return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                         "[POLICY BLOCKED] {kind} blocked by context policy pack egress rule \
                          ({reason}). Adjust .lean-ctx/policy.toml to proceed."
@@ -90,8 +107,8 @@ impl LeanCtxServer {
                 if let Some(max) = active.egress.max_writes_per_min
                     && !crate::core::egress::check_rate(max)
                 {
-                    tracing::warn!(tool = name, max, "agent egress rate limit exceeded");
-                    policy_guard::audit_egress(name, "rate-limit");
+                    tracing::warn!(tool = guard_name, max, "agent egress rate limit exceeded");
+                    policy_guard::audit_egress(guard_name, "rate-limit");
                     return Ok(CallToolResult::success(vec![ContentBlock::text(format!(
                         "[POLICY BLOCKED] {kind} rate limit exceeded ({max}/min) by context \
                          policy pack. Slow agent writes/actions or adjust .lean-ctx/policy.toml."
@@ -261,7 +278,8 @@ impl LeanCtxServer {
         // bash/read/edit/grep permission rules onto the matching lean-ctx tool so
         // e.g. `ctx_shell` honors a `rm *: ask` rule instead of bypassing it.
         // Gated on the cheap effective() check so the default (off) pays no lock
-        // cost on the hot path.
+        // cost on the hot path. Checks the ctx_call-unwrapped inner tool (#1008)
+        // so the invoker cannot side-step an IDE deny.
         if config.permission_inheritance_effective()
             == crate::core::config::PermissionInheritance::On
         {
@@ -269,13 +287,13 @@ impl LeanCtxServer {
             let project_root = self.session.read().await.project_root.clone();
             let perm = permission_inheritance::check(
                 &client_name,
-                name,
-                args,
+                guard_name,
+                guard_args,
                 project_root.as_deref(),
                 &config,
             );
             if let Some(blocked) = permission_inheritance::into_call_tool_result(&perm) {
-                tracing::warn!(tool = name, "held back by IDE permission inheritance");
+                tracing::warn!(tool = guard_name, "held back by IDE permission inheritance");
                 return Ok(blocked);
             }
         }
