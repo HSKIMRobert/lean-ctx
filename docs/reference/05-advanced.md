@@ -208,6 +208,115 @@ proxy_max_rps = 100                               # optional; gateway default: 5
 - An unparseable bind value falls back to `127.0.0.1` — a typo can only ever
   narrow exposure, never open the listener.
 
+**Per-person gateway keys — metering identity** (`gateway-keys.toml`). An org
+gateway can issue one bearer key per person instead of sharing the proxy token.
+The file lives at `<config_dir>/gateway-keys.toml` (override:
+`LEAN_CTX_GATEWAY_KEYS`), holds **only SHA-256 hashes** of the keys, and is
+loaded at proxy startup (rotation = restart, the standard secret-mount flow; a
+malformed file fails the start loudly):
+
+```toml
+[[keys]]
+sha256_hex = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+person     = "alice@example.com"
+team       = "platform"          # optional
+default_project = "billing"      # optional
+```
+
+- A request whose `Authorization: Bearer <key>` hash matches an entry
+  authenticates **and** tags the turn's measured usage with
+  `person`/`team`/`project` — the basis for per-person/per-project metering.
+- The `x-leanctx-project: <name>` request header overrides the key's
+  `default_project` per request (also works without a key, for solo setups). It
+  is an internal gateway header and is never forwarded upstream.
+- Compute a key's hash with `shasum -a 256` (or `sha256sum`):
+  `printf '%s' "gk-alice-secret" | shasum -a 256`.
+
+**Active routing — `[proxy.routing]`.** The gateway can rewrite the requested
+model in-flight: exact **aliases** (stable org names, transparent swaps) and
+intent-based **tier downgrades** (the last user message is classified
+`fast|standard|premium`; the tier picks a target). Targets are `"model"` (same
+upstream) or `"provider:model"` (re-target to a `[[proxy.providers]]` entry or a
+built-in `anthropic|openai|gemini` — same wire shape only; cross-shape
+translation is not in M1):
+
+```toml
+[proxy.routing]
+enabled = true
+
+[proxy.routing.aliases]
+"acme/fast" = "foundry:Phi-4-mini-instruct"   # stable org-level model name
+"claude-opus-4-5" = "claude-sonnet-4-5"       # transparent downgrade, same upstream
+
+[proxy.routing.tiers]
+fast     = "foundry:Phi-4-mini-instruct"      # explore/debug-style requests
+standard = ""                                 # "" / absent = keep requested model
+premium  = ""                                 # premium work is never auto-downgraded
+```
+
+- **Fail-open by construction:** any miss (rule/classification/unknown provider/
+  shape mismatch) forwards the request unchanged — a routing bug can cost
+  savings, never availability. Aliases win over tiers.
+- Routed usage events carry `routed_from` (the originally requested model) and
+  the serving provider, so the savings ledger can prove what the router did.
+- Gemini (model in URL path) and the ChatGPT/Codex OAuth route stay passthrough
+  in M1.
+
+**Counterfactual baseline — `[proxy.baseline]`.** The parameters that make
+avoided-cost claims auditable. Frozen per deployment (contract annex), not
+tunable at runtime by the vendor:
+
+```toml
+[proxy.baseline]
+reference_model = "claude-opus-4.5"   # what the org would have used without lean-ctx
+local_shadow_rate_per_mtok = 0.25     # USD/MTok booked for local/loopback inference
+```
+
+- Every usage event stores `reference_cost_usd` = the request's **uncompressed**
+  input tokens priced at the reference model's input rate — the counterfactual
+  the ledger settles against. Unset `reference_model` = no counterfactual is
+  claimed.
+- `is_local` traffic books the **shadow rate** as its actual cost (default 0.25
+  USD/MTok, never 0): local compute is free of provider fees, not of hardware
+  and power — keeping "savings vs. local" honest instead of infinite.
+
+**Self-hosted org gateway — `lean-ctx gateway serve`** (build with
+`--features gateway-server`). One process bundling the hardened proxy, the
+Postgres usage store and an admin listener:
+
+```bash
+DATABASE_URL="postgres://gateway@db/leanctx" \
+LEAN_CTX_GATEWAY_ADMIN_TOKEN="$(openssl rand -hex 24)" \
+lean-ctx gateway serve --port=8484 --admin-port=8485
+```
+
+- **Proxy** (`--port`): the exposed surface — all `proxy_bind_host` /
+  allowlist / Bearer / rate-limit rules above apply unchanged.
+- **Usage store** (`DATABASE_URL`): every measured turn becomes a
+  `usage_events` row (person/team/project × provider/model × tokens/cost +
+  baseline fields). Schema is applied idempotently at start. **Fail-open:** an
+  unreachable Postgres degrades metering (events dropped and counted), never
+  live LLM traffic; without `DATABASE_URL` the store is simply off.
+- **Admin listener** (`--admin-port`, default proxy port + 1): keep it
+  cluster-internal (no ingress). Requires `LEAN_CTX_GATEWAY_ADMIN_TOKEN`
+  (env-only, like all tokens); without it only the proxy runs.
+  - `GET /api/admin/usage?from=<ISO>&to=<ISO>` — person × project × model ×
+    provider breakdown with cost/savings sums, totals and the seat projection
+    (window defaults to the last 30 days).
+  - `GET /metrics` — Prometheus text: per-model requests/tokens/cost, verified
+    ledger savings (total + per mechanism), dropped-event counter.
+  - `GET /healthz` — unauthenticated liveness.
+
+```toml
+[gateway_server]
+seats     = 800                     # projection divisor ("if all seats saved like active users")
+org_label = "Acme AI Gateway"       # display name on cockpit + reports
+# admin_url: set on *client* machines to show the org-wide breakdown in their
+# cockpit (ROI view) via GET /api/usage-breakdown; without it the cockpit shows
+# the local snapshot of this machine only.
+admin_url = "https://gateway.internal:8485"
+```
+
 **Live upstream — `config.toml` is the source of truth for a running proxy**
 ([#449](https://github.com/yvgude/lean-ctx/issues/449)). A long-lived proxy
 (LaunchAgent / systemd / IDE-spawned) re-reads its upstreams from `config.toml`

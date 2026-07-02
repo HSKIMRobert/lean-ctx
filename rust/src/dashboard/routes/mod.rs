@@ -17,6 +17,7 @@ mod snapshots;
 mod stats;
 mod system;
 mod tools;
+mod usage_breakdown;
 
 use std::sync::Arc;
 
@@ -174,6 +175,7 @@ pub fn route_response(
         .or_else(|| settings::handle(path, query_str, method, body))
         .or_else(|| doctor::handle(path, query_str, method, body))
         .or_else(|| leaderboard::handle(path, query_str, method, body))
+        .or_else(|| usage_breakdown::handle(path, query_str, method, body))
         .or_else(|| system::handle(path, query_str, method, body))
         .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
 }

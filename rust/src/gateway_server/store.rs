@@ -1,0 +1,405 @@
+//! `usage_events` Postgres store (enterprise#17, baseline fields enterprise#18).
+//!
+//! One row per measured LLM turn: who (person/team/project, enterprise#11),
+//! what (provider/model/tokens), what it cost (priced with the shared
+//! `ModelPricing` table) and the counterfactual-baseline inputs that make the
+//! success fee provable (`uncompressed_input_tokens`, `reference_model`,
+//! `reference_cost_usd`, `is_local` — Doc 08 §2).
+//!
+//! Schema management follows the repo rule: `init_schema` is idempotent
+//! `batch_execute` DDL (`CREATE TABLE IF NOT EXISTS …`), no migration files.
+//!
+//! The writer consumes the `proxy::usage_sink` stream: bounded channel, spawned
+//! task, INSERT per event. Fail-open (enterprise#12): insert errors are logged
+//! and counted, never propagated to the request path.
+
+use deadpool_postgres::{Manager, ManagerConfig, Pool, RecyclingMethod};
+use tokio_postgres::NoTls;
+
+use crate::core::config::BaselineConfig;
+use crate::core::gain::model_pricing::ModelPricing;
+use crate::proxy::usage::RealUsage;
+
+/// Buffered events between the proxy choke-point and the Postgres writer.
+/// Sized for bursts (a full channel drops events, counted in `usage_sink`).
+pub const WRITER_QUEUE: usize = 4096;
+
+pub fn pool_from_database_url(database_url: &str) -> anyhow::Result<Pool> {
+    let pg_cfg: tokio_postgres::Config = database_url.parse()?;
+    let mgr = Manager::from_config(
+        pg_cfg,
+        NoTls,
+        ManagerConfig {
+            recycling_method: RecyclingMethod::Fast,
+        },
+    );
+    Ok(Pool::builder(mgr).max_size(8).build()?)
+}
+
+/// Idempotent DDL (Doc 08 §2): `IF NOT EXISTS` only, run on every start.
+const USAGE_EVENTS_DDL: &str = r"
+CREATE TABLE IF NOT EXISTS usage_events (
+  id                 BIGSERIAL PRIMARY KEY,
+  ts                 TIMESTAMPTZ      NOT NULL DEFAULT now(),
+  person             TEXT             NOT NULL,
+  team               TEXT,
+  project            TEXT             NOT NULL,
+  tool               TEXT,
+  provider           TEXT             NOT NULL,
+  model              TEXT             NOT NULL,
+  routed_from        TEXT,
+  input_tokens       BIGINT           NOT NULL,
+  output_tokens      BIGINT           NOT NULL,
+  cache_read_tokens  BIGINT           NOT NULL DEFAULT 0,
+  cache_write_tokens BIGINT           NOT NULL DEFAULT 0,
+  reasoning_tokens   BIGINT           NOT NULL DEFAULT 0,
+  cost_usd           DOUBLE PRECISION NOT NULL,
+  saved_tokens       BIGINT           NOT NULL DEFAULT 0,
+  saved_usd          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  -- Avoided-cost baseline for the success fee (enterprise#18, Doc 04 §6):
+  uncompressed_input_tokens BIGINT    NOT NULL DEFAULT 0,
+  reference_model    TEXT,
+  reference_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+  is_local           BOOLEAN          NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_usage_events_person_ts  ON usage_events (person, ts);
+CREATE INDEX IF NOT EXISTS idx_usage_events_project_ts ON usage_events (project, ts);
+CREATE INDEX IF NOT EXISTS idx_usage_events_model_ts   ON usage_events (model, ts);
+";
+
+/// Applies the usage-store DDL. Safe to run on every start (idempotent).
+pub async fn init_schema(pool: &Pool) -> anyhow::Result<()> {
+    let client = pool.get().await?;
+    client.batch_execute(USAGE_EVENTS_DDL).await?;
+    Ok(())
+}
+
+/// One `usage_events` row, fully derived from a finalized [`RealUsage`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageEvent {
+    pub person: String,
+    pub team: Option<String>,
+    pub project: String,
+    pub provider: String,
+    pub model: String,
+    pub routed_from: Option<String>,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub reasoning_tokens: i64,
+    pub cost_usd: f64,
+    pub saved_tokens: i64,
+    pub saved_usd: f64,
+    pub uncompressed_input_tokens: i64,
+    pub reference_model: Option<String>,
+    pub reference_cost_usd: f64,
+    pub is_local: bool,
+}
+
+/// Identity fallbacks when a request carried no gateway key/tags: the row must
+/// still be attributable (`NOT NULL`), and "anonymous/default" is honest about
+/// what the gateway knew. Strict deployments make keys mandatory via
+/// `proxy_require_token` + gateway-keys, so these appear only in solo mode.
+const ANONYMOUS_PERSON: &str = "anonymous";
+const DEFAULT_PROJECT: &str = "default";
+
+impl UsageEvent {
+    /// Derives the row from a measured turn, pricing both the actual cost and
+    /// the compression saving with the shared pricing table, and stamping the
+    /// counterfactual baseline (enterprise#15/#18):
+    ///
+    /// - `cost_usd`: served model's list price — except `is_local`, which books
+    ///   the transparent `local_shadow_rate` (never $0; Doc 04 §6).
+    /// - `reference_cost_usd`: the request's **uncompressed** input tokens
+    ///   priced at the contract-frozen `reference_model`'s input rate (Doc 08
+    ///   §2) — the counterfactual the avoided-cost ledger settles against.
+    /// - `saved_usd`: the SEE (compression) component only — saved request
+    ///   tokens at the served model's input rate. Full mechanism attribution
+    ///   (routing/caching) is the signed ledger's job (wave 4, enterprise#19).
+    #[must_use]
+    pub fn from_usage(
+        usage: &RealUsage,
+        pricing: &ModelPricing,
+        baseline: &BaselineConfig,
+    ) -> Self {
+        let wire = usage.wire.as_deref();
+        let quote = pricing.quote(Some(&usage.model));
+        let is_local = wire.is_some_and(|w| w.is_local);
+        #[allow(clippy::cast_precision_loss)]
+        let cost_usd = if is_local {
+            let billable = usage.input_tokens
+                + usage.output_tokens
+                + usage.cache_read_tokens
+                + usage.cache_write_tokens;
+            baseline.effective_local_shadow_rate() / 1_000_000.0 * billable as f64
+        } else {
+            quote.cost.estimate_usd(
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_write_tokens,
+                usage.cache_read_tokens,
+            )
+        };
+        let saved_tokens = wire.map_or(0, |w| w.saved_tokens);
+        // Input-side saving: input-rate USD per token × saved request tokens.
+        #[allow(clippy::cast_precision_loss)]
+        let saved_usd = quote.cost.input_per_m / 1_000_000.0 * saved_tokens as f64;
+
+        let uncompressed_input_tokens = wire.map_or(0, |w| w.uncompressed_input_tokens);
+        let reference_model = baseline
+            .reference_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .map(str::to_string);
+        #[allow(clippy::cast_precision_loss)]
+        let reference_cost_usd = reference_model.as_deref().map_or(0.0, |reference| {
+            pricing.quote(Some(reference)).cost.input_per_m / 1_000_000.0
+                * uncompressed_input_tokens as f64
+        });
+
+        Self {
+            person: wire
+                .and_then(|w| w.person.clone())
+                .unwrap_or_else(|| ANONYMOUS_PERSON.to_string()),
+            team: wire.and_then(|w| w.team.clone()),
+            project: wire
+                .and_then(|w| w.project.clone())
+                .unwrap_or_else(|| DEFAULT_PROJECT.to_string()),
+            provider: wire.map_or_else(String::new, |w| w.provider.clone()),
+            model: usage.model.clone(),
+            routed_from: wire.and_then(|w| w.routed_from.clone()),
+            input_tokens: to_i64(usage.input_tokens),
+            output_tokens: to_i64(usage.output_tokens),
+            cache_read_tokens: to_i64(usage.cache_read_tokens),
+            cache_write_tokens: to_i64(usage.cache_write_tokens),
+            reasoning_tokens: to_i64(usage.reasoning_tokens),
+            cost_usd,
+            saved_tokens: to_i64(saved_tokens),
+            saved_usd,
+            uncompressed_input_tokens: to_i64(uncompressed_input_tokens),
+            reference_model,
+            reference_cost_usd,
+            is_local,
+        }
+    }
+}
+
+fn to_i64(v: u64) -> i64 {
+    i64::try_from(v).unwrap_or(i64::MAX)
+}
+
+/// Inserts one event. Errors bubble to the writer loop, which logs and moves on.
+pub async fn insert_event(
+    client: &deadpool_postgres::Client,
+    e: &UsageEvent,
+) -> anyhow::Result<()> {
+    client
+        .execute(
+            "INSERT INTO usage_events \
+             (person, team, project, provider, model, routed_from, \
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, \
+              reasoning_tokens, cost_usd, saved_tokens, saved_usd, \
+              uncompressed_input_tokens, reference_model, reference_cost_usd, is_local) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
+            &[
+                &e.person,
+                &e.team,
+                &e.project,
+                &e.provider,
+                &e.model,
+                &e.routed_from,
+                &e.input_tokens,
+                &e.output_tokens,
+                &e.cache_read_tokens,
+                &e.cache_write_tokens,
+                &e.reasoning_tokens,
+                &e.cost_usd,
+                &e.saved_tokens,
+                &e.saved_usd,
+                &e.uncompressed_input_tokens,
+                &e.reference_model,
+                &e.reference_cost_usd,
+                &e.is_local,
+            ],
+        )
+        .await?;
+    Ok(())
+}
+
+/// Wires the usage stream into Postgres: installs the process-wide sink
+/// (`proxy::usage_sink`) and spawns the writer task. Call once at gateway
+/// startup, after `init_schema`.
+///
+/// Returns `false` when a sink was already installed (double start).
+pub fn spawn_writer(pool: Pool) -> bool {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<RealUsage>(WRITER_QUEUE);
+    if !crate::proxy::usage_sink::install(tx) {
+        return false;
+    }
+    tokio::spawn(async move {
+        // One pricing table + baseline for the writer's lifetime: rows are
+        // priced at insert time (the ledger re-values against frozen
+        // references); the baseline is contract-frozen anyway (#41).
+        let pricing = ModelPricing::load();
+        let baseline = crate::core::config::Config::load().proxy.baseline.clone();
+        while let Some(usage) = rx.recv().await {
+            let event = UsageEvent::from_usage(&usage, &pricing, &baseline);
+            match pool.get().await {
+                Ok(client) => {
+                    if let Err(e) = insert_event(&client, &event).await {
+                        tracing::warn!("usage_events insert failed (fail-open): {e:#}");
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("usage_events pool unavailable (fail-open): {e:#}");
+                }
+            }
+        }
+    });
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proxy::usage::WireContext;
+
+    fn usage_with_wire(wire: Option<Box<WireContext>>) -> RealUsage {
+        RealUsage {
+            model: "claude-sonnet-4-5".into(),
+            input_tokens: 1000,
+            output_tokens: 500,
+            cache_read_tokens: 200,
+            cache_write_tokens: 100,
+            reasoning_tokens: 50,
+            cohort: None,
+            wire,
+        }
+    }
+
+    #[test]
+    fn event_carries_identity_and_baseline_fields() {
+        let usage = usage_with_wire(Some(Box::new(WireContext {
+            provider: "Anthropic".into(),
+            person: Some("yves".into()),
+            team: Some("platform".into()),
+            project: Some("ai-gateway".into()),
+            saved_tokens: 4000,
+            uncompressed_input_tokens: 5000,
+            is_local: false,
+            routed_from: Some("claude-opus-4-5".into()),
+        })));
+        let event = UsageEvent::from_usage(
+            &usage,
+            &ModelPricing::load(),
+            &BaselineConfig {
+                reference_model: Some("claude-opus-4.5".into()),
+                local_shadow_rate_per_mtok: None,
+            },
+        );
+
+        assert_eq!(event.person, "yves");
+        assert_eq!(event.team.as_deref(), Some("platform"));
+        assert_eq!(event.project, "ai-gateway");
+        assert_eq!(event.provider, "Anthropic");
+        assert_eq!(event.model, "claude-sonnet-4-5");
+        assert_eq!(event.routed_from.as_deref(), Some("claude-opus-4-5"));
+        assert_eq!(event.input_tokens, 1000);
+        assert_eq!(event.saved_tokens, 4000);
+        assert_eq!(event.uncompressed_input_tokens, 5000);
+        assert!(!event.is_local);
+        assert!(event.cost_usd > 0.0, "known model must be priced");
+        assert!(
+            event.saved_usd > 0.0,
+            "saved tokens on a priced model must yield saved USD"
+        );
+        // Counterfactual (enterprise#15): 5000 uncompressed input tokens at
+        // claude-opus-4.5's $5/MTok input rate = $0.025.
+        assert_eq!(event.reference_model.as_deref(), Some("claude-opus-4.5"));
+        assert!((event.reference_cost_usd - 0.025).abs() < 1e-9);
+    }
+
+    #[test]
+    fn event_without_wire_context_uses_honest_fallbacks() {
+        let event = UsageEvent::from_usage(
+            &usage_with_wire(None),
+            &ModelPricing::load(),
+            &BaselineConfig::default(),
+        );
+        assert_eq!(event.person, ANONYMOUS_PERSON);
+        assert_eq!(event.project, DEFAULT_PROJECT);
+        assert_eq!(event.team, None);
+        assert_eq!(event.saved_tokens, 0);
+        assert_eq!(event.saved_usd, 0.0);
+        assert_eq!(event.uncompressed_input_tokens, 0);
+        assert!(!event.is_local);
+        // No reference model configured → no counterfactual claimed.
+        assert_eq!(event.reference_model, None);
+        assert_eq!(event.reference_cost_usd, 0.0);
+    }
+
+    #[test]
+    fn local_usage_books_shadow_rate_never_zero() {
+        // enterprise#15/#18: local inference is billed via the transparent
+        // shadow rate — savings against local models stay honest, not infinite.
+        let usage = usage_with_wire(Some(Box::new(WireContext {
+            provider: "ollama".into(),
+            person: Some("yves".into()),
+            team: None,
+            project: None,
+            saved_tokens: 0,
+            uncompressed_input_tokens: 2000,
+            is_local: true,
+            routed_from: None,
+        })));
+        let event =
+            UsageEvent::from_usage(&usage, &ModelPricing::load(), &BaselineConfig::default());
+        assert!(event.is_local);
+        // billable = 1000 in + 500 out + 200 cache-read + 100 cache-write =
+        // 1800 tokens × $0.25/MTok default shadow rate.
+        assert!((event.cost_usd - 0.25 / 1_000_000.0 * 1800.0).abs() < 1e-12);
+        assert!(event.cost_usd > 0.0, "local cost must never be zero");
+
+        // A configured rate wins; a zero/negative config falls back to default.
+        let cfg = BaselineConfig {
+            reference_model: None,
+            local_shadow_rate_per_mtok: Some(1.0),
+        };
+        let event = UsageEvent::from_usage(&usage, &ModelPricing::load(), &cfg);
+        assert!((event.cost_usd - 1.0 / 1_000_000.0 * 1800.0).abs() < 1e-12);
+        let zero = BaselineConfig {
+            reference_model: None,
+            local_shadow_rate_per_mtok: Some(0.0),
+        };
+        assert!(zero.effective_local_shadow_rate() > 0.0);
+    }
+
+    #[test]
+    fn schema_ddl_is_idempotent_by_construction() {
+        // The gateway runs this DDL on every start against a live database, so
+        // every CREATE must carry IF NOT EXISTS.
+        for stmt in ["CREATE TABLE", "CREATE INDEX"] {
+            for (i, _) in USAGE_EVENTS_DDL.match_indices(stmt) {
+                let tail = &USAGE_EVENTS_DDL[i..(i + stmt.len() + 14).min(USAGE_EVENTS_DDL.len())];
+                assert!(
+                    tail.contains("IF NOT EXISTS"),
+                    "non-idempotent DDL statement: {tail}"
+                );
+            }
+        }
+        // And the baseline fields (enterprise#18) are part of the schema.
+        for col in [
+            "uncompressed_input_tokens",
+            "reference_model",
+            "reference_cost_usd",
+            "is_local",
+        ] {
+            assert!(
+                USAGE_EVENTS_DDL.contains(col),
+                "baseline column {col} missing from schema"
+            );
+        }
+    }
+}

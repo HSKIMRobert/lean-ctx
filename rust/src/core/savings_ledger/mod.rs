@@ -10,7 +10,7 @@ pub mod roi;
 pub mod signed_batch;
 pub mod store;
 
-pub use event::SavingsEvent;
+pub use event::{MECHANISM_CACHING, MECHANISM_COMPRESSION, MECHANISM_ROUTING, SavingsEvent};
 pub use roi::{RoiReport, roi_report};
 pub use signed_batch::{BatchVerifyResult, SignedSavingsBatchV1};
 pub use store::{LedgerSummary, VerifyResult};
@@ -110,6 +110,7 @@ fn new_event(tool: &str) -> SavingsEvent {
     SavingsEvent {
         ts: chrono::Utc::now().to_rfc3339(),
         tool: tool.to_string(),
+        mechanism: event::MECHANISM_COMPRESSION.to_string(),
         model_id: model_id.clone(),
         tokenizer: tokenizer().to_string(),
         baseline_tokens: 0,
@@ -155,6 +156,68 @@ pub fn record_tool_event(tool: &str, baseline_tokens: usize, actual_tokens: usiz
     event.actual_tokens = actual_tokens as u64;
     event.saved_tokens = saved as u64;
     event.saved_usd = saved as f64 / 1_000_000.0 * event.unit_price_per_m_usd;
+    let _ = store::append(&path, event);
+}
+
+/// Best-effort append of a *routing* savings event (enterprise#13/#19): the gateway served
+/// the request with a cheaper model than requested. Unlike compression events the saving is
+/// a **rate** difference on the same tokens, so the caller passes the measured input tokens
+/// plus both models; the event is valued with the shared ledger attribution formula
+/// (`eval_ab::routing_eval::routing_saving_usd`). Negative-value routes (an upgrade) are
+/// recorded too — the ledger never hides regressions. Skips only true no-ops.
+pub fn record_routing_event(requested_model: &str, serving_model: &str, input_tokens: u64) {
+    if input_tokens == 0 || requested_model == serving_model || !enabled() {
+        return;
+    }
+    let Some(path) = store::default_path() else {
+        return;
+    };
+
+    let pricing = crate::core::gain::model_pricing::ModelPricing::load();
+    let saved_usd = crate::core::eval_ab::routing_eval::routing_saving_usd(
+        &pricing,
+        requested_model,
+        serving_model,
+        input_tokens,
+    );
+    if saved_usd == 0.0 {
+        return; // same rate — nothing to attribute
+    }
+
+    let mut event = new_event("proxy_route");
+    event.mechanism = event::MECHANISM_ROUTING.to_string();
+    // The event is denominated in the *serving* model (what actually ran); the
+    // rate delta to the requested model is captured in saved_usd.
+    let quote = pricing.quote(Some(serving_model));
+    event.model_id = quote.model_key;
+    event.unit_price_per_m_usd = quote.cost.input_per_m;
+    event.baseline_tokens = input_tokens;
+    event.actual_tokens = input_tokens;
+    // saved_tokens stays 0: routing saves dollars at equal tokens. Token
+    // savings remain the compression mechanism's dimension.
+    event.saved_usd = saved_usd;
+    let _ = store::append(&path, event);
+}
+
+/// Best-effort append of a *caching* savings event: provider prompt-cache reads billed
+/// below the input rate. `discount_usd` must be the measured price difference
+/// (input rate − cache-read rate) × cache-read tokens for the serving model.
+pub fn record_caching_event(model: &str, cache_read_tokens: u64, discount_usd: f64) {
+    if cache_read_tokens == 0 || discount_usd <= 0.0 || !enabled() {
+        return;
+    }
+    let Some(path) = store::default_path() else {
+        return;
+    };
+
+    let mut event = new_event("proxy_cache");
+    event.mechanism = event::MECHANISM_CACHING.to_string();
+    let quote = crate::core::gain::model_pricing::ModelPricing::load().quote(Some(model));
+    event.model_id = quote.model_key;
+    event.unit_price_per_m_usd = quote.cost.input_per_m;
+    event.baseline_tokens = cache_read_tokens;
+    event.actual_tokens = cache_read_tokens;
+    event.saved_usd = discount_usd;
     let _ = store::append(&path, event);
 }
 
@@ -281,6 +344,7 @@ mod tests {
     /// ledger with the *raw* baseline and the right tool tag.
     #[test]
     fn record_tool_event_appends_measured_event() {
+        let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-ledger-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
@@ -296,8 +360,44 @@ mod tests {
         let last = content.lines().last().expect("one event");
         let ev: SavingsEvent = serde_json::from_str(last).expect("valid event JSON");
         assert_eq!(ev.tool, "cli_shell");
+        assert_eq!(ev.mechanism, MECHANISM_COMPRESSION);
         assert_eq!(ev.baseline_tokens, 5000, "raw baseline, no estimate factor");
         assert_eq!(ev.actual_tokens, 800);
         assert_eq!(ev.saved_tokens, 4200);
+    }
+
+    /// enterprise#19: a gateway route (requested ≠ serving) lands as a
+    /// `routing`-mechanism event valued with the shared rate-delta formula,
+    /// denominated in the serving model; no-ops are skipped.
+    #[test]
+    fn record_routing_event_appends_rate_delta() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-ledger-route-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        record_routing_event("claude-opus-4.5", "claude-opus-4.5", 10_000); // no-op
+        record_routing_event("claude-opus-4.5", "phi-4", 0); // no tokens
+        record_routing_event("claude-opus-4.5", "phi-4", 10_000);
+
+        let ledger = dir.join("savings").join("ledger.jsonl");
+        let content = std::fs::read_to_string(&ledger).expect("ledger written");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            content.lines().count(),
+            1,
+            "only the real route is recorded"
+        );
+        let ev: SavingsEvent =
+            serde_json::from_str(content.lines().next().unwrap()).expect("valid JSON");
+        assert_eq!(ev.tool, "proxy_route");
+        assert_eq!(ev.mechanism, MECHANISM_ROUTING);
+        assert_eq!(ev.model_id, "phi-4", "denominated in the serving model");
+        assert_eq!(ev.saved_tokens, 0, "routing saves dollars, not tokens");
+        // 10k tokens × (5.00 − 0.125)/MTok = $0.04875.
+        assert!((ev.saved_usd - 0.048_75).abs() < 1e-9);
     }
 }

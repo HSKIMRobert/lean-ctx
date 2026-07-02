@@ -175,6 +175,67 @@ impl ModelPricing {
             },
         );
 
+        // Azure AI Foundry serverless (Global Standard) — source:
+        // https://azure.microsoft.com/en-us/pricing/details/ai-foundry-models/
+        // (July 2026). The cheap-OSS tier the gateway router downgrades to
+        // (enterprise#14); wrong/missing prices here would overstate savings.
+        // Foundry publishes no separate cache price → cache = input rate
+        // (same convention as Gemini above).
+        models.insert(
+            "phi-4".to_string(),
+            ModelCost {
+                input_per_m: 0.125,
+                output_per_m: 0.50,
+                cache_write_per_m: 0.125,
+                cache_read_per_m: 0.125,
+            },
+        );
+        models.insert(
+            "phi-4-mini".to_string(),
+            ModelCost {
+                input_per_m: 0.075,
+                output_per_m: 0.30,
+                cache_write_per_m: 0.075,
+                cache_read_per_m: 0.075,
+            },
+        );
+        models.insert(
+            "deepseek-v3.2".to_string(),
+            ModelCost {
+                input_per_m: 0.58,
+                output_per_m: 1.68,
+                cache_write_per_m: 0.58,
+                cache_read_per_m: 0.58,
+            },
+        );
+        models.insert(
+            "deepseek-v3".to_string(),
+            ModelCost {
+                input_per_m: 1.14,
+                output_per_m: 4.56,
+                cache_write_per_m: 1.14,
+                cache_read_per_m: 1.14,
+            },
+        );
+        models.insert(
+            "llama-3.3-70b".to_string(),
+            ModelCost {
+                input_per_m: 0.71,
+                output_per_m: 0.71,
+                cache_write_per_m: 0.71,
+                cache_read_per_m: 0.71,
+            },
+        );
+        models.insert(
+            "llama-4-maverick".to_string(),
+            ModelCost {
+                input_per_m: 0.25,
+                output_per_m: 1.00,
+                cache_write_per_m: 0.25,
+                cache_read_per_m: 0.25,
+            },
+        );
+
         // Conservative blended fallback (used by legacy stats output).
         models.insert(
             "fallback-blended".to_string(),
@@ -263,6 +324,12 @@ impl ModelPricing {
             "gemini-2.5-pro",
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
+            "phi-4",
+            "phi-4-mini",
+            "deepseek-v3.2",
+            "deepseek-v3",
+            "llama-3.3-70b",
+            "llama-4-maverick",
             "fallback-blended",
         ];
         for k in exact_keys {
@@ -337,6 +404,31 @@ impl ModelPricing {
         }
         if m.contains("gpt-4o") {
             return Some(("fallback-blended".to_string(), PricingMatchKind::Heuristic));
+        }
+
+        // Foundry OSS families (enterprise#14): deployment names carry suffixes
+        // ("Phi-4-reasoning", "DeepSeek-V3-0324", "Llama-3.3-70B-Instruct") —
+        // match the family, keep mini/lite variants on their cheaper tier.
+        if m.contains("phi-4") {
+            return Some(if m.contains("mini") {
+                ("phi-4-mini".to_string(), PricingMatchKind::Heuristic)
+            } else {
+                ("phi-4".to_string(), PricingMatchKind::Heuristic)
+            });
+        }
+        if m.contains("deepseek") {
+            return Some(if m.contains("v3.2") {
+                ("deepseek-v3.2".to_string(), PricingMatchKind::Heuristic)
+            } else {
+                ("deepseek-v3".to_string(), PricingMatchKind::Heuristic)
+            });
+        }
+        if m.contains("llama") {
+            return Some(if m.contains("maverick") || m.contains("llama-4") {
+                ("llama-4-maverick".to_string(), PricingMatchKind::Heuristic)
+            } else {
+                ("llama-3.3-70b".to_string(), PricingMatchKind::Heuristic)
+            });
         }
 
         None
@@ -476,6 +568,31 @@ mod tests {
         let q = p.quote(Some("claude-fable-5-thinking-high"));
         assert_eq!(q.model_key, "claude-fable-5");
         assert!((q.cost.input_per_m - 10.00).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn foundry_families_map_deployment_names_to_price_keys() {
+        // enterprise#14: Foundry deployment names carry suffixes; the family
+        // heuristics must land on the right (cheap) tier — mispricing the
+        // downgrade target would corrupt the savings evidence.
+        let p = ModelPricing::embedded();
+        for (name, key, input) in [
+            ("Phi-4", "phi-4", 0.125),
+            ("Phi-4-reasoning", "phi-4", 0.125),
+            ("Phi-4-mini-instruct", "phi-4-mini", 0.075),
+            ("DeepSeek-V3-0324", "deepseek-v3", 1.14),
+            ("DeepSeek-V3.2", "deepseek-v3.2", 0.58),
+            ("Llama-3.3-70B-Instruct", "llama-3.3-70b", 0.71),
+            ("Llama-4-Maverick-17B-128E", "llama-4-maverick", 0.25),
+        ] {
+            let q = p.quote(Some(name));
+            assert_eq!(q.model_key, key, "for {name}");
+            assert!(
+                (q.cost.input_per_m - input).abs() < f64::EPSILON,
+                "for {name}"
+            );
+            assert_ne!(q.match_kind, PricingMatchKind::Fallback, "for {name}");
+        }
     }
 
     #[test]

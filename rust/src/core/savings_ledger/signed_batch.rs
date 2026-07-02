@@ -38,6 +38,11 @@ pub struct BatchTotals {
     pub by_model: Vec<(String, u64, f64)>,
     /// `(tool, saved_tokens)`, top rows by tokens.
     pub by_tool: Vec<(String, u64)>,
+    /// `(mechanism, saved_tokens, saved_usd)` — the audited attribution
+    /// (enterprise#19): compression | routing | caching. Bounded by the three
+    /// known mechanisms; absent in pre-v3 artifacts (serde default = empty).
+    #[serde(default)]
+    pub by_mechanism: Vec<(String, u64, f64)>,
 }
 
 impl BatchTotals {
@@ -59,6 +64,11 @@ impl BatchTotals {
                 .map(|(m, t, u)| (m, t, round_usd(u)))
                 .collect(),
             by_tool,
+            by_mechanism: s
+                .by_mechanism
+                .iter()
+                .map(|(m, t, u)| (m.clone(), *t, round_usd(*u)))
+                .collect(),
         }
     }
 }
@@ -265,6 +275,10 @@ mod tests {
             by_model: vec![("claude-opus".into(), saved, usd)],
             by_day: vec![],
             by_tool: vec![("ctx_read".into(), saved)],
+            by_mechanism: vec![
+                ("compression".into(), saved, usd * 0.8),
+                ("routing".into(), 0, usd * 0.2),
+            ],
         }
     }
 
@@ -317,6 +331,21 @@ mod tests {
         assert!(
             !b.verify().signature_valid,
             "edited totals must fail verification"
+        );
+    }
+
+    #[test]
+    fn signed_batch_commits_mechanism_attribution() {
+        // enterprise#19: the attribution slice is inside the signed payload —
+        // shifting savings between mechanisms after signing must fail verify.
+        let mut b = batch();
+        assert_eq!(b.totals.by_mechanism.len(), 2);
+        b.sign_with_key(&key()).unwrap();
+        assert!(b.verify().signature_valid);
+        b.totals.by_mechanism.swap(0, 1);
+        assert!(
+            !b.verify().signature_valid,
+            "reattributed mechanism rows must break the signature"
         );
     }
 

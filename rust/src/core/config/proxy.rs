@@ -179,6 +179,114 @@ pub struct ProxyConfig {
     /// `lean-ctx proxy codex-chatgpt on|off`; resolved via
     /// [`ProxyConfig::codex_chatgpt_proxy_enabled`].
     pub codex_chatgpt_proxy: Option<bool>,
+    /// Active request routing (`[proxy.routing]`, enterprise#13): model aliases
+    /// and intent-tier downgrades applied in the forward path. Off by default —
+    /// an empty/absent table is a strict passthrough. See [`RoutingRules`].
+    pub routing: RoutingRules,
+    /// Counterfactual-baseline parameters (`[proxy.baseline]`, enterprise#15/#18)
+    /// for the avoided-cost evidence chain. See [`BaselineConfig`].
+    pub baseline: BaselineConfig,
+}
+
+/// `[proxy.baseline]` — the contract-frozen counterfactual parameters that make
+/// the success fee provable (enterprise#15, Doc 04 §6 / Doc 08 §2).
+///
+/// - `reference_model`: the model the customer *would have used* without
+///   lean-ctx. Frozen per deployment/contract (calibration: enterprise#41);
+///   every usage event stores `reference_cost_usd` = the request's
+///   **uncompressed** input tokens priced at this model's input rate — the
+///   counterfactual cost the avoided-cost ledger settles against.
+/// - `local_shadow_rate_per_mtok`: USD per 1M tokens booked as the actual cost
+///   of locally served (loopback) inference. Local compute is never free —
+///   hardware and power are real — so the shadow rate keeps local-model savings
+///   honest instead of infinite. Default: `0.25` USD/MTok, a conservative
+///   self-hosting cost estimate; calibrate per deployment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct BaselineConfig {
+    /// Counterfactual reference model (`None` = baseline evidence off).
+    pub reference_model: Option<String>,
+    /// USD per 1M tokens for local/loopback inference (default 0.25, never 0).
+    pub local_shadow_rate_per_mtok: Option<f64>,
+}
+
+/// Default local shadow rate (USD per 1M tokens) when `[proxy.baseline]` sets
+/// none: a conservative self-hosted inference cost so `is_local` usage is
+/// never booked at $0 (Doc 04 §6 "local-free ≠ cost-free").
+pub const DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK: f64 = 0.25;
+
+impl BaselineConfig {
+    /// Effective shadow rate: configured value (clamped positive) or default.
+    #[must_use]
+    pub fn effective_local_shadow_rate(&self) -> f64 {
+        match self.local_shadow_rate_per_mtok {
+            Some(r) if r > 0.0 => r,
+            _ => DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK,
+        }
+    }
+}
+
+/// `[proxy.routing]` — the active router's rule set (enterprise#13).
+///
+/// Two mechanisms, both **within-shape** in M1 (the target must speak the same
+/// wire dialect as the request; N×M shape translation is M2):
+///
+/// - **Aliases**: exact requested-model → target. Lets an org expose stable
+///   names (`acme/fast`) or transparently swap one concrete model for another.
+/// - **Tiers**: intent-based downgrade. The request's last user message is
+///   classified (`intent_router`); the resulting tier (`fast|standard|premium`)
+///   picks a target from this table. An absent tier key (or `""`) keeps the
+///   requested model — premium work is never silently downgraded unless the
+///   operator says so.
+///
+/// A target is `"model"` (swap the model, keep the upstream) or
+/// `"provider:model"` where `provider` is a `[[proxy.providers]]` registry id
+/// or a built-in (`anthropic|openai|gemini`) — then the request is also
+/// re-targeted to that provider's upstream.
+///
+/// **Fail-open by construction:** any lookup/classification/validation miss
+/// routes nothing and forwards the request unchanged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct RoutingRules {
+    /// Master switch; `false`/absent = passthrough (no body rewrite at all).
+    pub enabled: Option<bool>,
+    /// Exact model-name aliases: requested model → `"provider:model"` | `"model"`.
+    /// BTreeMap for deterministic iteration/serialization (#498).
+    pub aliases: std::collections::BTreeMap<String, String>,
+    /// Intent-tier targets: `fast|standard|premium` → `"provider:model"` |
+    /// `"model"` | `""` (= keep requested model).
+    pub tiers: std::collections::BTreeMap<String, String>,
+}
+
+impl RoutingRules {
+    /// True when the router should run at all.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.enabled.unwrap_or(false) && !(self.aliases.is_empty() && self.tiers.is_empty())
+    }
+}
+
+/// A parsed routing target: optional provider id + model name.
+/// `"foundry:gpt-4o-mini"` → provider `foundry`, model `gpt-4o-mini`;
+/// `"claude-haiku-4-5"` → model only (upstream unchanged).
+#[must_use]
+pub fn parse_route_target(target: &str) -> Option<(Option<&str>, &str)> {
+    let t = target.trim();
+    if t.is_empty() {
+        return None;
+    }
+    match t.split_once(':') {
+        Some((provider, model)) => {
+            let (provider, model) = (provider.trim(), model.trim());
+            if provider.is_empty() || model.is_empty() {
+                None
+            } else {
+                Some((Some(provider), model))
+            }
+        }
+        None => Some((None, t)),
+    }
 }
 
 /// The API dialect an upstream endpoint speaks — deliberately separate from the
@@ -1640,6 +1748,71 @@ mod tests {
         assert_eq!(cfg.providers[1].enabled, Some(false));
         // Only the enabled entry resolves.
         assert_eq!(cfg.resolve_providers().len(), 1);
+    }
+
+    #[test]
+    fn routing_and_baseline_toml_round_trip() {
+        // The `[proxy.routing]` + `[proxy.baseline]` TOML surface
+        // (enterprise#13/#15). Absent tables must default to inactive.
+        let toml_src = r#"
+            [routing]
+            enabled = true
+
+            [routing.aliases]
+            "acme/fast" = "foundry:gpt-4o-mini"
+
+            [routing.tiers]
+            fast = "foundry:phi-4"
+            premium = ""
+
+            [baseline]
+            reference_model = "claude-opus-4.5"
+            local_shadow_rate_per_mtok = 0.4
+        "#;
+        let cfg: ProxyConfig = toml::from_str(toml_src).expect("parse routing/baseline");
+        assert!(cfg.routing.is_active());
+        assert_eq!(
+            cfg.routing.aliases.get("acme/fast").map(String::as_str),
+            Some("foundry:gpt-4o-mini")
+        );
+        assert_eq!(
+            cfg.routing.tiers.get("fast").map(String::as_str),
+            Some("foundry:phi-4")
+        );
+        assert_eq!(
+            cfg.baseline.reference_model.as_deref(),
+            Some("claude-opus-4.5")
+        );
+        assert!((cfg.baseline.effective_local_shadow_rate() - 0.4).abs() < f64::EPSILON);
+
+        let empty: ProxyConfig = toml::from_str("").expect("empty config");
+        assert!(!empty.routing.is_active(), "absent [routing] = passthrough");
+        assert_eq!(empty.baseline.reference_model, None);
+        assert!(
+            (empty.baseline.effective_local_shadow_rate() - DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK)
+                .abs()
+                < f64::EPSILON
+        );
+
+        // enabled=true with no rules is still inactive (nothing to apply).
+        let enabled_only: ProxyConfig = toml::from_str("[routing]\nenabled = true").expect("parse");
+        assert!(!enabled_only.routing.is_active());
+    }
+
+    #[test]
+    fn parse_route_target_shapes() {
+        assert_eq!(
+            parse_route_target("foundry:gpt-4o-mini"),
+            Some((Some("foundry"), "gpt-4o-mini"))
+        );
+        assert_eq!(
+            parse_route_target(" claude-haiku-4-5 "),
+            Some((None, "claude-haiku-4-5"))
+        );
+        assert_eq!(parse_route_target(""), None);
+        assert_eq!(parse_route_target("  "), None);
+        assert_eq!(parse_route_target(":model"), None);
+        assert_eq!(parse_route_target("provider:"), None);
     }
 
     #[test]

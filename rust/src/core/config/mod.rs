@@ -36,9 +36,10 @@ pub use enums::{
 pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
 pub use provenance::{ConfigProvenance, EnvOverride};
 pub use proxy::{
-    HistoryMode, ProseRanker, ProseRole, ProviderEntry, ProxyConfig, ProxyProvider,
-    ResolvedProvider, RoleAggressiveness, UpstreamDrift, Upstreams, WireShape, diagnose_drift,
-    env_upstream_override, is_local_proxy_url, normalize_url, normalize_url_opt,
+    BaselineConfig, DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK, HistoryMode, ProseRanker, ProseRole,
+    ProviderEntry, ProxyConfig, ProxyProvider, ResolvedProvider, RoleAggressiveness, RoutingRules,
+    UpstreamDrift, Upstreams, WireShape, diagnose_drift, env_upstream_override, is_local_proxy_url,
+    normalize_url, normalize_url_opt, parse_route_target,
 };
 pub use read_redirect::ReadRedirect;
 pub use shell_activation::ShellActivation;
@@ -541,6 +542,12 @@ pub struct Config {
     /// no-op until `gateway.enabled = true`.
     #[serde(default)]
     pub gateway: crate::core::gateway::GatewayConfig,
+    /// Self-hosted org gateway server (`[gateway_server]`, enterprise#20):
+    /// deployment parameters for the usage cockpit — seat count for the
+    /// org-wide projection, display label, and the central admin API the local
+    /// cockpit may read from. All optional; absent = local-only behavior.
+    #[serde(default)]
+    pub gateway_server: GatewayServerConfig,
     /// Addon ecosystem security floor (#863): install policy, registry-signature
     /// requirement and sandboxing for spawned addon servers. Global-only (never
     /// merged from project-local config) and fully permissive by default.
@@ -728,6 +735,7 @@ impl Default for Config {
             secret_detection: SecretDetectionConfig::default(),
             sensitivity: crate::core::sensitivity::SensitivityConfig::default(),
             gateway: crate::core::gateway::GatewayConfig::default(),
+            gateway_server: GatewayServerConfig::default(),
             addons: crate::core::addons::AddonsConfig::default(),
             allow_auto_reroot: false,
             path_jail: None,
