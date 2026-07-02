@@ -174,6 +174,9 @@ fn resolve_file_edges(
             _ => ext,
         };
 
+        // SFC <script> extraction needs the tree-sitter stack; without it the
+        // raw file body still yields usable import lines for the regex analyzer.
+        #[cfg(feature = "tree-sitter")]
         let analysis_content = if ext == "vue" || ext == "svelte" {
             if let Some(script) = crate::core::signatures_ts::sfc::extract_script_block(&content) {
                 std::borrow::Cow::Owned(script)
@@ -183,6 +186,8 @@ fn resolve_file_edges(
         } else {
             content
         };
+        #[cfg(not(feature = "tree-sitter"))]
+        let analysis_content = content;
 
         let analysis = crate::core::deep_queries::analyze(&analysis_content, resolve_ext);
         // C#/Java/Go/Kotlin need the full analysis for type_ref edges (GH #398);

@@ -732,6 +732,17 @@ pub(crate) fn process_mode_tuned(
 /// most likely about to read, avoiding a follow-up full read. Uses the
 /// tree-sitter chunk extractor (which carries spans + body across languages); a
 /// no-op when tree-sitter is unavailable.
+#[cfg(not(feature = "tree-sitter"))]
+pub(crate) fn task_relevant_body(
+    _content: &str,
+    _file_path: &str,
+    _ext: &str,
+    _task: Option<&str>,
+) -> Option<String> {
+    None
+}
+
+#[cfg(feature = "tree-sitter")]
 pub(crate) fn task_relevant_body(
     content: &str,
     file_path: &str,
