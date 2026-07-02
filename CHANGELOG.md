@@ -25,6 +25,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (digest `f5ed145e61ce3689`) with its methodology. The CGB self-assessment
   (C2 — Managed) is surfaced from the README security section and Journey 13.
 
+### Fixed
+- **Zero-config golden path: `onboard --yes` now leaves `doctor` fully green.**
+  Three healers that silently disagreed are aligned: the session-start heal
+  installs the agent `SKILL.md` files alongside rules (previously `doctor`
+  warned "run: lean-ctx setup" forever), `doctor`'s shell-hook probe honours a
+  relocated `LEAN_CTX_CONFIG_DIR` (no more false "pipe guard missing"), and
+  `setup`/`onboard` detect Claude Code / CodeBuddy by their state dir
+  (`~/.claude/`, `~/.codebuddy/`) exactly like `doctor` and the rules injector
+  do — killing the dead loop where `doctor` pointed at `setup` but `setup`
+  skipped the client. A new integration gate (`onboard_doctor_clean`) runs the
+  full journey in an isolated `HOME` and asserts `doctor` exits green.
+- **`ctx_knowledge remember` never stalls on the embedding model again.** The
+  first `remember` on a fresh install used to block up to the 120s tool
+  watchdog while the ~30MB embedding model downloaded. It now uses non-blocking
+  engine access: the fact commits immediately, the engine warms up in the
+  background.
+- **Semantic recall self-heals missing vectors.** Facts written by the
+  consolidation/ETL writers (and by `remember` while the engine is still
+  warming up) never got an embedding, and only a manual `embeddings_reindex`
+  repaired that — on a live machine most projects sat at 0 vectors, invisible
+  to `mode=semantic` recall. `remember` now backfills up to 32 missing vectors
+  per call (one batched inference, most-valuable-first, under the per-project
+  lock), so active projects converge to full coverage without any manual step.
+- **`minimal_overhead=true` (the default) is now documented honestly:** session
+  continuity is delivered via the `AUTO CONTEXT` block on the first tool call
+  (prompt-cache-friendly) instead of an `ACTIVE SESSION` block at initialize.
+
 ### Security
 - **Bundled addons now spawn with a scrubbed environment (addon env isolation).**
   Every runnable registry addon (Headroom, Sophon, Repomix, Serena, …) now
