@@ -738,6 +738,19 @@ pub struct GatewayServerConfig {
     /// to loopback: a typo can only ever narrow exposure, never open it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_bind_host: Option<String>,
+    /// Days to keep `usage_events` rows (enterprise#36). `None`/`0` = keep
+    /// forever (the local-free default — retention is a deployment decision).
+    /// A running gateway purges older rows periodically; typical compliance
+    /// values are `365` or `3650` (EU AI Act evidence horizon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_retention_days: Option<u32>,
+    /// Replace `person` with a stable keyed pseudonym (`p:<hash>`) before it
+    /// reaches metering, budgets, dashboards and logs (enterprise#39, GDPR).
+    /// The salt lives in `<data_dir>/gateway_pii_salt`; `gateway gdpr`
+    /// re-derives pseudonyms from e-mail input, so DSGVO delete/export keep
+    /// working. Default `false` (cleartext person tags).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pseudonymize_persons: Option<bool>,
 }
 
 impl GatewayServerConfig {

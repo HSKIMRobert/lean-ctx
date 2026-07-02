@@ -295,6 +295,92 @@ pub async fn budget_window_sums(
     Ok((person_day, project_month))
 }
 
+/// Deletes `usage_events` rows older than `days` (enterprise#36). Returns the
+/// number of purged rows. `days == 0` is rejected by the caller (retention
+/// disabled), never here — this function always deletes what it is told.
+pub async fn purge_events_older_than(pool: &Pool, days: u32) -> anyhow::Result<u64> {
+    let client = pool.get().await?;
+    let purged = client
+        .execute(
+            "DELETE FROM usage_events WHERE ts < now() - make_interval(days => $1)",
+            &[&i32::try_from(days).unwrap_or(i32::MAX)],
+        )
+        .await?;
+    Ok(purged)
+}
+
+/// All events attributed to one of `person_keys` (raw + pseudonym, GDPR
+/// Art. 15 export), as self-describing JSON rows.
+pub async fn person_events(
+    pool: &Pool,
+    person_keys: &[String],
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let client = pool.get().await?;
+    let rows = client
+        .query(
+            "SELECT to_jsonb(usage_events) FROM usage_events \
+             WHERE person = ANY($1) ORDER BY ts",
+            &[&person_keys],
+        )
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<_, serde_json::Value>(0))
+        .collect())
+}
+
+/// Deletes all events of `person_keys` (GDPR Art. 17). Returns rows removed.
+pub async fn delete_person_events(pool: &Pool, person_keys: &[String]) -> anyhow::Result<u64> {
+    let client = pool.get().await?;
+    let deleted = client
+        .execute(
+            "DELETE FROM usage_events WHERE person = ANY($1)",
+            &[&person_keys],
+        )
+        .await?;
+    Ok(deleted)
+}
+
+/// Daily evidence aggregates for the export window (enterprise#36): bounded
+/// output regardless of event volume, yet fine-grained enough for an EU-AI-Act
+/// usage-evidence audit (per day × person × project × model).
+pub async fn evidence_rows(
+    pool: &Pool,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let client = pool.get().await?;
+    let rows = client
+        .query(
+            "SELECT jsonb_build_object(
+               'date', to_char(date_trunc('day', ts AT TIME ZONE 'utc'), 'YYYY-MM-DD'),
+               'person', person,
+               'project', project,
+               'model', model,
+               'provider', provider,
+               'requests', count(*),
+               'input_tokens', sum(input_tokens)::BIGINT,
+               'output_tokens', sum(output_tokens)::BIGINT,
+               'cache_read_tokens', sum(cache_read_tokens)::BIGINT,
+               'cost_usd', round(sum(cost_usd)::numeric, 6),
+               'saved_usd', round(sum(saved_usd)::numeric, 6),
+               'reference_cost_usd', round(sum(reference_cost_usd)::numeric, 6),
+               'local_requests', count(*) FILTER (WHERE is_local)
+             )
+             FROM usage_events WHERE ts >= $1 AND ts <= $2
+             GROUP BY 
+               date_trunc('day', ts AT TIME ZONE 'utc'), person, project, model, provider
+             ORDER BY 
+               date_trunc('day', ts AT TIME ZONE 'utc'), person, project, model, provider",
+            &[&from, &to],
+        )
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<_, serde_json::Value>(0))
+        .collect())
+}
+
 /// Wires the usage stream into Postgres: installs the process-wide sink
 /// (`proxy::usage_sink`) and spawns the writer task. Call once at gateway
 /// startup, after `init_schema`.

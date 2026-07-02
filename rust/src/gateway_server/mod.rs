@@ -18,6 +18,7 @@ pub mod admin_status;
 pub mod admin_timeseries;
 pub mod admin_ui;
 pub mod doctor;
+pub mod evidence;
 pub mod init;
 pub mod keys_cli;
 pub mod report;

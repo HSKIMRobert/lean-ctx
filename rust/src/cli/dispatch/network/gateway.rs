@@ -30,7 +30,198 @@ pub(crate) fn cmd_gateway(rest: &[String]) {
         "keys" => keys(&rest[1..]),
         "doctor" => doctor(&rest[1..]),
         "report" => report(&rest[1..]),
+        "gdpr" => gdpr(&rest[1..]),
+        "evidence" => evidence(&rest[1..]),
         _ => help(),
+    }
+}
+
+/// The store pool from `DATABASE_URL`, or a loud exit — GDPR and evidence
+/// commands are meaningless without the usage store.
+fn require_pool() -> (String, deadpool_postgres::Pool) {
+    let Ok(database_url) = std::env::var(crate::gateway_server::serve::DATABASE_URL_ENV) else {
+        eprintln!(
+            "\x1b[31m✗\x1b[0m {} not set — this command reads usage_events (Postgres).",
+            crate::gateway_server::serve::DATABASE_URL_ENV
+        );
+        eprintln!(
+            "  Compose instance: export $(grep DATABASE_URL .env) and replace host with 127.0.0.1"
+        );
+        std::process::exit(2);
+    };
+    match crate::gateway_server::store::pool_from_database_url(&database_url) {
+        Ok(pool) => (database_url, pool),
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m invalid DATABASE_URL: {e:#}");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `gateway gdpr <export|delete> --person=<email>` (enterprise#39, GDPR
+/// Art. 15/17). Matches both the raw person value and its pseudonym, so the
+/// commands work with `pseudonymize_persons` on, off, or toggled mid-history.
+fn gdpr(rest: &[String]) {
+    let action = rest.first().map_or("", std::string::String::as_str);
+    let Some(person) = flag_value(rest, "person") else {
+        eprintln!(
+            "Usage: lean-ctx gateway gdpr <export|delete> --person=<email> [--out=..] [--yes]"
+        );
+        std::process::exit(2);
+    };
+    let keys = crate::proxy::pii::person_match_keys(person);
+    let (_url, pool) = require_pool();
+    match action {
+        "export" => {
+            let rows = match crate::cli::dispatch::run_async(async move {
+                crate::gateway_server::store::person_events(&pool, &keys).await
+            }) {
+                Ok(rows) => rows,
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m export failed: {e:#}");
+                    std::process::exit(1);
+                }
+            };
+            let jsonl: String = rows.iter().fold(String::new(), |mut acc, r| {
+                acc.push_str(&r.to_string());
+                acc.push('\n');
+                acc
+            });
+            match flag_value(rest, "out") {
+                Some(path) => {
+                    if let Err(e) = std::fs::write(path, &jsonl) {
+                        eprintln!("\x1b[31m✗\x1b[0m write {path}: {e}");
+                        std::process::exit(1);
+                    }
+                    println!(
+                        "\x1b[32m✓\x1b[0m {} events of {person} written to {path} (JSONL)",
+                        rows.len()
+                    );
+                }
+                None => print!("{jsonl}"),
+            }
+        }
+        "delete" => {
+            if !rest.iter().any(|a| a == "--yes") {
+                eprintln!("This permanently deletes ALL usage_events of {person}.");
+                eprintln!("Re-run with --yes to confirm (GDPR Art. 17 erasure).");
+                std::process::exit(2);
+            }
+            match crate::cli::dispatch::run_async(async move {
+                crate::gateway_server::store::delete_person_events(&pool, &keys).await
+            }) {
+                Ok(deleted) => {
+                    println!("\x1b[32m✓\x1b[0m Deleted {deleted} usage events of {person}.");
+                    println!(
+                        "  Also revoke their key: lean-ctx gateway keys revoke --person={person}"
+                    );
+                }
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m delete failed: {e:#}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        _ => {
+            eprintln!(
+                "Usage: lean-ctx gateway gdpr <export|delete> --person=<email> [--out=..] [--yes]"
+            );
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `gateway evidence [--from --to --out]` + `gateway evidence verify --file=`
+/// (enterprise#36): signed usage-evidence export & offline verification.
+fn evidence(rest: &[String]) {
+    if rest.first().map(std::string::String::as_str) == Some("verify") {
+        let Some(path) = flag_value(rest, "file") else {
+            eprintln!("Usage: lean-ctx gateway evidence verify --file=evidence.json");
+            std::process::exit(2);
+        };
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(e) => {
+                eprintln!("\x1b[31m✗\x1b[0m read {path}: {e}");
+                std::process::exit(1);
+            }
+        };
+        let artifact: crate::gateway_server::evidence::EvidenceExportV1 =
+            match serde_json::from_str(&raw) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m not an evidence artifact: {e}");
+                    std::process::exit(1);
+                }
+            };
+        let result = artifact.verify();
+        println!(
+            "  digest:    {}",
+            if result.digest_valid {
+                "\x1b[32mvalid\x1b[0m"
+            } else {
+                "\x1b[31mINVALID\x1b[0m"
+            }
+        );
+        println!(
+            "  signature: {}",
+            if result.signature_valid {
+                "\x1b[32mvalid\x1b[0m"
+            } else {
+                "\x1b[31mINVALID\x1b[0m"
+            }
+        );
+        if let Some(pk) = &result.signer_public_key {
+            println!("  signer:    {pk}");
+        }
+        if let Some(err) = &result.error {
+            println!("  error:     {err}");
+        }
+        if !(result.digest_valid && result.signature_valid) {
+            std::process::exit(1);
+        }
+        println!(
+            "\x1b[32m✓\x1b[0m Evidence artifact verified: {} rows, {} → {}",
+            artifact.row_count, artifact.from, artifact.to
+        );
+        return;
+    }
+
+    let to = flag_value(rest, "to")
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map_or_else(chrono::Utc::now, |d| d.with_timezone(&chrono::Utc));
+    let from = flag_value(rest, "from")
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map_or_else(
+            || to - chrono::Duration::days(30),
+            |d| d.with_timezone(&chrono::Utc),
+        );
+    let out_path = flag_value(rest, "out")
+        .unwrap_or("leanctx-evidence.json")
+        .to_string();
+    let (_url, pool) = require_pool();
+    match crate::cli::dispatch::run_async(async move {
+        crate::gateway_server::evidence::generate(&pool, from, to).await
+    }) {
+        Ok(artifact) => {
+            let json = serde_json::to_string_pretty(&artifact).unwrap_or_default();
+            if let Err(e) = std::fs::write(&out_path, json) {
+                eprintln!("\x1b[31m✗\x1b[0m write {out_path}: {e}");
+                std::process::exit(1);
+            }
+            println!("\x1b[32m✓\x1b[0m Signed evidence written: {out_path}");
+            println!("  Window: {} → {}", artifact.from, artifact.to);
+            println!(
+                "  Rows: {} daily aggregates, digest {}",
+                artifact.row_count,
+                &artifact.rows_digest_blake3[..16]
+            );
+            println!("  Verify: lean-ctx gateway evidence verify --file={out_path}");
+        }
+        Err(e) => {
+            eprintln!("\x1b[31m✗\x1b[0m evidence export failed: {e:#}");
+            std::process::exit(1);
+        }
     }
 }
 
@@ -281,6 +472,9 @@ fn help() {
     );
     println!("  lean-ctx gateway doctor [--dir=.] [--port=8484] [--admin-port=8485]");
     println!("  lean-ctx gateway report [--from=ISO] [--to=ISO] [--out=report.html]");
+    println!("  lean-ctx gateway evidence [--from=ISO] [--to=ISO] [--out=evidence.json]");
+    println!("  lean-ctx gateway evidence verify --file=evidence.json");
+    println!("  lean-ctx gateway gdpr   <export|delete> --person=<email> [--out=..] [--yes]");
     println!();
     println!("Environment:");
     println!(

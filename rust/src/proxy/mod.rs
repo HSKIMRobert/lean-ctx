@@ -28,6 +28,7 @@ pub mod openai;
 pub mod openai_responses;
 pub mod openai_responses_ws;
 pub mod output_savings;
+pub mod pii;
 pub mod policy_gate;
 pub mod prose;
 pub mod prose_ranker;
@@ -799,6 +800,14 @@ fn attach_gateway_tags(req: &mut axum::extract::Request, mut tags: gateway_ident
         .filter(|p| !p.is_empty() && p.len() <= 128 && !p.chars().any(char::is_control))
     {
         tags.project = Some(project.to_string());
+    }
+    // GDPR pseudonymization (enterprise#39): applied at this single
+    // choke-point, so budgets, usage rows, dashboards and logs only ever see
+    // the pseudonym. No-op unless [gateway_server].pseudonymize_persons.
+    if let Some(person) = tags.person.as_deref()
+        && pii::enabled()
+    {
+        tags.person = Some(pii::pseudonymize(person));
     }
     if !tags.is_empty() {
         req.extensions_mut().insert(tags);
