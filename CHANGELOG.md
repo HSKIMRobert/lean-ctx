@@ -76,6 +76,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   Repomix `1.15.0 → 1.16.0`.
 
 ### Fixed
+- **Zero-config first-session frictions closed after a fresh-install E2E audit
+  (#658).** A scripted fresh journey (isolated `$HOME`, real MCP handshake like
+  an editor) surfaced eight frictions; all are fixed with regression tests:
+  auto-findings now parse the pre-decoration tool output, so the injected
+  `--- AUTO CONTEXT ---` header can no longer become a junk `Read ---` finding
+  polluting session memory and every wakeup briefing (F1); `setup`/`onboard`
+  `--help` prints help instead of executing setup side effects (F2);
+  `ctx_call` with misspelled keys (`tool`/`args`/`params`) fails with the
+  exact fix instead of silently dispatching without arguments (F3);
+  `ctx_knowledge remember` derives a deterministic key slug when `key` is
+  omitted and accepts `content=` as value alias — matching what our own
+  injected instructions document (F4); Rust call edges inside macro bodies
+  (`println!`, `assert_eq!`, …) are extracted at the token level, so a fresh
+  Rust project no longer reports `0 edges` (F5); the project-overview header
+  surfaces persisted call-graph edges instead of contradicting `ctx_callgraph`
+  with `0 edges` (F6); bare `ctx_knowledge recall` lists recent facts instead
+  of erroring (F7); and `ctx_session show` is accepted as a synonym of
+  `status` (F8).
 - **MCP PathJail auto-corrects a stale markerless root instead of rejecting the
   workspace (#649).** An MCP server launched by VS Code/WSL could adopt a
   markerless client cwd (e.g. `/mnt/c/Users/<user>`) as its jail root; the first

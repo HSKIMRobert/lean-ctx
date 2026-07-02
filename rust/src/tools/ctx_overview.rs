@@ -166,8 +166,19 @@ pub fn handle(
         } else {
             format!("  scanned {scan_age}")
         };
+        // #658 F6: the header counts file-level (import/type_ref) edges; the
+        // function-level call graph is a separate artifact. When one has been
+        // built (ctx_callgraph persists lazily), surface it too — otherwise a
+        // single-file project reads "0 edges" while callgraph clearly has some.
+        let call_edges =
+            crate::core::call_graph::CallGraph::load(&project_root).map_or(0, |g| g.edges.len());
+        let call_info = if call_edges > 0 {
+            format!("  {call_edges} call edges")
+        } else {
+            String::new()
+        };
         output.push(format!(
-            "PROJECT OVERVIEW  {} files  {} edges{scan_info}",
+            "PROJECT OVERVIEW  {} files  {} edges{call_info}{scan_info}",
             gp.file_count(),
             gp.edge_count().unwrap_or(0)
         ));
@@ -620,5 +631,46 @@ mod tests {
         let s = "/home/user/🎉🎉🎉/src/components/deeply/nested";
         let start = truncate_start_char_boundary(s, 30);
         assert!(s.is_char_boundary(start));
+    }
+
+    /// #658 F6: when a persisted call graph exists, the overview header must
+    /// surface its edge count — a single-file project has 0 file-level edges
+    /// but may well have call edges, and the two surfaces must not contradict.
+    #[test]
+    fn overview_header_surfaces_persisted_call_edges() {
+        use crate::core::call_graph::{CallEdge, CallGraph};
+
+        let _lock = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let data = tempfile::tempdir().expect("data dir");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", data.path().to_str().unwrap());
+
+        let root = tmp.path();
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn greet() {}\nfn main() { greet(); }\n",
+        )
+        .unwrap();
+        let root_str = root.to_str().unwrap();
+
+        let mut graph = CallGraph::new(root_str);
+        graph.edges.push(CallEdge {
+            caller_file: "src/main.rs".into(),
+            caller_symbol: "main".into(),
+            caller_line: 2,
+            callee_name: "greet".into(),
+        });
+        graph.save().expect("persist call graph");
+
+        let cache = SessionCache::new();
+        let out = handle(&cache, None, Some(root_str), CrpMode::Off);
+        assert!(
+            out.contains("1 call edges"),
+            "overview header must show persisted call edges, got:\n{out}"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
     }
 }
