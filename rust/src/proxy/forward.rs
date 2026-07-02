@@ -45,11 +45,46 @@ pub async fn forward_request(
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
 
+    // Org-policy gate (enterprise#25): under a signed + trusted + enforced org
+    // policy, refuse models outside the ceiling and requests over a hard
+    // budget — before any routing/compression work. No policy → no-op.
+    let gate_rules = super::policy_gate::active_rules();
+    if let Some(rules) = &gate_rules {
+        let tags = parts
+            .extensions
+            .get::<super::gateway_identity::GatewayTags>()
+            .cloned()
+            .unwrap_or_default();
+        let requested_model = requested_model_of(&parts, &body_bytes);
+        if let Err(refusal) = super::policy_gate::enforce(rules, requested_model.as_deref(), &tags)
+        {
+            tracing::warn!(
+                "lean-ctx gateway: org policy refused request ({refusal:?}) \
+                 person={:?} project={:?}",
+                tags.person,
+                tags.project
+            );
+            return Ok(super::policy_gate::refusal_response(
+                &refusal,
+                provider_label,
+            ));
+        }
+    }
+
     // Active router (enterprise#13): may rewrite `model` in the parsed body
     // (before compression, so exactly one serialization) and re-target the
     // upstream within the same wire shape. Fail-open: any miss routes nothing.
+    // An org policy may exempt specific projects from downgrades (#25).
     let routing_rules = crate::core::config::Config::load().proxy.routing.clone();
-    let route_upstreams = routing_rules.is_active().then(|| state.upstream_snapshot());
+    let downgrade_forbidden = gate_rules.as_ref().is_some_and(|rules| {
+        let project = parts
+            .extensions
+            .get::<super::gateway_identity::GatewayTags>()
+            .and_then(|t| t.project.clone());
+        super::policy_gate::downgrade_forbidden(rules, project.as_deref())
+    });
+    let route_upstreams =
+        (routing_rules.is_active() && !downgrade_forbidden).then(|| state.upstream_snapshot());
     let route_hook = |parsed: &mut serde_json::Value| {
         route_upstreams.as_ref().and_then(|up| {
             super::routing::route_request(parsed, provider_label, up, &routing_rules)
@@ -162,6 +197,28 @@ pub async fn forward_request(
         wire,
     )
     .await
+}
+
+/// Requested model for the policy gate (enterprise#25): from the JSON body
+/// (Anthropic/OpenAI dialects) or the URL path (Gemini). Encrypted-passthrough
+/// or unparseable bodies yield `None` — the ceiling governs what the gateway
+/// can see; budgets (identity-keyed) still apply to every request.
+fn requested_model_of(parts: &Parts, body_bytes: &[u8]) -> Option<String> {
+    if let Some(m) = super::usage::gemini_model_from_path(parts.uri.path()) {
+        return Some(m);
+    }
+    let decoded: Cow<'_, [u8]> = match request_body_encoding(parts) {
+        RequestBodyEncoding::Identity => Cow::Borrowed(body_bytes),
+        RequestBodyEncoding::Gzip => {
+            Cow::Owned(decode_gzip_bounded(body_bytes, max_body_bytes()).ok()?)
+        }
+        RequestBodyEncoding::Zstd => {
+            Cow::Owned(decode_zstd_bounded(body_bytes, max_body_bytes()).ok()?)
+        }
+        RequestBodyEncoding::Passthrough => return None,
+    };
+    let v: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    v.get("model")?.as_str().map(str::to_string)
 }
 
 /// Builds the request-side [`WireContext`](super::usage::WireContext) stamped

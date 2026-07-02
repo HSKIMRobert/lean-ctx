@@ -19,12 +19,17 @@
 //! | `max_context_tokens` | the smaller cap |
 //! | `audit_retention_days` | the larger window |
 //! | `default_read_mode` | org pins it when set, else local |
+//! | `routing.allowed_models` | intersection when both set (a ceiling can only narrow) |
+//! | `routing.forbid_downgrade_for` | union |
+//! | `budgets.*` | the smaller cap |
 //!
 //! The result is a normal [`ResolvedPolicy`] the runtime enforces exactly like a
 //! single pack, so nothing downstream needs to know a floor was applied.
 
 use crate::core::input_filters::FilterAction;
-use crate::core::policy::{EgressRules, FilterRules, ResolvedPolicy};
+use crate::core::policy::{
+    BudgetRules, EgressRules, FilterRules, ResolvedPolicy, RoutingPolicyRules,
+};
 
 /// Merge a central org policy (`org`, the floor) with the optional local project
 /// pack (`local`). With no local pack the org policy is the effective policy on
@@ -80,6 +85,29 @@ pub fn merge_floor(org: &ResolvedPolicy, local: Option<&ResolvedPolicy>) -> Reso
         ),
     };
 
+    // Gateway governance (enterprise#25): the model ceiling can only narrow,
+    // downgrade exemptions accumulate, spend caps take the stricter side.
+    let routing = RoutingPolicyRules {
+        allowed_models: merge_allowed_models(
+            &org.routing.allowed_models,
+            &local.routing.allowed_models,
+        ),
+        forbid_downgrade_for: union(
+            &org.routing.forbid_downgrade_for,
+            &local.routing.forbid_downgrade_for,
+        ),
+    };
+    let budgets = BudgetRules {
+        max_cost_usd_per_person_per_day: min_f64(
+            org.budgets.max_cost_usd_per_person_per_day,
+            local.budgets.max_cost_usd_per_person_per_day,
+        ),
+        max_cost_usd_per_project_per_month: min_f64(
+            org.budgets.max_cost_usd_per_project_per_month,
+            local.budgets.max_cost_usd_per_project_per_month,
+        ),
+    };
+
     ResolvedPolicy {
         name: local.name.clone(),
         version: local.version.clone(),
@@ -104,6 +132,28 @@ pub fn merge_floor(org: &ResolvedPolicy, local: Option<&ResolvedPolicy>) -> Reso
         redaction,
         filters,
         egress,
+        routing,
+        budgets,
+    }
+}
+
+/// Intersect two model ceilings; one-sided lists win as-is. An empty list
+/// means "no restriction", so it never erases the other side's ceiling.
+fn merge_allowed_models(org: &[String], local: &[String]) -> Vec<String> {
+    match (org.is_empty(), local.is_empty()) {
+        (true, _) => local.to_vec(),
+        (_, true) => org.to_vec(),
+        (false, false) => org.iter().filter(|p| local.contains(p)).cloned().collect(),
+    }
+}
+
+/// Stricter (smaller) of two optional USD caps.
+fn min_f64(a: Option<f64>, b: Option<f64>) -> Option<f64> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (Some(x), None) => Some(x),
+        (None, Some(y)) => Some(y),
+        (None, None) => None,
     }
 }
 
@@ -198,6 +248,8 @@ mod tests {
             redaction: BTreeMap::new(),
             filters: FilterRules::default(),
             egress: EgressRules::default(),
+            routing: RoutingPolicyRules::default(),
+            budgets: BudgetRules::default(),
         }
     }
 
@@ -290,5 +342,36 @@ mod tests {
         local.default_read_mode = Some("full".into());
         let m = merge_floor(&org, Some(&local));
         assert_eq!(m.default_read_mode.as_deref(), Some("signatures"));
+    }
+
+    #[test]
+    fn model_ceiling_intersects_and_budgets_take_stricter_cap() {
+        let mut org = rp("org");
+        org.routing.allowed_models = vec!["claude-*".into(), "gpt-4o-mini".into()];
+        org.routing.forbid_downgrade_for = vec!["prod".into()];
+        org.budgets.max_cost_usd_per_person_per_day = Some(50.0);
+        let mut local = rp("local");
+        local.routing.allowed_models = vec!["claude-*".into(), "o3".into()];
+        local.routing.forbid_downgrade_for = vec!["security".into()];
+        local.budgets.max_cost_usd_per_person_per_day = Some(200.0); // weaker
+        local.budgets.max_cost_usd_per_project_per_month = Some(9000.0);
+
+        let m = merge_floor(&org, Some(&local));
+        assert_eq!(m.routing.allowed_models, vec!["claude-*".to_string()]);
+        assert_eq!(
+            m.routing.forbid_downgrade_for,
+            vec!["prod".to_string(), "security".to_string()]
+        );
+        assert_eq!(m.budgets.max_cost_usd_per_person_per_day, Some(50.0));
+        assert_eq!(m.budgets.max_cost_usd_per_project_per_month, Some(9000.0));
+    }
+
+    #[test]
+    fn one_sided_model_ceiling_survives_empty_other_side() {
+        let mut org = rp("org");
+        org.routing.allowed_models = vec!["claude-*".into()];
+        let local = rp("local"); // no ceiling of its own
+        let m = merge_floor(&org, Some(&local));
+        assert_eq!(m.routing.allowed_models, vec!["claude-*".to_string()]);
     }
 }

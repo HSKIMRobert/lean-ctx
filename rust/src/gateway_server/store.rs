@@ -258,6 +258,43 @@ pub async fn insert_event(
     Ok(())
 }
 
+/// Current-window spend sums for the budget gate (enterprise#25):
+/// per-person spend for the running UTC day and per-project spend for the
+/// running UTC month, straight from `usage_events`.
+pub async fn budget_window_sums(
+    pool: &Pool,
+) -> anyhow::Result<(
+    std::collections::HashMap<String, f64>,
+    std::collections::HashMap<String, f64>,
+)> {
+    let client = pool.get().await?;
+    let mut person_day = std::collections::HashMap::new();
+    for row in client
+        .query(
+            "SELECT person, SUM(cost_usd) FROM usage_events \
+             WHERE ts >= date_trunc('day', now() AT TIME ZONE 'utc') AT TIME ZONE 'utc' \
+             GROUP BY person",
+            &[],
+        )
+        .await?
+    {
+        person_day.insert(row.get::<_, String>(0), row.get::<_, f64>(1));
+    }
+    let mut project_month = std::collections::HashMap::new();
+    for row in client
+        .query(
+            "SELECT project, SUM(cost_usd) FROM usage_events \
+             WHERE ts >= date_trunc('month', now() AT TIME ZONE 'utc') AT TIME ZONE 'utc' \
+             GROUP BY project",
+            &[],
+        )
+        .await?
+    {
+        project_month.insert(row.get::<_, String>(0), row.get::<_, f64>(1));
+    }
+    Ok((person_day, project_month))
+}
+
 /// Wires the usage stream into Postgres: installs the process-wide sink
 /// (`proxy::usage_sink`) and spawns the writer task. Call once at gateway
 /// startup, after `init_schema`.

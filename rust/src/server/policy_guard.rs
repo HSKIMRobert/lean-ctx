@@ -189,6 +189,8 @@ mod tests {
             redaction: BTreeMap::new(),
             filters: crate::core::policy::FilterRules::default(),
             egress: crate::core::policy::EgressRules::default(),
+            routing: crate::core::policy::RoutingPolicyRules::default(),
+            budgets: crate::core::policy::BudgetRules::default(),
         })
     }
 
@@ -254,6 +256,8 @@ mod tests {
             redaction,
             filters: crate::core::policy::FilterRules::default(),
             egress: crate::core::policy::EgressRules::default(),
+            routing: crate::core::policy::RoutingPolicyRules::default(),
+            budgets: crate::core::policy::BudgetRules::default(),
         }));
 
         assert!(!check_tool_access("ctx_read").blocked);

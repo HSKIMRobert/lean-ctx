@@ -357,6 +357,8 @@ mod tests {
             redaction: std::collections::BTreeMap::new(),
             filters: crate::core::policy::FilterRules::default(),
             egress: crate::core::policy::EgressRules::default(),
+            routing: crate::core::policy::RoutingPolicyRules::default(),
+            budgets: crate::core::policy::BudgetRules::default(),
         };
         let checks = assess(&empty);
         assert_eq!(status_of(&checks, "CGB-1.1"), CheckStatus::Fail);

@@ -134,6 +134,27 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         }
     }
 
+    // -- Budget seeding (enterprise#25) --------------------------------------
+    // With a store present, periodically replace the in-memory budget windows
+    // with authoritative sums from usage_events so caps survive restarts and
+    // hold across replicas. Fail-open: a failed query keeps the last seed +
+    // live in-process counting.
+    if let Some(pool) = pool.clone() {
+        tokio::spawn(async move {
+            loop {
+                match super::store::budget_window_sums(&pool).await {
+                    Ok((person_day, project_month)) => {
+                        crate::proxy::policy_gate::seed_from_store(person_day, project_month);
+                    }
+                    Err(e) => {
+                        tracing::debug!("budget seed skipped (store unreachable): {e:#}");
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            }
+        });
+    }
+
     // -- Proxy (blocking; the actual gateway surface) ------------------------
     println!("lean-ctx gateway: starting proxy on port {} …", opts.port);
     let result = crate::proxy::start_proxy(opts.port).await;
@@ -343,6 +364,21 @@ fn render_metrics(out: &mut String) {
         out,
         "# HELP leanctx_usage_events_dropped_total Usage events dropped because the store writer was saturated (fail-open).\n# TYPE leanctx_usage_events_dropped_total counter\nleanctx_usage_events_dropped_total {}",
         crate::proxy::usage_sink::dropped_count()
+    );
+
+    // Org-policy gate (enterprise#25): blocked-request counters.
+    let (blocked_model, blocked_budget) = crate::proxy::policy_gate::blocked_counters();
+    let _ = writeln!(
+        out,
+        "# HELP leanctx_policy_blocked_total Requests refused by the enforced org policy.\n# TYPE leanctx_policy_blocked_total counter"
+    );
+    let _ = writeln!(
+        out,
+        "leanctx_policy_blocked_total{{reason=\"model_ceiling\"}} {blocked_model}"
+    );
+    let _ = writeln!(
+        out,
+        "leanctx_policy_blocked_total{{reason=\"budget\"}} {blocked_budget}"
     );
 }
 
