@@ -80,21 +80,32 @@ lean-ctx maintains a marker-delimited block in `~/.claude/CLAUDE.md`:
 
 ```markdown
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v4 -->
+<!-- lean-ctx-claude-v5 -->
 ## lean-ctx — Context Runtime
 
-Always prefer lean-ctx MCP tools over native equivalents:
-- `ctx_read` instead of `Read` / `cat` (cached, 10 modes, re-reads ~13 tokens)
+When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
+- `ctx_read` instead of `Read` / `cat` for exploration (cached, 10 modes, re-reads ~13 tokens)
 - `ctx_shell` instead of `bash` / `Shell` (95+ compression patterns)
 - `ctx_search` instead of `Grep` / `rg` (compact results)
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
-- Edits: `ctx_read(mode="anchored")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). Native Edit/Write stay available; `ctx_edit` (str_replace) is the legacy power-profile fallback.
-- Write, Delete, Glob — use normally.
+- Edits: `ctx_read(mode="anchored")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). `ctx_edit` (str_replace) is the legacy power-profile fallback.
+
+Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a prior
+native Read of the same file path. Write, Delete, Glob — use normally.
+If no `ctx_*` tools are listed in this session, use the native tools throughout.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 <!-- /lean-ctx -->
 ```
+
+The v5 wording routes edits to the anchored editor (`ctx_patch` is advertised in the
+lazy core for Claude Code) while keeping v4's guard semantics: Claude Code enforces a
+*path-keyed* read-before-write gate on Edit/Write, so a natively-edited file must have
+been read with the **native** Read tool (lean-ctx's `read_redirect = auto` keeps that
+gate intact, see [#637](https://github.com/yvgude/lean-ctx/issues/637)). And in sessions
+where the lean-ctx MCP server is not connected, no `ctx_*` tools exist — the block says
+explicitly to fall back to native tools instead of chasing unavailable ones.
 
 Detail documentation (mode selection, session memory, proactive tools) lives in the
 skill at `~/.claude/skills/lean-ctx/SKILL.md`, which Claude loads only when needed.
@@ -118,6 +129,22 @@ lean-ctx init --global
 ```
 
 This enables transparent compression for 56 pattern modules (git, npm, cargo, docker, kubectl, terraform, and more).
+
+### Read compression under the read-before-write gate
+
+Two settings work together so Claude Code keeps its native edit safety *and* the
+re-read savings:
+
+- **`read_redirect = auto`** (default): on guard hosts (Claude Code / CodeBuddy) the
+  PreToolUse Read redirect stays **off**, so the native Read runs on the real path and
+  the path-keyed read-before-write gate records it — native Edit/Write keep working
+  ([#637](https://github.com/yvgude/lean-ctx/issues/637)).
+- **`read_dedup = auto`** (default): a PostToolUse hook (`lean-ctx hook read-dedup`,
+  matcher `Read` only) replaces the *result* of a **re-read of an unchanged file** with
+  a compact `[unchanged]` stub via the documented `updatedToolOutput` channel. First
+  reads stay byte-identical (edit safety: `old_string` always comes from real content),
+  the file and the gate are untouched, and every failure path passes the original
+  result through. Set `read_dedup = off` to disable, or `on` to dedup on every host.
 
 ### Step 4: SKILL.md (Optional)
 
