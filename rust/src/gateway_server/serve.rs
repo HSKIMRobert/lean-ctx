@@ -155,6 +155,35 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         });
     }
 
+    // -- Usage retention (enterprise#36) --------------------------------------
+    // [gateway_server].usage_retention_days > 0 purges older rows periodically.
+    // Unset/0 keeps everything — retention is an explicit deployment decision.
+    let retention_days = crate::core::config::Config::load()
+        .gateway_server
+        .usage_retention_days
+        .unwrap_or(0);
+    if retention_days > 0
+        && let Some(pool) = pool.clone()
+    {
+        println!("  Retention: usage_events kept {retention_days} days (purge every 6h)");
+        tokio::spawn(async move {
+            loop {
+                match super::store::purge_events_older_than(&pool, retention_days).await {
+                    Ok(0) => {}
+                    Ok(purged) => {
+                        tracing::info!(
+                            "usage retention: purged {purged} events older than {retention_days} days"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::debug!("usage retention purge skipped: {e:#}");
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_hours(6)).await;
+            }
+        });
+    }
+
     // -- Proxy (blocking; the actual gateway surface) ------------------------
     println!("lean-ctx gateway: starting proxy on port {} …", opts.port);
     let result = crate::proxy::start_proxy(opts.port).await;

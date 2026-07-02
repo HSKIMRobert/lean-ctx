@@ -291,6 +291,8 @@ deadpool-postgres = { version = "0.14", optional = true }
 tokio-postgres = { version = "0.7", features = [
   "with-chrono-0_4",
   "with-uuid-1",
+  # Evidence/GDPR exports read aggregated rows as jsonb (enterprise#36/#39).
+  "with-serde_json-1",
 ], optional = true }
 # Postgres TLS (#54/#58): Azure Database for PostgreSQL enforces TLS — the
 # usage store must speak sslmode=require. Reuses the process rustls provider.

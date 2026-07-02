@@ -108,7 +108,46 @@ pub fn router(state: AdminState) -> axum::Router {
             "/api/admin/status",
             axum::routing::get(super::admin_status::get_status),
         )
+        .route("/api/admin/evidence", axum::routing::get(get_evidence))
         .with_state(Arc::new(state))
+}
+
+/// `GET /api/admin/evidence?from=&to=` — the signed usage-evidence artifact
+/// (enterprise#36). Download-ready JSON; verify offline with
+/// `lean-ctx gateway evidence verify --file=…`.
+async fn get_evidence(
+    State(state): State<Arc<AdminState>>,
+    Query(q): Query<UsageQuery>,
+) -> Response {
+    let (from, to) = match resolve_window(q.from.as_deref(), q.to.as_deref()) {
+        Ok(w) => w,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": msg})),
+            )
+                .into_response();
+        }
+    };
+    match super::evidence::generate(&state.pool, from, to).await {
+        Ok(artifact) => (
+            StatusCode::OK,
+            [(
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=\"leanctx-evidence.json\"",
+            )],
+            Json(serde_json::to_value(&artifact).unwrap_or_default()),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::warn!("evidence export failed: {e:#}");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({"error": "evidence export failed — see gateway logs"})),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// The GROUP BY over `usage_events` (Doc 08 §3.3). Window bounds are bound
