@@ -205,6 +205,9 @@ pub struct LedgerSummary {
     pub by_day: Vec<(String, u64, f64)>,
     /// (tool, saved_tokens), descending by tokens.
     pub by_tool: Vec<(String, u64)>,
+    /// (mechanism, saved_tokens, saved_usd), descending by USD — the
+    /// attribution slice (enterprise#19): compression | routing | caching.
+    pub by_mechanism: Vec<(String, u64, f64)>,
 }
 
 impl LedgerSummary {
@@ -262,6 +265,7 @@ pub fn summarize(path: &Path) -> LedgerSummary {
     let mut by_model: HashMap<String, (u64, f64)> = HashMap::new();
     let mut by_day: HashMap<String, (u64, f64)> = HashMap::new();
     let mut by_tool: HashMap<String, u64> = HashMap::new();
+    let mut by_mechanism: HashMap<String, (u64, f64)> = HashMap::new();
     let mut tokenizers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for line in BufReader::new(file).lines().map_while(Result::ok) {
@@ -277,6 +281,15 @@ pub fn summarize(path: &Path) -> LedgerSummary {
         }
         if !ev.tokenizer.is_empty() {
             tokenizers.insert(ev.tokenizer.clone());
+        }
+
+        // Attribution slice (enterprise#19): value-bearing events by mechanism.
+        // Routing/caching events carry USD at zero saved_tokens, so the filter
+        // is on value, not tokens; bounces stay out (they net the headline).
+        if ev.saved_tokens > 0 || (ev.saved_usd != 0.0 && ev.bounce_adjustment == 0) {
+            let mech = by_mechanism.entry(ev.mechanism.clone()).or_default();
+            mech.0 = mech.0.saturating_add(ev.saved_tokens);
+            mech.1 += ev.saved_usd;
         }
 
         // Breakdowns describe *savings* — bounce events (saved_tokens == 0, negative USD)
@@ -303,6 +316,13 @@ pub fn summarize(path: &Path) -> LedgerSummary {
 
     s.by_tool = by_tool.into_iter().collect();
     s.by_tool.sort_by_key(|row| std::cmp::Reverse(row.1));
+
+    s.by_mechanism = by_mechanism
+        .into_iter()
+        .map(|(k, (t, u))| (k, t, u))
+        .collect();
+    s.by_mechanism
+        .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
     s.tokenizers = tokenizers.into_iter().collect();
     s
@@ -336,6 +356,7 @@ pub fn bounce_tokens_since(path: &Path, days: Option<u32>) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::event::MECHANISM_COMPRESSION;
     use super::*;
 
     fn temp_path(tag: &str) -> PathBuf {
@@ -353,6 +374,7 @@ mod tests {
         SavingsEvent {
             ts: "2026-06-01T12:00:00+00:00".into(),
             tool: "ctx_read".into(),
+            mechanism: MECHANISM_COMPRESSION.into(),
             model_id: "claude-3.5-sonnet".into(),
             tokenizer: "o200k_base".into(),
             baseline_tokens: saved + 100,
@@ -507,6 +529,51 @@ mod tests {
         assert_eq!(s.by_model.len(), 1);
         assert_eq!(s.by_model[0].1, 800);
         assert_eq!(s.by_tool[0], ("ctx_read".to_string(), 800));
+        assert_eq!(s.by_mechanism.len(), 1);
+        assert_eq!(s.by_mechanism[0].0, MECHANISM_COMPRESSION);
+        assert_eq!(s.by_mechanism[0].1, 800);
+
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn summarize_attributes_mechanisms_separately() {
+        // enterprise#19: a routing event (USD at zero saved tokens) and a
+        // compression event must land in distinct attribution rows; a bounce
+        // must stay out of the slice while netting the headline.
+        let p = temp_path("mech");
+        append(&p, sample(500)).unwrap();
+
+        let mut route = sample(0);
+        route.tool = "proxy_route".into();
+        route.mechanism = "routing".into();
+        route.baseline_tokens = 10_000;
+        route.actual_tokens = 10_000;
+        route.saved_usd = 0.048_75; // 10k tokens × (5.00−0.125)/MTok
+        append(&p, route).unwrap();
+
+        let mut bounce = sample(0);
+        bounce.tool = "bounce".into();
+        bounce.baseline_tokens = 50;
+        bounce.actual_tokens = 50;
+        bounce.bounce_adjustment = 50;
+        bounce.saved_usd = -0.00015;
+        append(&p, bounce).unwrap();
+
+        let s = summarize(&p);
+        assert_eq!(s.by_mechanism.len(), 2, "compression + routing rows");
+        let routing = s
+            .by_mechanism
+            .iter()
+            .find(|(m, _, _)| m == "routing")
+            .expect("routing row");
+        assert_eq!(routing.1, 0, "routing saves USD, not tokens");
+        assert!((routing.2 - 0.048_75).abs() < 1e-9);
+        assert!(
+            !s.by_mechanism.iter().any(|(m, _, _)| m == "bounce"),
+            "bounce is a correction, not an attribution mechanism"
+        );
+        assert!(verify(&p).valid, "v3 chain must verify");
 
         let _ = fs::remove_file(&p);
     }

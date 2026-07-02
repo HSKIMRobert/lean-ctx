@@ -140,6 +140,7 @@ mod tests {
         SavingsEvent {
             ts: ts.into(),
             tool: "ctx_read".into(),
+            mechanism: crate::core::savings_ledger::MECHANISM_COMPRESSION.into(),
             model_id: model.into(),
             tokenizer: "o200k_base".into(),
             baseline_tokens: actual + saved,

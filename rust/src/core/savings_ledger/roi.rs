@@ -184,6 +184,7 @@ mod tests {
                 tokenizers: vec!["o200k_base".to_string()],
                 by_model: vec![("gpt".to_string(), net, usd)],
                 by_tool: vec![("ctx_read".to_string(), net)],
+                by_mechanism: vec![("compression".to_string(), net, usd)],
             },
             signer_public_key: signed.then(|| "pubkey".to_string()),
             signature: signed.then(|| "sig".to_string()),

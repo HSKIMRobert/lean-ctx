@@ -545,6 +545,20 @@ fn format_savings_summary() -> String {
         out.push(format!("  {}", t.box_bottom_square(w)));
     }
 
+    // Mechanism attribution (enterprise#19): only rendered once a second
+    // mechanism exists — a pure-compression ledger keeps its familiar output.
+    if s.by_mechanism.len() >= 2 {
+        out.push(String::new());
+        out.push(format!("  {}", t.box_top_labeled(w, "BY MECHANISM")));
+        for (mechanism, tok, usd) in &s.by_mechanism {
+            out.push(sl(&format!(
+                "  {m}{mechanism:<22}{rst} {:>10} tok  {sc}${usd:.2}{rst}",
+                format_tokens(*tok)
+            )));
+        }
+        out.push(format!("  {}", t.box_bottom_square(w)));
+    }
+
     if s.by_day.len() >= 2 {
         out.push(String::new());
         out.push(format!("  {}", t.box_top_labeled(w, "RECENT DAYS")));

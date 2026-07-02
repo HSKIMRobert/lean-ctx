@@ -13,4 +13,6 @@
 //! usage stream through `proxy::usage_sink` and persists asynchronously; a slow
 //! or down Postgres degrades metering, never live LLM traffic.
 
+pub mod admin_api;
+pub mod serve;
 pub mod store;

@@ -257,6 +257,11 @@ pub fn run() {
                 cmd_proxy(&rest);
                 return;
             }
+            #[cfg(feature = "gateway-server")]
+            "gateway" => {
+                cmd_gateway(&rest);
+                return;
+            }
             "daemon" => {
                 cmd_daemon(&rest);
                 return;
@@ -821,7 +826,7 @@ fn is_server_mode(args: &[String]) -> bool {
         || args.get(1).is_some_and(|a| {
             matches!(
                 a.as_str(),
-                "mcp" | "daemon" | "proxy" | "serve" | "watch" | "dashboard"
+                "mcp" | "daemon" | "proxy" | "serve" | "watch" | "dashboard" | "gateway"
             )
         })
 }

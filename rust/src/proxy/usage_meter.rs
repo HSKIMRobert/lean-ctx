@@ -178,6 +178,29 @@ pub fn record(u: &super::usage::RealUsage) {
     // the installed sink (no-op locally). Never blocks the request path.
     super::usage_sink::push(u);
 
+    // Mechanism attribution into the local savings ledger (enterprise#19).
+    // Routing: the gateway served a cheaper model than requested — value the
+    // rate delta on the measured input tokens. Caching: provider prompt-cache
+    // reads billed below the input rate. Both best-effort, never blocking.
+    if let Some(wire) = u.wire.as_deref()
+        && let Some(routed_from) = wire.routed_from.as_deref()
+    {
+        crate::core::savings_ledger::record_routing_event(routed_from, &u.model, u.input_tokens);
+    }
+    if u.cache_read_tokens > 0 {
+        let cost = crate::core::gain::model_pricing::ModelPricing::load()
+            .quote(Some(&u.model))
+            .cost;
+        #[allow(clippy::cast_precision_loss)]
+        let discount_usd =
+            (cost.input_per_m - cost.cache_read_per_m) / 1_000_000.0 * u.cache_read_tokens as f64;
+        crate::core::savings_ledger::record_caching_event(
+            &u.model,
+            u.cache_read_tokens,
+            discount_usd,
+        );
+    }
+
     let key = normalize_key(&u.model);
     {
         let mut map = store()

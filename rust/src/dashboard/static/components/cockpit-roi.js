@@ -100,12 +100,16 @@ class CockpitRoi extends HTMLElement {
         fetchJson('/api/roi', { timeoutMs: 12000 }),
         cached('/api/stats', { timeoutMs: 12000 }).catch(function () { return null; }),
         fetchJson('/api/spend', { timeoutMs: 8000 }).catch(function () { return null; }),
+        // Org usage breakdown (enterprise#20): central admin API when
+        // [gateway_server].admin_url is set, else this machine's snapshot.
+        fetchJson('/api/usage-breakdown', { timeoutMs: 12000 }).catch(function () { return null; }),
       ]);
       this._data = results[0];
       this._stats = results[1];
       // Measured spend (real provider bill) + server-side pricing so the
       // estimated cost model de-hardcodes its blended rate (GL #486 follow-up).
       this._spend = results[2];
+      this._usage = results[3];
       var Fp = croiFmt();
       if (this._spend && this._spend.pricing && Fp.applyServerPricing) {
         Fp.applyServerPricing(this._spend.pricing);
@@ -159,8 +163,9 @@ class CockpitRoi extends HTMLElement {
         '<h2>No verified savings yet</h2>' +
         '<p>Use lean-ctx (ctx_read / ctx_search / \u2026) for a while. Your signed savings ' +
         'ledger fills up automatically, then this view shows your ROI.</p></div></div>';
-      // Still render the plan card so the user sees their plan even before this
-      // machine has local events.
+      // Still render org usage + plan so gateway admins see the org picture
+      // (and users their plan) even before this machine has local events.
+      this.innerHTML += this._renderOrgUsage(esc);
       this.innerHTML += this._renderPlan(esc);
       return;
     }
@@ -172,6 +177,7 @@ class CockpitRoi extends HTMLElement {
     body += this._renderVerification(esc);
     body += this._renderMethodology();
     body += this._renderMeasuredSpend(esc);
+    body += this._renderOrgUsage(esc);
     body += this._renderCostAnalysis(esc);
     body += this._renderPlan(esc);
     body += this._renderTrendCard(esc);
@@ -223,6 +229,85 @@ class CockpitRoi extends HTMLElement {
       '<th class="r">Reqs</th><th class="r">Input</th><th class="r">Output</th>' +
       '<th class="r">Cache rd</th><th class="r">Cost</th></tr></thead>' +
       '<tbody>' + bodyRows + '</tbody></table></div></div>'
+    );
+  }
+
+  /**
+   * Org usage breakdown (enterprise#20) — the "monitoring \u00d7 saving" table.
+   * Central source: gateway admin API (person \u00d7 project \u00d7 model \u00d7 provider
+   * from Postgres usage_events, incl. counterfactual savings + seat projection).
+   * Local source: model-level snapshot of this machine, same shape, no identity
+   * dimension. Hidden entirely when there is no usage at all.
+   */
+  _renderOrgUsage(esc) {
+    var u = this._usage;
+    if (!u || !Array.isArray(u.rows)) return '';
+    var totals = u.totals || {};
+    var central = u.source === 'central';
+    if (!u.rows.length && !(totals.requests > 0)) return '';
+    var F = croiFmt();
+    var ff = F.ff || function (n) { return String(n); };
+    var fu = F.fu || function (a) { return '$' + Number(a).toFixed(2); };
+
+    var idCols = central ? '<th>Person</th><th>Project</th>' : '';
+    var bodyRows = u.rows.slice(0, 15).map(function (r) {
+      var id = central
+        ? '<td>' + esc(String(r.person || '\u2014')) + '</td><td>' + esc(String(r.project || '\u2014')) + '</td>'
+        : '';
+      var provTag = r.provider
+        ? ' <span class="tag ty">' + esc(String(r.provider)) + '</span>'
+        : '';
+      return '<tr>' + id +
+        '<td>' + esc(String(r.model)) + provTag + '</td>' +
+        '<td class="r">' + esc(ff(r.requests || 0)) + '</td>' +
+        '<td class="r">' + esc(ff((r.input_tokens || 0) + (r.output_tokens || 0))) + '</td>' +
+        '<td class="r">' + esc(fu(r.cost_usd || 0)) + '</td>' +
+        '<td class="r" style="color:var(--green)">' + esc(fu(r.saved_usd || 0)) + '</td></tr>';
+    }).join('');
+
+    var sourceTag = central
+      ? '<span class="tag tg">central</span>'
+      : '<span class="tag ty" title="No [gateway_server].admin_url configured \u2014 showing this machine only">local snapshot</span>';
+    var orgLabel = u.org_label ? esc(String(u.org_label)) + ' \u00b7 ' : '';
+
+    var heroBits =
+      '<div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:10px">' +
+      '<div><div class="hv">' + esc(ff(totals.requests || 0)) + '</div><span class="hs">requests (30d)</span></div>' +
+      '<div><div class="hv">' + esc(fu(totals.cost_usd || 0)) + '</div><span class="hs">measured cost</span></div>' +
+      '<div><div class="hv" style="color:var(--green)">' + esc(fu(totals.saved_usd || 0)) + '</div><span class="hs">saved vs. baseline</span></div>' +
+      (central && totals.reference_cost_usd > 0
+        ? '<div><div class="hv">' + esc(fu(totals.reference_cost_usd)) + '</div><span class="hs">reference cost (counterfactual)</span></div>'
+        : '') +
+      '</div>';
+
+    var projection = '';
+    if (totals.projection_usd_per_month > 0 && totals.projection_seats > 0) {
+      projection =
+        '<div class="view-hint" style="margin-top:10px">' +
+        '<span class="tag tg">projection</span>' +
+        '<span>At <b>' + esc(ff(totals.projection_seats)) + ' seats</b> this saving rate is ' +
+        '<b style="color:var(--green)">' + esc(fu(totals.projection_usd_per_month)) + ' / month</b>' +
+        (totals.active_persons > 0
+          ? ' (extrapolated from ' + esc(ff(totals.active_persons)) + ' active ' +
+            (totals.active_persons === 1 ? 'person' : 'people') + ', 30-day window).'
+          : '.') +
+        '</span></div>';
+    }
+
+    return (
+      '<div class="card" style="margin-bottom:16px">' +
+      '<div class="card-header"><h3>Usage breakdown</h3>' + sourceTag + '</div>' +
+      '<p class="hs" style="margin:-4px 0 10px;color:var(--muted)">' + orgLabel +
+      (central
+        ? 'Org-wide usage from the gateway\u2019s usage_events store \u2014 who uses which model on which project, what it costs, and what lean-ctx saved (routing, compression, caching vs. the configured baseline).'
+        : 'This machine\u2019s measured usage. Point <code>[gateway_server].admin_url</code> at your org gateway to see the org-wide person \u00d7 project breakdown here.') +
+      '</p>' +
+      heroBits +
+      '<div class="table-scroll"><table><thead><tr>' + idCols +
+      '<th>Model</th><th class="r">Reqs</th><th class="r">Tokens</th>' +
+      '<th class="r">Cost</th><th class="r">Saved</th></tr></thead>' +
+      '<tbody>' + bodyRows + '</tbody></table></div>' +
+      projection + '</div>'
     );
   }
 

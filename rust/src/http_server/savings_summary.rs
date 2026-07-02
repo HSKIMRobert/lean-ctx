@@ -494,6 +494,7 @@ mod tests {
                 tokenizers: vec!["o200k_base".into()],
                 by_model: vec![("claude-opus".into(), net, usd)],
                 by_tool: vec![("ctx_read".into(), net)],
+                by_mechanism: vec![("compression".into(), net, usd)],
             },
             signer_public_key: Some(signer.into()),
             signature: Some("sig".into()),

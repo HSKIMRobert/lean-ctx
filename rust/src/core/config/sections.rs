@@ -709,6 +709,29 @@ impl Default for LoopDetectionConfig {
 ///
 /// `dimensions` is only consulted for `hf:` custom models as the declared fallback
 /// width; the real width is probed from the ONNX graph at load time. Built-ins ignore it.
+/// `[gateway_server]` — deployment parameters of the self-hosted org gateway
+/// (enterprise#20). Distinct from `[gateway]` (the MCP tool-catalog gateway):
+/// this section describes the LLM-proxy *server* deployment and its cockpit.
+///
+/// All fields optional; an empty section keeps every local behavior unchanged.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct GatewayServerConfig {
+    /// Seats the org-wide projection extrapolates to (e.g. `800`). `None`
+    /// disables the projection — the cockpit never invents a seat count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<u32>,
+    /// Display label for the cockpit header (e.g. `"Zühlke AI Gateway"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub org_label: Option<String>,
+    /// Central admin API base URL (e.g. `https://ai-gateway.example.com`).
+    /// When set, the local cockpit's usage breakdown reads the org-wide
+    /// `GET /api/admin/usage` instead of the machine-local snapshot. The
+    /// bearer token comes from `LEAN_CTX_GATEWAY_ADMIN_TOKEN` (never config).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EmbeddingConfig {

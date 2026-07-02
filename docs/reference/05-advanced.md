@@ -280,6 +280,43 @@ local_shadow_rate_per_mtok = 0.25     # USD/MTok booked for local/loopback infer
   USD/MTok, never 0): local compute is free of provider fees, not of hardware
   and power — keeping "savings vs. local" honest instead of infinite.
 
+**Self-hosted org gateway — `lean-ctx gateway serve`** (build with
+`--features gateway-server`). One process bundling the hardened proxy, the
+Postgres usage store and an admin listener:
+
+```bash
+DATABASE_URL="postgres://gateway@db/leanctx" \
+LEAN_CTX_GATEWAY_ADMIN_TOKEN="$(openssl rand -hex 24)" \
+lean-ctx gateway serve --port=8484 --admin-port=8485
+```
+
+- **Proxy** (`--port`): the exposed surface — all `proxy_bind_host` /
+  allowlist / Bearer / rate-limit rules above apply unchanged.
+- **Usage store** (`DATABASE_URL`): every measured turn becomes a
+  `usage_events` row (person/team/project × provider/model × tokens/cost +
+  baseline fields). Schema is applied idempotently at start. **Fail-open:** an
+  unreachable Postgres degrades metering (events dropped and counted), never
+  live LLM traffic; without `DATABASE_URL` the store is simply off.
+- **Admin listener** (`--admin-port`, default proxy port + 1): keep it
+  cluster-internal (no ingress). Requires `LEAN_CTX_GATEWAY_ADMIN_TOKEN`
+  (env-only, like all tokens); without it only the proxy runs.
+  - `GET /api/admin/usage?from=<ISO>&to=<ISO>` — person × project × model ×
+    provider breakdown with cost/savings sums, totals and the seat projection
+    (window defaults to the last 30 days).
+  - `GET /metrics` — Prometheus text: per-model requests/tokens/cost, verified
+    ledger savings (total + per mechanism), dropped-event counter.
+  - `GET /healthz` — unauthenticated liveness.
+
+```toml
+[gateway_server]
+seats     = 800                     # projection divisor ("if all seats saved like active users")
+org_label = "Acme AI Gateway"       # display name on cockpit + reports
+# admin_url: set on *client* machines to show the org-wide breakdown in their
+# cockpit (ROI view) via GET /api/usage-breakdown; without it the cockpit shows
+# the local snapshot of this machine only.
+admin_url = "https://gateway.internal:8485"
+```
+
 **Live upstream — `config.toml` is the source of truth for a running proxy**
 ([#449](https://github.com/yvgude/lean-ctx/issues/449)). A long-lived proxy
 (LaunchAgent / systemd / IDE-spawned) re-reads its upstreams from `config.toml`

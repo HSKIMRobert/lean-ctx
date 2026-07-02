@@ -8,12 +8,31 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+/// Savings produced by making the payload smaller (tool output compression,
+/// proxy wire compression). The historical default: every pre-v3 event is one.
+pub const MECHANISM_COMPRESSION: &str = "compression";
+/// Savings produced by serving the request with a cheaper model (active
+/// router, enterprise#13): same tokens, lower rate.
+pub const MECHANISM_ROUTING: &str = "routing";
+/// Savings produced by provider prompt-cache discounts: cache-read tokens
+/// billed below the input rate.
+pub const MECHANISM_CACHING: &str = "caching";
+
+fn default_mechanism() -> String {
+    MECHANISM_COMPRESSION.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SavingsEvent {
     pub ts: String,
     /// Originating tool (e.g. "ctx_read"). Coarse for now; per-mode granularity is a
     /// later refinement (stats already tracks per-mode).
     pub tool: String,
+    /// Savings mechanism this event attributes to: `compression` | `routing` |
+    /// `caching` (enterprise#19). Pre-v3 events carry no field and default to
+    /// `compression` — the only mechanism that existed when they were written.
+    #[serde(default = "default_mechanism")]
+    pub mechanism: String,
     /// Resolved pricing model key the saving was valued against.
     pub model_id: String,
     /// Tokenizer family that produced `baseline_tokens`/`actual_tokens` (e.g.
@@ -43,16 +62,38 @@ pub struct SavingsEvent {
 }
 
 impl SavingsEvent {
-    /// Canonical (v2) representation of the *content* fields (everything except the chain
-    /// hashes), hashed on append and re-hashed on verify.
+    /// Canonical (v3) representation of the *content* fields (everything except the chain
+    /// hashes), hashed on append and re-hashed on verify. v3 = v2 + the `mechanism`
+    /// attribution field (enterprise#19); the `v3|` prefix pins the scheme so a downgrade
+    /// is itself tamper-evident.
     ///
     /// Monetary values are committed as integer **micro-USD** rather than `{:.6}` of a raw
     /// `f64`. A fixed-precision float string is *not* round-trip stable: a value sitting on a
     /// 6th-decimal tie (e.g. `0.0235575`) can re-parse from JSON into a neighbouring `f64`
     /// that `{:.6}` rounds the other way, which silently broke the chain for untampered data.
-    /// Integers serialise/parse exactly, so the hash is reproducible. The `v2|` prefix pins
-    /// the scheme so a downgrade is itself tamper-evident.
+    /// Integers serialise/parse exactly, so the hash is reproducible.
     pub fn canonical_content(&self) -> String {
+        format!(
+            "v3|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            self.ts,
+            self.tool,
+            self.mechanism,
+            self.model_id,
+            self.tokenizer,
+            self.baseline_tokens,
+            self.actual_tokens,
+            self.saved_tokens,
+            self.bounce_adjustment,
+            micro_usd(self.unit_price_per_m_usd),
+            micro_usd(self.saved_usd),
+            self.repo_hash,
+            self.agent_id,
+        )
+    }
+
+    /// v2 canonical (pre-`mechanism`): integer micro-USD money, no attribution field.
+    /// Retained so ledgers written between the v2 fix and v3 keep verifying unchanged.
+    pub fn canonical_content_v2(&self) -> String {
         format!(
             "v2|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.ts,
@@ -91,11 +132,13 @@ impl SavingsEvent {
         )
     }
 
-    /// True if `entry_hash` matches the v2 canonical hash, or the legacy v1 hash. Accepting
-    /// both lets `verify` validate ledgers written before the v2 fix without forcing a
-    /// migration (clean v1 ledgers stay valid; broken-by-bug ones are repaired by `rechain`).
+    /// True if `entry_hash` matches the current (v3) canonical hash, the v2 hash, or the
+    /// legacy v1 hash. Accepting all three lets `verify` validate ledgers written under any
+    /// scheme without forcing a migration (clean old ledgers stay valid; broken-by-bug ones
+    /// are repaired by `rechain`, which re-hashes under v3).
     pub fn hash_matches(&self, prev_hash: &str) -> bool {
         self.entry_hash == compute_hash(prev_hash, &self.canonical_content())
+            || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_v2())
             || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_legacy())
     }
 }
@@ -132,6 +175,7 @@ mod tests {
         SavingsEvent {
             ts: "2026-06-01T00:00:00+00:00".into(),
             tool: "ctx_read".into(),
+            mechanism: MECHANISM_COMPRESSION.into(),
             model_id: "claude-3.5-sonnet".into(),
             tokenizer: "o200k_base".into(),
             baseline_tokens: 1000,
@@ -233,6 +277,35 @@ mod tests {
         e.prev_hash = "genesis".into();
         e.entry_hash = compute_hash(&e.prev_hash, &e.canonical_content_legacy());
         assert!(e.hash_matches(&e.prev_hash), "legacy v1 hash must verify");
+    }
+
+    #[test]
+    fn v2_hash_still_verifies_and_v3_commits_mechanism() {
+        // Pre-mechanism (v2) entries — including their JSON form without the
+        // field — must keep verifying after the v3 upgrade (enterprise#19).
+        let mut e = ev();
+        e.prev_hash = "genesis".into();
+        e.entry_hash = compute_hash(&e.prev_hash, &e.canonical_content_v2());
+        assert!(e.hash_matches(&e.prev_hash), "v2 hash must verify");
+
+        let json = serde_json::to_string(&e).unwrap();
+        let stripped = json.replace(r#""mechanism":"compression","#, "");
+        let parsed: SavingsEvent = serde_json::from_str(&stripped).unwrap();
+        assert_eq!(parsed.mechanism, MECHANISM_COMPRESSION, "serde default");
+        assert!(parsed.hash_matches(&parsed.prev_hash), "v2 after roundtrip");
+
+        // v3 commits the mechanism: rewriting the attribution breaks the hash.
+        let mut v3 = ev();
+        v3.mechanism = MECHANISM_ROUTING.into();
+        v3.prev_hash = "genesis".into();
+        v3.entry_hash = compute_hash(&v3.prev_hash, &v3.canonical_content());
+        assert!(v3.hash_matches(&v3.prev_hash));
+        let mut forged = v3.clone();
+        forged.mechanism = MECHANISM_COMPRESSION.into();
+        assert!(
+            !forged.hash_matches(&forged.prev_hash),
+            "reattributing a routing saving to compression must be tamper-evident"
+        );
     }
 
     #[test]
