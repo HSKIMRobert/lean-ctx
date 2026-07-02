@@ -454,6 +454,23 @@ fn read_bounded<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u8>, StatusC
     Ok(out)
 }
 
+/// Statuses safe to retry once (enterprise#51): the upstream explicitly did
+/// NOT process the request (429 rejected, 502/503 gateway/unavailable). 500 and
+/// 504 are excluded — the model may have already consumed/billed the call.
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 429 | 502 | 503)
+}
+
+/// Short jittered backoff before the single retry: enough for a load balancer
+/// to fail over or a rate-limit window to move, never long enough to stack up
+/// under load (fail-open rule — the client's own retry logic stays primary).
+async fn retry_backoff() {
+    let mut buf = [0u8; 2];
+    let jitter_ms =
+        getrandom::fill(&mut buf).map_or(100, |()| u64::from(u16::from_le_bytes(buf)) % 200);
+    tokio::time::sleep(std::time::Duration::from_millis(150 + jitter_ms)).await;
+}
+
 async fn send_upstream(
     state: &ProxyState,
     parts: &Parts,
@@ -462,19 +479,47 @@ async fn send_upstream(
     provider_label: &str,
     preserve_content_encoding: bool,
 ) -> Result<reqwest::Response, StatusCode> {
-    let mut req = state.client.request(parts.method.clone(), url);
+    let send_once = |body: Vec<u8>| {
+        let mut req = state.client.request(parts.method.clone(), url);
+        for (key, value) in &parts.headers {
+            let k = key.as_str().to_lowercase();
+            if should_forward_request_header(&k, preserve_content_encoding) {
+                req = req.header(key.clone(), value.clone());
+            }
+        }
+        req.body(body).send()
+    };
 
-    for (key, value) in &parts.headers {
-        let k = key.as_str().to_lowercase();
-        if should_forward_request_header(&k, preserve_content_encoding) {
-            req = req.header(key.clone(), value.clone());
+    // First attempt. The request body is fully buffered, and no response byte
+    // has reached the client yet — retrying here is always safe for the
+    // client connection; the status filter keeps it safe semantically.
+    let first = send_once(body.clone()).await;
+    let retry_reason = match &first {
+        Ok(resp) if is_retryable_status(resp.status()) => {
+            format!("status {}", resp.status().as_u16())
+        }
+        Err(e) if e.is_connect() || e.is_timeout() => format!("connect error: {e}"),
+        Ok(resp) => {
+            let _ = resp; // healthy (or non-retryable) response — pass through
+            return first.map_err(|_| StatusCode::BAD_GATEWAY);
+        }
+        Err(e) => {
+            tracing::error!("lean-ctx proxy: {provider_label} upstream error: {e}");
+            return Err(StatusCode::BAD_GATEWAY);
+        }
+    };
+
+    tracing::warn!("lean-ctx proxy: {provider_label} upstream {retry_reason} — retrying once");
+    retry_backoff().await;
+    match send_once(body).await {
+        Ok(resp) => Ok(resp),
+        Err(e) => {
+            // Second failure: surface the ORIGINAL outcome when it was an HTTP
+            // response (its status/headers are more honest than our 502).
+            tracing::error!("lean-ctx proxy: {provider_label} retry failed: {e}");
+            first.map_err(|_| StatusCode::BAD_GATEWAY)
         }
     }
-
-    req.body(body).send().await.map_err(|e| {
-        tracing::error!("lean-ctx proxy: {provider_label} upstream error: {e}");
-        StatusCode::BAD_GATEWAY
-    })
 }
 
 pub(super) const FORWARDED_HEADERS: &[&str] = &[
@@ -645,6 +690,26 @@ mod tests {
             .insert(super::super::providers::RegistryProviderId("local".into()));
         let wire = wire_context(&parts, "OpenAI", "http://127.0.0.1:11434", 0, 400);
         assert_eq!(wire.provider, "local");
+    }
+
+    // --- enterprise#51: fail-open single retry ---
+
+    #[test]
+    fn retry_covers_exactly_not_processed_statuses() {
+        // Retryable: the upstream explicitly did not process the request.
+        for code in [429_u16, 502, 503] {
+            assert!(
+                is_retryable_status(reqwest::StatusCode::from_u16(code).unwrap()),
+                "{code} must be retryable"
+            );
+        }
+        // Not retryable: success, client errors, and "may have processed".
+        for code in [200_u16, 400, 401, 404, 500, 504] {
+            assert!(
+                !is_retryable_status(reqwest::StatusCode::from_u16(code).unwrap()),
+                "{code} must NOT be retryable"
+            );
+        }
     }
 
     #[test]
