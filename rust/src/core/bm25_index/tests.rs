@@ -694,6 +694,21 @@ fn parallel_build_is_deterministic_across_runs() {
     assert_same_index(&a, &b);
 }
 
+/// #685: the batched parallel build must merge multiple batches into the same
+/// index a single-batch (or sequential) build produces. Batch size 7 over 40
+/// files forces 6 batch boundaries through the merge loop.
+#[test]
+fn parallel_build_batched_merge_matches_sequential() {
+    let td = tempdir().expect("tempdir");
+    let root = td.path();
+    let files = write_parallel_corpus(root, 40);
+    let hint = HashMap::new();
+
+    let seq = BM25Index::build_sequential(root, &hint, &files);
+    let batched = BM25Index::build_parallel_batched(root, &hint, &files, 7);
+    assert_same_index(&seq, &batched);
+}
+
 #[test]
 fn build_from_directory_dispatches_parallel_and_matches_sequential() {
     // >= PARALLEL_MIN_FILES files so the public entry point takes the parallel

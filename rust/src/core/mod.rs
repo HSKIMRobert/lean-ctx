@@ -401,6 +401,7 @@ pub mod graph_cache;
 pub mod http_client;
 pub mod ide_permissions;
 pub mod import_resolver;
+pub mod index_admission;
 pub mod index_bundle;
 pub mod index_namespace;
 pub mod index_orchestrator;

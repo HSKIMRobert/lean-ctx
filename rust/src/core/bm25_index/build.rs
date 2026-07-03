@@ -22,6 +22,18 @@ use rayon::prelude::*;
 /// early-break). Output is identical either way.
 pub(super) const PARALLEL_MIN_FILES: usize = 32;
 
+/// Batch size for the parallel paths (#685). The fan-out used to materialize
+/// *all* `PreparedFile`s (chunk contents + lowered token vectors) in one
+/// `par_iter().collect()` before merging — on a 1M-file corpus that transient
+/// state alone reached tens of GB with zero pressure checks after launch.
+/// Processing in batches keeps the peak transient state bounded to one batch
+/// and re-checks the memory guardian between batches, mirroring the
+/// sequential path's per-500-files early-break. `chunks()` preserves input
+/// order, so the merged index stays byte-identical to the sequential build
+/// (determinism contract #498) — an early pressure break just yields a
+/// partial index, exactly like the sequential path's break.
+const PARALLEL_BATCH_FILES: usize = 2_000;
+
 const MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// A chunk with its lowercased index tokens precomputed off the hot merge path.
@@ -37,6 +49,26 @@ struct PreparedFile {
     rel: String,
     state: IndexedFileState,
     chunks: Vec<PreparedChunk>,
+}
+
+/// Between-batch guardian check for the parallel paths (#685). Returns `true`
+/// when the build must stop now — either the guardian requested an abort
+/// (Hard/Critical RSS) or soft pressure is on. Logs once with the position so
+/// operators can see why an index ended up partial.
+fn parallel_build_must_stop(what: &str, files_done: usize) -> bool {
+    if crate::core::memory_guard::abort_requested() {
+        tracing::warn!(
+            "[{what}: aborting parallel build after {files_done} files due to critical memory pressure]"
+        );
+        return true;
+    }
+    if crate::core::memory_guard::is_under_pressure() {
+        tracing::warn!(
+            "[{what}: stopping parallel build after {files_done} files due to memory pressure]"
+        );
+        return true;
+    }
+    false
 }
 
 /// Pure, thread-safe per-chunk preparation: enrich → tokenize → lowercase.
@@ -168,20 +200,37 @@ impl BM25Index {
         content_hint: &HashMap<String, String>,
         files: &[String],
     ) -> Self {
-        // Order-preserving: `map().collect()` into a `Vec` keeps the input order,
-        // so the merge below sees files in the same sorted order the sequential
-        // path iterates — the foundation of identical output.
-        let prepared: Vec<Option<PreparedFile>> = files
-            .par_iter()
-            .map(|rel| prepare_file(root, rel, content_hint))
-            .collect();
+        Self::build_parallel_batched(root, content_hint, files, PARALLEL_BATCH_FILES)
+    }
 
+    /// Batch-size-injectable core of [`Self::build_parallel`] so the multi-batch
+    /// merge path is testable without a 2000-file corpus.
+    pub(super) fn build_parallel_batched(
+        root: &Path,
+        content_hint: &HashMap<String, String>,
+        files: &[String],
+        batch_size: usize,
+    ) -> Self {
         let mut index = Self::new();
-        for pf in prepared.into_iter().flatten() {
-            for pc in pf.chunks {
-                index.add_prepared(pc);
+        // Batched fan-out (#685): each batch is an order-preserving
+        // `par_iter().collect()` merged immediately, so peak transient state is
+        // one batch instead of the whole corpus, and the guardian gets a say
+        // between batches. `chunks()` keeps the sorted file order — identical
+        // output to the sequential path.
+        for (batch_no, batch) in files.chunks(batch_size.max(1)).enumerate() {
+            if batch_no > 0 && parallel_build_must_stop("bm25", batch_no * batch_size) {
+                break;
             }
-            index.files.insert(pf.rel, pf.state);
+            let prepared: Vec<Option<PreparedFile>> = batch
+                .par_iter()
+                .map(|rel| prepare_file(root, rel, content_hint))
+                .collect();
+            for pf in prepared.into_iter().flatten() {
+                for pc in pf.chunks {
+                    index.add_prepared(pc);
+                }
+                index.files.insert(pf.rel, pf.state);
+            }
         }
         index.finalize();
         index
@@ -205,20 +254,26 @@ impl BM25Index {
         // resident content cache (validated) then disk.
         let empty_hint: HashMap<String, String> = HashMap::new();
 
-        // Order-preserving `par_iter().collect()` keeps the input file order, so
-        // the merge below sees files in the same order the sequential rebuild
-        // iterates — the foundation of identical output.
-        let prepared: Vec<Option<PreparedFile>> = files
-            .par_iter()
-            .map(|rel| prepare_incremental_file(root, prev, old_by_file, &empty_hint, rel))
-            .collect();
-
         let mut index = Self::new();
-        for pf in prepared.into_iter().flatten() {
-            for pc in pf.chunks {
-                index.add_prepared(pc);
+        // Batched fan-out (#685) — see `build_parallel`. `chunks()` keeps the
+        // input file order, so the merge sees files exactly as the sequential
+        // rebuild iterates them — the foundation of identical output.
+        for (batch_no, batch) in files.chunks(PARALLEL_BATCH_FILES).enumerate() {
+            if batch_no > 0
+                && parallel_build_must_stop("bm25-incr", batch_no * PARALLEL_BATCH_FILES)
+            {
+                break;
             }
-            index.files.insert(pf.rel, pf.state);
+            let prepared: Vec<Option<PreparedFile>> = batch
+                .par_iter()
+                .map(|rel| prepare_incremental_file(root, prev, old_by_file, &empty_hint, rel))
+                .collect();
+            for pf in prepared.into_iter().flatten() {
+                for pc in pf.chunks {
+                    index.add_prepared(pc);
+                }
+                index.files.insert(pf.rel, pf.state);
+            }
         }
         index.finalize();
         index

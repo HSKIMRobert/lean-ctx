@@ -641,6 +641,21 @@ pub fn get_fresh(
     }
 }
 
+/// Drop every resident trigram index (#685 eviction hook). In-flight builds
+/// keep their `building` flag (the entry is reset, not the build thread), so
+/// a running build still installs its result; subsequent searches fall back
+/// to the walk path until the next `ensure_background` rebuilds. Correctness
+/// is unaffected — the resident index is purely an accelerator.
+pub fn clear_resident() {
+    let mut map = cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for entry in map.values_mut() {
+        entry.index = None;
+        entry.last_verified = None;
+    }
+}
+
 /// Record that `root`'s resident index was just confirmed current, extending its
 /// coalesce window.
 fn mark_verified(root: &str) {

@@ -58,6 +58,15 @@ impl EvictionOrchestrator {
             ctrl.evaluate(effective_tokens)
         };
 
+        // #685: the homeostasis controller reasons over *cache-token*
+        // utilization, but RSS pressure can come from structures the token
+        // heuristic cannot see (ANN/HNSW graph, resident trigram + graph
+        // indices, transient build state). At Hard/Critical RSS the guard's
+        // signal must win: enforce a floor action so eviction always reaches
+        // the index caches instead of returning `None` because the session
+        // cache happens to be small.
+        let action = floor_action_for_rss(level, action);
+
         if action == HomeostasisAction::None {
             return;
         }
@@ -103,14 +112,24 @@ impl EvictionOrchestrator {
                 }
                 let content_freed = super::content_cache::memory_usage_bytes();
                 super::content_cache::clear();
+                // #685: the ANN/HNSW graph, resident trigram indices and the
+                // materialized graph indexes were invisible to eviction — on
+                // embedding-heavy sessions they dominated RSS while the
+                // guardian could only trim the (small) session cache.
+                let ann_freed = super::ann_cache::memory_usage_bytes();
+                super::ann_cache::clear();
+                super::search_index::clear_resident();
+                super::graph_cache::invalidate(None);
                 let trimmed = self.try_write_cache(SessionCache::trim_compressed_outputs);
                 memory_guard::jemalloc_purge();
                 tracing::info!(
-                    "[eviction] unloaded indices (bm25={:.1}MB + content={:.1}MB freed, {trimmed} outputs trimmed)",
+                    "[eviction] unloaded indices (bm25={:.1}MB + content={:.1}MB + ann={:.1}MB freed, \
+                     search/graph residents dropped, {trimmed} outputs trimmed)",
                     bm25_bytes as f64 / 1_048_576.0,
                     content_freed as f64 / 1_048_576.0,
+                    ann_freed as f64 / 1_048_576.0,
                 );
-                bm25_bytes > 0 || content_freed > 0 || trimmed > 0
+                bm25_bytes > 0 || content_freed > 0 || ann_freed > 0 || trimmed > 0
             }
 
             HomeostasisAction::EvictProtected { target_tokens } => {
@@ -126,9 +145,14 @@ impl EvictionOrchestrator {
                 let cleared = self.try_write_cache(SessionCache::clear);
                 super::bm25_cache::unload(&self.bm25_cache);
                 super::content_cache::clear();
+                // #685: emergency must reach every resident structure.
+                super::ann_cache::clear();
+                super::search_index::clear_resident();
+                super::graph_cache::invalidate(None);
                 memory_guard::jemalloc_purge();
                 tracing::warn!(
-                    "[eviction] EMERGENCY: cleared {cleared} cache entries + unloaded all indices"
+                    "[eviction] EMERGENCY: cleared {cleared} cache entries + unloaded all indices \
+                     (bm25, content, ann, search, graph)"
                 );
                 true
             }
@@ -156,6 +180,40 @@ impl EvictionOrchestrator {
             tracing::debug!("[eviction] cache write lock contended, skipping");
             R::default()
         }
+    }
+}
+
+/// RSS floor (#685): guarantee a minimum eviction strength for a given guard
+/// pressure level, regardless of the token-based homeostasis verdict. Token
+/// utilization measures only the session cache; the structures that actually
+/// blew up in #685 (HNSW graph, resident indices, build transients) are
+/// invisible to it — Hard/Critical RSS must always at least unload indices.
+fn floor_action_for_rss(
+    level: memory_guard::PressureLevel,
+    action: HomeostasisAction,
+) -> HomeostasisAction {
+    let rank = |a: &HomeostasisAction| match a {
+        HomeostasisAction::None => 0u8,
+        HomeostasisAction::TrimOutputs => 1,
+        HomeostasisAction::EvictProbationary { .. } => 2,
+        HomeostasisAction::UnloadIndices => 3,
+        HomeostasisAction::EvictProtected { .. } => 4,
+        HomeostasisAction::EmergencyDrop => 5,
+    };
+    let floor = match level {
+        memory_guard::PressureLevel::Critical => HomeostasisAction::EmergencyDrop,
+        memory_guard::PressureLevel::Hard => HomeostasisAction::UnloadIndices,
+        // Soft/Medium RSS: trust the graduated token-based controller, but do
+        // not let real pressure end in a no-op.
+        memory_guard::PressureLevel::Soft | memory_guard::PressureLevel::Medium => {
+            HomeostasisAction::TrimOutputs
+        }
+        memory_guard::PressureLevel::Normal => HomeostasisAction::None,
+    };
+    if rank(&action) >= rank(&floor) {
+        action
+    } else {
+        floor
     }
 }
 
@@ -222,6 +280,39 @@ mod tests {
         assert!(result);
         let c = cache.blocking_read();
         assert!(c.get_compressed("/a.rs", "map").is_none());
+    }
+
+    #[test]
+    fn rss_floor_escalates_weak_actions_under_hard_pressure() {
+        // Session cache nearly empty → controller says None; Hard RSS must
+        // still unload indices (#685: token heuristic blind to index RAM).
+        let floored =
+            floor_action_for_rss(memory_guard::PressureLevel::Hard, HomeostasisAction::None);
+        assert_eq!(floored, HomeostasisAction::UnloadIndices);
+
+        let floored = floor_action_for_rss(
+            memory_guard::PressureLevel::Critical,
+            HomeostasisAction::TrimOutputs,
+        );
+        assert_eq!(floored, HomeostasisAction::EmergencyDrop);
+
+        let floored =
+            floor_action_for_rss(memory_guard::PressureLevel::Soft, HomeostasisAction::None);
+        assert_eq!(floored, HomeostasisAction::TrimOutputs);
+    }
+
+    #[test]
+    fn rss_floor_keeps_stronger_controller_actions() {
+        // The controller may already demand more than the floor — keep it.
+        let strong = HomeostasisAction::EvictProtected {
+            target_tokens: 1_000,
+        };
+        let kept = floor_action_for_rss(memory_guard::PressureLevel::Hard, strong.clone());
+        assert_eq!(kept, strong);
+
+        let normal =
+            floor_action_for_rss(memory_guard::PressureLevel::Normal, HomeostasisAction::None);
+        assert_eq!(normal, HomeostasisAction::None);
     }
 
     #[test]
