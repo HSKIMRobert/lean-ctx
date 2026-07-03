@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **`sed`/`awk` file dumps are verbatim output — no more dictionary-mangled
+  source (GH #688).** A range-print like `sed -n '10,50p' file.ps1` fell into
+  the generic terse pipeline, whose dictionary layer word-substitutes code
+  identifiers with no code-awareness (`function`→`fn`, `return`→`ret`, bare
+  `else` lines dropped) — corrupting code read via sed/awk instead of `cat`.
+  `sed`/`awk`/`gawk`/`mawk`/`nawk` now classify as file viewers like
+  `cat`/`head`/`tail`. In-place edits are excluded via a token-based flag check
+  (`-i`, `-i.bak`, `-ni` clusters, `--in-place[=suffix]`, gawk `-i inplace`) —
+  deliberately NOT a substring match, so filenames like `my-input.txt` or
+  `data-import.csv` can't silently re-enter the terse pipeline. Byte-exact
+  regression test with the original PowerShell repro. Thanks @getappz for the
+  report and the PR the fix is based on (#689).
 - **`setup` no longer panics when a client's MCP-instructions cap lands inside
   a multi-byte character (GH #680).** The Claude Code / CodeBuddy 2048-char
   truncation used a raw byte slice; when the cut fell inside an em-dash the

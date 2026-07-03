@@ -212,8 +212,38 @@ fn is_file_viewer(command: &str) -> bool {
     match first {
         "cat" | "bat" | "batcat" | "pygmentize" | "highlight" => true,
         "head" | "tail" => !command.contains("-f") && !command.contains("--follow"),
+        // sed/awk are commonly used as range/pattern file viewers
+        // (`sed -n '10,50p' file`, `awk '{print}' file`, GH #688). Their stdout
+        // is file payload and must never enter the generic terse pipeline —
+        // the dictionary layer word-substitutes code identifiers
+        // (`function`→`fn`, `return`→`ret`) with no code-awareness. In-place
+        // edit invocations are excluded: they print nothing to compress.
+        "sed" | "awk" | "gawk" | "mawk" | "nawk" => !has_in_place_flag(command),
         _ => false,
     }
+}
+
+/// True when a sed/awk invocation carries an in-place edit flag: `-i`,
+/// `-i.bak`, a short-flag cluster like `-ni`, `--in-place[=suffix]`, or
+/// gawk's `-i inplace`. Detection is token-based — a *filename* containing
+/// "-i" (`my-input.txt`, `data-import.csv`) must not match, or the dump falls
+/// back into the terse pipeline: the exact corruption this classification
+/// prevents (GH #688).
+fn has_in_place_flag(command: &str) -> bool {
+    command.split_whitespace().any(|tok| {
+        if let Some(long) = tok.strip_prefix("--") {
+            return long.starts_with("in-place");
+        }
+        match tok.strip_prefix('-') {
+            // Short-flag cluster: any `i` before a suffix (`-i`, `-i.bak`,
+            // `-ni`). The cluster part is everything before the first '.'.
+            Some(rest) if !rest.is_empty() => rest
+                .split('.')
+                .next()
+                .is_some_and(|cluster| cluster.contains('i')),
+            _ => false,
+        }
+    })
 }
 
 fn is_data_format_tool(command: &str) -> bool {
