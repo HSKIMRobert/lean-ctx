@@ -90,8 +90,8 @@ When the `ctx_*` MCP tools are listed in this session, prefer them over native e
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
 - Edits: `ctx_read(mode="anchored")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). `ctx_edit` (str_replace) is the legacy power-profile fallback.
 
-Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a prior
-native Read of the same file path. Write, Delete, Glob — use normally.
+Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a
+prior native Read of the same file path. Write, Delete, Glob — use normally.
 If no `ctx_*` tools are listed in this session, use the native tools throughout.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
