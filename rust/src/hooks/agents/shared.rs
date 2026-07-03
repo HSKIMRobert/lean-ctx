@@ -53,14 +53,18 @@ pub(super) fn prepare_project_rules_path(global: bool, file_name: &str) -> Optio
 
 /// Remove the first lean-ctx block delimited by `start`..`end` from `content`.
 /// Shared by the Claude/CodeBuddy CLAUDE.md/CODEBUDDY.md installers and `doctor`.
+/// Markers match as whole (trimmed) lines only (GL #1158) — a prose mention of
+/// a marker must never trigger block surgery.
 pub(super) fn remove_block(content: &str, start: &str, end: &str) -> String {
-    let s = content.find(start);
-    let e = content.find(end);
+    let s = crate::marked_block::marker_line_span(content, start);
+    let e = s.and_then(|(si, _)| {
+        crate::marked_block::marker_line_span(&content[si..], end)
+            .map(|(es, ee)| (si + es, si + ee))
+    });
     match (s, e) {
-        (Some(si), Some(ei)) if ei >= si => {
-            let after_end = ei + end.len();
+        (Some((si, _)), Some((_, end_after))) => {
             let before = content[..si].trim_end_matches('\n');
-            let after = &content[after_end..];
+            let after = &content[end_after..];
             let mut out = before.to_string();
             out.push('\n');
             if !after.trim().is_empty() {
@@ -80,7 +84,7 @@ pub(super) fn remove_block(content: &str, start: &str, end: &str) -> String {
 /// Callers then write exactly one canonical block back.
 pub(super) fn remove_all_blocks(content: &str, start: &str, end: &str) -> String {
     let mut out = content.to_string();
-    while out.contains(start) {
+    while crate::marked_block::contains_marker_line(&out, start) {
         let next = remove_block(&out, start, end);
         if next == out {
             break; // malformed (start without end) — avoid an infinite loop
