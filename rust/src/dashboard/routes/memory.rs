@@ -132,6 +132,50 @@ fn get_routes(path: &str, query_str: &str) -> Option<(&'static str, &'static str
                 .unwrap_or_else(|_| "{\"error\":\"failed to serialize session\"}".to_string());
             Some(("200 OK", "application/json", json))
         }
+        // Multi-window visibility (GH #694): every workspace that has a
+        // session, newest first, so users with several IDE windows can see
+        // which projects lean-ctx serves and how fresh each one is.
+        "/api/workspaces" => {
+            let now = Utc::now();
+            let mut seen = std::collections::HashSet::new();
+            let workspaces: Vec<serde_json::Value> =
+                crate::core::session::SessionState::list_sessions()
+                    .into_iter()
+                    .filter_map(|s| {
+                        let root = s.project_root.clone().filter(|r| !r.is_empty())?;
+                        if crate::core::pathutil::is_broad_or_unsafe_root(std::path::Path::new(
+                            &root,
+                        )) || !seen.insert(root.clone())
+                        {
+                            return None;
+                        }
+                        let age_minutes = now.signed_duration_since(s.updated_at).num_minutes();
+                        let status = if age_minutes < 10 {
+                            "active"
+                        } else if age_minutes < 24 * 60 {
+                            "idle"
+                        } else {
+                            "stale"
+                        };
+                        let name = std::path::Path::new(&root)
+                            .file_name()
+                            .map_or_else(|| root.clone(), |n| n.to_string_lossy().into_owned());
+                        Some(serde_json::json!({
+                            "root": root,
+                            "name": name,
+                            "status": status,
+                            "last_activity": s.updated_at,
+                            "age_minutes": age_minutes,
+                            "task": s.task,
+                            "tool_calls": s.tool_calls,
+                            "tokens_saved": s.tokens_saved,
+                        }))
+                    })
+                    .collect();
+            let json = serde_json::to_string(&serde_json::json!({ "workspaces": workspaces }))
+                .unwrap_or_else(|_| "{}".to_string());
+            Some(("200 OK", "application/json", json))
+        }
         "/api/memory" => {
             let snap = crate::core::memory_guard::MemorySnapshot::capture();
             let allocator = if cfg!(all(feature = "jemalloc", not(windows))) {

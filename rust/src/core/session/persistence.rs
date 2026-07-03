@@ -260,6 +260,7 @@ impl SessionState {
                         task: session.task.as_ref().map(|t| t.description.clone()),
                         tool_calls: session.stats.total_tool_calls,
                         tokens_saved: session.stats.total_tokens_saved,
+                        project_root: session.project_root,
                     });
                 }
             }

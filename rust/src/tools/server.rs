@@ -87,6 +87,9 @@ pub struct LeanCtxServer {
     pub(crate) peer: Arc<RwLock<Option<Peer<RoleServer>>>>,
     pub(crate) has_client_roots: Arc<std::sync::atomic::AtomicBool>,
     pub(crate) roots_resolved: Arc<std::sync::atomic::AtomicBool>,
+    /// Failed `roots/list` attempts (GH #694): transient failures re-arm
+    /// `roots_resolved` until a small budget is exhausted.
+    pub(crate) roots_list_attempts: Arc<std::sync::atomic::AtomicU32>,
     pub(crate) bm25_cache: Arc<std::sync::Mutex<Option<crate::core::bm25_cache::Bm25CacheEntry>>>,
     pub(crate) progress_sender: crate::server::progress::SharedProgressSender,
 }

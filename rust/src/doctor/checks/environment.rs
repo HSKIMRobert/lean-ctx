@@ -340,12 +340,76 @@ pub(crate) fn session_state_outcome() -> Outcome {
                 ),
             }
         }
-        None => Outcome {
-            ok: true,
-            line: format!(
-                "{BOLD}Session state{RST}  {YELLOW}no active session{RST}  {DIM}(will be created on first tool call){RST}"
-            ),
+        // No session for THIS cwd — but sessions for other workspaces may be
+        // live (GH #694: doctor run from a shell whose cwd is not one of the
+        // open project roots claimed "no active session" and looked broken).
+        // Surface the recent sessions with their roots instead of denying
+        // their existence.
+        None => match &recent_sessions_line(chrono::Utc::now()) {
+            Some(line) => Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Session state{RST}  {YELLOW}none for this directory{RST}  {DIM}{line}{RST}"
+                ),
+            },
+            None => Outcome {
+                ok: true,
+                line: format!(
+                    "{BOLD}Session state{RST}  {YELLOW}no active session{RST}  {DIM}(will be created on first tool call){RST}"
+                ),
+            },
         },
+    }
+}
+
+/// Renders "recent: root1 (2h ago), root2 (5m ago)" for the newest sessions
+/// across ALL workspaces (multi-window setups, GH #694). `None` when no
+/// session exists at all.
+fn recent_sessions_line(now: chrono::DateTime<chrono::Utc>) -> Option<String> {
+    format_recent_sessions(crate::core::session::SessionState::list_sessions(), now)
+}
+
+pub(crate) fn format_recent_sessions(
+    sessions: Vec<crate::core::session::SessionSummary>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    let mut seen_roots = std::collections::HashSet::new();
+    let mut parts = Vec::new();
+    for s in sessions {
+        let Some(root) = s.project_root.filter(|r| !r.is_empty()) else {
+            continue;
+        };
+        if !seen_roots.insert(root.clone()) {
+            continue;
+        }
+        let display_root = std::path::Path::new(&root)
+            .file_name()
+            .map_or_else(|| root.clone(), |n| n.to_string_lossy().into_owned());
+        parts.push(format!(
+            "{display_root} ({})",
+            humanize_age(now.signed_duration_since(s.updated_at))
+        ));
+        if parts.len() == 3 {
+            break;
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("recent: {}", parts.join(", ")))
+    }
+}
+
+pub(crate) fn humanize_age(age: chrono::Duration) -> String {
+    let mins = age.num_minutes();
+    if mins < 1 {
+        "just now".to_string()
+    } else if mins < 60 {
+        format!("{mins}m ago")
+    } else if mins < 48 * 60 {
+        format!("{}h ago", mins / 60)
+    } else {
+        format!("{}d ago", mins / (24 * 60))
     }
 }
 pub(crate) fn docker_env_outcomes() -> Vec<Outcome> {

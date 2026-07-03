@@ -187,6 +187,7 @@ impl LeanCtxServer {
             peer: Arc::new(tokio::sync::RwLock::new(None)),
             has_client_roots: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             roots_resolved: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            roots_list_attempts: Arc::new(std::sync::atomic::AtomicU32::new(0)),
             bm25_cache,
             progress_sender: Arc::new(std::sync::Mutex::new(None)),
         }

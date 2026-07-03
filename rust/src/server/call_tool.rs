@@ -1050,7 +1050,22 @@ impl LeanCtxServer {
         let list_result = match peer.list_roots().await {
             Ok(r) => r,
             Err(e) => {
-                tracing::warn!("roots/list failed: {e}");
+                let permanent = roots_list_failure_is_permanent(&e);
+                const MAX_ATTEMPTS: u32 = 3;
+                let attempts = self.roots_list_attempts.fetch_add(1, Ordering::Relaxed) + 1;
+                if !permanent && attempts < MAX_ATTEMPTS {
+                    self.roots_resolved.store(false, Ordering::Relaxed);
+                }
+                tracing::warn!(
+                    "roots/list failed (attempt {attempts}, {}): {e}",
+                    if permanent {
+                        "client does not implement it — giving up"
+                    } else if attempts < MAX_ATTEMPTS {
+                        "will retry on a later tool call"
+                    } else {
+                        "retry budget exhausted"
+                    }
+                );
                 return;
             }
         };
@@ -1110,6 +1125,19 @@ impl LeanCtxServer {
         // the dispatch path for this very call handles it via
         // `index_orchestrator::ensure_warm_for_tool`, so no eager scan here.
     }
+}
+
+/// Classifies a failed `roots/list` call (GH #694). `-32601 Method not found`
+/// means the client declared the roots capability but does not implement the
+/// request (Cursor's documented behavior, #699) — retrying can never succeed.
+/// Everything else (timeout, transport hiccup while an IDE window is still
+/// starting up) is transient and worth a bounded retry on a later tool call.
+fn roots_list_failure_is_permanent(e: &rmcp::ServiceError) -> bool {
+    matches!(
+        e,
+        rmcp::ServiceError::McpError(mcp)
+            if mcp.code == rmcp::model::ErrorCode::METHOD_NOT_FOUND
+    )
 }
 
 /// Build the final `CallToolResult`, surfacing shell failures in MCP metadata
@@ -1209,5 +1237,40 @@ mod shell_outcome_tests {
         let r = finalize_call_result("file contents".into(), None);
         assert_ne!(r.is_error, Some(true));
         assert!(r.structured_content.is_none());
+    }
+}
+
+#[cfg(test)]
+mod roots_retry_tests {
+    use super::roots_list_failure_is_permanent;
+
+    /// Cursor's pattern (#699): roots capability declared, `roots/list`
+    /// answered with `-32601` — retrying is pointless and must stop.
+    #[test]
+    fn method_not_found_is_permanent() {
+        let err = rmcp::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::METHOD_NOT_FOUND,
+            "Method not found",
+            None,
+        ));
+        assert!(roots_list_failure_is_permanent(&err));
+    }
+
+    /// The VS Code multi-window pattern (GH #694): the second window's client
+    /// is still starting up, `roots/list` times out or the transport hiccups —
+    /// these must stay retryable so root detection recovers.
+    #[test]
+    fn timeouts_and_other_mcp_errors_are_transient() {
+        let timeout = rmcp::ServiceError::Timeout {
+            timeout: std::time::Duration::from_secs(5),
+        };
+        assert!(!roots_list_failure_is_permanent(&timeout));
+
+        let internal = rmcp::ServiceError::McpError(rmcp::model::ErrorData::new(
+            rmcp::model::ErrorCode::INTERNAL_ERROR,
+            "boom",
+            None,
+        ));
+        assert!(!roots_list_failure_is_permanent(&internal));
     }
 }

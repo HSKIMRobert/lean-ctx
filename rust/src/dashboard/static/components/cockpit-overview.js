@@ -128,6 +128,7 @@ class CockpitOverview extends HTMLElement {
       '/api/graph/stats',
       '/api/roi',
       '/api/spend',
+      '/api/workspaces',
     ];
 
     var cached = window.LctxApi && window.LctxApi.cachedFetch ? window.LctxApi.cachedFetch : fetchJson;
@@ -161,6 +162,7 @@ class CockpitOverview extends HTMLElement {
       graphStats: ok(results[6]),
       roi: ok(results[7]),
       spend: ok(results[8]),
+      workspaces: ok(results[9]),
     };
     // De-hardcode the estimated cost model's blended rate from the server.
     var Fp = fmtLib();
@@ -208,6 +210,7 @@ class CockpitOverview extends HTMLElement {
     body += this._renderHero(esc, ff, fmt, fu, pc);
     body += this._renderBuddy(esc);
     body += this._renderStatusStrip(esc);
+    body += this._renderWorkspaces(esc, fmt);
     body += this._renderTrendRow();
     body += this._renderCommandTable(esc, ff, fmt, pc);
 
@@ -611,6 +614,48 @@ class CockpitOverview extends HTMLElement {
       chip('Graph', gNodes + ' nodes \u00b7 ' + gEdges + ' edges', null, 'property_graph') +
       (session && session.terse_mode ? chip('Terse', '<span class="tag tg">on</span>', null, null) : '') +
       '</div>'
+    );
+  }
+
+  /* ── Connected workspaces (GH #694, multi-window) ──── */
+
+  _renderWorkspaces(esc, fmt) {
+    var data = this._data.workspaces;
+    var list = data && Array.isArray(data.workspaces) ? data.workspaces : [];
+    // One window is self-evident from the Session chip — the panel earns its
+    // space once several workspaces compete for attention.
+    if (list.length < 2) return '';
+
+    var rows = '';
+    for (var i = 0; i < list.length && i < 8; i++) {
+      var w = list[i];
+      var col = w.status === 'active' ? 'var(--green)'
+        : w.status === 'idle' ? 'var(--yellow)' : 'var(--muted)';
+      var age = w.age_minutes < 1 ? 'just now'
+        : w.age_minutes < 60 ? w.age_minutes + 'm ago'
+          : w.age_minutes < 2880 ? Math.round(w.age_minutes / 60) + 'h ago'
+            : Math.round(w.age_minutes / 1440) + 'd ago';
+      var task = w.task ? String(w.task) : '\u2014';
+      var shortTask = task.length > 60 ? task.slice(0, 60) + '\u2026' : task;
+      rows +=
+        '<tr>' +
+        '<td><span style="color:' + col + '">\u25CF</span> ' +
+        '<span title="' + esc(w.root) + '">' + esc(w.name) + '</span></td>' +
+        '<td style="color:' + col + '">' + esc(w.status) + '</td>' +
+        '<td class="r">' + esc(age) + '</td>' +
+        '<td class="r">' + fmt(w.tokens_saved || 0) + '</td>' +
+        '<td title="' + esc(task) + '">' + esc(shortTask) + '</td>' +
+        '</tr>';
+    }
+
+    return (
+      '<div class="card" style="margin-bottom:20px">' +
+      '<h3>Connected workspaces ' +
+      '<span class="badge">' + list.length + ' projects</span></h3>' +
+      '<div class="table-scroll"><table><thead><tr>' +
+      '<th>Workspace</th><th>Status</th><th class="r">Last activity</th>' +
+      '<th class="r">Tokens saved</th><th>Task</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>'
     );
   }
 

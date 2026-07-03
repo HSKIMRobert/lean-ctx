@@ -301,6 +301,16 @@ pub(super) fn cmd_codesign_setup() {
 /// of the "everything hangs after a binary update" reboots. The new binary is
 /// re-codesigned (persistent identity when set up, else ad-hoc) so Gatekeeper
 /// accepts it and the macOS TCC grant survives the update (#356).
+///
+/// On Windows a running process's image cannot be replaced in place: the
+/// IDE-owned MCP stdio server (deliberately never killed, #1036) holds the old
+/// binary open for the whole session, so a bare rename fails with
+/// `ACCESS_DENIED` no matter the retry budget (GH #691 measured 60s of retries
+/// failing identically). Renaming the running image ASIDE is allowed though —
+/// the rustup/self-replace swap: move `dst` → `dst.old` (the running process
+/// keeps executing the renamed file), then move the staged binary into place.
+/// The `.old` sidecar is cleaned up best-effort on the next install once its
+/// holder exits.
 fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result<(), String> {
     let staged = dst.with_extension("new");
     let _ = std::fs::remove_file(&staged);
@@ -316,9 +326,20 @@ fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result
     #[cfg(target_os = "macos")]
     let _ = std::fs::remove_file(dst);
 
+    #[cfg(windows)]
+    move_locked_destination_aside(dst);
+
     if let Err(e) = std::fs::rename(&staged, dst) {
         let _ = std::fs::remove_file(&staged);
-        return Err(format!("atomic rename failed: {e}"));
+        let hint = if cfg!(windows) {
+            "\n  Another process still has the old binary open and its lock even blocks\n  \
+             the rename-aside swap (rare — usually AV/EDR or a debugger, not the MCP\n  \
+             server). Disconnect MCP clients (e.g. `/mcp` in Claude Code), wait a\n  \
+             moment, and re-run the install."
+        } else {
+            ""
+        };
+        return Err(format!("atomic rename failed: {e}{hint}"));
     }
 
     // #356: prefer the persistent identity (stable cdhash anchor → TCC grant
@@ -329,6 +350,22 @@ fn atomic_install_binary(src: &std::path::Path, dst: &std::path::Path) -> Result
     }
 
     Ok(())
+}
+
+/// Windows half of the rustup-style swap (GH #691): clear a leftover `.old`
+/// sidecar from a previous install (succeeds once its holder exited), then
+/// rename the current — possibly still-executing — binary onto the sidecar
+/// name so the destination path is free for the fresh binary. Best-effort by
+/// design: when nothing holds `dst`, the plain rename in the caller works
+/// even if this did nothing.
+#[cfg(windows)]
+fn move_locked_destination_aside(dst: &std::path::Path) {
+    // Same sidecar convention as the self-updater (`updater.rs::replace_binary`).
+    let old = dst.with_extension("old.exe");
+    let _ = std::fs::remove_file(&old);
+    if dst.exists() && !old.exists() {
+        let _ = std::fs::rename(dst, &old);
+    }
 }
 
 /// Resolve cargo's real target directory for the project at `cargo_root`.
@@ -552,6 +589,81 @@ mod target_dir_tests {
             resolve_cargo_target_dir(Path::new(root)),
             Path::new(root).join("target")
         );
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_swap_tests {
+    use super::atomic_install_binary;
+    use std::fs;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 0x1;
+    const FILE_SHARE_DELETE: u32 = 0x4;
+
+    /// A held-open destination that still permits renames (the sharing shape a
+    /// running image effectively presents, GH #691): the swap moves it aside
+    /// and installs the fresh binary at the path.
+    #[test]
+    fn swap_installs_over_destination_held_open_with_share_delete() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("built.exe");
+        let dst = dir.path().join("lean-ctx.exe");
+        fs::write(&src, b"new-binary").unwrap();
+        fs::write(&dst, b"old-binary").unwrap();
+
+        let _holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+            .open(&dst)
+            .unwrap();
+
+        atomic_install_binary(&src, &dst).unwrap();
+        assert_eq!(fs::read(&dst).unwrap(), b"new-binary");
+        // The old image survives aside under `.old.exe` for its holder.
+        assert_eq!(
+            fs::read(dir.path().join("lean-ctx.old.exe")).unwrap(),
+            b"old-binary"
+        );
+    }
+
+    /// The `.old` sidecar from a previous swap is reclaimed on the next
+    /// install once nothing holds it any more.
+    #[test]
+    fn stale_old_sidecar_is_reclaimed_on_next_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("built.exe");
+        let dst = dir.path().join("lean-ctx.exe");
+        let old = dir.path().join("lean-ctx.old.exe");
+        fs::write(&src, b"v3").unwrap();
+        fs::write(&dst, b"v2").unwrap();
+        fs::write(&old, b"v1").unwrap();
+
+        atomic_install_binary(&src, &dst).unwrap();
+        assert_eq!(fs::read(&dst).unwrap(), b"v3");
+        assert_eq!(fs::read(&old).unwrap(), b"v2");
+    }
+
+    /// A zero-sharing lock (AV/EDR-style) blocks even the rename-aside swap —
+    /// the error must carry the actionable hint instead of a bare OS code.
+    #[test]
+    fn exclusive_lock_yields_actionable_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("built.exe");
+        let dst = dir.path().join("lean-ctx.exe");
+        fs::write(&src, b"new-binary").unwrap();
+        fs::write(&dst, b"old-binary").unwrap();
+
+        let _holder = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&dst)
+            .unwrap();
+
+        let err = atomic_install_binary(&src, &dst).unwrap_err();
+        assert!(err.contains("atomic rename failed"), "got: {err}");
+        assert!(err.contains("re-run the install"), "hint missing: {err}");
+        assert_eq!(fs::read(&dst).unwrap(), b"old-binary");
     }
 }
 

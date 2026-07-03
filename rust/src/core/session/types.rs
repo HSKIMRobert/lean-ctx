@@ -193,4 +193,7 @@ pub struct SessionSummary {
     pub task: Option<String>,
     pub tool_calls: u32,
     pub tokens_saved: u64,
+    /// Project root the session belongs to (GH #694): lets multi-window
+    /// setups see which workspace each session serves.
+    pub project_root: Option<String>,
 }

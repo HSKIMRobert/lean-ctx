@@ -591,6 +591,9 @@ impl ServerHandler for LeanCtxServer {
         tracing::info!("Received roots/list_changed — will re-resolve on next tool call");
         self.roots_resolved
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        // Fresh client signal — restore the transient-failure retry budget.
+        self.roots_list_attempts
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 }
 

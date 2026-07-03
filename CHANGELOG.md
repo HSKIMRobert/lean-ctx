@@ -5,7 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Multi-window visibility (GH #694).** `lean-ctx doctor` no longer claims
+  "no active session" when sessions exist for other workspaces: run from a
+  directory that isn't an open project root it now reports
+  `none for this directory — recent: frontend (4m ago), backend (1h ago)`,
+  naming every workspace with a live session. The dashboard overview gains a
+  "Connected workspaces" panel (new `/api/workspaces` endpoint) listing each
+  project with status (active <10 min, idle <24 h, stale), last activity,
+  tokens saved and current task — shown as soon as two or more workspaces
+  have sessions.
+
 ### Fixed
+- **A transient `roots/list` failure no longer disables project-root detection
+  for the whole MCP session (GH #694).** The first tool call resolves client
+  roots exactly once; when that single attempt failed (e.g. the IDE window was
+  still starting up — the VS Code second-window pattern), the server never
+  asked again and fell back to cwd guessing for the session's lifetime. Failed
+  attempts now re-arm resolution for up to 3 tries; a `-32601 Method not found`
+  (client declares the capability but doesn't implement it — Cursor) still
+  gives up immediately, and `roots/list_changed` restores the retry budget.
+- **`dev-install` on Windows no longer hard-fails with `ACCESS_DENIED` while an
+  IDE holds the old binary open (GH #691).** The final swap did a bare
+  replace-rename, which Windows refuses for as long as any process runs the old
+  image — and dev-install deliberately never kills the IDE-owned MCP server
+  (#1036), so no retry budget could ever succeed (measured: identical failure
+  after 60 s). The install now uses the rustup-style sidecar swap: the running
+  binary is renamed aside to `lean-ctx.old.exe` (allowed for mapped images),
+  the fresh binary lands at the real path, and the sidecar is reclaimed on the
+  next install once its holder exited. If even the rename-aside is blocked
+  (AV/EDR-style zero-sharing lock), the error now explains the cause and the
+  fix instead of a bare OS error code. Thanks @getappz for the measurement
+  work in #691/#692.
 - **`ctx_share` handovers with org agent ids (`team:alice`) are now pullable on
   Windows.** The share filename embedded the agent id verbatim; NTFS interprets
   `:` as an Alternate Data Stream, so the write "succeeded" but the file never

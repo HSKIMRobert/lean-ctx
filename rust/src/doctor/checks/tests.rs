@@ -13,6 +13,52 @@ fn check(home: &Path, scope: RulesScope, injection: RulesInjection) -> Outcome {
 }
 
 #[test]
+fn recent_sessions_line_names_each_workspace_once_with_age() {
+    use crate::core::session::SessionSummary;
+    let now = chrono::Utc::now();
+    let mk = |root: Option<&str>, mins_ago: i64| SessionSummary {
+        id: format!("s{mins_ago}"),
+        started_at: now - chrono::Duration::minutes(mins_ago + 5),
+        updated_at: now - chrono::Duration::minutes(mins_ago),
+        version: 1,
+        task: None,
+        tool_calls: 3,
+        tokens_saved: 100,
+        project_root: root.map(str::to_string),
+    };
+
+    // Two windows on two projects + a stale duplicate of the first root +
+    // a rootless session that must be skipped.
+    let line = environment::format_recent_sessions(
+        vec![
+            mk(Some("/Users/me/work/frontend"), 4),
+            mk(Some("/Users/me/work/backend"), 90),
+            mk(Some("/Users/me/work/frontend"), 200),
+            mk(None, 1),
+        ],
+        now,
+    )
+    .expect("sessions exist");
+
+    assert_eq!(line, "recent: frontend (4m ago), backend (1h ago)");
+}
+
+#[test]
+fn recent_sessions_line_is_none_without_any_rooted_session() {
+    let now = chrono::Utc::now();
+    assert_eq!(environment::format_recent_sessions(vec![], now), None);
+}
+
+#[test]
+fn humanized_ages_cover_all_magnitudes() {
+    use chrono::Duration;
+    assert_eq!(environment::humanize_age(Duration::seconds(20)), "just now");
+    assert_eq!(environment::humanize_age(Duration::minutes(59)), "59m ago");
+    assert_eq!(environment::humanize_age(Duration::hours(47)), "47h ago");
+    assert_eq!(environment::humanize_age(Duration::days(3)), "3d ago");
+}
+
+#[test]
 fn capacity_hint_is_actionable_for_both_states() {
     // WARN (at/near cap): reassure it is by-design, point at the cap lever.
     let warn = capacity_hint(false);
