@@ -287,11 +287,19 @@ impl BM25Index {
         // and merge sequentially in file order — measured 2.85 s → 0.69 s (~4x) on
         // the lean-ctx repo. Under memory pressure (or for tiny corpora, where pool
         // setup is not worth it) we fall back to the sequential build, which carries
-        // the incremental early-break. Both paths produce an identical index (see
-        // `build` module + determinism tests).
+        // the incremental early-break. #685 adds admission control: a corpus whose
+        // estimated peak would blow past the guardian's hard threshold degrades to
+        // the sequential build up front instead of OOMing mid-fan-out. Both paths
+        // produce an identical index (see `build` module + determinism tests).
         if files.len() >= build::PARALLEL_MIN_FILES
             && !crate::core::memory_guard::is_under_pressure()
             && !crate::core::memory_guard::abort_requested()
+            && crate::core::index_admission::admit_files(
+                crate::core::index_admission::BuildKind::Bm25,
+                root,
+                &files,
+            )
+            .parallel_ok
         {
             return Self::build_parallel(root, content_hint, &files);
         }
@@ -332,10 +340,17 @@ impl BM25Index {
         // `prepare_file`, unchanged via re-`prepare_chunk`) across the rayon pool
         // and merges sequentially in file order. The sequential path keeps the
         // per-file memory-pressure early-break and serves small corpora / pressure.
+        // #685: oversized corpora degrade to sequential via admission control.
         // Both produce an identical index (see determinism tests).
         if files.len() >= build::PARALLEL_MIN_FILES
             && !crate::core::memory_guard::is_under_pressure()
             && !crate::core::memory_guard::abort_requested()
+            && crate::core::index_admission::admit_files(
+                crate::core::index_admission::BuildKind::Bm25,
+                root,
+                &files,
+            )
+            .parallel_ok
         {
             return Self::rebuild_incremental_parallel(root, prev, &old_by_file, &files);
         }

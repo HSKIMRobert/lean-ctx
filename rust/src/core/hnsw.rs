@@ -363,6 +363,25 @@ impl AnnIndex {
         results.truncate(top_k);
         results
     }
+
+    /// Approximate resident bytes: the flat f32 corpus plus the graph's
+    /// adjacency lists. Used by the eviction orchestrator (#685) to weigh
+    /// this index against the RSS budget.
+    #[must_use]
+    pub fn memory_usage_bytes(&self) -> usize {
+        let embedding_bytes = self.embeddings.data.len() * std::mem::size_of::<f32>();
+        let graph_bytes: usize = self
+            .nodes
+            .iter()
+            .map(|n| {
+                n.connections
+                    .iter()
+                    .map(|layer| layer.len() * std::mem::size_of::<usize>())
+                    .sum::<usize>()
+            })
+            .sum();
+        embedding_bytes + graph_bytes
+    }
 }
 
 /// O(n log k) brute-force top-k selection using a min-heap over a flat buffer.

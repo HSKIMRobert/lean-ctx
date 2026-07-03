@@ -6,6 +6,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **`max_ram_percent` is now actually enforced under Cursor/MCP load — no more
+  75 GB OOM-kill-respawn cycles (GH #685).** Two compounding gaps, both closed:
+  *Uncontrolled build growth:* the parallel BM25/graph index builds fanned the
+  whole corpus across the rayon pool in one shot — on a 1M+-file multi-root
+  setup the transient build state outran the 3 s memory guardian straight into
+  the kernel OOM killer. Builds now run in 2000-file batches with a guardian
+  check between batches (order-preserving, so indexes stay byte-identical —
+  equivalence-tested), a new admission gate (`index_admission`) degrades
+  corpora whose estimated peak exceeds the RSS headroom to the sequential
+  build up front, and extra workspace roots are indexed one at a time on a
+  single supervisor thread instead of up to 8 concurrent graph+BM25 pairs.
+  *Eviction blind spots:* the eviction orchestrator reasoned over session-cache
+  token utilization, which cannot see the HNSW/ANN graph, the resident trigram
+  search indexes or the materialized graph indexes — under Hard/Critical RSS
+  pressure it could conclude "nothing to do" while those structures dominated
+  RSS. RSS pressure now enforces a floor action (Hard ⇒ unload indices,
+  Critical ⇒ emergency drop), and `UnloadIndices`/`EmergencyDrop` additionally
+  clear the ANN cache (new `ann_cache::clear()` + `memory_usage_bytes()`), the
+  resident search indexes (`search_index::clear_resident()`) and the graph
+  cache. All evicted structures rebuild transparently on next use.
 - **`sed`/`awk` file dumps are verbatim output — no more dictionary-mangled
   source (GH #688).** A range-print like `sed -n '10,50p' file.ps1` fell into
   the generic terse pipeline, whose dictionary layer word-substitutes code

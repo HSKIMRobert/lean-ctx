@@ -33,6 +33,28 @@ fn cache() -> &'static Mutex<Option<Cached>> {
     CACHE.get_or_init(|| Mutex::new(None))
 }
 
+/// Drop the cached HNSW index (#685 eviction hook). The next large-corpus
+/// query transparently rebuilds it; queries in between fall back to exact
+/// brute force, so correctness is unaffected. Called by the eviction
+/// orchestrator under memory pressure — before this hook the built graph +
+/// its `FlatEmbeddings` corpus stayed resident forever.
+pub fn clear() {
+    if let Ok(mut guard) = cache().lock() {
+        *guard = None;
+    }
+}
+
+/// Approximate resident bytes held by the cached HNSW index (flat embedding
+/// matrix + graph adjacency), 0 when empty. Used by the eviction orchestrator
+/// to weigh the ANN cache against the RSS budget.
+#[must_use]
+pub fn memory_usage_bytes() -> usize {
+    let Ok(guard) = cache().lock() else {
+        return 0;
+    };
+    guard.as_ref().map_or(0, |c| c.index.memory_usage_bytes())
+}
+
 /// Returns the top-k `(index, similarity)` pairs for `query` over `embeddings`,
 /// sorted by descending similarity.
 ///
