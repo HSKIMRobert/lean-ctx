@@ -11,7 +11,8 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 ## ctx_read Modes
 
-- `full` — cached read (use for files you will edit)
+- `anchored` — full text + `N:hh|` anchors (use for files you will edit via ctx_patch)
+- `full` — cached verbatim read
 - `map` — deps + API signatures (use for context-only files)
 - `signatures` — API surface only
 - `diff` — changed lines only (after edits)
@@ -21,7 +22,9 @@ PREFER lean-ctx MCP tools over native equivalents for token savings:
 
 ## File Editing
 
-Use native Edit/StrReplace when available. If Edit requires Read and Read is unavailable,
-use `ctx_edit(path, old_string, new_string)` — it reads, replaces, and writes in one MCP call.
-NEVER loop trying to make Edit work. If it fails, switch to ctx_edit immediately.
+Anchored editing saves output tokens: `ctx_read(path, mode="anchored")` → `ctx_patch(path, op, line, hash, new_text)`.
+Patch by `N:hh|` anchor — never reproduce old text byte-for-byte. Batch several edits via `ops:[…]`
+(all-or-nothing); `op=create` writes new files; a stale anchor returns CONFLICT with fresh anchors — retry once.
+Native Edit/StrReplace stay fine when the host provides them. `ctx_edit(path, old_string, new_string)`
+is the legacy str-replace fallback (power profile / ctx_call).
 Write, Delete have no lean-ctx equivalent — use them normally.

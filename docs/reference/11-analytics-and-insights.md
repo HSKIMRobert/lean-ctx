@@ -304,6 +304,32 @@ wall-clock and therefore reported but excluded from the digest. CI runs the
 scorecard on every push and uploads `scorecard.json` as a build artifact, and a
 test (`scorecard_determinism`) asserts the digest is stable.
 
+### Edit efficiency — anchored (`ctx_patch`) vs str_replace (`ctx_edit`)
+
+Anchored editing claims it saves **output** tokens (the ~5×-priced kind): the
+model patches by `line:hash` anchor instead of re-quoting the replaced span as
+`old_string`. lean-ctx **measures** that claim per applied op (never estimates
+it) in a dedicated channel — see the
+[Edit Metering v1 contract](../contracts/edit-metering-v1.md):
+
+- **`ctx_metrics`** prints an `Edit efficiency (anchored vs str_replace,
+  all-time)` section: calls, ops, avoided output tokens, stale-anchor
+  `CONFLICT` retries, and the str_replace baseline (`old_string` tokens paid,
+  misses).
+- The **dashboard ROI view** shows the same counters as the *Edit Efficiency*
+  card (`/api/stats` → `edit_efficiency`), labelled **measured**.
+- The **A/B benchmark** is hermetic and reproducible:
+
+```bash
+cd rust && cargo test --test edit_reliability -- --nocapture
+```
+
+It fixes identical mechanical bugs across 5 languages with both tools and
+reports two axes — reliability (anchored 10/10 vs minimal str_replace 5/10,
+which recovers to 10/10 only by paying extra recalled context) and argument
+cost on identical successful fixes (anchored ~41% fewer output tokens on the
+benchmark corpus, tiny-span exceptions included honestly in the print-out).
+
 ---
 
 ## 10. Learning loops — `learn` and `gotchas`
@@ -352,6 +378,7 @@ transcripts so long histories don't bloat the data dir.
 | Rich visual exploration | `dashboard` (§7) |
 | Watch it work live | `watch` (§8) |
 | Context-quality / regression tracking | `cep`, `benchmark` (§9) |
+| Is anchored editing actually paying off? | `ctx_metrics` / Edit Efficiency card (§9) |
 | Turn history into rules | `learn`, `gotchas` (§10) |
 | Raw numbers / shrink transcripts | `stats`, `compact` (§11) |
 

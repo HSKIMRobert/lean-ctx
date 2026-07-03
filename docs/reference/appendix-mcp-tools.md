@@ -13,12 +13,12 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | Profile | Count | Who it's for |
 |---------|-------|--------------|
 | **minimal** | 5 | Lowest context overhead; the absolute essentials |
-| **standard** | 15 | Balanced default for most coding workflows |
+| **standard** | 16 | Balanced default for most coding workflows |
 | **power** | 76 | Everything (default for existing installs) |
 
 - **minimal (5):** `ctx_read`, `ctx_shell`, `ctx_search`, `ctx_glob`, `ctx_tree`
-- **standard (+10):** + `ctx_compose`, `ctx_explore`, `ctx_knowledge`, `ctx_callgraph`, `ctx_graph`, `ctx_delta`, `ctx_execute`, `ctx_expand`, `ctx_overview`, `ctx_url_read`
-- **power (+48):** all remaining tools.
+- **standard (+11):** + `ctx_compose`, `ctx_explore`, `ctx_knowledge`, `ctx_callgraph`, `ctx_graph`, `ctx_delta`, `ctx_execute`, `ctx_expand`, `ctx_overview`, `ctx_url_read`, `ctx_patch`
+- **power (+47):** all remaining tools.
 
 ---
 
@@ -30,8 +30,8 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 | `ctx_multi_read` | Read many files in one call (same modes) | `paths[]`*, `mode`, `fresh` | S |
 | `ctx_smart_read` | Auto-pick the optimal read mode for a file | `path`* | P |
 | `ctx_delta` | Incremental diff — only lines changed since last read | `path`* | S |
-| `ctx_edit` | Search-and-replace edit (no native read/edit); preimage guards, backup | `path`*, `new_string`*, `old_string`, `replace_all`, `create` | S |
-| `ctx_patch` | Hash-anchored line edits — `LINE:HASH` anchors from `ctx_read mode=anchored`; no exact-recall, batch-atomic, tree-sitter gate | `path`*, `ops[]` (set_line\|replace_lines\|insert_after\|delete\|replace_symbol), `validate_syntax` | P |
+| `ctx_edit` | Legacy search-and-replace edit; preimage guards, backup | `path`*, `new_string`*, `old_string`, `replace_all`, `create` | P |
+| `ctx_patch` | Hash-anchored line edits — `LINE:HASH` anchors from `ctx_read mode=anchored`; no exact-recall, batch-atomic, tree-sitter gate, `create` for new files | `path`*, `ops[]` (set_line\|replace_lines\|insert_after\|delete\|replace_symbol\|create) | S |
 | `ctx_fill` | Budget-aware context fill within a token limit | `paths[]`, `budget`*, `task` | P |
 | `ctx_symbol` | Read just one named symbol block (fn/struct/class) | `name`*, `file`, `kind` | P |
 | `ctx_outline` | List all symbols of a file with signatures | `path`*, `kind` | P |

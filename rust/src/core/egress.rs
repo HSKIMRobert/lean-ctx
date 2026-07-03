@@ -21,6 +21,53 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use regex::Regex;
+use serde_json::{Map, Value};
+
+/// Map a write/action tool call to the outbound payload the egress DLP must
+/// inspect, plus its audit kind ("Write"/"Action"). Single source of truth for
+/// the MCP dispatch gate (`server::call_tool`) AND the CLI `policy enforce`
+/// mirror, so the two gates can never drift. `None` → the tool carries no
+/// governed egress payload.
+///
+/// `ctx_patch` (#1008) can carry several write bodies in one call — top-level
+/// `new_text` (anchored ops / create), `new_body` (replace_symbol) and each
+/// `ops[].new_text` of a batch — all are concatenated for inspection.
+#[must_use]
+pub fn write_payload(
+    tool: &str,
+    args: Option<&Map<String, Value>>,
+) -> Option<(String, &'static str)> {
+    let get = |k: &str| args?.get(k)?.as_str().map(String::from);
+    match tool {
+        "ctx_edit" => get("new_string").map(|s| (s, "Write")),
+        "ctx_patch" => patch_payload(args).map(|s| (s, "Write")),
+        "ctx_shell" | "ctx_execute" => get("command").map(|s| (s, "Action")),
+        _ => None,
+    }
+}
+
+/// Every write body a `ctx_patch` call may carry, joined for one inspection.
+fn patch_payload(args: Option<&Map<String, Value>>) -> Option<String> {
+    let map = args?;
+    let mut parts: Vec<&str> = Vec::new();
+    for key in ["new_text", "new_body"] {
+        if let Some(s) = map.get(key).and_then(Value::as_str) {
+            parts.push(s);
+        }
+    }
+    if let Some(ops) = map.get("ops").and_then(Value::as_array) {
+        for op in ops {
+            if let Some(s) = op.get("new_text").and_then(Value::as_str) {
+                parts.push(s);
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
 
 /// Resolved, ready-to-run egress configuration. Forbidden-pattern regexes are
 /// compiled once at policy load, off the hot path.
@@ -197,5 +244,73 @@ mod tests {
         assert!(!within_limit(&mut q, base, 1));
         // 61 s later the old entry has aged out → admitted again.
         assert!(within_limit(&mut q, base + Duration::from_secs(61), 1));
+    }
+
+    fn args(v: Value) -> Map<String, Value> {
+        match v {
+            Value::Object(m) => m,
+            _ => panic!("expected object"),
+        }
+    }
+
+    #[test]
+    fn write_payload_covers_edit_shell_and_execute() {
+        let edit = args(serde_json::json!({"new_string": "body"}));
+        assert_eq!(
+            write_payload("ctx_edit", Some(&edit)),
+            Some(("body".to_string(), "Write"))
+        );
+        let sh = args(serde_json::json!({"command": "rm -rf /tmp/x"}));
+        assert_eq!(
+            write_payload("ctx_shell", Some(&sh)),
+            Some(("rm -rf /tmp/x".to_string(), "Action"))
+        );
+        assert_eq!(
+            write_payload("ctx_execute", Some(&sh)),
+            Some(("rm -rf /tmp/x".to_string(), "Action"))
+        );
+        assert_eq!(write_payload("ctx_read", Some(&sh)), None);
+    }
+
+    #[test]
+    fn write_payload_collects_every_patch_body() {
+        // #1008 security pass: single op, replace_symbol AND every batch op body
+        // must all be inspected — a secret in ops[1] is as forbidden as one in
+        // a top-level new_text.
+        let single = args(serde_json::json!({"op": "set_line", "new_text": "top"}));
+        assert_eq!(
+            write_payload("ctx_patch", Some(&single)),
+            Some(("top".to_string(), "Write"))
+        );
+
+        let symbol = args(serde_json::json!({"op": "replace_symbol", "new_body": "fn x() {}"}));
+        assert_eq!(
+            write_payload("ctx_patch", Some(&symbol)),
+            Some(("fn x() {}".to_string(), "Write"))
+        );
+
+        let batch = args(serde_json::json!({"ops": [
+            {"op": "set_line", "line": 1, "hash": "aa", "new_text": "first"},
+            {"op": "insert_after", "line": 2, "hash": "bb", "new_text": "second"}
+        ]}));
+        let (payload, kind) = write_payload("ctx_patch", Some(&batch)).unwrap();
+        assert_eq!(kind, "Write");
+        assert!(payload.contains("first") && payload.contains("second"));
+
+        // No write body (e.g. a malformed call) → nothing to inspect.
+        let empty = args(serde_json::json!({"op": "delete", "line": 3, "hash": "cc"}));
+        assert_eq!(write_payload("ctx_patch", Some(&empty)), None);
+    }
+
+    #[test]
+    fn patch_payload_is_checkable_content() {
+        // End-to-end shape: a forbidden pattern hidden in a batch op is caught.
+        let c = cfg(&[r"prod\.db\.internal"], false);
+        let batch = args(serde_json::json!({"ops": [
+            {"op": "set_line", "line": 1, "hash": "aa", "new_text": "safe"},
+            {"op": "set_line", "line": 9, "hash": "bb", "new_text": "url = prod.db.internal"}
+        ]}));
+        let (payload, _) = write_payload("ctx_patch", Some(&batch)).unwrap();
+        assert!(c.check_content(&payload, &[]).is_some());
     }
 }

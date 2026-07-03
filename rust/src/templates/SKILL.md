@@ -20,7 +20,7 @@ lean-ctx setup
 | `ctx_search(pattern, path)` | Search code with compressed results |
 | `ctx_shell(command)` | Run shell with compressed output |
 | `ctx_tree(path, depth)` | Directory listing |
-| `ctx_edit(path, old, new)` | Search-and-replace editing |
+| `ctx_patch(path, ops)` | Anchored editing (line+hash, no old-text echo) |
 | `ctx_session(action)` | Session state and persistence |
 | `ctx_knowledge(action)` | Project knowledge across sessions |
 | `ctx_overview(task)` | Task-relevant project map |
@@ -40,7 +40,8 @@ lean-ctx ls src/
 
 | Mode | When |
 |------|------|
-| `full` | Files you will edit |
+| `anchored` | Files you will edit (full text + `N:hh\|` anchors for ctx_patch) |
+| `full` | Verbatim cached read |
 | `map` | Context-only (deps + exports) |
 | `signatures` | API surface only |
 | `diff` | After edits (changed lines) |
@@ -57,7 +58,10 @@ Redundant JSON (arrays of like objects) is crushed losslessly into a compact
 
 ## File Editing
 
-Use native Edit/StrReplace. If unavailable, use `ctx_edit` immediately.
+Anchored editing saves output tokens: `ctx_read(mode="anchored")` → `ctx_patch(path, op, line, hash, new_text)`.
+Never reproduce old text byte-for-byte; batch via `ops:[…]`; `op=create` writes new files.
+Stale anchor → CONFLICT with fresh anchors (retry once). Native Edit/StrReplace stay fine;
+`ctx_edit` (str_replace) is the legacy fallback via ctx_call/power profile.
 
 ## More Tools (via ctx_call or ctx_load_tools)
 

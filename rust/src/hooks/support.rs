@@ -119,8 +119,9 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
         == crate::core::config::RulesInjection::Dedicated
     {
         if agents_path.exists()
-            && std::fs::read_to_string(&agents_path)
-                .is_ok_and(|c| c.contains(CODEX_AGENTS_BLOCK_START))
+            && std::fs::read_to_string(&agents_path).is_ok_and(|c| {
+                crate::marked_block::contains_marker_line(&c, CODEX_AGENTS_BLOCK_START)
+            })
         {
             crate::marked_block::remove_from_file(
                 &agents_path,
@@ -157,7 +158,7 @@ pub(super) fn install_codex_instruction_docs(codex_dir: &Path) -> bool {
 
     let existing = std::fs::read_to_string(&agents_path).unwrap_or_default();
 
-    if existing.contains(CODEX_AGENTS_BLOCK_START) {
+    if crate::marked_block::contains_marker_line(&existing, CODEX_AGENTS_BLOCK_START) {
         let updated = crate::marked_block::replace_marked_block(
             &existing,
             CODEX_AGENTS_BLOCK_START,

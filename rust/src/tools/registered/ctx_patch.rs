@@ -14,38 +14,35 @@ impl McpTool for CtxPatchTool {
         "ctx_patch"
     }
 
+    // Schema diet (#576 pattern): the advertised surface carries only the
+    // functional teaching (anchor source, op routing, batch atomicity).
+    // Handler-only params stay supported but unadvertised: expected_md5,
+    // backup, backup_path, validate_syntax, evidence, diff_max_lines,
+    // allow_lossy_utf8 — same hidden-params contract as ctx_edit.
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_patch",
-            "Hash-anchored edit — edit by line ANCHOR, not by reproducing old text.\n\
-             First read with ctx_read(mode=\"anchored\") to get N:hh|line anchors, then patch by (line, hash).\n\
-             op=set_line replaces one line; replace_lines a range; insert_after adds after a line (line 0 = top); delete removes.\n\
-             op=replace_symbol rewrites a whole symbol body by name (or path+line) via ctx_refactor — pass new_body.\n\
-             new_text=\"\" deletes the line. Batch many line edits via ops:[…] — all validated against the same file, applied all-or-nothing.\n\
-             A stale anchor is REJECTED with fresh anchors to retry — no partial writes. Prefer this over native str_replace/Edit for reliability.",
+            "Hash-anchored edit — patch by (line, hash) anchor; never reproduce old text byte-for-byte.\n\
+             Anchors N:hh| come from ctx_read(mode=\"anchored\") or ctx_search(anchored=true).\n\
+             op=set_line one line; replace_lines start_*..end_* range; insert_after (line 0 = top); delete; \
+             replace_symbol (name + new_body); create writes a NEW file from new_text.\n\
+             new_text=\"\" deletes. Batch via ops:[{op,line,hash,new_text},…] — one preimage, applied all-or-nothing.\n\
+             Stale anchor → CONFLICT with fresh anchors to retry (no partial writes).",
             json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "File path to edit" },
-                    "op": { "type": "string", "description": "set_line | replace_lines | insert_after | delete | replace_symbol" },
-                    "line": { "type": "integer", "description": "1-based line (set_line/insert_after/delete; line 0 = top for insert_after)" },
-                    "hash": { "type": "string", "description": "Anchor hash hh from ctx_read(mode=anchored) for `line`" },
-                    "start_line": { "type": "integer", "description": "Range start (replace_lines/delete)" },
-                    "start_hash": { "type": "string", "description": "Anchor hash for start_line" },
-                    "end_line": { "type": "integer", "description": "Range end, inclusive (replace_lines/delete)" },
-                    "end_hash": { "type": "string", "description": "Anchor hash for end_line" },
-                    "new_text": { "type": "string", "description": "Replacement text; \"\" deletes (set_line/replace_lines)" },
-                    "name": { "type": "string", "description": "Symbol path for replace_symbol (qualified or bare)" },
-                    "new_body": { "type": "string", "description": "Full replacement declaration for replace_symbol" },
-                    "ops": {
-                        "type": "array",
-                        "description": "Batch-atomic edits; each item is {op, line/start_line…, hash…, new_text}",
-                        "items": { "type": "object" }
-                    },
-                    "expected_md5": { "type": "string", "description": "Optional whole-file BLAKE3 guard (postimage md5 from a prior edit)" },
-                    "backup": { "type": "boolean", "description": "Write a .bak before editing", "default": false },
-                    "validate_syntax": { "type": "boolean", "description": "Reject edits that break a cleanly-parsing file (tree-sitter)", "default": true },
-                    "evidence": { "type": "boolean", "description": "Append a redacted, bounded diff", "default": true }
+                    "path": { "type": "string" },
+                    "op": { "type": "string", "enum": ["set_line", "replace_lines", "insert_after", "delete", "replace_symbol", "create"] },
+                    "line": { "type": "integer" },
+                    "hash": { "type": "string" },
+                    "start_line": { "type": "integer" },
+                    "start_hash": { "type": "string" },
+                    "end_line": { "type": "integer" },
+                    "end_hash": { "type": "string" },
+                    "new_text": { "type": "string" },
+                    "name": { "type": "string" },
+                    "new_body": { "type": "string" },
+                    "ops": { "type": "array", "items": { "type": "object" } }
                 },
                 "required": ["path"]
             }),

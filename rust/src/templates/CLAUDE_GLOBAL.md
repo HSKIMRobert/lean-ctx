@@ -22,7 +22,8 @@ ctx_search("pub fn", "src/")         # instead of Grep("pub fn", "src/")
 ctx_tree(".", 2)                     # instead of ListFiles(".")
 ```
 
-Write, Edit, and other mutation tools have no lean-ctx equivalent — use them normally.
+Edits: `ctx_read(path, mode="anchored")` → `ctx_patch(path, op, line, hash, new_text)` — patch by anchor,
+never echo old text (`op=create` for new files). Native Write/Edit, where the host provides them, stay fine.
 
 CRITICAL: Every time you reach for Read, Bash, Grep, or ListFiles — stop and use the lean-ctx MCP equivalent instead. This is not optional.
 

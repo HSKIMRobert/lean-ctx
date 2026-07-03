@@ -387,6 +387,32 @@ pub fn handle(cache: &SessionCache, tool_calls: &[ToolCallRecord], crp_mode: Crp
         ));
     }
 
+    // Edit-efficiency channel (#1008): anchored vs str_replace, all-time.
+    // Separate from read-gain — "avoided" = output tokens the model never
+    // emitted because it patched by (line, hash) anchor instead of quoting
+    // the replaced span as old_string.
+    let em = crate::core::edit_metering::metrics_snapshot();
+    let anchored_calls = em["anchored_calls"].as_u64().unwrap_or(0);
+    let sr_calls = em["str_replace_calls"].as_u64().unwrap_or(0);
+    let sr_misses = em["str_replace_misses"].as_u64().unwrap_or(0);
+    if anchored_calls > 0 || sr_calls > 0 || sr_misses > 0 {
+        out.push("\nEdit efficiency (anchored vs str_replace, all-time):".to_string());
+        if anchored_calls > 0 {
+            out.push(format!(
+                "  ctx_patch:  {anchored_calls} calls, {} ops, {} output tok avoided, {} CONFLICT retries",
+                em["anchored_ops"].as_u64().unwrap_or(0),
+                em["anchored_avoided_output_tokens"].as_u64().unwrap_or(0),
+                em["anchored_conflicts"].as_u64().unwrap_or(0)
+            ));
+        }
+        if sr_calls > 0 || sr_misses > 0 {
+            out.push(format!(
+                "  ctx_edit:   {sr_calls} calls, {} output tok paid on old_string, {sr_misses} old_string misses",
+                em["str_replace_old_string_tokens"].as_u64().unwrap_or(0)
+            ));
+        }
+    }
+
     out.join("\n")
 }
 

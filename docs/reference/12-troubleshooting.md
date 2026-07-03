@@ -164,6 +164,36 @@ MCP-only agents need no hook refresh because they always exec the current binary
 
 ---
 
+## 7b. "Where did `ctx_edit` go? My agent has no edit tool"
+
+Not a bug — a deliberate redesign of the editing story:
+
+- **`ctx_edit` (str_replace) is power-only** since v3.8.12. In editors with a
+  reliable native edit tool (Cursor, Zed, Windsurf, …), a second search-and-replace
+  editor added schema tokens to every session without saving any.
+- **`ctx_patch` (anchored editing) is the successor** and part of the lazy core
+  and `standard` profile. It edits by `line + hash` anchor from
+  `ctx_read(mode="anchored")` or `ctx_search(anchored=true)` — the agent never
+  reproduces old text byte-for-byte, which is where str_replace burns output
+  tokens. `op=create` writes new files; batches (`ops:[…]`) apply all-or-nothing.
+- **Client-aware advertising**: clients with a trusted native editor don't see
+  `ctx_patch` in the default (lazy) surface — their sessions pay zero extra
+  schema tokens and edits stay native. Claude Code, SDK/headless harnesses and
+  unknown clients get `ctx_patch` advertised.
+
+Both editors always stay reachable:
+
+```bash
+lean-ctx tools standard           # pin 16 tools incl. ctx_patch (client-agnostic)
+lean-ctx tools power              # everything incl. ctx_edit
+```
+
+or per call via `ctx_call(name="ctx_edit", args={…})` — no profile change needed.
+If `prefer_native_editor = true` is set, *both* edit tools are hidden and refused
+by design (#454).
+
+---
+
 ## 8. When all else fails — capture a report
 
 ```bash
@@ -186,4 +216,5 @@ report is actionable. Pair it with the exact command and the editor you used.
 | Shell/proxy broken | §5 → `doctor --fix` / `proxy status` |
 | Search stuck/huge | §6 → `index status` / `cache prune` |
 | Broke after update | §7 → `doctor integrations` / `setup --fix` |
+| Missing edit tool (`ctx_edit`) | §7b → `ctx_patch` / `lean-ctx tools power` |
 | Need to file a bug | §8 → `report-issue` |

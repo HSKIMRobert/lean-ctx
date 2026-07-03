@@ -97,8 +97,10 @@ mod prefer_native_editor_tests {
             prefer_native_editor: true,
             ..Default::default()
         };
-        // #454: the dedicated edit tool is blocked; reads/search stay available.
+        // #454: the dedicated edit tools are blocked; reads/search stay available.
         assert!(cfg.edit_tool_blocked("ctx_edit"));
+        // #1008: the anchored editor honors the same preference.
+        assert!(cfg.edit_tool_blocked("ctx_patch"));
         assert!(!cfg.edit_tool_blocked("ctx_read"));
         assert!(!cfg.edit_tool_blocked("ctx_search"));
         assert!(!cfg.edit_tool_blocked("ctx_refactor"));
@@ -113,12 +115,13 @@ mod prefer_native_editor_tests {
             prefer_native_editor: true,
             ..Default::default()
         };
-        assert!(
-            cfg.disabled_tools_effective()
-                .iter()
-                .any(|t| t == "ctx_edit"),
-            "edit tools must be folded into the effective disabled set"
-        );
+        let disabled = cfg.disabled_tools_effective();
+        for name in crate::core::config::EDIT_TOOL_NAMES {
+            assert!(
+                disabled.iter().any(|t| t == name),
+                "{name} must be folded into the effective disabled set"
+            );
+        }
     }
 
     #[test]
