@@ -159,6 +159,101 @@ pub fn list_keys(path: &Path) -> anyhow::Result<Vec<KeyListEntry>> {
     Ok(out)
 }
 
+/// The result of a key rotation: the fresh plaintext key plus the identity it
+/// kept and how many old entries it replaced.
+#[derive(Debug)]
+pub struct RotatedKey {
+    pub key: String,
+    pub team: Option<String>,
+    pub default_project: Option<String>,
+    pub replaced: usize,
+}
+
+/// Rotates `person`'s key (enterprise#67): mints a fresh key, drops every old
+/// entry of that person and writes the replacement **in one atomic swap** —
+/// there is no intermediate state where the person has zero valid keys on
+/// disk. Team and default project carry over from the person's first entry.
+///
+/// # Errors
+/// Fails when the person has no key (use `add`), on unreadable/unparsable
+/// files, or on write errors.
+pub fn rotate_key(path: &Path, person: &str) -> anyhow::Result<RotatedKey> {
+    let person = person.trim();
+    anyhow::ensure!(!person.is_empty(), "person must not be empty");
+
+    let existing = list_keys(path)?;
+    let current: Vec<&KeyListEntry> = existing
+        .iter()
+        .filter(|k| k.person.eq_ignore_ascii_case(person))
+        .collect();
+    anyhow::ensure!(
+        !current.is_empty(),
+        "no key for '{person}' in {} — use: lean-ctx gateway keys add --person={person}",
+        path.display()
+    );
+    // Keep the ledger identity exactly as stored — the caller may have typed
+    // a different case, but usage_events attribution must not fork.
+    let person = current[0].person.clone();
+    let person = person.as_str();
+    let team = current[0].team.clone();
+    let default_project = current[0].default_project.clone();
+    let replaced = current.len();
+
+    let key = generate_key(person)?;
+    let sha = sha256_hex(&key);
+
+    // Rebuild the file: keep everyone else's entries, replace this person's.
+    let raw = std::fs::read_to_string(path)?;
+    let mut value: toml::Value = toml::from_str(&raw)?;
+    let keys = value
+        .get_mut("keys")
+        .and_then(|k| k.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("no [[keys]] entries in {}", path.display()))?;
+    keys.retain(|entry| {
+        entry
+            .get("person")
+            .and_then(|p| p.as_str())
+            .is_none_or(|p| !p.trim().eq_ignore_ascii_case(person))
+    });
+    let mut fresh = toml::value::Table::new();
+    fresh.insert("sha256_hex".into(), toml::Value::String(sha));
+    fresh.insert("person".into(), toml::Value::String(person.to_string()));
+    if let Some(team) = team.as_deref() {
+        fresh.insert("team".into(), toml::Value::String(team.to_string()));
+    }
+    if let Some(project) = default_project.as_deref() {
+        fresh.insert(
+            "default_project".into(),
+            toml::Value::String(project.to_string()),
+        );
+    }
+    keys.push(toml::Value::Table(fresh));
+
+    let mut body = String::from(
+        "# lean-ctx gateway keys — SHA-256 hashes only, plaintext keys are never stored.\n\
+         # Managed by `lean-ctx gateway keys`; manual edits are fine (same format).\n",
+    );
+    body.push_str(&toml::to_string_pretty(&value)?);
+    write_atomic(path, &body)?;
+
+    // Post-write validation: the new key must resolve with the old identity.
+    let reloaded = GatewayKeys::load(path)?;
+    let tags = reloaded
+        .lookup(&key)
+        .ok_or_else(|| anyhow::anyhow!("post-write validation failed — key not resolvable"))?;
+    anyhow::ensure!(
+        tags.person.as_deref() == Some(person),
+        "post-write validation failed — identity mismatch"
+    );
+
+    Ok(RotatedKey {
+        key,
+        team,
+        default_project,
+        replaced,
+    })
+}
+
 /// Removes all keys of `person` (rewrites the file). Returns how many entries
 /// were removed.
 ///
@@ -283,6 +378,62 @@ mod tests {
         let keys = GatewayKeys::load(&path).unwrap();
         assert!(keys.lookup(&key1).is_none());
         assert!(keys.lookup(&key2).is_some());
+    }
+
+    #[test]
+    fn rotate_replaces_key_atomically_and_keeps_identity() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("gateway-keys.toml");
+
+        let old_key = add_key(
+            &path,
+            "alice@zuehlke.com",
+            Some("platform"),
+            Some("checkout"),
+            false,
+        )
+        .unwrap();
+        let bob_key = add_key(&path, "bob@zuehlke.com", None, None, false).unwrap();
+
+        let rotated = rotate_key(&path, "ALICE@zuehlke.com").unwrap();
+        assert_eq!(rotated.replaced, 1);
+        assert_eq!(rotated.team.as_deref(), Some("platform"));
+        assert_eq!(rotated.default_project.as_deref(), Some("checkout"));
+        assert_ne!(rotated.key, old_key);
+
+        let keys = GatewayKeys::load(&path).unwrap();
+        // Old key is dead, new key carries the identical identity, bob intact.
+        assert!(keys.lookup(&old_key).is_none());
+        let alice = keys.lookup(&rotated.key).expect("new key resolves");
+        assert_eq!(alice.person.as_deref(), Some("alice@zuehlke.com"));
+        assert_eq!(alice.team.as_deref(), Some("platform"));
+        assert_eq!(alice.project.as_deref(), Some("checkout"));
+        assert!(keys.lookup(&bob_key).is_some());
+
+        // Rotating an unknown person is a hard error, not a silent add.
+        assert!(rotate_key(&path, "carol@zuehlke.com").is_err());
+    }
+
+    #[test]
+    fn rotate_collapses_multiple_keys_into_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("gateway-keys.toml");
+        let k1 = add_key(&path, "alice", Some("platform"), None, false).unwrap();
+        let k2 = add_key(&path, "alice", None, None, true).unwrap();
+
+        let rotated = rotate_key(&path, "alice").unwrap();
+        assert_eq!(rotated.replaced, 2);
+        // Both old keys die; exactly one entry remains for alice.
+        let keys = GatewayKeys::load(&path).unwrap();
+        assert!(keys.lookup(&k1).is_none());
+        assert!(keys.lookup(&k2).is_none());
+        assert!(keys.lookup(&rotated.key).is_some());
+        let listed = list_keys(&path).unwrap();
+        assert_eq!(
+            listed.iter().filter(|e| e.person == "alice").count(),
+            1,
+            "rotation must collapse duplicates"
+        );
     }
 
     #[test]

@@ -373,9 +373,34 @@ fn keys(rest: &[String]) {
                 }
             }
         }
+        "rotate" => {
+            let Some(person) = flag_value(rest, "person") else {
+                eprintln!("Usage: lean-ctx gateway keys rotate --person=<id> [--file=..]");
+                std::process::exit(2);
+            };
+            match crate::gateway_server::keys_cli::rotate_key(&path, person) {
+                Ok(rotated) => {
+                    println!(
+                        "\x1b[32m✓\x1b[0m Rotated {} key(s) of {person} in {} (team/project kept)",
+                        rotated.replaced,
+                        path.display()
+                    );
+                    println!();
+                    println!("  {}", rotated.key);
+                    println!();
+                    println!("  Shown ONCE — only the SHA-256 hash is stored.");
+                    println!("  Old key(s) stop working on the next gateway reload:");
+                    println!("  docker compose restart gateway");
+                }
+                Err(e) => {
+                    eprintln!("\x1b[31m✗\x1b[0m {e:#}");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
             println!(
-                "Usage: lean-ctx gateway keys <add|list|revoke> [--person=..] [--team=..] [--project=..] [--file=..]"
+                "Usage: lean-ctx gateway keys <add|list|rotate|revoke> [--person=..] [--team=..] [--project=..] [--file=..]"
             );
         }
     }
@@ -468,7 +493,7 @@ fn help() {
     println!("  lean-ctx gateway init   [dir] [--org=\"Acme AG\"] [--seats=800]");
     println!("                          [--reference-model=claude-opus-4.5] [--person=a@x …]");
     println!(
-        "  lean-ctx gateway keys   <add|list|revoke> [--person=..] [--team=..] [--project=..] [--file=..]"
+        "  lean-ctx gateway keys   <add|list|rotate|revoke> [--person=..] [--team=..] [--project=..] [--file=..]"
     );
     println!("  lean-ctx gateway doctor [--dir=.] [--port=8484] [--admin-port=8485]");
     println!("  lean-ctx gateway report [--from=ISO] [--to=ISO] [--out=report.html]");
