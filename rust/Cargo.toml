@@ -82,6 +82,10 @@ default = [
   "embeddings",
   "http-server",
   "team-server",
+  # Self-hosted org gateway (`lean-ctx gateway init|serve|doctor`): ships by
+  # default like team-server so the documented pilot path works with the
+  # standard binary (Local-Free Invariant — free, no license gate).
+  "gateway-server",
   "secure-update",
   "jemalloc",
   # Remote dense backends ship in release binaries so LEANCTX_QDRANT_URL /
