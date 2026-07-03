@@ -106,6 +106,10 @@ pub fn merge_floor(org: &ResolvedPolicy, local: Option<&ResolvedPolicy>) -> Reso
             org.budgets.max_cost_usd_per_project_per_month,
             local.budgets.max_cost_usd_per_project_per_month,
         ),
+        max_requests_per_minute_per_person: min_opt(
+            org.budgets.max_requests_per_minute_per_person,
+            local.budgets.max_requests_per_minute_per_person,
+        ),
     };
 
     ResolvedPolicy {
@@ -350,11 +354,13 @@ mod tests {
         org.routing.allowed_models = vec!["claude-*".into(), "gpt-4o-mini".into()];
         org.routing.forbid_downgrade_for = vec!["prod".into()];
         org.budgets.max_cost_usd_per_person_per_day = Some(50.0);
+        org.budgets.max_requests_per_minute_per_person = Some(30);
         let mut local = rp("local");
         local.routing.allowed_models = vec!["claude-*".into(), "o3".into()];
         local.routing.forbid_downgrade_for = vec!["security".into()];
         local.budgets.max_cost_usd_per_person_per_day = Some(200.0); // weaker
         local.budgets.max_cost_usd_per_project_per_month = Some(9000.0);
+        local.budgets.max_requests_per_minute_per_person = Some(120); // weaker
 
         let m = merge_floor(&org, Some(&local));
         assert_eq!(m.routing.allowed_models, vec!["claude-*".to_string()]);
@@ -364,6 +370,7 @@ mod tests {
         );
         assert_eq!(m.budgets.max_cost_usd_per_person_per_day, Some(50.0));
         assert_eq!(m.budgets.max_cost_usd_per_project_per_month, Some(9000.0));
+        assert_eq!(m.budgets.max_requests_per_minute_per_person, Some(30));
     }
 
     #[test]

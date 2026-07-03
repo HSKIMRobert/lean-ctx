@@ -211,6 +211,11 @@ pub struct BudgetRules {
     /// Max measured spend per project per UTC month.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_cost_usd_per_project_per_month: Option<f64>,
+    /// Max accepted requests per person per UTC minute (enterprise#66) —
+    /// protects shared upstreams from a single runaway agent. Counted per
+    /// gateway process; multi-replica deployments multiply accordingly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_requests_per_minute_per_person: Option<u32>,
 }
 
 impl BudgetRules {
@@ -219,6 +224,7 @@ impl BudgetRules {
     pub fn is_empty(&self) -> bool {
         self.max_cost_usd_per_person_per_day.is_none()
             && self.max_cost_usd_per_project_per_month.is_none()
+            && self.max_requests_per_minute_per_person.is_none()
     }
 }
 

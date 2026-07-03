@@ -407,8 +407,9 @@ fn render_metrics(out: &mut String) {
         crate::proxy::usage_sink::dropped_count()
     );
 
-    // Org-policy gate (enterprise#25): blocked-request counters.
-    let (blocked_model, blocked_budget) = crate::proxy::policy_gate::blocked_counters();
+    // Org-policy gate (enterprise#25, #66): blocked-request counters.
+    let (blocked_model, blocked_budget, blocked_rate) =
+        crate::proxy::policy_gate::blocked_counters();
     let _ = writeln!(
         out,
         "# HELP leanctx_policy_blocked_total Requests refused by the enforced org policy.\n# TYPE leanctx_policy_blocked_total counter"
@@ -420,6 +421,10 @@ fn render_metrics(out: &mut String) {
     let _ = writeln!(
         out,
         "leanctx_policy_blocked_total{{reason=\"budget\"}} {blocked_budget}"
+    );
+    let _ = writeln!(
+        out,
+        "leanctx_policy_blocked_total{{reason=\"rate_limit\"}} {blocked_rate}"
     );
 }
 

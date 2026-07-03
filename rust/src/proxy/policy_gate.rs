@@ -2,7 +2,7 @@
 //! enforced in the forward path **only** under a signed, trusted,
 //! `enforced = true` org policy ([`crate::core::policy::org`]).
 //!
-//! Two governance controls, both from the policy's new sections (Doc 08 §4.3):
+//! Three governance controls, all from the policy's new sections (Doc 08 §4.3):
 //!
 //! 1. **Model ceiling** (`[routing].allowed_models`) — a request whose
 //!    requested model matches no allowlist pattern is refused with 403 before
@@ -10,6 +10,11 @@
 //! 2. **Hard budgets** (`[budgets]`) — measured spend per person/UTC-day and
 //!    per project/UTC-month; a breached cap refuses further requests with 429
 //!    until the window rolls over.
+//! 3. **Per-person rate limit** (`[budgets].max_requests_per_minute_per_person`,
+//!    enterprise#66) — accepted requests per person per UTC minute; the
+//!    excess is refused with 429 + `Retry-After` until the minute rolls.
+//!    Counted in-process (per replica), which is the right blast-radius
+//!    control against a single runaway agent without cross-replica chatter.
 //!
 //! Spend accounting feeds from the same choke-point as all metering
 //! ([`super::usage_meter::record`]) and is seeded from the central usage
@@ -45,6 +50,7 @@ pub struct GateRules {
     pub forbid_downgrade_for: Vec<String>,
     pub max_cost_usd_per_person_per_day: Option<f64>,
     pub max_cost_usd_per_project_per_month: Option<f64>,
+    pub max_requests_per_minute_per_person: Option<u32>,
 }
 
 impl GateRules {
@@ -57,6 +63,7 @@ impl GateRules {
             forbid_downgrade_for: routing.forbid_downgrade_for.clone(),
             max_cost_usd_per_person_per_day: budgets.max_cost_usd_per_person_per_day,
             max_cost_usd_per_project_per_month: budgets.max_cost_usd_per_project_per_month,
+            max_requests_per_minute_per_person: budgets.max_requests_per_minute_per_person,
         })
     }
 }
@@ -241,6 +248,48 @@ fn ledger() -> &'static Mutex<BudgetLedger> {
     LEDGER.get_or_init(|| Mutex::new(BudgetLedger::default()))
 }
 
+// ── Rate ledger (enterprise#66) ──────────────────────────────────────────────
+
+/// Accepted-request counts per person for one UTC minute. Only requests that
+/// pass every gate are counted, so a blocked burst does not extend its own
+/// block. Memory stays bounded: the map resets each minute and holds at most
+/// one entry per active person.
+#[derive(Default)]
+struct RateLedger {
+    minute_key: u64,
+    accepted: HashMap<String, u32>,
+}
+
+impl RateLedger {
+    /// Count one accepted request; `false` = the person's limit is already
+    /// exhausted for this minute (the request must be refused, not counted).
+    fn try_accept(&mut self, person: &str, limit: u32, minute: u64) -> bool {
+        if self.minute_key != minute {
+            self.minute_key = minute;
+            self.accepted.clear();
+        }
+        let count = self.accepted.entry(person.to_string()).or_default();
+        if *count >= limit {
+            return false;
+        }
+        *count += 1;
+        true
+    }
+}
+
+fn rate_ledger() -> &'static Mutex<RateLedger> {
+    static RATE: OnceLock<Mutex<RateLedger>> = OnceLock::new();
+    RATE.get_or_init(|| Mutex::new(RateLedger::default()))
+}
+
+/// Unix minute + seconds left until it rolls (the honest `Retry-After`).
+fn minute_now() -> (u64, u64) {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    (secs / 60, 60 - (secs % 60))
+}
+
 /// Records one measured turn's cost against the budget windows. Called from
 /// the metering choke-point; cheap (two hash-map bumps) and never blocking.
 pub fn record_spend(person: Option<&str>, project: Option<&str>, cost_usd: f64) {
@@ -294,23 +343,31 @@ pub enum Refusal {
         cap_usd: f64,
         spent_usd: f64,
     },
+    PersonRateLimited {
+        person: String,
+        limit_rpm: u32,
+        retry_after_secs: u64,
+    },
 }
 
 /// Blocked-request counters for `/metrics` (enterprise#34).
 static BLOCKED_MODEL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static BLOCKED_BUDGET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static BLOCKED_RATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// (model-ceiling blocks, budget blocks) since process start.
+/// (model-ceiling blocks, budget blocks, rate-limit blocks) since process start.
 #[must_use]
-pub fn blocked_counters() -> (u64, u64) {
+pub fn blocked_counters() -> (u64, u64, u64) {
     (
         BLOCKED_MODEL.load(std::sync::atomic::Ordering::Relaxed),
         BLOCKED_BUDGET.load(std::sync::atomic::Ordering::Relaxed),
+        BLOCKED_RATE.load(std::sync::atomic::Ordering::Relaxed),
     )
 }
 
-/// The full gate: model ceiling, then budgets. `Ok(())` forwards; a refusal
-/// carries everything needed to render the wire-shape error.
+/// The full gate: model ceiling, then budgets, then the per-person rate
+/// limit. `Ok(())` forwards (and counts the request against the rate window);
+/// a refusal carries everything needed to render the wire-shape error.
 pub fn enforce(
     rules: &GateRules,
     requested_model: Option<&str>,
@@ -325,34 +382,57 @@ pub fn enforce(
         });
     }
 
-    let guard = ledger()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let (Some(cap), Some(person)) = (
-        rules.max_cost_usd_per_person_per_day,
-        tags.person.as_deref(),
-    ) {
-        let spent = guard.person_day_spend(person);
-        if spent >= cap {
-            BLOCKED_BUDGET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            return Err(Refusal::PersonBudgetExceeded {
-                person: person.to_string(),
-                cap_usd: cap,
-                spent_usd: spent,
-            });
+    {
+        let guard = ledger()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let (Some(cap), Some(person)) = (
+            rules.max_cost_usd_per_person_per_day,
+            tags.person.as_deref(),
+        ) {
+            let spent = guard.person_day_spend(person);
+            if spent >= cap {
+                BLOCKED_BUDGET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Err(Refusal::PersonBudgetExceeded {
+                    person: person.to_string(),
+                    cap_usd: cap,
+                    spent_usd: spent,
+                });
+            }
+        }
+        if let (Some(cap), Some(project)) = (
+            rules.max_cost_usd_per_project_per_month,
+            tags.project.as_deref(),
+        ) {
+            let spent = guard.project_month_spend(project);
+            if spent >= cap {
+                BLOCKED_BUDGET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Err(Refusal::ProjectBudgetExceeded {
+                    project: project.to_string(),
+                    cap_usd: cap,
+                    spent_usd: spent,
+                });
+            }
         }
     }
-    if let (Some(cap), Some(project)) = (
-        rules.max_cost_usd_per_project_per_month,
-        tags.project.as_deref(),
+
+    // Last gate: rate. Counting only requests that passed everything above
+    // keeps refused traffic from extending its own block.
+    if let (Some(limit), Some(person)) = (
+        rules.max_requests_per_minute_per_person,
+        tags.person.as_deref(),
     ) {
-        let spent = guard.project_month_spend(project);
-        if spent >= cap {
-            BLOCKED_BUDGET.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            return Err(Refusal::ProjectBudgetExceeded {
-                project: project.to_string(),
-                cap_usd: cap,
-                spent_usd: spent,
+        let (minute, secs_left) = minute_now();
+        let accepted = rate_ledger()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .try_accept(person, limit, minute);
+        if !accepted {
+            BLOCKED_RATE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            return Err(Refusal::PersonRateLimited {
+                person: person.to_string(),
+                limit_rpm: limit,
+                retry_after_secs: secs_left,
             });
         }
     }
@@ -397,6 +477,16 @@ pub fn refusal_response(refusal: &Refusal, provider_label: &str) -> Response {
                  (${spent_usd:.2} of ${cap_usd:.2} spent) — resets on the 1st (UTC)"
             ),
         ),
+        Refusal::PersonRateLimited {
+            person, limit_rpm, ..
+        } => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "org_policy_rate_limited",
+            format!(
+                "request rate limit reached for '{person}' \
+                 ({limit_rpm} requests/minute by org policy) — retry shortly"
+            ),
+        ),
     };
 
     let body = if openai_shape {
@@ -429,12 +519,20 @@ pub fn refusal_response(refusal: &Refusal, provider_label: &str) -> Response {
 
     let mut response = (status, axum::Json(body)).into_response();
     if status == StatusCode::TOO_MANY_REQUESTS {
-        // Coarse, honest hint: budgets roll at window boundaries, not in 60 s;
-        // the header mainly stops naive SDK hot-retry loops.
-        response.headers_mut().insert(
-            axum::http::header::RETRY_AFTER,
-            "3600".parse().expect("static"),
-        );
+        // Rate limits roll within the minute — say exactly when. Budgets roll
+        // at window boundaries; the coarse hour mainly stops naive SDK
+        // hot-retry loops.
+        let retry_after = match refusal {
+            Refusal::PersonRateLimited {
+                retry_after_secs, ..
+            } => (*retry_after_secs).clamp(1, 60).to_string(),
+            _ => "3600".to_string(),
+        };
+        if let Ok(value) = retry_after.parse() {
+            response
+                .headers_mut()
+                .insert(axum::http::header::RETRY_AFTER, value);
+        }
     }
     response
 }
@@ -458,7 +556,15 @@ mod tests {
             forbid_downgrade_for: vec!["prod".into()],
             max_cost_usd_per_person_per_day: Some(50.0),
             max_cost_usd_per_project_per_month: Some(1000.0),
+            max_requests_per_minute_per_person: None,
         }
+    }
+
+    fn test_reset_rate_ledger() {
+        let mut guard = rate_ledger()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard = RateLedger::default();
     }
 
     #[test]
@@ -588,5 +694,89 @@ mod tests {
         let resp = refusal_response(&budget_block, "OpenAI");
         assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
         assert!(resp.headers().contains_key(axum::http::header::RETRY_AFTER));
+    }
+
+    #[test]
+    #[serial_test::serial(policy_gate_rate)]
+    fn rate_limit_blocks_after_n_accepted_requests() {
+        let mut r = rules();
+        r.max_requests_per_minute_per_person = Some(3);
+
+        // Retry once if the UTC minute rolls mid-test (rare but real): the
+        // whole sequence must land inside one window to be meaningful.
+        let err = (0..2)
+            .find_map(|_| {
+                test_reset_rate_ledger();
+                for _ in 0..3 {
+                    assert!(enforce(&r, Some("claude-x"), &tags("mara", "web")).is_ok());
+                }
+                enforce(&r, Some("claude-x"), &tags("mara", "web")).err()
+            })
+            .expect("4th request within one minute window must be refused");
+        match err {
+            Refusal::PersonRateLimited {
+                person,
+                limit_rpm,
+                retry_after_secs,
+            } => {
+                assert_eq!(person, "mara");
+                assert_eq!(limit_rpm, 3);
+                assert!((1..=60).contains(&retry_after_secs), "{retry_after_secs}");
+            }
+            other => panic!("expected rate refusal, got {other:?}"),
+        }
+        // Another person is unaffected — the window is per person.
+        assert!(enforce(&r, Some("claude-x"), &tags("erik", "web")).is_ok());
+        test_reset_rate_ledger();
+    }
+
+    #[test]
+    #[serial_test::serial(policy_gate_rate)]
+    fn rate_window_rolls_per_minute() {
+        test_reset_rate_ledger();
+        let mut l = RateLedger::default();
+        assert!(l.try_accept("mara", 2, 100));
+        assert!(l.try_accept("mara", 2, 100));
+        assert!(!l.try_accept("mara", 2, 100), "limit reached");
+        // Next minute: fresh window.
+        assert!(l.try_accept("mara", 2, 101));
+        test_reset_rate_ledger();
+    }
+
+    #[test]
+    #[serial_test::serial(policy_gate_rate)]
+    fn rate_limit_absent_or_anonymous_is_noop() {
+        test_reset_rate_ledger();
+        // No limit configured → unlimited.
+        for _ in 0..50 {
+            assert!(enforce(&rules(), Some("claude-x"), &tags("mara", "web")).is_ok());
+        }
+        // Limit set but request is anonymous → nothing to attribute.
+        let mut r = rules();
+        r.max_requests_per_minute_per_person = Some(1);
+        for _ in 0..5 {
+            assert!(enforce(&r, Some("claude-x"), &GatewayTags::default()).is_ok());
+        }
+        test_reset_rate_ledger();
+    }
+
+    #[test]
+    fn rate_refusal_wire_shape_has_honest_retry_after() {
+        let refusal = Refusal::PersonRateLimited {
+            person: "mara".into(),
+            limit_rpm: 30,
+            retry_after_secs: 17,
+        };
+        let resp = refusal_response(&refusal, "OpenAI");
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("17")
+        );
+
+        let resp = refusal_response(&refusal, "Anthropic");
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 }
