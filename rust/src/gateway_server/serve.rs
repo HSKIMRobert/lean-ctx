@@ -86,6 +86,17 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
         }
     };
 
+    // Personal usage view (enterprise#64): give `/me` on the proxy port its
+    // read path into the store. Without a store the endpoint answers 503 with
+    // an actionable error — never a broken page.
+    if let Some(pool) = pool.clone() {
+        super::user_api::install_pool(pool);
+        println!(
+            "  Me-View:   http://<gateway-host>:{}/me — personal usage, sign in with your own gateway key",
+            opts.port
+        );
+    }
+
     // -- Admin listener (dashboard + admin API + /metrics, #20/#34/#45) -----
     match (pool.clone(), admin_token()) {
         (Some(pool), Some(token)) => {
@@ -96,6 +107,7 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
                 started_at: std::time::Instant::now(),
                 providers: super::admin_status::provider_statuses(&cfg.proxy.resolve_providers()),
                 routing_enabled: cfg.proxy.routing.is_active(),
+                routing_aliases: cfg.proxy.routing.aliases.clone(),
                 reference_model: cfg.proxy.baseline.reference_model.clone(),
                 local_shadow_rate: cfg.proxy.baseline.effective_local_shadow_rate(),
             };

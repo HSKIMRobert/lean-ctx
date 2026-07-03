@@ -58,10 +58,11 @@ pub async fn security_headers(
     set(h, "cross-origin-resource-policy", "same-origin");
 
     // Token-guarded payloads must never land in shared caches; immutable
-    // static assets may (they change only with the binary).
+    // static assets may (they change only with the binary). `/me/static/` is
+    // the personal view's asset namespace on the proxy port (enterprise#64).
     let cache = if path.starts_with("/api/") || path == "/metrics" {
         "no-store"
-    } else if path.starts_with("/static/") {
+    } else if path.starts_with("/static/") || path.starts_with("/me/static/") {
         "public, max-age=3600"
     } else {
         "no-cache"

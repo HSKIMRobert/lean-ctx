@@ -56,6 +56,11 @@ pub struct StatusResponse {
     pub store: StoreStatus,
     pub providers: Vec<ProviderStatus>,
     pub routing_enabled: bool,
+    /// The curated alias catalog (requested name → `provider:model` target),
+    /// as served to clients via `GET /v1/models` (enterprise#63). Deterministic
+    /// order (BTreeMap, #498).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub routing_aliases: std::collections::BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_model: Option<String>,
     pub local_shadow_rate_per_mtok: f64,
@@ -94,6 +99,7 @@ pub async fn build_status(state: &AdminState) -> StatusResponse {
         store,
         providers: state.providers.clone(),
         routing_enabled: state.routing_enabled,
+        routing_aliases: state.routing_aliases.clone(),
         reference_model: state.reference_model.clone(),
         local_shadow_rate_per_mtok: state.local_shadow_rate,
     }
@@ -187,12 +193,20 @@ mod tests {
             },
             providers: vec![],
             routing_enabled: true,
+            routing_aliases: std::collections::BTreeMap::from([(
+                "zuehlke/fast".to_string(),
+                "foundry:deepseek-v4-flash".to_string(),
+            )]),
             reference_model: Some("claude-opus-4.5".into()),
             local_shadow_rate_per_mtok: 0.25,
         };
         let json = serde_json::to_value(&resp).expect("serializes");
         assert_eq!(json["store"]["connected"], true);
         assert_eq!(json["seats"], 800);
+        assert_eq!(
+            json["routing_aliases"]["zuehlke/fast"],
+            "foundry:deepseek-v4-flash"
+        );
         let parsed: StatusResponse = serde_json::from_value(json).expect("round-trips");
         assert_eq!(parsed, resp);
     }

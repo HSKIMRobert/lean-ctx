@@ -195,8 +195,13 @@ fn render_config(opts: &InitOptions) -> String {
          # api_key_env = \"FOUNDRY_API_KEY\"\n\
          \n\
          # Active routing (optional): aliases + tier targets, see docs/reference/05-advanced.md.\n\
+         # Aliases are your org's model namespace — clients discover them via\n\
+         # GET /v1/models on the proxy port and select them by name in the IDE:\n\
          # [proxy.routing]\n\
-         # enabled = true\n",
+         # enabled = true\n\
+         # [proxy.routing.aliases]\n\
+         # \"acme/fast\" = \"foundry:gpt-4o-mini\"      # org name -> provider:model\n\
+         # \"acme/local\" = \"local:llama3.3\"          # local target (shadow rate)\n",
     );
     out
 }
@@ -298,6 +303,13 @@ Point clients at the proxy:
 ```bash
 export ANTHROPIC_BASE_URL=http://<host>:{proxy_port}/anthropic
 export ANTHROPIC_AUTH_TOKEN=<the person's gk-… key>
+```
+
+Model catalog and personal view (each person uses their own key):
+
+```bash
+curl -s -H 'Authorization: Bearer <gk-… key>' http://<host>:{proxy_port}/v1/models   # org model aliases
+open http://<host>:{proxy_port}/me                                                   # personal usage dashboard
 ```
 
 ## Files

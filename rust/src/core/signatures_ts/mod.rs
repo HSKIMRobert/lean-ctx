@@ -1037,7 +1037,7 @@ library SafeMath {
 
     #[test]
     fn test_powershell_signatures() {
-        let src = r#"
+        let src = r"
 function Get-CargoBinDir {
     param([string]$Path)
     return $Path
@@ -1057,7 +1057,7 @@ enum BuildKind {
     Debug
     Release
 }
-"#;
+";
         let sigs = extract_signatures_ts(src, "ps1").unwrap();
         let names: Vec<&str> = sigs.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"Get-CargoBinDir"), "got {names:?}");

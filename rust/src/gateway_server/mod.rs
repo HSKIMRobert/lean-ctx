@@ -25,3 +25,4 @@ pub mod report;
 pub mod security;
 pub mod serve;
 pub mod store;
+pub mod user_api;

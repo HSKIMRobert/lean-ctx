@@ -90,6 +90,9 @@ pub struct AdminState {
     pub providers: Vec<super::admin_status::ProviderStatus>,
     /// `[proxy.routing].enabled`.
     pub routing_enabled: bool,
+    /// `[proxy.routing].aliases` — the curated model catalog served as
+    /// `GET /v1/models` on the proxy port (enterprise#63).
+    pub routing_aliases: std::collections::BTreeMap<String, String>,
     /// `[proxy.baseline].reference_model`.
     pub reference_model: Option<String>,
     /// Effective local shadow rate (USD per MTok).

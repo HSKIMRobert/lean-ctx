@@ -86,6 +86,11 @@ default = [
   # default like team-server so the documented pilot path works with the
   # standard binary (Local-Free Invariant — free, no license gate).
   "gateway-server",
+  # Cross-shape routing Anthropic→OpenAI (enterprise#16): org model aliases
+  # (`acme/fast` → Foundry/vLLM/Ollama) must work from Claude-shaped clients
+  # with the shipped binary, so the pilot path needs no custom build
+  # (enterprise#63; Local-Free Invariant — compile-gated only, no license gate).
+  "shape-xlat",
   "secure-update",
   "jemalloc",
   # Remote dense backends ship in release binaries so LEANCTX_QDRANT_URL /

@@ -106,8 +106,9 @@ pub async fn timeseries(
 }
 
 /// Produces one point per UTC day in `[from, to]`, taking measured values
-/// where present and zeros elsewhere. Pure (unit-tested).
-fn fill_gaps(
+/// where present and zeros elsewhere. Pure (unit-tested). Shared with the
+/// personal view (`user_api`), which serves the same gapless-series contract.
+pub(super) fn fill_gaps(
     measured: &[TimeseriesPoint],
     from: chrono::DateTime<chrono::Utc>,
     to: chrono::DateTime<chrono::Utc>,

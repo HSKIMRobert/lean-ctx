@@ -181,7 +181,10 @@ function renderHealth() {
   parts.push(s.store.dropped_events > 0
     ? pill('st-warn', 'dropped', `${num(s.store.dropped_events)} events (fail-open)`)
     : pill('st-ok', 'dropped', '0'));
-  parts.push(s.routing_enabled ? pill('st-ok', 'routing', 'active') : pill('st-warn', 'routing', 'off'));
+  const aliasCount = Object.keys(s.routing_aliases || {}).length;
+  parts.push(s.routing_enabled
+    ? pill('st-ok', 'routing', aliasCount > 0 ? `active · ${aliasCount} alias${aliasCount === 1 ? '' : 'es'}` : 'active')
+    : pill('st-warn', 'routing', 'off'));
   if (s.reference_model) parts.push(pill('st-ok', 'baseline', esc(s.reference_model)));
   for (const p of s.providers) {
     const st = !p.injects_credential ? 'st-ok' : (p.credential_present ? 'st-ok' : 'st-err');
