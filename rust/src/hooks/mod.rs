@@ -547,15 +547,17 @@ Full rules: {PROJECT_LEAN_CTX_MD} (open on demand — do not auto-load).\n\
 
     let existing = std::fs::read_to_string(&agents_md).unwrap_or_default();
 
-    if existing.contains("CLI-first Token Optimization for Pi")
-        && !existing.contains(AGENTS_BLOCK_START)
-    {
+    // Marker checks are line-based (GL #1158): a prose mention of the marker
+    // (as this repo's own AGENTS.md carries) must not trigger block surgery.
+    let has_block = crate::marked_block::contains_marker_line(&existing, AGENTS_BLOCK_START);
+
+    if existing.contains("CLI-first Token Optimization for Pi") && !has_block {
         let content = format!("# Agent Instructions\n\n{block}");
         write_file(&agents_md, &content);
         return;
     }
 
-    if existing.contains(AGENTS_BLOCK_START) {
+    if has_block {
         let updated = crate::marked_block::replace_marked_block(
             &existing,
             AGENTS_BLOCK_START,

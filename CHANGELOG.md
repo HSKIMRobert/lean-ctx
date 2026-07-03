@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Marked-block surgery no longer eats user content when a marker is quoted
+  in prose (GL #1158).** `marked_block` (and the Claude/CodeBuddy
+  `remove_block` twin) located `<!-- lean-ctx -->` markers via substring
+  search, so a documentation sentence like ``(see the `<!-- lean-ctx -->`
+  block below)`` anchored the block replacement at the prose mention and
+  silently deleted everything down to the real end marker — live-reproduced
+  on this repo's own AGENTS.md, where a session-start heal wiped ~75 lines
+  (Development Workflow, Session Continuity, Provider Pipeline, Quality Bar).
+  Markers now match only as whole (trimmed) lines — the exact shape every
+  writer emits — and the end marker is searched strictly after the start
+  line, so stray end markers above the block can't create bogus spans.
+  All upsert/replace/remove trigger checks (`hooks/mod.rs`,
+  `hooks/support.rs`, `rules_dedup`) use the same line-based predicate;
+  prose mentions are now invisible to the block machinery. Regression tests
+  cover the exact live-repro shape.
+
 ### Added
 - **Anchored editing end-to-end — `ctx_patch` becomes the first-class edit path
   (#1008, "Edit Loop v1").** The anchored editor now closes the loop the rules
@@ -44,6 +61,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
     anchored 10/10 vs minimal str_replace 5/10 (recovering to 10/10 only by
     paying extra recalled context), and ~41% fewer argument output tokens on
     identical successful fixes (tiny-span exceptions reported honestly).
+- **Hook-aware Cursor guidance — the honest profile (GL #1153–#1157).** On
+  hosts whose installed lean-ctx hooks already compress the native tools
+  (Cursor: PreToolUse `rewrite` covers Shell, `redirect` covers Read/Grep),
+  the injected `~/.cursor/rules/lean-ctx.mdc` now carries a new
+  `HookCovered` profile instead of the full mapping: it states that native
+  Shell/Read/Grep are compressed transparently (using them is fine) and
+  advertises only the capabilities with no native equivalent (`ctx_compose`,
+  `ctx_symbol`/`ctx_callgraph`, `ctx_semantic_search`,
+  `ctx_knowledge`/`ctx_session`, `ctx_expand`). Rationale: Cursor's harness
+  makes native tools first-class, so a "NEVER use native" rule there is
+  unenforceable and only produces instruction dissonance — the model follows
+  neither rulebook consistently. The MCP `initialize` anchor for covered
+  Cursor sessions is reworded the same way. Detection is conservative
+  (both PreToolUse entries must be present; invalid/missing `hooks.json`
+  falls back to the full `Dedicated` mapping), the byte-exact drift check
+  re-syncs the profile when hooks are installed or removed later, and the
+  Cursor hook installer now honours `shadow_mode`/`compression_level`
+  instead of hardcoding them (GL #1156). ~55% smaller Cursor rules payload
+  on hook-covered installs, billed every session.
 - **Guard-safe re-read dedup for Claude Code / CodeBuddy (GL #1140, follow-up
   to #637).** `read_redirect = auto` keeps the read-before-write guard intact
   by letting native Read run on the real path — which also forfeited the Read
@@ -83,6 +119,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   (C2 — Managed) is surfaced from the README security section and Journey 13.
 
 ### Fixed
+- **`dev-install` honours redirected cargo target dirs (GH #671).** Both
+  `rust/dev-install.sh` and the `lean-ctx dev-install` command located the
+  built binary at a hardcoded `target/release/…`; with `CARGO_TARGET_DIR` or a
+  `~/.cargo/config.toml` `[build] target-dir` override (one shared build cache
+  across worktrees) they silently symlinked/installed a stale or missing
+  binary. The target dir is now resolved via `cargo metadata` (env, config
+  files and workspace settings all honoured) with a `./target` fallback, the
+  shell script fails loudly when the binary is absent instead of planting a
+  dead symlink on PATH, the Rust path gained the same resolution plus the
+  Windows `.exe` suffix, and `tests/pre_release_check.sh` follows suit.
+  Follow-up: `install.sh`'s source-build path (served at
+  `leanctx.com/install.sh`) had the same hardcode and could link a stale
+  binary from an earlier default-layout build — it now resolves via
+  `cargo metadata` identically and names the override in its error hint.
+  Thanks [@getappz](https://github.com/getappz) for the report and the initial
+  fix (#672)!
 - **pi-lean-ctx ships with zero runtime npm dependencies (GH #670).** pi
   installs every package into one shared npm prefix and re-reifies the whole
   tree on each `pi install`/`pi remove`; an interrupted rewrite (Windows

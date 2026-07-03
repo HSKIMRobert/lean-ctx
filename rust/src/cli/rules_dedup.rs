@@ -53,9 +53,16 @@ fn is_owned_rules_file(content: &str) -> bool {
     starts_with_header && content.contains("<!-- version:")
 }
 
+/// Line-based marker pair detection (GL #1158): prose mentions of a marker
+/// must not count as a block.
+fn has_marker_pair(content: &str, start: &str, end: &str) -> bool {
+    crate::marked_block::contains_marker_line(content, start)
+        && crate::marked_block::contains_marker_line(content, end)
+}
+
 fn has_marked_block(content: &str) -> bool {
-    (content.contains(BLOCK_START) && content.contains(BLOCK_END))
-        || (content.contains(COMPRESSION_BLOCK_START) && content.contains(COMPRESSION_BLOCK_END))
+    has_marker_pair(content, BLOCK_START, BLOCK_END)
+        || has_marker_pair(content, COMPRESSION_BLOCK_START, COMPRESSION_BLOCK_END)
 }
 
 /// Strips every lean-ctx-marked block (rules + compression) from `content`.
@@ -64,9 +71,9 @@ pub(crate) fn strip_lean_ctx_blocks(content: &str) -> String {
     // Repeat until stable — a file can contain both block kinds (and in
     // pathological cases several of the same kind).
     loop {
-        let next = if out.contains(BLOCK_START) && out.contains(BLOCK_END) {
+        let next = if has_marker_pair(&out, BLOCK_START, BLOCK_END) {
             crate::marked_block::remove_content(&out, BLOCK_START, BLOCK_END)
-        } else if out.contains(COMPRESSION_BLOCK_START) && out.contains(COMPRESSION_BLOCK_END) {
+        } else if has_marker_pair(&out, COMPRESSION_BLOCK_START, COMPRESSION_BLOCK_END) {
             crate::marked_block::remove_content(
                 &out,
                 COMPRESSION_BLOCK_START,
