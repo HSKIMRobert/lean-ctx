@@ -450,18 +450,19 @@ mod tests {
 
     #[test]
     fn pool_size_env_is_clamped_and_falls_back() {
-        // Serial env mutation — no parallel test in this file touches the var.
-        unsafe { std::env::remove_var(POOL_MAX_SIZE_ENV) };
+        // Env mutation is serialized process-wide through test_env_lock().
+        let _guard = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var(POOL_MAX_SIZE_ENV);
         assert_eq!(pool_max_size(), 8, "unset -> default");
-        unsafe { std::env::set_var(POOL_MAX_SIZE_ENV, "24") };
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "24");
         assert_eq!(pool_max_size(), 24, "explicit value wins");
-        unsafe { std::env::set_var(POOL_MAX_SIZE_ENV, "0") };
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "0");
         assert_eq!(pool_max_size(), 2, "clamped low");
-        unsafe { std::env::set_var(POOL_MAX_SIZE_ENV, "9999") };
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "9999");
         assert_eq!(pool_max_size(), 64, "clamped high");
-        unsafe { std::env::set_var(POOL_MAX_SIZE_ENV, "not-a-number") };
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "not-a-number");
         assert_eq!(pool_max_size(), 8, "garbage -> default, never panic");
-        unsafe { std::env::remove_var(POOL_MAX_SIZE_ENV) };
+        crate::test_env::remove_var(POOL_MAX_SIZE_ENV);
     }
 
     #[test]
