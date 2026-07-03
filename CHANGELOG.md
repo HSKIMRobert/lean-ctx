@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- **Marked-block surgery no longer eats user content when a marker is quoted
+  in prose (GL #1158).** `marked_block` (and the Claude/CodeBuddy
+  `remove_block` twin) located `<!-- lean-ctx -->` markers via substring
+  search, so a documentation sentence like ``(see the `<!-- lean-ctx -->`
+  block below)`` anchored the block replacement at the prose mention and
+  silently deleted everything down to the real end marker — live-reproduced
+  on this repo's own AGENTS.md, where a session-start heal wiped ~75 lines
+  (Development Workflow, Session Continuity, Provider Pipeline, Quality Bar).
+  Markers now match only as whole (trimmed) lines — the exact shape every
+  writer emits — and the end marker is searched strictly after the start
+  line, so stray end markers above the block can't create bogus spans.
+  All upsert/replace/remove trigger checks (`hooks/mod.rs`,
+  `hooks/support.rs`, `rules_dedup`) use the same line-based predicate;
+  prose mentions are now invisible to the block machinery. Regression tests
+  cover the exact live-repro shape.
+
 ### Added
 - **Hook-aware Cursor guidance — the honest profile (GL #1153–#1157).** On
   hosts whose installed lean-ctx hooks already compress the native tools
