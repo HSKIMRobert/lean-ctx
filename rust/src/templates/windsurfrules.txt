@@ -9,7 +9,7 @@ lean-ctx is configured as an MCP server. Always use lean-ctx MCP tools instead o
 - Search code → `ctx_search(pattern, path)` instead of built-in Grep
 - List directories → `ctx_tree(path, depth)` instead of ls/find
 
-ctx_read modes: auto, full, map, signatures, diff, task, reference, aggressive, entropy, lines:N-M.
+ctx_read modes: auto, anchored (edit via ctx_patch), full, map, signatures, diff, task, reference, aggressive, entropy, lines:N-M.
 
 Preferred workflow control: `ctx_workflow` (state + evidence + tool gating).
 

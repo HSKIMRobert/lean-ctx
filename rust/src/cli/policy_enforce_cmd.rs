@@ -185,14 +185,12 @@ pub(crate) fn run_enforce(
 
     // 3. Egress / output DLP on write & action payloads, BEFORE dispatch — so a
     //    forbidden write never touches disk and a forbidden command never runs.
+    //    Payload mapping (ctx_edit/ctx_patch/ctx_shell/ctx_execute) is shared
+    //    with the server gate via `core::egress::write_payload`.
     if let Some(active) = runtime::active()
         && active.egress.is_active()
     {
-        let payload = match tool {
-            "ctx_edit" => get_str(map, "new_string"),
-            "ctx_shell" | "ctx_execute" => get_str(map, "command"),
-            _ => None,
-        };
+        let payload = crate::core::egress::write_payload(tool, Some(map)).map(|(p, _)| p);
         if let Some(payload) = payload {
             if let Some(reason) = active.egress.check_content(&payload, &active.redaction) {
                 policy_guard::audit_egress(tool, &reason);
@@ -253,12 +251,6 @@ pub(crate) fn run_enforce(
         redactions,
         filtered,
     }
-}
-
-fn get_str(map: &Map<String, Value>, key: &str) -> Option<String> {
-    map.get(key)
-        .and_then(Value::as_str)
-        .map(std::string::ToString::to_string)
 }
 
 fn print_text(tool: &str, outcome: &EnforceOutcome) {

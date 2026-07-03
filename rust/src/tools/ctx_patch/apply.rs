@@ -163,6 +163,14 @@ pub(crate) fn resolve_ops(
                     hi: *end_line,
                 });
             }
+            // Handled by `run_io` before the preimage read; reaching the line
+            // model with a Create means it was mixed into a batch.
+            AnchorOp::Create { .. } => {
+                return Err(ResolveError::Invalid(
+                    "create cannot be combined with anchored ops (new files have no preimage)"
+                        .to_string(),
+                ));
+            }
             AnchorOp::InsertAfter {
                 line,
                 hash,

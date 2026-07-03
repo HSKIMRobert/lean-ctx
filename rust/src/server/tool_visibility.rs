@@ -5,8 +5,9 @@
 //! (lazy-core vs profile-authoritative vs full registry) and the per-call gates
 //! (role, workflow), then defers to these helpers for the stable rules:
 //!   * Internal/meta tools are never advertised.
-//!   * The active profile, `disabled_tools`, and the Zed `ctx_edit` quirk filter
-//!     the candidates.
+//!   * The active profile, `disabled_tools`, and the per-client
+//!     [`ClientQuirks`] (Zed `ctx_edit`, native-editor `ctx_patch`) filter the
+//!     candidates.
 //!   * The universal invoker (`ctx_call`) is force-advertised in non-full mode so
 //!     tools hidden by lazy/profile filtering stay reachable.
 
@@ -57,6 +58,53 @@ pub fn explicit_profile(cfg: &crate::core::config::Config) -> bool {
         || std::env::var("LEAN_CTX_TOOL_PROFILE").is_ok()
 }
 
+/// Client-specific advertising quirks, resolved once per `tools/list` from the
+/// MCP `clientInfo` name and the candidate set.
+///
+/// [`ClientQuirks::default`] (no quirks) is the "default client" used by
+/// offline measurement — the worst-case surface, nothing hidden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ClientQuirks {
+    /// Zed cannot handle `ctx_edit` (schema quirk) — hide it there.
+    pub hide_ctx_edit: bool,
+    /// Lazy-core only (#1008): the client ships a reliable native str-replace
+    /// editor, so the *default* surface skips `ctx_patch` — those sessions pay
+    /// zero extra schema tokens. A pinned profile is the user's explicit,
+    /// client-agnostic choice and always advertises its full set.
+    pub hide_ctx_patch: bool,
+}
+
+impl ClientQuirks {
+    /// Resolve the quirks for one `tools/list` answer.
+    #[must_use]
+    pub fn resolve(client_name: &str, candidate: CandidateSet) -> Self {
+        let lower = client_name.to_lowercase();
+        Self {
+            hide_ctx_edit: lower.contains("zed"),
+            hide_ctx_patch: candidate == CandidateSet::LazyCore && has_native_editor(&lower),
+        }
+    }
+}
+
+/// Clients whose built-in edit tool is reliable enough that the default
+/// (lazy-core) surface need not advertise `ctx_patch`: Cursor, Zed,
+/// Windsurf/Codeium, Antigravity, OpenCode. Everyone else gets the anchored
+/// editor — Claude Code (the hook read-redirect breaks its native
+/// read-before-write guard, #637), CodeBuddy, pi/SDK harnesses and
+/// unknown/headless clients that have no native editor at all.
+fn has_native_editor(lower_client_name: &str) -> bool {
+    [
+        "cursor",
+        "zed",
+        "windsurf",
+        "codeium",
+        "antigravity",
+        "opencode",
+    ]
+    .iter()
+    .any(|c| lower_client_name.contains(c))
+}
+
 /// Decides whether a tool name should appear in `tools/list`.
 ///
 /// `role_allows` is supplied by the caller (it depends on the active role, which
@@ -67,7 +115,7 @@ pub fn is_tool_visible(
     name: &str,
     profile: &ToolProfile,
     disabled: &[String],
-    is_zed: bool,
+    quirks: ClientQuirks,
     role_allows: bool,
 ) -> bool {
     if categorize_tool(name) == ToolCategory::Internal {
@@ -84,17 +132,22 @@ pub fn is_tool_visible(
     if disabled.iter().any(|d| d == name) {
         return false;
     }
-    if is_zed && name == "ctx_edit" {
+    if quirks.hide_ctx_edit && name == "ctx_edit" {
+        return false;
+    }
+    if quirks.hide_ctx_patch && name == "ctx_patch" {
         return false;
     }
     role_allows
 }
 
 /// Computes the tool set this install advertises to a default client
-/// (no Zed quirk, no role restriction, no workflow gate, static tool list),
+/// (no client quirks, no role restriction, no workflow gate, static tool list),
 /// including the live description compression. Offline counterpart of the
 /// `tools/list` handler for `doctor overhead` / `ContextOverhead::measure` —
 /// kept next to the pure gates so measurement cannot drift from policy.
+/// "No quirks" is the worst case: a client without a native editor sees
+/// `ctx_patch` too, so the reported overhead never understates.
 #[must_use]
 pub fn advertised_tool_defs_default() -> Vec<rmcp::model::Tool> {
     let cfg = crate::core::config::Config::load();
@@ -123,7 +176,15 @@ pub fn advertised_tool_defs_default() -> Vec<rmcp::model::Tool> {
 
     let mut tools: Vec<_> = pool
         .into_iter()
-        .filter(|t| is_tool_visible(t.name.as_ref(), &profile, &disabled, false, true))
+        .filter(|t| {
+            is_tool_visible(
+                t.name.as_ref(),
+                &profile,
+                &disabled,
+                ClientQuirks::default(),
+                true,
+            )
+        })
         .collect();
 
     let already = tools.iter().any(|t| t.name.as_ref() == INVOKER);
@@ -188,13 +249,24 @@ pub fn needs_invoker(
 mod tests {
     use super::*;
 
+    /// No client quirks — the default/measurement client.
+    fn no_quirks() -> ClientQuirks {
+        ClientQuirks::default()
+    }
+
     #[test]
     fn internal_tools_never_visible_even_in_power() {
         // Power enables everything, but Internal/meta tools must still be hidden.
         let p = ToolProfile::Power;
-        assert!(!is_tool_visible("ctx_metrics", &p, &[], false, true));
-        assert!(!is_tool_visible("ctx_cost", &p, &[], false, true));
-        assert!(!is_tool_visible("ctx_discover_tools", &p, &[], false, true));
+        assert!(!is_tool_visible("ctx_metrics", &p, &[], no_quirks(), true));
+        assert!(!is_tool_visible("ctx_cost", &p, &[], no_quirks(), true));
+        assert!(!is_tool_visible(
+            "ctx_discover_tools",
+            &p,
+            &[],
+            no_quirks(),
+            true
+        ));
     }
 
     #[test]
@@ -202,8 +274,20 @@ mod tests {
         // #509: folded read-cluster aliases are hidden from tools/list in every
         // mode (Power enables everything) — but stay registered + callable.
         let p = ToolProfile::Power;
-        assert!(!is_tool_visible("ctx_smart_read", &p, &[], false, true));
-        assert!(!is_tool_visible("ctx_multi_read", &p, &[], false, true));
+        assert!(!is_tool_visible(
+            "ctx_smart_read",
+            &p,
+            &[],
+            no_quirks(),
+            true
+        ));
+        assert!(!is_tool_visible(
+            "ctx_multi_read",
+            &p,
+            &[],
+            no_quirks(),
+            true
+        ));
     }
 
     #[test]
@@ -224,7 +308,7 @@ mod tests {
                 "{name} must stay registered (callable) even though hidden"
             );
             assert!(
-                !is_tool_visible(name, &ToolProfile::Power, &[], false, true),
+                !is_tool_visible(name, &ToolProfile::Power, &[], no_quirks(), true),
                 "{name} must be hidden from tools/list"
             );
         }
@@ -236,7 +320,7 @@ mod tests {
             "ctx_read",
             &ToolProfile::Power,
             &[],
-            false,
+            no_quirks(),
             true
         ));
     }
@@ -247,10 +331,12 @@ mod tests {
         // `core ∩ standard` intersection. Profile-authoritative resolution must
         // surface them.
         let p = ToolProfile::Standard;
-        assert!(is_tool_visible("ctx_execute", &p, &[], false, true));
-        assert!(is_tool_visible("ctx_explore", &p, &[], false, true));
-        assert!(is_tool_visible("ctx_callgraph", &p, &[], false, true));
-        assert!(is_tool_visible("ctx_graph", &p, &[], false, true));
+        assert!(is_tool_visible("ctx_execute", &p, &[], no_quirks(), true));
+        assert!(is_tool_visible("ctx_explore", &p, &[], no_quirks(), true));
+        assert!(is_tool_visible("ctx_callgraph", &p, &[], no_quirks(), true));
+        assert!(is_tool_visible("ctx_graph", &p, &[], no_quirks(), true));
+        // #1008: anchored editing ships with the pinned Standard profile.
+        assert!(is_tool_visible("ctx_patch", &p, &[], no_quirks(), true));
     }
 
     #[test]
@@ -262,18 +348,24 @@ mod tests {
             "ctx_semantic_search",
             &p,
             &[],
-            false,
+            no_quirks(),
             true
         ));
-        assert!(!is_tool_visible("ctx_symbol", &p, &[], false, true));
-        assert!(is_tool_visible("ctx_search", &p, &[], false, true));
+        assert!(!is_tool_visible("ctx_symbol", &p, &[], no_quirks(), true));
+        assert!(is_tool_visible("ctx_search", &p, &[], no_quirks(), true));
     }
 
     #[test]
     fn minimal_hides_non_minimal_tools() {
         let p = ToolProfile::Minimal;
-        assert!(is_tool_visible("ctx_read", &p, &[], false, true));
-        assert!(!is_tool_visible("ctx_architecture", &p, &[], false, true));
+        assert!(is_tool_visible("ctx_read", &p, &[], no_quirks(), true));
+        assert!(!is_tool_visible(
+            "ctx_architecture",
+            &p,
+            &[],
+            no_quirks(),
+            true
+        ));
     }
 
     #[test]
@@ -283,7 +375,7 @@ mod tests {
             "ctx_read",
             &ToolProfile::Power,
             &disabled,
-            false,
+            no_quirks(),
             true
         ));
     }
@@ -291,8 +383,59 @@ mod tests {
     #[test]
     fn zed_hides_ctx_edit_only() {
         let p = ToolProfile::Power;
-        assert!(!is_tool_visible("ctx_edit", &p, &[], true, true));
-        assert!(is_tool_visible("ctx_read", &p, &[], true, true));
+        let zed = ClientQuirks {
+            hide_ctx_edit: true,
+            hide_ctx_patch: false,
+        };
+        assert!(!is_tool_visible("ctx_edit", &p, &[], zed, true));
+        assert!(is_tool_visible("ctx_read", &p, &[], zed, true));
+    }
+
+    #[test]
+    fn native_editor_quirk_hides_ctx_patch_only() {
+        // #1008: a native-editor client in the lazy default drops ctx_patch —
+        // and nothing else.
+        let p = ToolProfile::Power;
+        let native = ClientQuirks {
+            hide_ctx_edit: false,
+            hide_ctx_patch: true,
+        };
+        assert!(!is_tool_visible("ctx_patch", &p, &[], native, true));
+        assert!(is_tool_visible("ctx_read", &p, &[], native, true));
+        assert!(is_tool_visible("ctx_edit", &p, &[], native, true));
+    }
+
+    #[test]
+    fn quirks_resolution_is_client_and_candidate_aware() {
+        // Native-editor clients skip ctx_patch in the lazy default…
+        for client in ["Cursor", "zed 0.164", "Windsurf", "antigravity", "opencode"] {
+            let q = ClientQuirks::resolve(client, CandidateSet::LazyCore);
+            assert!(q.hide_ctx_patch, "{client}: lazy core must hide ctx_patch");
+        }
+        // …clients without a reliable native editor get it (#637: Claude Code's
+        // read-before-write guard breaks under the read-redirect hook).
+        for client in ["claude-code", "CodeBuddy", "pi", "", "my-sdk-harness"] {
+            let q = ClientQuirks::resolve(client, CandidateSet::LazyCore);
+            assert!(
+                !q.hide_ctx_patch,
+                "{client:?}: lazy core must show ctx_patch"
+            );
+        }
+        // A pinned profile is client-agnostic — never hide ctx_patch there.
+        for candidate in [
+            CandidateSet::ProfileAuthoritative,
+            CandidateSet::Full,
+            CandidateSet::Unified,
+        ] {
+            let q = ClientQuirks::resolve("Cursor", candidate);
+            assert!(
+                !q.hide_ctx_patch,
+                "{candidate:?}: pinned/full surfaces are client-agnostic"
+            );
+        }
+        // The Zed ctx_edit quirk is independent of the candidate set.
+        assert!(ClientQuirks::resolve("zed", CandidateSet::Full).hide_ctx_edit);
+        assert!(!ClientQuirks::resolve("Cursor", CandidateSet::Full).hide_ctx_edit);
     }
 
     #[test]
@@ -301,7 +444,7 @@ mod tests {
             "ctx_read",
             &ToolProfile::Power,
             &[],
-            false,
+            no_quirks(),
             false
         ));
     }
@@ -388,10 +531,17 @@ mod tests {
     /// → budgets lowered 360→300 per tool, 2340→1780 total. What remains is
     /// functional teaching (ctx_read mode enum, ctx_search action routing,
     /// compose-first) — cut below this only with A/B efficacy evidence.
+    ///
+    /// Bumped to 2050 total for #1008: `ctx_patch` (anchored editing, ~263 tok
+    /// after its schema diet) joined the lazy core so the injected "edit after
+    /// reading → ctx_patch" rule points at an advertised tool. This is the
+    /// worst case (no client quirks): clients with a reliable native editor
+    /// (Cursor, Zed, Windsurf, …) skip `ctx_patch` via `ClientQuirks` and stay
+    /// at the previous ~1685-tok surface.
     #[test]
     fn core_tool_surface_stays_within_budget() {
         const PER_TOOL_BUDGET: usize = 300;
-        const TOTAL_BUDGET: usize = 1780;
+        const TOTAL_BUDGET: usize = 2050;
 
         let _guard = crate::core::data_dir::isolated_data_dir();
         let core = crate::tool_defs::core_tool_names();

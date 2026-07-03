@@ -808,10 +808,11 @@ export default async function (pi: ExtensionAPI) {
       }
       lines.push(`Mode: ${PI_MODE}`);
       // The bridge advertises whatever surface this profile requests from the
-      // engine. In the lean default, editing tools live behind ctx_call — point
-      // users at the power switch so nothing looks "missing".
+      // engine. The lean default includes the anchored editor ctx_patch (#1008);
+      // everything else lives behind ctx_call — point users at the power switch
+      // so nothing looks "missing".
       const profileHint = PI_CONFIG.toolProfile === "lean"
-        ? ' (lazy core + ctx_call gateway — set "toolProfile": "power" for ctx_edit/ctx_patch & the full surface)'
+        ? ' (lazy core incl. ctx_patch + ctx_call gateway — set "toolProfile": "power" for ctx_edit & the full surface)'
         : "";
       lines.push(`Tool profile: ${PI_CONFIG.toolProfile}${profileHint}`);
       if (!enableMcpBridge) {

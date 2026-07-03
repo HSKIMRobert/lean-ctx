@@ -173,7 +173,21 @@ fn mcp_handshake(bin: &str, env: &TestEnv, client_name: &str) -> (String, Vec<St
 }
 
 fn assert_lazy_core_surface(tools: &[String], client: &str) {
+    // The lazy core is client-aware for editing (#1008): clients with a
+    // reliable native editor don't get ctx_patch, everyone else does. Mirror
+    // the production rule instead of hardcoding per-client expectations here.
+    let quirks = lean_ctx::server::tool_visibility::ClientQuirks::resolve(
+        client,
+        lean_ctx::server::tool_visibility::CandidateSet::LazyCore,
+    );
     for expected in lean_ctx::tool_defs::CORE_TOOL_NAMES {
+        if *expected == "ctx_patch" && quirks.hide_ctx_patch {
+            assert!(
+                !tools.iter().any(|t| t == expected),
+                "{client}: ctx_patch must be hidden for native-editor clients (#1008): {tools:?}"
+            );
+            continue;
+        }
         assert!(
             tools.iter().any(|t| t == expected),
             "{client}: lazy core tool {expected} missing from tools/list: {tools:?}"

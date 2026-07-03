@@ -129,7 +129,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key(
             "bool",
             serde_json::json!(cfg.prefer_native_editor),
-            "Disable lean-ctx edit tools (ctx_edit) so the host's native editor handles edits (#454)",
+            "Disable lean-ctx edit tools (ctx_edit, ctx_patch) so the host's native editor handles edits (#454)",
         ),
     );
     root.insert(
@@ -169,7 +169,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             key_enum(
                 &["minimal", "standard", "power"],
                 cfg.tool_profile.as_deref().unwrap_or(""),
-                "Tool visibility profile: minimal (5 tools), standard (15), power (all). Override via LEAN_CTX_TOOL_PROFILE",
+                "Tool visibility profile: minimal (5 tools), standard (16), power (all). Override via LEAN_CTX_TOOL_PROFILE",
             ),
         );
     root.insert(

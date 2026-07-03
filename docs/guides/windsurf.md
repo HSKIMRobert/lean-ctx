@@ -64,7 +64,7 @@ lean-ctx creates `~/.codeium/windsurf/rules/lean-ctx.md` with dedicated rules:
 <!-- lean-ctx-rules -->
 
 ## Mode Selection
-1. Editing the file? → `full` first, then `diff` for re-reads
+1. Editing the file? → `anchored` first (full text + anchors), then `diff` for re-reads
 2. Need API surface only? → `map` or `signatures`
 3. Large file, context only? → `entropy` or `aggressive`
 4. Specific lines? → `lines:N-M`
@@ -74,8 +74,9 @@ lean-ctx creates `~/.codeium/windsurf/rules/lean-ctx.md` with dedicated rules:
 Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File Editing
-Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+Use native Edit/StrReplace if available. Write, Delete, Glob → use normally.
+If native Edit is unavailable, use the anchored editor: `ctx_read(mode="anchored")` →
+`ctx_patch` (reachable via `ctx_call` in the default profile).
 
 ## Proactive (use without being asked)
 - `ctx_overview(task)` at session start

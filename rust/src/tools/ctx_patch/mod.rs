@@ -13,6 +13,7 @@
 
 mod anchors;
 mod apply;
+mod metering;
 mod output;
 mod symbol;
 #[cfg(test)]
@@ -93,6 +94,15 @@ pub fn run_io(params: &PatchParams, _last_mode: &str) -> (String, CacheEffect) {
     let path = Path::new(file_path);
     let cap = crate::core::limits::max_read_bytes();
 
+    // `create` short-circuits the anchored pipeline: no preimage exists to
+    // anchor against, so it must be the only op and the file must be new.
+    if let Some(content) = single_create_op(&params.ops) {
+        return match content {
+            Ok(text) => handle_create(params, path, text),
+            Err(e) => (e, CacheEffect::None),
+        };
+    }
+
     let pre = match read_preimage(path, cap, params.allow_lossy_utf8) {
         Ok(p) => p,
         Err(e) => {
@@ -128,6 +138,9 @@ pub fn run_io(params: &PatchParams, _last_mode: &str) -> (String, CacheEffect) {
     let edits = match apply::resolve_ops(&lines, &params.ops) {
         Ok(e) => e,
         Err(apply::ResolveError::Conflict(misses)) => {
+            // Edit-efficiency channel (#1008): a stale-anchor CONFLICT is one
+            // extra self-heal round-trip — count it, never print it (#498).
+            crate::core::edit_metering::record_anchored_conflict();
             return (
                 output::render_conflict(file_path, &lines, &misses),
                 CacheEffect::None,
@@ -137,6 +150,10 @@ pub fn run_io(params: &PatchParams, _last_mode: &str) -> (String, CacheEffect) {
             return (format!("ERROR: {msg}"), CacheEffect::None);
         }
     };
+
+    // Preimage math for the edit-efficiency channel — must run before the
+    // splice consumes the old span text.
+    let avoided_tokens = metering::avoided_output_tokens(&lines, &params.ops);
 
     let n_edits = edits.len();
     let lines_before = lines.len();
@@ -195,6 +212,9 @@ pub fn run_io(params: &PatchParams, _last_mode: &str) -> (String, CacheEffect) {
         bt.record_edit(file_path);
     }
 
+    // Edit-efficiency channel (#1008): the span the model did NOT re-emit.
+    crate::core::edit_metering::record_anchored_success(n_edits as u64, avoided_tokens);
+
     let mut out = render_success(
         params,
         &pre.text,
@@ -210,6 +230,80 @@ pub fn run_io(params: &PatchParams, _last_mode: &str) -> (String, CacheEffect) {
     if let Some(notice) = health_notice {
         out.push_str("\n\n");
         out.push_str(&notice);
+    }
+    (out, CacheEffect::Invalidate)
+}
+
+/// If the ops contain a `create`, return its content — or an error when it is
+/// mixed with anchored ops (a batch validates against one *existing* preimage,
+/// which a new file by definition does not have).
+fn single_create_op(ops: &[AnchorOp]) -> Option<Result<&str, String>> {
+    let create = ops.iter().find_map(|op| match op {
+        AnchorOp::Create { new_text } => Some(new_text.as_str()),
+        _ => None,
+    })?;
+    if ops.len() > 1 {
+        return Some(Err(
+            "ERROR: create cannot be batched with anchored ops — a new file has no \
+             preimage to anchor against; send create as a single op"
+                .to_string(),
+        ));
+    }
+    Some(Ok(create))
+}
+
+/// `op=create`: write a NEW file (strict — an existing file is an error, unlike
+/// `ctx_edit create=true` which overwrites). Reuses the PathJail +
+/// atomic-write boundary of the anchored path.
+fn handle_create(params: &PatchParams, path: &Path, content: &str) -> (String, CacheEffect) {
+    if path.exists() {
+        return (
+            format!(
+                "ERROR: {} already exists — create is for new files only. \
+                 Use anchored ops (ctx_read mode=\"anchored\" → set_line/replace_lines) to modify it.",
+                params.path
+            ),
+            CacheEffect::None,
+        );
+    }
+
+    // Deny before create_dir_all can materialise a directory inside a
+    // read-only root (mirrors ctx_edit's create guard, #475).
+    if let Err(e) = crate::core::pathjail::enforce_writable(path) {
+        return (format!("ERROR: {e}"), CacheEffect::None);
+    }
+
+    if let Some(parent) = path.parent()
+        && !parent.exists()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return (
+            format!("ERROR: cannot create directory {}: {e}", parent.display()),
+            CacheEffect::None,
+        );
+    }
+
+    if let Err(e) = write_atomic_bytes_with_permissions(path, content.as_bytes(), None) {
+        return (e, CacheEffect::None);
+    }
+
+    if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+        bt.record_edit(&params.path);
+    }
+
+    let lines = content.lines().count();
+    let tokens = count_tokens(content);
+    let short = output::short_name(&params.path);
+    let post_md5 = crate::core::hasher::hash_hex(content.as_bytes());
+    let mut out = format!(
+        "✓ created {short}: {lines} lines, {tokens} tok\npostimage: bytes={}, md5={post_md5}",
+        content.len()
+    );
+    if params.evidence {
+        let diff = build_diff_evidence("", content, &short, params.diff_max_lines);
+        out.push_str("\n\nevidence (diff, redacted, bounded):\n```diff\n");
+        out.push_str(&diff);
+        out.push_str("\n```");
     }
     (out, CacheEffect::Invalidate)
 }

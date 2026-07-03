@@ -98,7 +98,7 @@ To surface the **whole** registry (`ctx_edit`, `ctx_patch`, architecture/quality
 tools, …) as first-class Pi tools:
 
 ```bash
-export LEAN_CTX_PI_TOOL_PROFILE=power   # or "standard" for a balanced 15-tool set
+export LEAN_CTX_PI_TOOL_PROFILE=power   # or "standard" for a balanced 16-tool set
 ```
 
 or set `"toolProfile": "power"` in `config.json`. Values: `lean` (default) ·

@@ -70,10 +70,11 @@ const _: () = assert!(DEFAULT_BM25_PERSIST_MB >= 512);
 /// `prefer_native_editor` is set (#454) these are hidden from `list_tools` and
 /// refused at dispatch so the host's native editor handles edits instead.
 ///
-/// Deliberately narrow: only the dedicated edit tool is blocked. LSP refactor
+/// Deliberately narrow: only the dedicated edit tools are blocked — `ctx_edit`
+/// (str_replace) and `ctx_patch` (anchored, #1008). LSP refactor
 /// (`ctx_refactor`) also exposes read-only sub-actions (references/definition),
 /// so it is left available; users wanting it gone can add it to `disabled_tools`.
-pub const EDIT_TOOL_NAMES: &[&str] = &["ctx_edit"];
+pub const EDIT_TOOL_NAMES: &[&str] = &["ctx_edit", "ctx_patch"];
 
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]

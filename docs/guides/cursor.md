@@ -69,6 +69,12 @@ tools first-class and MCP tools two-step; a "NEVER use native tools" rule
 there is unenforceable and only creates instruction dissonance, while the
 hooks already bank the savings on every native call.
 
+Editing is native-first in both profiles: use Cursor's Edit/StrReplace (Write,
+Delete, Glob as normal). If native Edit is ever unavailable, the anchored
+editor covers it — `ctx_read(mode="anchored")` → `ctx_patch` (reachable via
+`ctx_call` in the default profile); `ctx_edit` (str_replace) is the legacy
+power-profile fallback.
+
 ### Step 3: Shell Hook
 
 Cursor's Agent mode has shell access. lean-ctx installs compression hooks:

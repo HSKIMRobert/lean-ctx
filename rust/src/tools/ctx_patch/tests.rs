@@ -478,6 +478,92 @@ fn syntax_gate_allows_valid_edit() {
     assert!(matches!(effect, CacheEffect::Invalidate));
 }
 
+#[test]
+fn create_writes_new_file_and_parent_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("nested/sub/new_file.rs");
+    let (text, effect) = run_io(
+        &params(
+            &target,
+            vec![AnchorOp::Create {
+                new_text: "fn hello() {}\n".to_string(),
+            }],
+        ),
+        "",
+    );
+    assert!(text.contains("✓ created"), "{text}");
+    assert!(text.contains("postimage:"), "{text}");
+    assert!(matches!(effect, CacheEffect::Invalidate));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "fn hello() {}\n");
+}
+
+#[test]
+fn create_rejects_existing_file() {
+    // Strict by design: unlike `ctx_edit create=true` (which overwrites), a
+    // ctx_patch create on an existing file is an error — modification must go
+    // through anchors so the preimage is always verified.
+    let f = make_temp("already here\n");
+    let (text, effect) = run_io(
+        &params(
+            f.path(),
+            vec![AnchorOp::Create {
+                new_text: "overwrite attempt".to_string(),
+            }],
+        ),
+        "",
+    );
+    assert!(text.contains("already exists"), "{text}");
+    assert!(matches!(effect, CacheEffect::None));
+    assert_eq!(
+        std::fs::read_to_string(f.path()).unwrap(),
+        "already here\n",
+        "create must never overwrite"
+    );
+}
+
+#[test]
+fn create_cannot_be_batched_with_anchored_ops() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("mixed.rs");
+    let (text, effect) = run_io(
+        &params(
+            &target,
+            vec![
+                AnchorOp::Create {
+                    new_text: "content".to_string(),
+                },
+                AnchorOp::SetLine {
+                    line: 1,
+                    hash: "aaaa".to_string(),
+                    new_text: "x".to_string(),
+                },
+            ],
+        ),
+        "",
+    );
+    assert!(text.contains("cannot be batched"), "{text}");
+    assert!(matches!(effect, CacheEffect::None));
+    assert!(!target.exists(), "no partial write on a rejected batch");
+}
+
+#[test]
+fn create_empty_content_makes_empty_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("empty.txt");
+    let (text, effect) = run_io(
+        &params(
+            &target,
+            vec![AnchorOp::Create {
+                new_text: String::new(),
+            }],
+        ),
+        "",
+    );
+    assert!(text.contains("✓ created"), "{text}");
+    assert!(matches!(effect, CacheEffect::Invalidate));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "");
+}
+
 // Symlink rejection is inherited from the shared edit_io boundary.
 #[cfg(unix)]
 #[test]

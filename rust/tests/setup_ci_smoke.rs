@@ -419,18 +419,24 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
     // the on-demand skill; the CLAUDE.md block itself must stay compact.
     // v4 (GH #637 / GL #1138): MCP-aware — ctx_* guidance is conditional on
     // the tools actually existing in the session, and native Read → Edit is
-    // documented as the primary editing path (read-before-write gate).
+    // documented as a guard-safe editing path (read-before-write gate).
+    // v5 (#1008 / GL #1144): edits route through anchored ctx_patch, ctx_edit
+    // is a legacy power-profile mention; v4's guard semantics stay documented.
     assert!(
-        claude_md.contains("lean-ctx-claude-v4"),
-        "CLAUDE.md must carry the v4 block version"
+        claude_md.contains("lean-ctx-claude-v5"),
+        "CLAUDE.md must carry the v5 block version"
+    );
+    assert!(
+        claude_md.contains("ctx_patch"),
+        "v5 block must route edits to the anchored editor (#1008)"
     );
     assert!(
         claude_md.contains("prior native Read"),
-        "v4 block must document Claude Code's path-keyed read-before-write gate"
+        "v5 block must document Claude Code's path-keyed read-before-write gate"
     );
     assert!(
         !claude_md.contains("@rules/"),
-        "v3 block must not @-import rules (inline expansion defeats #555)"
+        "v5 block must not @-import rules (inline expansion defeats #555)"
     );
     assert!(
         claude_md.len() < 2048,

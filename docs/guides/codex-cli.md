@@ -52,7 +52,7 @@ Codex CLI shares its rules infrastructure with Claude Code. lean-ctx creates ded
 <!-- lean-ctx-rules -->
 
 ## Mode Selection
-1. Editing the file? → `full` first, then `diff` for re-reads
+1. Editing the file? → `anchored` first (full text + anchors), then `diff` for re-reads
 2. Need API surface only? → `map` or `signatures`
 3. Large file, context only? → `entropy` or `aggressive`
 4. Specific lines? → `lines:N-M`
@@ -62,8 +62,10 @@ Codex CLI shares its rules infrastructure with Claude Code. lean-ctx creates ded
 Anti-pattern: NEVER use `full` for files you won't edit — use `map` or `signatures`.
 
 ## File Editing
-Use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob → use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
+Anchored editing: `ctx_read(mode="anchored")` → `ctx_patch(path, op, line, hash, new_text)` —
+never echo old text; batch via `ops:[…]`; `op=create` for new files. Stale anchor → CONFLICT
+with fresh anchors (retry once). Native Edit/StrReplace stay fine; `ctx_edit` is the legacy
+power-profile fallback. Write, Delete, Glob → use normally.
 
 ## Proactive (use without being asked)
 - `ctx_overview(task)` at session start

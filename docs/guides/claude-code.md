@@ -80,7 +80,7 @@ lean-ctx maintains a marker-delimited block in `~/.claude/CLAUDE.md`:
 
 ```markdown
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v4 -->
+<!-- lean-ctx-claude-v5 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
@@ -88,22 +88,23 @@ When the `ctx_*` MCP tools are listed in this session, prefer them over native e
 - `ctx_shell` instead of `bash` / `Shell` (95+ compression patterns)
 - `ctx_search` instead of `Grep` / `rg` (compact results)
 - `ctx_tree` instead of `ls` / `find` (compact directory maps)
+- Edits: `ctx_read(mode="anchored")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). `ctx_edit` (str_replace) is the legacy power-profile fallback.
 
-Editing: native `Read` → `Edit`/`StrReplace` is the primary path — Claude Code's edit gate
-requires a prior native Read of the same file path. Use `ctx_edit(path, old_string, new_string)`
-only when the `ctx_*` tools exist and native Edit stays blocked. Write, Delete, Glob — use normally.
+Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a
+prior native Read of the same file path. Write, Delete, Glob — use normally.
 If no `ctx_*` tools are listed in this session, use the native tools throughout.
 
-Read modes: full (edit), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
+Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 <!-- /lean-ctx -->
 ```
 
-The v4 wording is deliberately conditional: Claude Code enforces a *path-keyed*
-read-before-write gate on Edit/Write, so the file you edit must have been read with
-the **native** Read tool (lean-ctx's `read_redirect = auto` keeps that gate intact,
-see [#637](https://github.com/yvgude/lean-ctx/issues/637)). And in sessions where the
-lean-ctx MCP server is not connected, no `ctx_*` tools exist — the block now says
+The v5 wording routes edits to the anchored editor (`ctx_patch` is advertised in the
+lazy core for Claude Code) while keeping v4's guard semantics: Claude Code enforces a
+*path-keyed* read-before-write gate on Edit/Write, so a natively-edited file must have
+been read with the **native** Read tool (lean-ctx's `read_redirect = auto` keeps that
+gate intact, see [#637](https://github.com/yvgude/lean-ctx/issues/637)). And in sessions
+where the lean-ctx MCP server is not connected, no `ctx_*` tools exist — the block says
 explicitly to fall back to native tools instead of chasing unavailable ones.
 
 Detail documentation (mode selection, session memory, proactive tools) lives in the

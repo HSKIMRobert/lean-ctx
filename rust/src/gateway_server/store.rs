@@ -25,6 +25,25 @@ use crate::proxy::usage::RealUsage;
 /// Sized for bursts (a full channel drops events, counted in `usage_sink`).
 pub const WRITER_QUEUE: usize = 4096;
 
+/// Env var overriding the store pool's `max_size` (chart: `database.poolMaxSize`).
+pub const POOL_MAX_SIZE_ENV: &str = "LEAN_CTX_PG_POOL_MAX_SIZE";
+
+/// Default pool size. The writer is a single sequential task (one connection),
+/// the rest serves the admin API/report queries — 8 is comfortable for one
+/// replica; K8s replicas each get their own pool (load-test: deploy-repo
+/// `docs/ops/load-test.md`).
+const POOL_MAX_SIZE_DEFAULT: usize = 8;
+
+/// Pool size from `LEAN_CTX_PG_POOL_MAX_SIZE`, clamped to a sane band.
+/// Invalid/unset values fall back to the default — a typo can never produce
+/// a 1-connection or 10k-connection pool.
+fn pool_max_size() -> usize {
+    std::env::var(POOL_MAX_SIZE_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .map_or(POOL_MAX_SIZE_DEFAULT, |n| n.clamp(2, 64))
+}
+
 /// Builds the store pool from a `DATABASE_URL`, honoring `sslmode` (#54/#58).
 ///
 /// - `sslmode=disable`/`prefer`/unset: plain TCP (the pilot/in-cluster case;
@@ -57,7 +76,7 @@ pub fn pool_from_database_url(database_url: &str) -> anyhow::Result<Pool> {
     } else {
         Manager::from_config(pg_cfg, NoTls, mgr_cfg)
     };
-    Ok(Pool::builder(mgr).max_size(8).build()?)
+    Ok(Pool::builder(mgr).max_size(pool_max_size()).build()?)
 }
 
 /// True when the URL's `sslmode` asks for TLS. tokio-postgres 0.7 models
@@ -427,6 +446,23 @@ mod tests {
                 .is_ok()
         );
         assert!(pool_from_database_url("postgres://u:p@localhost:5432/app").is_ok());
+    }
+
+    #[test]
+    fn pool_size_env_is_clamped_and_falls_back() {
+        // Env mutation is serialized process-wide through test_env_lock().
+        let _guard = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var(POOL_MAX_SIZE_ENV);
+        assert_eq!(pool_max_size(), 8, "unset -> default");
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "24");
+        assert_eq!(pool_max_size(), 24, "explicit value wins");
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "0");
+        assert_eq!(pool_max_size(), 2, "clamped low");
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "9999");
+        assert_eq!(pool_max_size(), 64, "clamped high");
+        crate::test_env::set_var(POOL_MAX_SIZE_ENV, "not-a-number");
+        assert_eq!(pool_max_size(), 8, "garbage -> default, never panic");
+        crate::test_env::remove_var(POOL_MAX_SIZE_ENV);
     }
 
     #[test]
