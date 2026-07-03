@@ -450,6 +450,8 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         chatgpt_cookies,
     };
 
+    // `mut` is only exercised by the gateway-server merge below.
+    #[cfg_attr(not(feature = "gateway-server"), allow(unused_mut))]
     let mut app = Router::new()
         .route("/health", get(health))
         .route("/status", get(status_handler))
