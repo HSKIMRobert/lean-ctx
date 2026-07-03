@@ -295,6 +295,7 @@ open http://127.0.0.1:{admin_port}/            # admin console (token: LEAN_CTX_
 
 ```bash
 lean-ctx gateway keys add --person alice@example.com --team platform --project checkout --file gateway-keys.toml
+lean-ctx gateway keys rotate --person alice@example.com --file gateway-keys.toml   # compromised/expiring key: one atomic step
 docker compose restart gateway   # reload the key set
 ```
 
