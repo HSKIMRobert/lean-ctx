@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **Shell allowlist no longer splits commands at backslash-escaped operators
+  (GL #1160).** In restricted (allowlisted) mode, `rg -n split\.label\|foo src/`
+  was split at the escaped pipe, so the pattern fragment after it was validated
+  — and blocked — as an unknown command (field report: `rg` dying with
+  "not in the allowlist" on regex tokens, exit 126). The operator scanner,
+  the subshell-paren walker and the substitution detector now honour bash
+  backslash semantics outside single quotes: `\|`, `\;`, `\&`, `\(`, `\)` and
+  `\$(` are data, never operators. Real (unescaped) pipes still split and
+  every segment is still validated — over-blocking removed, deny-by-default
+  unchanged. Also drops a dead pipe-index scanner from
+  `check_pipe_to_bare_interpreter`.
 - **Marked-block surgery no longer eats user content when a marker is quoted
   in prose (GL #1158).** `marked_block` (and the Claude/CodeBuddy
   `remove_block` twin) located `<!-- lean-ctx -->` markers via substring

@@ -69,6 +69,71 @@ fn allowlist_blocks_unlisted() {
     assert!(result.unwrap_err().contains("npm"));
 }
 
+// --- GL #1160: backslash escapes outside quotes are data, not operators ---
+// Field report: `rg` died with "not in the allowlist" because pattern
+// fragments after an escaped pipe were parsed as commands.
+
+#[test]
+fn escaped_pipe_in_pattern_is_one_command() {
+    let list = allow(&["rg"]);
+    assert!(check_all_segments(r"rg -n split\.label\|quantityLabel src/", &list).is_ok());
+}
+
+#[test]
+fn escaped_semicolon_is_data() {
+    let list = allow(&["rg"]);
+    // An escaped semicolon inside a regex pattern is data, not a separator —
+    // the old scanner split here and blocked `bar` as an unknown command.
+    // (`find -exec … \;` stays blocked separately via check_dangerous_flags.)
+    assert!(check_all_segments(r"rg foo\;bar src/", &list).is_ok());
+}
+
+#[test]
+fn escaped_ampersand_is_data() {
+    let list = allow(&["rg"]);
+    assert!(check_all_segments(r"rg foo\&bar src/", &list).is_ok());
+}
+
+#[test]
+fn escaped_parens_in_pattern_keep_segment_intact() {
+    let list = allow(&["rg"]);
+    assert!(check_all_segments(r"rg foo\(bar\|baz\) src/", &list).is_ok());
+}
+
+#[test]
+fn real_pipe_still_splits_after_escape_fix() {
+    let list = allow(&["rg"]);
+    // head is NOT allowlisted — a real pipe must still be validated per segment
+    let result = check_all_segments(r"rg -n split\.label src/ | head -5", &list);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("head"));
+}
+
+#[test]
+fn escaped_pipe_then_real_pipe_splits_correctly() {
+    let list = allow(&["rg", "head"]);
+    assert!(check_all_segments(r"rg -n foo\|bar src/ | head -5", &list).is_ok());
+}
+
+#[test]
+fn escaped_dollar_paren_is_not_substitution() {
+    // \$( is literal in bash — must not trip the substitution detector
+    assert!(!has_expanding_substitution_in_args(
+        r"grep \$\(x\) file.txt"
+    ));
+    // unescaped still detected
+    assert!(has_expanding_substitution_in_args(
+        "git commit -m \"$(cat f)\""
+    ));
+}
+
+#[test]
+fn trailing_backslash_does_not_panic_or_hang() {
+    let list = allow(&["rg"]);
+    let _ = check_all_segments("rg foo\\", &list);
+    let _ = has_expanding_substitution_in_args("rg foo\\");
+}
+
 #[test]
 fn allowlist_allows_listed() {
     let list = allow(&["git", "cargo", "npm"]);
