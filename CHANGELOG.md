@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Fixed
+- **`ctx_share` handovers with org agent ids (`team:alice`) are now pullable on
+  Windows.** The share filename embedded the agent id verbatim; NTFS interprets
+  `:` as an Alternate Data Stream, so the write "succeeded" but the file never
+  appeared in the store — the receiving agent saw "No shared contexts for you".
+  Filenames now use a filesystem-safe slug (`[A-Za-z0-9._-]`, everything else
+  `-`); the true agent id still lives inside the JSON payload.
+- **Background knowledge writers can no longer clobber facts a parallel
+  `remember` just committed (lost-update, #326 class).** The consolidation
+  pipeline (`apply_artifacts_to_stores`) and the gateway memory adapter
+  (`addon_memory` ingest) both did load → modify → blind `save()` from a
+  background thread; a fact committed between their load and save was silently
+  dropped — surfacing as flaky "no current fact exists" errors on
+  `ctx_knowledge relate` right after a successful `remember`. Both writers now
+  go through `ProjectKnowledge::mutate_locked` like every other writer.
+- **CI: three timing/environment flakes hardened.** The
+  `session_lock_timeout` prompt-timeout bounds (400 ms) fired falsely on loaded
+  Windows runners — the assertion only distinguishes "timed out" from "hung",
+  so the bound is now 5 s; the lock-ordering check now skips `#[cfg(test)]`-gated
+  statics (test-only locks need no production lock-ordering documentation); the
+  two production gateway locks from enterprise#25 (`SNAPSHOT`, `LEDGER`) are
+  documented in `LOCK_ORDERING.md` (L58/L59).
 - **`max_ram_percent` is now actually enforced under Cursor/MCP load — no more
   75 GB OOM-kill-respawn cycles (GH #685).** Two compounding gaps, both closed:
   *Uncontrolled build growth:* the parallel BM25/graph index builds fanned the

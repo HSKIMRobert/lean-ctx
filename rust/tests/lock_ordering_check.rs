@@ -54,6 +54,12 @@ fn check_file(path: &Path, results: &mut Vec<(String, String)>) {
         let opens = line.matches('{').count() as i32;
         let closes = line.matches('}').count() as i32;
 
+        // Whether THIS line is the item a preceding `#[cfg(test)]` gates: a
+        // `#[cfg(test)] static LOCK: Mutex<…>` is test-only by definition and
+        // must not require documentation, exactly like locks inside
+        // `#[cfg(test)] mod tests { … }` blocks.
+        let gated_by_cfg_test = armed;
+
         if armed {
             if opens > 0 {
                 // The gated item has a body — enter the test scope.
@@ -61,7 +67,8 @@ fn check_file(path: &Path, results: &mut Vec<(String, String)>) {
                 test_depth = depth;
                 armed = false;
             } else if trimmed.contains(';') {
-                // Gated item without a body (external `mod x;`, `use ...;`) — no scope.
+                // Gated item without a body (external `mod x;`, `use ...;`,
+                // a gated `static …;`) — no scope.
                 armed = false;
             }
         }
@@ -71,7 +78,7 @@ fn check_file(path: &Path, results: &mut Vec<(String, String)>) {
                 && (trimmed.starts_with("static ") || trimmed.starts_with("pub static "))
                 && (trimmed.contains("Mutex<") || trimmed.contains("RwLock<"));
 
-        if is_static_decl && !in_test {
+        if is_static_decl && !in_test && !gated_by_cfg_test {
             let lock_name = extract_lock_name(trimmed);
             let location = format!("{}:{}", rel.display(), i + 1);
             results.push((lock_name, location));

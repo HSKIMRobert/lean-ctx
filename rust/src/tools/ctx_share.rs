@@ -27,6 +27,25 @@ fn shared_dir(project_root: &str) -> PathBuf {
         .join(hash)
 }
 
+/// Filesystem-safe slug of an agent id for the share filename. Agent ids may
+/// carry characters that are reserved on NTFS — `team:alice` (the documented
+/// org format, enterprise#28) contains `:`, which Windows silently interprets
+/// as an Alternate Data Stream: the write "succeeds" but `read_dir` never
+/// lists a file, so the share is unpullable. Keep `[A-Za-z0-9._-]`, map
+/// everything else to `-`. The real agent id lives inside the JSON payload;
+/// the filename is only a directory-entry label.
+fn sanitize_for_filename(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
 /// Reads `path` (absolute or relative to `project_root`) only if it resolves
 /// inside the project root after symlink resolution — the jail that keeps a
 /// share from carrying files outside the workspace (enterprise#28).
@@ -140,7 +159,7 @@ fn handle_push(
 
     let filename = format!(
         "{}_{}.json",
-        from,
+        sanitize_for_filename(from),
         chrono::Utc::now().format("%Y%m%d_%H%M%S")
     );
     let path = dir.join(&filename);
@@ -537,6 +556,20 @@ mod tests {
         // Same workspace: visible.
         let same = handle_pull(Some("team:t2"), root1);
         assert!(same.contains("a.md"), "same-workspace pull: {same}");
+    }
+
+    #[test]
+    fn share_filename_is_ntfs_safe_for_org_agent_ids() {
+        // `team:alice` in the filename made NTFS treat `:` as an Alternate
+        // Data Stream — the share file never appeared in read_dir and the
+        // handover was silently unpullable on Windows. The slug keeps the
+        // filename portable; the true agent id lives in the JSON payload.
+        assert_eq!(sanitize_for_filename("team:alice"), "team-alice");
+        assert_eq!(
+            sanitize_for_filename("a/b\\c*d?e\"f<g>h|i"),
+            "a-b-c-d-e-f-g-h-i"
+        );
+        assert_eq!(sanitize_for_filename("agent_A.1-x"), "agent_A.1-x");
     }
 
     #[test]

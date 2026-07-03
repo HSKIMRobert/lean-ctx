@@ -80,6 +80,12 @@ mod session_lock_timeout {
         });
     }
 
+    /// Upper bound for "the timeout fired promptly, we did not deadlock".
+    /// Generous on purpose: loaded CI runners (Windows especially) can stall a
+    /// timer by hundreds of ms, and the assertion only needs to distinguish
+    /// "timed out" from "waited for the writer / hung forever".
+    const PROMPT: Duration = Duration::from_secs(5);
+
     #[test]
     fn read_lock_times_out_when_write_held() {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -87,14 +93,14 @@ mod session_lock_timeout {
         let lock2 = lock.clone();
 
         rt.block_on(async {
-            // Hold write lock in background for 3 seconds
+            // Write lock held for the whole test — a read can never succeed.
             let _guard = lock2.write().await;
 
             let start = Instant::now();
             let result = tokio::time::timeout(Duration::from_millis(200), lock.read()).await;
 
             assert!(result.is_err(), "should have timed out");
-            assert!(start.elapsed() < Duration::from_millis(400));
+            assert!(start.elapsed() < PROMPT, "timeout did not fire promptly");
         });
     }
 
@@ -111,7 +117,7 @@ mod session_lock_timeout {
             let result = tokio::time::timeout(Duration::from_millis(200), lock.write()).await;
 
             assert!(result.is_err(), "should have timed out");
-            assert!(start.elapsed() < Duration::from_millis(400));
+            assert!(start.elapsed() < PROMPT, "timeout did not fire promptly");
         });
     }
 
@@ -188,7 +194,7 @@ mod session_lock_timeout {
 
             // Should timeout gracefully, not hang
             assert!(session_guard.is_err());
-            assert!(start.elapsed() < Duration::from_millis(400));
+            assert!(start.elapsed() < PROMPT, "timeout did not fire promptly");
             // In production, we'd fall back to project_root from ctx
         });
     }

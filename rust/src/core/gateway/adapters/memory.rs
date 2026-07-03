@@ -28,21 +28,24 @@ pub fn ingest(server: &str, _tool: &str, text: &str, project_root: &str) {
     if memories.is_empty() {
         return;
     }
-    let mut knowledge =
-        ProjectKnowledge::load(project_root).unwrap_or_else(|| ProjectKnowledge::new(project_root));
     let policy = MemoryPolicy::default();
     let session = format!("addon:{server}");
-    for m in &memories {
-        knowledge.remember(
-            "addon_memory",
-            &m.key,
-            &m.value,
-            &session,
-            m.confidence,
-            &policy,
-        );
-    }
-    if knowledge.save().is_err() {
+    // `mutate_locked`, not load → save: this runs alongside agent-driven
+    // `ctx_knowledge remember` calls, and a blind save from a stale snapshot
+    // drops facts committed in between (lost update, #326).
+    let saved = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+        for m in &memories {
+            knowledge.remember(
+                "addon_memory",
+                &m.key,
+                &m.value,
+                &session,
+                m.confidence,
+                &policy,
+            );
+        }
+    });
+    if saved.is_err() {
         tracing::warn!("[memory adapter] knowledge save failed for `{server}`");
     }
 }

@@ -235,14 +235,12 @@ pub fn apply_artifacts_to_stores(
     }
 
     // Knowledge: evict the prior category, then remember the current facts.
+    // MUST go through `mutate_locked`: this runs on a background thread, and a
+    // load → modify → blind save here raced parallel `ctx_knowledge remember`
+    // calls — the stale snapshot clobbered facts the agent had just committed
+    // (lost update, the exact #326 failure mode).
     if prune.fact_category.is_some() || !artifacts.facts.is_empty() {
         let policy = crate::core::memory_policy::MemoryPolicy::default();
-        let mut knowledge = crate::core::knowledge::ProjectKnowledge::load(project_root)
-            .unwrap_or_else(|| crate::core::knowledge::ProjectKnowledge::new(project_root));
-
-        if let Some(category) = &prune.fact_category {
-            knowledge.facts.retain(|f| &f.category != category);
-        }
 
         // Replace-sources (prune) use a stable session id so repeated passes stay
         // byte-identical (#498); additive provider ingests keep a unique id.
@@ -250,18 +248,23 @@ pub fn apply_artifacts_to_stores(
             Some(category) => format!("fabric:{category}"),
             None => format!("provider-ingest-{}", chrono::Utc::now().timestamp()),
         };
-        for fact in &artifacts.facts {
-            knowledge.remember(
-                &fact.category,
-                &fact.key,
-                &fact.value,
-                &session_id,
-                fact.confidence,
-                &policy,
-            );
-        }
-
-        if knowledge.save().is_err() {
+        let saved =
+            crate::core::knowledge::ProjectKnowledge::mutate_locked(project_root, |knowledge| {
+                if let Some(category) = &prune.fact_category {
+                    knowledge.facts.retain(|f| &f.category != category);
+                }
+                for fact in &artifacts.facts {
+                    knowledge.remember(
+                        &fact.category,
+                        &fact.key,
+                        &fact.value,
+                        &session_id,
+                        fact.confidence,
+                        &policy,
+                    );
+                }
+            });
+        if saved.is_err() {
             tracing::warn!("[consolidation] knowledge save failed");
         }
     }

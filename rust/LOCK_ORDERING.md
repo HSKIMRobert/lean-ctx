@@ -68,6 +68,8 @@ All `std::sync::Mutex` unless noted otherwise.
 | L55 | `WRITE_LOCK` | `core/addons/meter.rs:48` | `Mutex<()>` | Serialises read-modify-write of the addons usage ledger (`<data_dir>/addons/usage.json`) so concurrent gateway proxy calls don't clobber each other's increments (P5 metering); independent leaf lock, never nested |
 | L56 | `MEMO` | `proxy/prose_ranker.rs:30` | `Mutex<Option<HashMap<u64, String>>>` | Cache-safe wire-prose squeeze memo (#895): the first squeeze of a `(content, budget)` is frozen for the process lifetime so a later warm recompute returns identical bytes (provider prompt-cache stability, #448/#498); capacity-bounded (8192), independent leaf lock, never nested |
 | L57 | `SEEN` | `core/conversation.rs:80` | `OnceLock<RwLock<Vec<(String, Instant)>>>` | Recent sightings of distinct conversation ids (`id` → last-seen instant) feeding the multi-conversation stub-gate detector (#1040/#1042); capacity-pruned, independent leaf lock, never nested |
+| L58 | `SNAPSHOT` | `proxy/policy_gate.rs:69` | `RwLock<Option<CachedSnapshot>>` | TTL-cached org-policy gate rules (enterprise#25) so the forward path re-verifies the signed policy at most once per minute; independent leaf lock, never nested |
+| L59 | `LEDGER` | `proxy/policy_gate.rs:240` | `OnceLock<Mutex<BudgetLedger>>` | In-process person/day + project/month spend counters backing hard budget caps (enterprise#25); fed from the metering choke-point, seeded from Postgres when available; independent leaf lock, never nested |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
