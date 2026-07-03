@@ -417,9 +417,10 @@ fn skill_template_not_empty() {
 
 #[test]
 fn skill_targets_count() {
+    // Claude, CodeBuddy, Cursor, Codex, Copilot, OpenClaw + OpenCode (GH #686).
     let home = std::path::PathBuf::from("/tmp/fake_home");
     let targets = build_skill_targets(&home);
-    assert_eq!(targets.len(), 6);
+    assert_eq!(targets.len(), 7);
 }
 
 #[test]

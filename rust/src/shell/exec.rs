@@ -1167,7 +1167,7 @@ mod exec_tests {
 
         assert_eq!(
             super::shell_timeout_with_override("git status", Some(300_000)),
-            std::time::Duration::from_secs(300)
+            std::time::Duration::from_mins(5)
         );
         assert_eq!(
             super::shell_timeout_with_override("cargo build", Some(30_000)),
