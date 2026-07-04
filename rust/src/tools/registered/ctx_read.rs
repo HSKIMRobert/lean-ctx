@@ -75,7 +75,25 @@ impl McpTool for CtxReadTool {
             return super::ctx_multi_read::batch_read(args, ctx);
         }
 
-        let path = require_resolved_path(ctx, args, "path")?;
+        let path = if let Some(repo) = get_str(args, "repo") {
+            let root = crate::core::multi_repo::resolve_repo_root(&repo).ok_or_else(|| {
+                let known = crate::core::multi_repo::known_aliases().join(", ");
+                let known = if known.is_empty() {
+                    "none registered — use ctx_multi_repo add_root".to_string()
+                } else {
+                    known
+                };
+                ErrorData::invalid_params(
+                    format!("unknown repo alias: {repo} (known: {known})"),
+                    None,
+                )
+            })?;
+            let rel = get_str(args, "path").unwrap_or_else(|| ".".to_string());
+            crate::core::path_resolve::resolve_tool_path(Some(&root), None, &rel)
+                .map_err(|e| ErrorData::invalid_params(e, None))?
+        } else {
+            require_resolved_path(ctx, args, "path")?
+        };
 
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.handle_inner(args, ctx, &path)
@@ -1400,3 +1418,9 @@ mod tests {
         assert!(degraded);
     }
 }
+
+// #660 LOC gate: repo-param tests split out to keep this file under the line
+// cap — see `ctx_read_repo_param_tests.rs`.
+#[cfg(test)]
+#[path = "ctx_read_repo_param_tests.rs"]
+mod repo_param_tests;
