@@ -6,6 +6,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- **The AI Gateway (team mode).** The engine can now run as a shared
+  org gateway — one deployment your whole team points its IDEs at, with
+  per-person attribution, governance and audited savings. Compiled into the
+  default binary (`gateway-server` feature), local-free invariant intact:
+  nothing changes for solo use until you run it.
+  - **`lean-ctx gateway serve`** — multi-provider reverse proxy
+    (Anthropic / OpenAI / Gemini / Ollama / custom registry) with per-person
+    bearer keys, usage metering to Postgres (`usage_events`), wire-shape
+    translation (an Anthropic-speaking IDE can call an OpenAI-hosted model and
+    vice versa) and a token-protected admin console on a separate port.
+  - **`lean-ctx gateway init`** — plug-and-play scaffold: docker compose,
+    `.env`, key file and a step-by-step README in one command;
+    `gateway doctor` preflights config, secrets, DB and ports.
+  - **`lean-ctx gateway keys add|list|rotate|revoke`** — key lifecycle
+    without storing plaintext (SHA-256 hashes only, shown once).
+    `rotate` (GL enterprise#67) replaces every key of a person in one atomic
+    file swap — no window where the person has zero valid keys — and keeps
+    team/project attribution.
+  - **`GET /v1/models`** (GL enterprise#63) — the curated org model catalog
+    from `[proxy.routing.aliases]`, content-negotiated: OpenAI-shape and
+    Anthropic-shape clients each get their native list format. IDEs discover
+    org names like `zuehlke/fast`; the gateway resolves the alias, injects
+    upstream credentials and stamps `routed_from` into the ledger.
+  - **`/me` personal usage view** (GL enterprise#64/#65) — each person signs
+    in with their own gateway key and sees exactly their spend, savings,
+    trend, models and projects — never anyone else's. Dark/light, 24h–90d
+    windows, savings-share KPI.
+  - **Signed org-policy gates** (GL enterprise#25/#66) — under a signed,
+    pinned, `enforced = true` org policy the forward path refuses:
+    models outside the `[routing].allowed_models` ceiling (403), spend above
+    `[budgets]` caps per person/UTC-day or project/UTC-month (429), and — new —
+    requests beyond `[budgets].max_requests_per_minute_per_person` (429 with
+    an honest `Retry-After` of the seconds until the minute rolls). Errors
+    arrive in the caller's wire shape; refusals are counted on
+    `leanctx_policy_blocked_total{reason="model_ceiling"|"budget"|"rate_limit"}`.
+    Without an enforced org policy every gate is a no-op.
+  - **Evidence & GDPR** (GL enterprise#36/#39) — usage retention windows,
+    Ed25519-signed evidence exports (`gateway evidence` / `evidence verify`),
+    person-scoped `gateway gdpr export|delete`, and Blake3 pseudonymization
+    for person identifiers at rest.
 - **Multi-window visibility (GH #694).** `lean-ctx doctor` no longer claims
   "no active session" when sessions exist for other workspaces: run from a
   directory that isn't an open project root it now reports
