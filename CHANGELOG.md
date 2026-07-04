@@ -22,6 +22,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   telemetry, not human feedback. Thanks @DerPate for the precise report.
 
 ### Added
+- **`/v1/compress` is wire-compatible with LiteLLM's prompt-compression
+  guardrail (GH #700).** LiteLLM ≥ v1.92 can call a compression sidecar during
+  `pre_call` (`guardrail: headroom`); the response now carries the
+  `tokens_before` / `tokens_after` / `compression_ratio` telemetry fields that
+  guardrail logs, alongside the existing richer `stats` block. Point the
+  guardrail's `api_base` at the lean-ctx daemon and every request through a
+  LiteLLM gateway is compressed deterministically (prompt-cache-safe, #498) —
+  no client change, including Claude Code via `ANTHROPIC_BASE_URL`. Cookbook:
+  `docs/guides/compress-sdk.md`.
 - **Persistent per-extension grammar telemetry (GH #690 Phase 2 groundwork).**
   The tiering cut needs to know which of the ~27 static tree-sitter grammars
   actually earn their binary bytes, but the only signal was a pair of

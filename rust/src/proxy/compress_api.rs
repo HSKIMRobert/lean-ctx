@@ -15,6 +15,14 @@
 //! compressed; images, `tool_use` blocks, ids and every other field pass through
 //! untouched. lean-ctx's own `ctx_*` tool results are left verbatim (#479).
 //!
+//! ## Gateway compatibility (#700)
+//! The response also carries `tokens_before` / `tokens_after` /
+//! `compression_ratio` at the top level — the field names LiteLLM's
+//! prompt-compression guardrail reads for its per-request savings log. That
+//! makes lean-ctx a drop-in `api_base` for `guardrail: headroom` deployments:
+//! LiteLLM only requires `messages` in the reply and treats the token fields
+//! as optional telemetry.
+//!
 //! ## Determinism (#498)
 //! Output is a pure function of `(messages, model)`. Compression runs footer-free
 //! — savings are reported in `stats`, never injected into message bodies — so the
@@ -58,6 +66,15 @@ pub struct CompressStats {
 pub struct CompressResponse {
     pub messages: Vec<Value>,
     pub stats: CompressStats,
+    /// LiteLLM-guardrail telemetry aliases (#700): duplicates of
+    /// `stats.original_tokens` / `stats.compressed_tokens` under the field
+    /// names the LiteLLM headroom guardrail logs (`tokens_before` →
+    /// `tokens_after`, ratio `after/before`).
+    pub tokens_before: usize,
+    pub tokens_after: usize,
+    /// `tokens_after / tokens_before`, rounded to 2 decimals; `1.0` when the
+    /// input had no compressible text.
+    pub compression_ratio: f64,
 }
 
 #[derive(Default)]
@@ -86,6 +103,11 @@ pub fn compress_messages(req: CompressRequest) -> CompressResponse {
     } else {
         0.0
     };
+    let compression_ratio = if totals.original > 0 {
+        ((totals.compressed as f64 / totals.original as f64) * 100.0).round() / 100.0
+    } else {
+        1.0
+    };
 
     CompressResponse {
         messages,
@@ -97,6 +119,9 @@ pub fn compress_messages(req: CompressRequest) -> CompressResponse {
             tokenizer: TOKENIZER,
             model: req.model,
         },
+        tokens_before: totals.original,
+        tokens_after: totals.compressed,
+        compression_ratio,
     }
 }
 
@@ -193,6 +218,29 @@ mod tests {
         assert!(resp.stats.compressed_tokens < resp.stats.original_tokens);
         assert_eq!(resp.stats.tokenizer, "o200k_base");
         assert_eq!(resp.stats.model.as_deref(), Some("claude-sonnet-4"));
+    }
+
+    #[test]
+    fn litellm_guardrail_fields_present_and_consistent() {
+        // LiteLLM's headroom guardrail logs `tokens_before`/`tokens_after`/
+        // `compression_ratio` from the /v1/compress reply (#700). They must
+        // exist at the top level and agree with `stats`.
+        let resp = run(
+            vec![json!({"role": "user", "content": dedupable_prose()})],
+            None,
+        );
+        assert_eq!(resp.tokens_before, resp.stats.original_tokens);
+        assert_eq!(resp.tokens_after, resp.stats.compressed_tokens);
+        assert!(resp.compression_ratio > 0.0 && resp.compression_ratio < 1.0);
+
+        let wire = serde_json::to_value(&resp).unwrap();
+        assert!(wire["tokens_before"].is_u64());
+        assert!(wire["tokens_after"].is_u64());
+        assert!(wire["compression_ratio"].is_f64());
+
+        // No compressible text → ratio pins to 1.0, not 0/0.
+        let empty = run(vec![json!({"role": "user", "content": "hi"})], None);
+        assert_eq!(empty.compression_ratio, 1.0);
     }
 
     #[test]
