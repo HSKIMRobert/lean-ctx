@@ -397,6 +397,7 @@ pub mod edit_metering;
 pub mod edit_quality;
 pub mod efficacy;
 pub mod evidence_bundle;
+pub mod grammar_usage;
 pub mod graph_cache;
 pub mod http_client;
 pub mod ide_permissions;

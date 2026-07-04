@@ -21,6 +21,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   also downgraded to debug level for interactive TTY callers — it's agent
   telemetry, not human feedback. Thanks @DerPate for the precise report.
 
+### Added
+- **Persistent per-extension grammar telemetry (GH #690 Phase 2 groundwork).**
+  The tiering cut needs to know which of the ~27 static tree-sitter grammars
+  actually earn their binary bytes, but the only signal was a pair of
+  process-lifetime counters with no language dimension (flagged by @getappz).
+  `core/grammar_usage` now records tree-sitter vs regex-fallback hits per file
+  extension, persisted across sessions in `grammar_usage.json` (aggregate
+  counters only — no paths or project data). `ctx_metrics` shows the all-time
+  top extensions in its SIGNATURE BACKEND section.
+
 ### Fixed
 - **Grammar-addon dylibs refuse to load from world-writable dirs/files
   (GH #690 review point 3, PR #697 — thanks @getappz).** A group/other-

@@ -79,6 +79,19 @@ impl McpTool for CtxMetricsTool {
                     0.0
                 }
             ));
+            // Persistent per-extension split (GH #690 Phase 2 telemetry) —
+            // top rows only; full history lives in grammar_usage.json.
+            let ranked = crate::core::grammar_usage::live_ranked();
+            if !ranked.is_empty() {
+                let rows: Vec<String> = ranked
+                    .iter()
+                    .take(8)
+                    .map(|(ext, u)| {
+                        format!(".{ext}: ts={} rx={}", u.tree_sitter_hits, u.regex_hits)
+                    })
+                    .collect();
+                result.push_str(&format!("by extension (all-time): {}\n", rows.join(" | ")));
+            }
         }
 
         Ok(ToolOutput::simple(result))

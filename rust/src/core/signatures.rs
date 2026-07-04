@@ -286,10 +286,15 @@ impl SigBackend {
 
 pub fn extract_signatures(content: &str, file_ext: &str) -> Vec<Signature> {
     let (sigs, backend) = extract_signatures_with_backend(content, file_ext);
+    let is_tree_sitter = matches!(backend, SigBackend::TreeSitter);
     match backend {
         SigBackend::TreeSitter => TREE_SITTER_HITS.fetch_add(1, Ordering::Relaxed),
         SigBackend::Regex => REGEX_FALLBACK_HITS.fetch_add(1, Ordering::Relaxed),
     };
+    // Persistent per-extension telemetry (GH #690 Phase 2): the tiering cut
+    // needs to know which grammars earn their binary bytes across sessions,
+    // which these process-lifetime atomics cannot answer.
+    crate::core::grammar_usage::record(file_ext, is_tree_sitter);
     sigs
 }
 
