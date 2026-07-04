@@ -438,7 +438,7 @@ pub fn generate_hook_fish(binary: &str) -> String {
         \t\tcase off none manual\n\
         \t\t\treturn 1\n\
         \t\tcase 'agents-only' agents_only agentsonly\n\
-        \t\t\tif set -q LEAN_CTX_AGENT; or set -q CLAUDECODE; or set -q CODEBUDDY; or set -q CODEX_CLI_SESSION; or set -q GEMINI_SESSION\n\
+        \t\t\tif _lc_is_agent\n\
         \t\t\t\treturn 0\n\
         \t\t\tend\n\
         \t\t\treturn 1\n\
@@ -599,7 +599,7 @@ _lean_ctx_should_activate() {{
     case "${{LEAN_CTX_SHELL_ACTIVATION:-{baked_default}}}" in
         off|none|manual) return 1 ;;
         agents-only|agents_only|agentsonly)
-            [ -n "${{LEAN_CTX_AGENT:-}}" ] || [ -n "${{CLAUDECODE:-}}" ] || [ -n "${{CODEBUDDY:-}}" ] || [ -n "${{CODEX_CLI_SESSION:-}}" ] || [ -n "${{GEMINI_SESSION:-}}" ] ;;
+            _lc_is_agent ;;
         *) return 0 ;;
     esac
 }}
