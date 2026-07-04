@@ -464,19 +464,29 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
         }
     }
 
-    let vscode_path = crate::core::editor_registry::vscode_mcp_path();
-    if vscode_path.exists()
-        && let Ok(content) = fs::read_to_string(&vscode_path)
-        && content.contains("lean-ctx")
-        && let Some(cleaned) = remove_lean_ctx_from_json(&content)
-    {
-        backup_before_modify(&vscode_path, dry_run);
-        if let Err(e) = safe_write(&vscode_path, &cleaned, dry_run) {
-            tracing::warn!("Failed to update VS Code config: {e}");
-        } else {
-            let verb = if dry_run { "Would update" } else { "✓" };
-            println!("  {verb} MCP config removed from VS Code / Copilot");
-            removed = true;
+    for (vscode_path, label) in [
+        (
+            crate::core::editor_registry::vscode_mcp_path(),
+            "VS Code / Copilot",
+        ),
+        (
+            crate::core::editor_registry::vscode_insiders_mcp_path(),
+            "VS Code Insiders",
+        ),
+    ] {
+        if vscode_path.exists()
+            && let Ok(content) = fs::read_to_string(&vscode_path)
+            && content.contains("lean-ctx")
+            && let Some(cleaned) = remove_lean_ctx_from_json(&content)
+        {
+            backup_before_modify(&vscode_path, dry_run);
+            if let Err(e) = safe_write(&vscode_path, &cleaned, dry_run) {
+                tracing::warn!("Failed to update {label} config: {e}");
+            } else {
+                let verb = if dry_run { "Would update" } else { "✓" };
+                println!("  {verb} MCP config removed from {label}");
+                removed = true;
+            }
         }
     }
 

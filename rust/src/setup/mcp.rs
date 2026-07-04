@@ -314,6 +314,12 @@ pub(crate) fn agent_mcp_targets(
             crate::core::editor_registry::vscode_mcp_path(),
             ConfigType::VsCodeMcp,
         ),
+        "vscode-insiders" => push(
+            &mut targets,
+            "VS Code Insiders",
+            crate::core::editor_registry::vscode_insiders_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
         "zed" => push(
             &mut targets,
             "Zed",
@@ -556,6 +562,12 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
             &mut targets,
             "VS Code",
             crate::core::editor_registry::vscode_mcp_path(),
+            ConfigType::VsCodeMcp,
+        ),
+        "vscode-insiders" => push(
+            &mut targets,
+            "VS Code Insiders",
+            crate::core::editor_registry::vscode_insiders_mcp_path(),
             ConfigType::VsCodeMcp,
         ),
         "zed" => push(

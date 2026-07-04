@@ -759,6 +759,11 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         "windsurf" => install_windsurf_rules(global),
         "cline" | "roo" => install_cline_rules(global),
         "copilot" | "vscode" => install_copilot_hook(global),
+        // VS Code Insiders needs no hook install of its own: the MCP entry in
+        // its separate `Code - Insiders/User/mcp.json` is written by the
+        // editor-registry writer (GH #694), and the Copilot hook layer is
+        // user-global (`~/.copilot`), already covered by copilot/vscode.
+        "vscode-insiders" => {}
         "pi" => install_pi_hook_with_mode(global, mode),
         "qoder" => install_qoder_hook_with_mode(mode),
         "qoderwork" => install_mcp_json_agent(

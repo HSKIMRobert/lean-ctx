@@ -396,6 +396,13 @@ pub(super) fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             display: "~/Library/Application Support/Code/User/mcp.json".into(),
             path: vscode_mcp,
         });
+        // Insiders keeps a fully separate profile dir — a server registered in
+        // stable is invisible there (GH #694).
+        locations.push(McpLocation {
+            name: "VS Code Insiders",
+            display: "~/Library/Application Support/Code - Insiders/User/mcp.json".into(),
+            path: home.join("Library/Application Support/Code - Insiders/User/mcp.json"),
+        });
     }
     #[cfg(target_os = "linux")]
     {
@@ -417,15 +424,31 @@ pub(super) fn mcp_config_locations(home: &std::path::Path) -> Vec<McpLocation> {
             display: display_str,
             path: vscode_mcp,
         });
+        // When stable AND Insiders coexist the chain above resolves to stable
+        // only — surface Insiders separately so its config is not a blind
+        // spot (GH #694).
+        let insiders_user = home.join(".config/Code - Insiders/User");
+        if user_dir != insiders_user && insiders_user.exists() {
+            locations.push(McpLocation {
+                name: "VS Code Insiders",
+                display: "~/.config/Code - Insiders/User/mcp.json".into(),
+                path: insiders_user.join("mcp.json"),
+            });
+        }
     }
     #[cfg(target_os = "windows")]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            let vscode_mcp = std::path::PathBuf::from(appdata).join("Code/User/mcp.json");
+            let vscode_mcp = std::path::PathBuf::from(&appdata).join("Code/User/mcp.json");
             locations.push(McpLocation {
                 name: "VS Code",
                 display: "%APPDATA%/Code/User/mcp.json".into(),
                 path: vscode_mcp,
+            });
+            locations.push(McpLocation {
+                name: "VS Code Insiders",
+                display: "%APPDATA%/Code - Insiders/User/mcp.json".into(),
+                path: std::path::PathBuf::from(&appdata).join("Code - Insiders/User/mcp.json"),
             });
         }
     }

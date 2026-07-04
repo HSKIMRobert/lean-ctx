@@ -39,6 +39,35 @@ pub fn vscode_mcp_path() -> PathBuf {
     }
 }
 
+/// VS Code **Insiders** user-scope MCP config. Insiders keeps a fully
+/// separate profile dir (`Code - Insiders`), so a server registered in
+/// stable's `Code/User/mcp.json` simply does not exist there — an Insiders
+/// user then sees an empty `MCP: Open User Configuration` even after
+/// `lean-ctx setup` succeeded (GH #694). On Linux `vscode_mcp_path()` can
+/// already resolve to Insiders via the shared fallback chain when it is the
+/// only install; this path is the *dedicated* Insiders location for the
+/// distinct-target case.
+pub fn vscode_insiders_mcp_path() -> PathBuf {
+    let Some(home) = dirs::home_dir() else {
+        return PathBuf::from("/nonexistent");
+    };
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library/Application Support/Code - Insiders/User/mcp.json")
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            return PathBuf::from(appdata).join("Code - Insiders/User/mcp.json");
+        }
+        home.join("AppData/Roaming/Code - Insiders/User/mcp.json")
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        home.join(".config/Code - Insiders/User/mcp.json")
+    }
+}
+
 pub fn qoder_mcp_path(home: &Path) -> PathBuf {
     #[cfg(target_os = "windows")]
     {

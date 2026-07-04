@@ -32,6 +32,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   top extensions in its SIGNATURE BACKEND section.
 
 ### Fixed
+- **VS Code Insiders is now a first-class MCP target (GH #694 follow-up —
+  thanks @ITFinesse).** Insiders keeps a fully separate profile dir
+  (`Code - Insiders/User`), so registering lean-ctx in stable's
+  `Code/User/mcp.json` left Insiders with an empty `MCP: Open User
+  Configuration` — exactly the "server missing in one window" confusion from
+  the multi-window report. `setup`/`init` now detect and write the dedicated
+  Insiders config on all platforms (agent key `vscode-insiders`), `doctor`
+  lists it as its own MCP location, and uninstall cleans it up.
 - **Grammar-addon dylibs refuse to load from world-writable dirs/files
   (GH #690 review point 3, PR #697 — thanks @getappz).** A group/other-
   writable grammar dir would let any local account swap the dylib between

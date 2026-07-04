@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::paths::{
     augment_cli_settings_path, augment_vscode_mcp_path, claude_mcp_json_path, cline_mcp_path,
     codebuddy_mcp_json_path, qoder_all_mcp_paths, qoderwork_mcp_path, roo_mcp_path,
-    vscode_mcp_path, zed_config_dir, zed_settings_path,
+    vscode_insiders_mcp_path, vscode_mcp_path, zed_config_dir, zed_settings_path,
 };
 use super::types::{ConfigType, EditorTarget};
 
@@ -112,6 +112,13 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             agent_key: "vscode".to_string(),
             config_path: vscode_mcp_path(),
             detect_path: detect_vscode_path(),
+            config_type: ConfigType::VsCodeMcp,
+        },
+        EditorTarget {
+            name: "VS Code Insiders",
+            agent_key: "vscode-insiders".to_string(),
+            config_path: vscode_insiders_mcp_path(),
+            detect_path: detect_vscode_insiders_path(),
             config_type: ConfigType::VsCodeMcp,
         },
         EditorTarget {
@@ -581,6 +588,30 @@ pub fn detect_vscode_path() -> PathBuf {
         && output.status.success()
     {
         return PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    }
+    PathBuf::from("/nonexistent")
+}
+
+/// VS Code **Insiders** detection: its `settings.json` in the dedicated
+/// `Code - Insiders` profile dir. Deliberately no `which code-insiders`
+/// fallback — a PATH hit without the profile dir means the app never ran,
+/// so there is no User dir to configure yet (GH #694).
+pub fn detect_vscode_insiders_path() -> PathBuf {
+    let Some(home) = dirs::home_dir() else {
+        return PathBuf::from("/nonexistent");
+    };
+    #[cfg(target_os = "macos")]
+    let candidate = home.join("Library/Application Support/Code - Insiders/User/settings.json");
+    #[cfg(target_os = "windows")]
+    let candidate = match std::env::var("APPDATA") {
+        Ok(appdata) => PathBuf::from(appdata).join("Code - Insiders/User/settings.json"),
+        Err(_) => home.join("AppData/Roaming/Code - Insiders/User/settings.json"),
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let candidate = home.join(".config/Code - Insiders/User/settings.json");
+
+    if candidate.exists() {
+        return candidate;
     }
     PathBuf::from("/nonexistent")
 }
