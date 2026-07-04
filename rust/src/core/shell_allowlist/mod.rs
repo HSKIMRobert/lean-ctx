@@ -330,13 +330,25 @@ fn check_interpreter_eval_only_inner(segment: &str, depth: usize) -> Result<(), 
         }
     }
     if tokens[1..].iter().any(|t| t.contains("<<")) {
-        return Err(format!(
-            "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with heredoc stdin is blocked. \
-             Use a script file instead.\n\
-             This is a permanent security restriction."
-        ));
+        return Err(heredoc_blocked_message(&base));
     }
     Ok(())
+}
+
+/// Actionable message for the heredoc-stdin block (GL #1161): the restriction
+/// is deliberate — inline code embedded in the command string never exists as
+/// an inspectable artifact, unlike a script file, which leaves an auditable
+/// trail and passes the write path's own guards. Name the exact workaround
+/// instead of leaving the agent to rediscover it by trial and error.
+fn heredoc_blocked_message(base: &str) -> String {
+    format!(
+        "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with heredoc stdin is blocked. \
+         Inline code in the command string leaves no auditable artifact.\n\
+         Do this instead: write the code to a file, then run it —\n\
+           1. create /tmp/snippet with your code (Write/ctx_edit tool)\n\
+           2. {base} /tmp/snippet\n\
+         This is a permanent security restriction."
+    )
 }
 
 /// Commands that are unconditionally blocked regardless of allowlist membership.
@@ -425,11 +437,7 @@ fn check_interpreter_abuse_inner(
             }
         }
         if tokens[1..].iter().any(|t| t.contains("<<")) {
-            return Err(format!(
-                "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with heredoc stdin is blocked. \
-                 Use a script file instead.\n\
-                 This is a permanent security restriction."
-            ));
+            return Err(heredoc_blocked_message(&base));
         }
     }
 

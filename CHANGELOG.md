@@ -56,6 +56,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   tokens saved and current task — shown as soon as two or more workspaces
   have sessions.
 
+### Changed
+- **The heredoc-to-interpreter refusal now hands the agent the recovery path
+  (GL #1161).** Policy review outcome: the block stays — inline code embedded
+  in the command string never exists as an inspectable artifact, while a
+  script file passes the write path's own guards and leaves an audit trail.
+  But the old message ("Use a script file instead") left agents rediscovering
+  the workaround by trial and error; the refusal now spells it out: write the
+  code to a file (Write/ctx_edit), then `python3 /tmp/snippet`.
+
 ### Fixed
 - **A transient `roots/list` failure no longer disables project-root detection
   for the whole MCP session (GH #694).** The first tool call resolves client

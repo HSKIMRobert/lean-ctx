@@ -708,6 +708,23 @@ fn heredoc_to_interpreter_blocked() {
     assert!(result.is_err(), "heredoc to interpreter must be blocked");
 }
 
+/// GL #1161: the block is policy, but the refusal must hand the agent the
+/// exact recovery path (write file → run file) instead of a bare "no".
+#[test]
+fn heredoc_block_message_names_the_workaround() {
+    let list = allow(&["python3"]);
+    let err = check_all_segments("python3 - <<'PY'", &list).unwrap_err();
+    assert!(err.contains("[BLOCKED — DO NOT RETRY]"), "got: {err}");
+    assert!(
+        err.contains("python3 /tmp/snippet"),
+        "must name the runnable workaround: {err}"
+    );
+    assert!(
+        err.contains("write the code to a file"),
+        "must explain the recovery path: {err}"
+    );
+}
+
 #[test]
 fn python_script_file_still_allowed() {
     let list = allow(&["python3"]);
