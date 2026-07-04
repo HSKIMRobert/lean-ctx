@@ -275,6 +275,12 @@ mod tests {
     /// and the property graph on the next pass, never lingering as stale signal.
     #[test]
     fn apply_then_clean_prunes_every_store() {
+        // apply() persists through data-dir-addressed stores (BM25 / property
+        // graph / knowledge). Hold the env lock via an isolated data dir so a
+        // parallel test flipping `LEAN_CTX_DATA_DIR` mid-apply cannot split
+        // the write and the read-back across two different dirs (the
+        // pre-existing full-suite flake reported in #695).
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_str().unwrap();
         // A real source file keeps the BM25 index non-stale across reloads.

@@ -525,11 +525,10 @@ mod tests {
     #[test]
     fn rejects_path_outside_root() {
         // Hermetic config (empty data dir => jail on) so a parallel test that
-        // flips `path_jail` cannot leak into this enforcement check. Also hold the
-        // allow-path env lock: a parallel test setting `LEAN_CTX_ALLOW_PATH` (e.g.
-        // "/") would otherwise turn this escape into an accepted path.
+        // flips `path_jail` cannot leak into this enforcement check. The guard
+        // holds the global test_env_lock, which also serializes against every
+        // `LEAN_CTX_ALLOW_PATH` mutation (all of them go through that lock).
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -786,10 +785,9 @@ mod tests {
     #[cfg(not(feature = "no-jail"))]
     #[test]
     fn error_message_contains_escape_info() {
-        // Hold the allow-path env lock: a parallel test setting
-        // `LEAN_CTX_ALLOW_PATH="/"` would otherwise make this escape resolve to Ok.
+        // isolated_data_dir holds the global test_env_lock, serializing this
+        // against any parallel `LEAN_CTX_ALLOW_PATH="/"` mutation.
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -833,16 +831,22 @@ mod tests {
         assert_eq!(p, PathBuf::from("$LEAN_CTX_TEST_UNSET_VAR/code"));
     }
 
-    /// Serializes tests that mutate `LEAN_CTX_ALLOW_PATH` — cargo runs tests in
-    /// parallel threads and `set_var`/`remove_var` are process-global.
-    static ALLOW_PATH_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     // GH #392: `allow_paths = ["/"]` (via the same env-var channel) must grant
     // access to any absolute path — "/" is a prefix of everything.
+    //
+    // Env-mutating tests here hold the process-global
+    // `data_dir::test_env_lock()` (directly, or via `isolated_data_dir()`
+    // which wraps it) — NOT a module-local mutex. test_env's SAFETY contract
+    // says *all* test env mutation serializes through that one lock; a local
+    // lock only serializes this module against itself, so e.g.
+    // `artifacts::external_corpus_requires_allow_list` (which holds the
+    // global lock) could observe this test's `LEAN_CTX_ALLOW_PATH="/"` and
+    // fail its jail-rejection assert (the pre-existing parallel-run flake
+    // reported in #695).
     #[cfg(unix)]
     #[test]
     fn allow_path_root_slash_permits_everything() {
-        let _guard = ALLOW_PATH_ENV_LOCK.lock().unwrap();
+        let _guard = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -862,7 +866,6 @@ mod tests {
     #[test]
     fn active_relaxations_detects_allow_path_env() {
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         crate::test_env::remove_var("LEAN_CTX_EXTRA_ROOTS");
         crate::test_env::remove_var("LEAN_CTX_ALLOW_IDE_DIRS");
         crate::test_env::set_var("LEAN_CTX_ALLOW_PATH", "/tmp");
@@ -881,7 +884,6 @@ mod tests {
     #[test]
     fn active_relaxations_empty_when_jail_intact() {
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         for var in [
             "LEAN_CTX_ALLOW_PATH",
             "LCTX_ALLOW_PATH",
@@ -900,7 +902,7 @@ mod tests {
 
     #[test]
     fn allow_path_env_permits_outside_root() {
-        let _guard = ALLOW_PATH_ENV_LOCK.lock().unwrap();
+        let _guard = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -924,10 +926,9 @@ mod tests {
     fn rejects_symlink_escape_on_unix() {
         use std::os::unix::fs::symlink;
 
-        // Hold the allow-path env lock: a parallel test setting
-        // `LEAN_CTX_ALLOW_PATH="/"` would otherwise let the symlink escape resolve.
+        // isolated_data_dir holds the global test_env_lock — no parallel test
+        // can set `LEAN_CTX_ALLOW_PATH="/"` and let this escape resolve.
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let other = tmp.path().join("other");
@@ -966,7 +967,6 @@ mod tests {
     #[test]
     fn extra_roots_permit_paths_outside_jail() {
         let _iso = crate::core::data_dir::isolated_data_dir();
-        let _alp = ALLOW_PATH_ENV_LOCK.lock().unwrap();
 
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("project");

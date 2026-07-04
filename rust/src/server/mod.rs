@@ -341,6 +341,11 @@ mod tests {
 
     #[test]
     fn detect_multi_root_workspace_with_child_projects() {
+        // detect_multi_root_workspace SETS `LEAN_CTX_ALLOW_PATH` as a side
+        // effect (auto-allowing the child projects) — hold the global env
+        // lock so a parallel jail test never observes the transient value
+        // (the pre-existing full-suite flake reported in #695).
+        let _guard = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let workspace = tmp.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();

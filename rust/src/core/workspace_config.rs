@@ -102,8 +102,6 @@ fn read_config_file(project_root: &Path) -> Option<(PathBuf, String)> {
 mod tests {
     use super::*;
 
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn write_linked_config(root: &Path, linked: &Path) {
         let cfg = serde_json::json!({
             "linkedProjects": [linked.to_string_lossy()]
@@ -115,7 +113,9 @@ mod tests {
     #[cfg(not(feature = "no-jail"))]
     #[test]
     fn linked_projects_outside_root_are_rejected_without_allow_path() {
-        let _guard = ENV_LOCK.lock().expect("lock");
+        // Global lock (not module-local): every LEAN_CTX_ALLOW_PATH mutation
+        // process-wide serializes through test_env_lock (#695 flake report).
+        let _guard = crate::core::data_dir::test_env_lock();
         let root = tempfile::tempdir().expect("root");
         let other = tempfile::tempdir().expect("other");
 
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn linked_projects_outside_root_are_allowed_with_allow_path() {
-        let _guard = ENV_LOCK.lock().expect("lock");
+        let _guard = crate::core::data_dir::test_env_lock();
         let root = tempfile::tempdir().expect("root");
         let other = tempfile::tempdir().expect("other");
 
