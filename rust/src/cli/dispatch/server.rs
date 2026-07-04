@@ -141,6 +141,13 @@ pub(super) fn run_mcp_server() -> Result<()> {
             time_to_initialize_ms = started_at.elapsed().as_millis() as u64,
             "MCP server initialized"
         );
+        // A completed handshake proves binary + config are healthy, so clear
+        // the crash-loop start history: concurrent multi-window sessions
+        // (GH #694 — N windows × client retries) must never accumulate into a
+        // fake "crash loop" whose pre-handshake backoff sleep then *causes*
+        // the client timeouts it was meant to prevent. True crash loops die
+        // before this line, so their detection is unaffected.
+        core::startup_guard::reset_crash_loop(core::startup_guard::MCP_PROCESS_NAME);
         match service.waiting().await {
             Ok(reason) => {
                 tracing::info!("MCP server stopped: {reason:?}");

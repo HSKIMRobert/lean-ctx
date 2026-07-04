@@ -338,6 +338,32 @@ mod tests {
         reset_crash_loop("never-existed");
     }
 
+    /// GH #694 multi-window scenario: every healthy server resets the start
+    /// history after its completed handshake, so N windows × M client retries
+    /// can never accumulate into a fake crash loop whose pre-handshake backoff
+    /// would then *cause* the client timeouts it exists to prevent.
+    #[test]
+    fn handshake_reset_keeps_healthy_restarts_below_threshold() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let _guard = EnvVarGuard::set("LEAN_CTX_DATA_DIR", dir.path());
+
+        let start = std::time::Instant::now();
+        // Two full rounds of "threshold-many starts, then one handshake":
+        // without the reset the second round would exceed CRASH_LOOP_THRESHOLD
+        // and sleep for seconds.
+        for _ in 0..2 {
+            for _ in 0..CRASH_LOOP_THRESHOLD {
+                crash_loop_backoff("test-handshake");
+            }
+            reset_crash_loop("test-handshake");
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "healthy start/handshake cycles must never trigger the backoff sleep"
+        );
+    }
+
     #[test]
     fn crash_loop_log_only_keeps_recent_entries() {
         let _env = crate::core::data_dir::test_env_lock();

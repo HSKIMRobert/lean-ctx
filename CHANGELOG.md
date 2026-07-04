@@ -41,6 +41,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   top extensions in its SIGNATURE BACKEND section.
 
 ### Fixed
+- **Multi-window MCP starts can no longer trip the crash-loop backoff
+  (GH #694 follow-up — thanks @ITFinesse).** The crash-loop guard counts
+  server starts in a 60s window, but a healthy burst — N editor windows each
+  spawning a server, plus the client's own retries while a slow host
+  initializes — could cross the threshold with zero crashes. The resulting
+  pre-handshake backoff sleep (up to 30s) then *caused* the very
+  "Waiting for server to respond to `initialize` request" timeouts it exists
+  to prevent, wedging the second window. A completed MCP handshake now clears
+  the start history (a handshake proves binary + config are healthy; true
+  crash loops die before it), so only genuinely crashing servers back off.
 - **VS Code Insiders is now a first-class MCP target (GH #694 follow-up —
   thanks @ITFinesse).** Insiders keeps a fully separate profile dir
   (`Code - Insiders/User`), so registering lean-ctx in stable's
