@@ -3,7 +3,7 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.9.0] — 2026-07-05
 
 ### Changed
 - **The shell hook is now transparent in plain human terminals: default
@@ -70,8 +70,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   design (`ctx_edit`/`ctx_patch` stay session-rooted until undo history is
   multi-repo-aware); unknown aliases error with the list of known ones, and
   jail + secret screening apply against the resolved repo root.
-
-## [3.9.0] — 2026-07-04
 
 ### Added
 - **The AI Gateway (team mode).** The engine can now run as a shared
