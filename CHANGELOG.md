@@ -122,6 +122,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   byte-fidelity contract. Structural characters no longer count toward the
   flood check, and a removed flood line no longer eats the file's trailing
   newline.
+- **`ctx_shell`'s explicit `cwd` param now updates the live shell cwd
+  (GH #707 follow-up).** The worktree-divergence detection reads
+  `session.shell_cwd`, but that field only tracked `cd` commands *inside*
+  command text — clients that switch checkouts pass the new directory as the
+  `cwd` argument of every call, so the switch was invisible to path
+  resolution. A jail-accepted explicit `cwd` is now persisted, verified
+  end-to-end over a real MCP session (read resolves into the worktree copy
+  after `ctx_shell cwd=<worktree>`).
+- **`lean-ctx stop`/`dev-install` no longer SIGTERM their own ancestor chain
+  (GH #714).** Run under the lean-ctx shell wrapper (`lean-ctx -c … → sh →
+  lean-ctx dev-install`), the process sweep matched the wrapper parent and
+  killed the pipeline mid-install (exit 143) — after the binary swap but
+  before autostart was re-enabled. The sweep now excludes the full
+  `ps ppid` ancestor chain, not just `getpid()`.
 - **Unknown MCP tool names now suggest the nearest registered tool
   (GH #712 — thanks @getappz).** `ctx_serach` returned a bare "Unknown tool"
   while the CLI has long offered "did you mean" for typos; the

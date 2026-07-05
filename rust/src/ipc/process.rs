@@ -188,10 +188,46 @@ pub fn force_kill(pid: u32) -> Result<()> {
     }
 }
 
+/// PIDs this process must never signal: itself plus its ancestor chain.
+///
+/// The ancestor chain matters whenever `lean-ctx stop`/`dev-install` runs
+/// *under* lean-ctx itself — the shell hook routes commands through a
+/// `lean-ctx -c` wrapper, so the process tree is
+/// `lean-ctx -c … → sh → lean-ctx dev-install`. Excluding only `getpid()`
+/// SIGTERMed the wrapper parent, which took the whole pipeline down mid-run
+/// (exit 143) before autostart was re-enabled (#714).
+fn protected_self_pids() -> std::collections::HashSet<u32> {
+    let mut protected = std::collections::HashSet::new();
+    protected.insert(std::process::id());
+    #[cfg(unix)]
+    {
+        let mut pid = std::process::id();
+        for _ in 0..16 {
+            let Ok(output) = std::process::Command::new("ps")
+                .args(["-o", "ppid=", "-p", &pid.to_string()])
+                .output()
+            else {
+                break;
+            };
+            let Ok(ppid) = String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse::<u32>()
+            else {
+                break;
+            };
+            if ppid <= 1 || !protected.insert(ppid) {
+                break;
+            }
+            pid = ppid;
+        }
+    }
+    protected
+}
+
 /// Find all PIDs of processes whose executable name matches `name`.
-/// Excludes the current process.
+/// Excludes the current process and its ancestor chain (#714).
 pub fn find_pids_by_name(name: &str) -> Vec<u32> {
-    let my_pid = std::process::id();
+    let protected = protected_self_pids();
     let mut pids = Vec::new();
 
     #[cfg(unix)]
@@ -202,7 +238,7 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
             .arg(name)
             .output()
         {
-            collect_pids(&output.stdout, my_pid, &mut pids);
+            collect_pids(&output.stdout, &protected, &mut pids);
         }
 
         // Also find processes where the full command line contains the binary path
@@ -212,7 +248,7 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
             .arg(format!("/{name}(\\s|$)"))
             .output()
         {
-            collect_pids(&output.stdout, my_pid, &mut pids);
+            collect_pids(&output.stdout, &protected, &mut pids);
         }
 
         pids.sort_unstable();
@@ -237,7 +273,7 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
                 if parts.len() >= 2 {
                     let pid_str = parts[1].trim().trim_matches('"');
                     if let Ok(pid) = pid_str.parse::<u32>() {
-                        if pid != my_pid {
+                        if !protected.contains(&pid) {
                             pids.push(pid);
                         }
                     }
@@ -250,11 +286,11 @@ pub fn find_pids_by_name(name: &str) -> Vec<u32> {
 }
 
 #[cfg(unix)]
-fn collect_pids(stdout: &[u8], exclude_pid: u32, out: &mut Vec<u32>) {
+fn collect_pids(stdout: &[u8], protected: &std::collections::HashSet<u32>, out: &mut Vec<u32>) {
     let text = String::from_utf8_lossy(stdout);
     for line in text.lines() {
         if let Ok(pid) = line.trim().parse::<u32>()
-            && pid != exclude_pid
+            && !protected.contains(&pid)
         {
             out.push(pid);
         }
@@ -415,5 +451,42 @@ mod tests {
     fn killable_with_no_mcp_returns_all() {
         let all = vec![10, 20, 30];
         assert_eq!(killable_excluding_mcp(all.clone(), &[]), all);
+    }
+
+    /// #714: `stop`/`dev-install` running *under* a lean-ctx shell wrapper
+    /// (`lean-ctx -c … → sh → lean-ctx dev-install`) must not SIGTERM its own
+    /// ancestor chain — that killed the pipeline mid-run (exit 143) before
+    /// autostart was re-enabled.
+    #[test]
+    fn protected_pids_cover_self_and_ancestors() {
+        let protected = protected_self_pids();
+        assert!(protected.contains(&std::process::id()));
+        #[cfg(unix)]
+        {
+            // The direct parent (cargo's test runner) must be protected too.
+            let out = std::process::Command::new("ps")
+                .args(["-o", "ppid=", "-p", &std::process::id().to_string()])
+                .output()
+                .expect("ps runs");
+            if let Ok(ppid) = String::from_utf8_lossy(&out.stdout).trim().parse::<u32>()
+                && ppid > 1
+            {
+                assert!(
+                    protected.contains(&ppid),
+                    "parent {ppid} missing from {protected:?}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_pids_never_reports_own_process_tree() {
+        // Regardless of what matches by name, the returned set must be
+        // disjoint from the protected self/ancestor set (#714).
+        let protected = protected_self_pids();
+        for pid in find_pids_by_name("lean-ctx") {
+            assert!(!protected.contains(&pid), "own tree pid {pid} reported");
+        }
     }
 }
