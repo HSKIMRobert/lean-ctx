@@ -71,7 +71,23 @@ fn has_repeated_symbol(line: &str, threshold: u32) -> bool {
     false
 }
 
-/// Returns true if a line is a "symbol flood" — 10+ of the same character repeated.
+/// Characters whose long runs are legitimate document STRUCTURE, not garbage:
+/// markdown table delimiters (`|---|---|`, #709), setext heading underlines
+/// (`=====`), horizontal rules (`---`/`***`/`___`), comment separators
+/// (`//------`, `#=====`), and box-drawing frames. A flood of these is how
+/// real files draw lines — only runs of characters OUTSIDE this set (plus CJK
+/// pairing, handled separately) indicate degenerate model output (#257).
+fn is_structural_char(c: char) -> bool {
+    matches!(
+        c,
+        '-' | '=' | '*' | '_' | '|' | '+' | '~' | '#' | '/' | '\\' | '.' | ':'
+    ) || matches!(c, '\u{2500}'..='\u{257F}') // box drawing
+}
+
+/// Returns true if a line is a "symbol flood" — 10+ of the same character
+/// repeated. Runs of structural separator characters are exempt (#709): a
+/// markdown table's `|----------|` row or a setext `==========` underline is
+/// content, not a degenerate artifact.
 fn is_symbol_flood(line: &str) -> bool {
     let trimmed = line.trim();
     if trimmed.len() < 10 {
@@ -81,7 +97,11 @@ fn is_symbol_flood(line: &str) -> bool {
     let mut max_run = 1u32;
     let mut current_run = 1u32;
     for i in 1..chars.len() {
-        if chars[i] == chars[i - 1] && !chars[i].is_alphanumeric() && chars[i] != ' ' {
+        if chars[i] == chars[i - 1]
+            && !chars[i].is_alphanumeric()
+            && chars[i] != ' '
+            && !is_structural_char(chars[i])
+        {
             current_run += 1;
             if current_run > max_run {
                 max_run = current_run;
@@ -119,10 +139,13 @@ pub fn sanitize(output: &str) -> String {
         return output.to_string();
     }
 
-    let result = cleaned.join("\n");
-    if removed > 0 {
-        tracing::debug!("[sanitizer] removed {removed} degenerate line(s) from output");
+    let mut result = cleaned.join("\n");
+    // Rejoining via lines() would silently eat a trailing newline (#709) —
+    // only the degenerate lines may disappear, nothing else.
+    if output.ends_with('\n') && !result.is_empty() {
+        result.push('\n');
     }
+    tracing::debug!("[sanitizer] removed {removed} degenerate line(s) from output");
     result
 }
 
@@ -267,6 +290,59 @@ mod tests {
         assert!(!cleaned.contains("!!!!!!!!!!!!"));
         assert!(cleaned.contains("normal line"));
         assert!(cleaned.contains("another line"));
+    }
+
+    /// #709: GFM table delimiter rows are document structure, not degenerate
+    /// output — a raw/verbatim read must return them byte-exact. This is the
+    /// exact reproduction file from the report.
+    #[test]
+    fn markdown_table_delimiter_rows_survive_verbatim() {
+        let md = "# Repro\n\nSome text before the table.\n\n## A Table\n\n\
+                  | Column A | Column B | Column C |\n\
+                  |----------|----------|----------|\n\
+                  | a1 | b1 | c1 |\n\
+                  | a2 | b2 | c2 |\n\nSome text after the table.\n";
+        assert_eq!(
+            sanitize(md),
+            md,
+            "raw read must be byte-exact incl. trailing newline"
+        );
+    }
+
+    /// #709: the full family of legitimate long separator runs.
+    #[test]
+    fn structural_separator_lines_are_not_floods() {
+        for line in [
+            "|----------|----------|----------|", // GFM delimiter
+            "|:---------|---------:|:--------:|", // GFM with alignment colons
+            "--------------------",               // horizontal rule / comment separator
+            "====================",               // setext underline
+            "********************",               // markdown hr
+            "____________________",               // markdown hr
+            "~~~~~~~~~~~~~~~~~~~~",               // fenced block (tilde)
+            "####################",               // banner comment
+            "//------------------",               // code separator comment
+            "\\\\\\\\\\\\\\\\\\\\\\\\",           // LaTeX line breaks
+            "....................",               // TOC dot leaders
+            "::::::::::::::::::::",               // rst/markdown containers
+            "++++++++++++++++++++",               // AsciiDoc passthrough
+            "────────────────────",               // box drawing
+        ] {
+            assert!(!is_symbol_flood(line), "structural line flagged: {line}");
+            assert_eq!(sanitize(line), line);
+        }
+        // Genuine floods still die.
+        for line in ["!!!!!!!!!!!!!!!", "??????????????", "@@@@@@@@@@@@@@"] {
+            assert!(is_symbol_flood(line), "genuine flood missed: {line}");
+        }
+    }
+
+    /// #709: when a genuine flood IS removed, the trailing newline of the
+    /// surrounding document must survive the rejoin.
+    #[test]
+    fn trailing_newline_survives_flood_removal() {
+        let input = "keep me\n!!!!!!!!!!!!!!!\nand me\n";
+        assert_eq!(sanitize(input), "keep me\nand me\n");
     }
 
     #[test]
