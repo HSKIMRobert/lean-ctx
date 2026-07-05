@@ -30,7 +30,8 @@ pub fn score_lines(text: &str) -> Vec<LineScore> {
         let trimmed = line.trim();
 
         let entropy = char_entropy(trimmed);
-        let has_marker = has_structural_marker(trimmed);
+        let is_noise = is_encoded_blob(trimmed);
+        let has_marker = !is_noise && has_structural_marker(trimmed);
         let rep_ratio = if trigram_saturated {
             0.0
         } else {
@@ -44,7 +45,7 @@ pub fn score_lines(text: &str) -> Vec<LineScore> {
             }
         }
 
-        let combined = compute_combined(entropy, has_marker, rep_ratio);
+        let combined = compute_combined(entropy, has_marker, rep_ratio, is_noise);
 
         scores.push(LineScore {
             line_idx: idx,
@@ -135,10 +136,54 @@ fn register_trigrams(line: &str, seen: &mut HashSet<String>) {
     }
 }
 
-fn compute_combined(entropy: f32, has_marker: bool, rep_ratio: f32) -> f32 {
+fn compute_combined(entropy: f32, has_marker: bool, rep_ratio: f32, is_noise: bool) -> f32 {
+    if is_noise {
+        return 0.0;
+    }
     let marker_bonus = if has_marker { 0.3 } else { 0.0 };
     let rep_penalty = rep_ratio * 0.5;
     (entropy + marker_bonus - rep_penalty).max(0.0)
+}
+
+/// True when `line` contains an encoded blob (base64 or hex) — either as the
+/// whole line or as one whitespace-delimited token in a `label: <blob>`
+/// shaped line (`trace id: <hex>`, `commit <sha>`, `session token: <b64>`,
+/// all common in real logs) — rather than prose/code. High Shannon entropy
+/// but zero semantic content, so it must not be scored as information-dense.
+fn is_encoded_blob(line: &str) -> bool {
+    line.split_whitespace().any(is_blob_token)
+}
+
+/// True when a single whitespace-delimited token looks like a random,
+/// non-prose blob (base64 or hex) rather than an English word or code
+/// identifier. `pub(super)` so `quality::check` can also treat a long blob
+/// as a must-preserve identifier — a payload-shaped blob (e.g. the resolved
+/// hash from `git rev-parse HEAD`) must still trip the quality gate if
+/// dropped, even though it has no alphabetic characters for the ordinary
+/// identifier check to key on.
+pub(super) fn is_blob_token(token: &str) -> bool {
+    const MIN_BLOB_LEN: usize = 24;
+
+    if token.len() < MIN_BLOB_LEN {
+        return false;
+    }
+
+    let is_hex = token.chars().all(|c| c.is_ascii_hexdigit());
+
+    // Base64 padding/symbols are an unambiguous signal on their own. Without
+    // them, require the digit+upper+lower mix typical of random tokens so a
+    // long plain identifier (all-lowercase or camelCase, no digits) doesn't
+    // get misclassified as noise.
+    let has_b64_symbol = token.contains('+') || token.contains('/') || token.contains('=');
+    let charset_ok = token
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=');
+    let has_digit = token.chars().any(|c| c.is_ascii_digit());
+    let has_upper = token.chars().any(|c| c.is_ascii_uppercase());
+    let has_lower = token.chars().any(|c| c.is_ascii_lowercase());
+    let is_base64 = charset_ok && (has_b64_symbol || (has_digit && has_upper && has_lower));
+
+    is_hex || is_base64
 }
 
 #[cfg(test)]
@@ -176,6 +221,63 @@ mod tests {
     #[test]
     fn structural_marker_missing() {
         assert!(!has_structural_marker("this is a simple line"));
+    }
+
+    #[test]
+    fn encoded_blob_detected_as_noise() {
+        assert!(is_encoded_blob(
+            "MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6MDk4NzY1NDMyMQ=="
+        ));
+        assert!(is_encoded_blob(
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+        ));
+        assert!(!is_encoded_blob("src/core/config.rs"));
+        assert!(!is_encoded_blob("this is a simple line with words"));
+    }
+
+    #[test]
+    fn prefixed_blob_is_still_detected_as_noise() {
+        // Real logs almost always label the blob rather than emit it bare
+        // (`trace id: <hex>`, `commit <sha>`, `session token: <b64>`). Built
+        // at runtime (not a literal) so a fake test token isn't itself
+        // mistaken for a real secret by tooling.
+        let hex64: String = "9f86d0".repeat(11);
+        let b64_padded: String = format!("{}==", "aZ9".repeat(8));
+
+        assert!(is_encoded_blob(&format!("trace id: {hex64}")));
+        assert!(is_encoded_blob(&format!(
+            "build session token: {b64_padded}"
+        )));
+        assert!(is_encoded_blob(&format!("commit {hex64}")));
+    }
+
+    #[test]
+    fn prefixed_real_content_is_not_noise() {
+        assert!(!is_encoded_blob(
+            "error in module ConfigurationManagerFactory during init"
+        ));
+    }
+
+    #[test]
+    fn long_camel_case_identifier_is_not_noise() {
+        assert!(!is_encoded_blob(
+            "configureApplicationRuntimeEnvironmentSettings"
+        ));
+        assert!(!is_encoded_blob(
+            "configure_premium_feature_flags_for_tenant"
+        ));
+    }
+
+    #[test]
+    fn encoded_blob_scores_lower_than_real_error_line() {
+        let text = "error: connection refused at host during handshake attempt\nMTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6MDk4NzY1NDMyMQ==";
+        let scores = score_lines(text);
+        assert!(
+            scores[0].combined > scores[1].combined,
+            "real error line should score above encoded blob noise: {} vs {}",
+            scores[0].combined,
+            scores[1].combined
+        );
     }
 
     #[test]
