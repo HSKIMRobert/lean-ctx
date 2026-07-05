@@ -426,6 +426,7 @@ pub mod language_capabilities;
 pub mod launchd;
 pub mod layout_pin;
 pub mod learning_sync;
+pub mod levenshtein;
 pub mod limits;
 pub mod llm_enhance;
 pub mod llm_feedback;

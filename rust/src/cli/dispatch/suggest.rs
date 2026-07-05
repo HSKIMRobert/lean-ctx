@@ -122,61 +122,16 @@ const KNOWN_COMMANDS: &[&str] = &[
 ];
 
 /// Returns the closest known command to `input`, or `None` when nothing is
-/// near enough to suggest with confidence.
-///
-/// The edit-distance budget scales with length (short words tolerate one edit,
-/// longer ones roughly a third) so `udpate` -> `update` is offered while a
-/// genuinely unrelated word stays unsuggested.
+/// near enough to suggest with confidence. Distance + budget live in the
+/// shared [`crate::core::levenshtein`] helper (#712), so CLI commands, config
+/// keys and MCP tool names all suggest with identical semantics.
 pub(super) fn closest_command(input: &str) -> Option<&'static str> {
-    let input = input.trim();
-    if input.is_empty() {
-        return None;
-    }
-    let budget = (input.chars().count() / 3).max(1);
-    KNOWN_COMMANDS
-        .iter()
-        .map(|&cmd| (cmd, levenshtein(input, cmd)))
-        .filter(|&(_, dist)| dist <= budget)
-        .min_by_key(|&(_, dist)| dist)
-        .map(|(cmd, _)| cmd)
-}
-
-/// Classic Wagner-Fischer edit distance over Unicode scalar values, with a
-/// single rolling row (O(min) memory) since command names are tiny.
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    if a.is_empty() {
-        return b.len();
-    }
-    if b.is_empty() {
-        return a.len();
-    }
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut curr = vec![0usize; b.len() + 1];
-    for (i, &ca) in a.iter().enumerate() {
-        curr[0] = i + 1;
-        for (j, &cb) in b.iter().enumerate() {
-            let cost = usize::from(ca != cb);
-            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[b.len()]
+    crate::core::levenshtein::closest(input, KNOWN_COMMANDS.iter().copied())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn levenshtein_basic_distances() {
-        assert_eq!(levenshtein("", ""), 0);
-        assert_eq!(levenshtein("abc", "abc"), 0);
-        assert_eq!(levenshtein("abc", "abd"), 1);
-        assert_eq!(levenshtein("udpate", "update"), 2);
-        assert_eq!(levenshtein("kitten", "sitting"), 3);
-    }
 
     #[test]
     fn suggests_close_typos() {

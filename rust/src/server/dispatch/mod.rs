@@ -430,8 +430,16 @@ impl LeanCtxServer {
             return Ok((final_text, saved, output.shell_outcome));
         }
 
+        // Unknown tool (#712): suggest the closest registered name so a typo
+        // (`ctx_raed`) costs the agent a hint instead of a blind retry.
+        let suggestion = self
+            .registry
+            .as_ref()
+            .and_then(|r| crate::core::levenshtein::closest(name, r.names()))
+            .map(|s| format!(" — did you mean '{s}'?"))
+            .unwrap_or_default();
         Err(ErrorData::invalid_params(
-            format!("Unknown tool: {name}"),
+            format!("Unknown tool: {name}{suggestion}"),
             None,
         ))
     }
@@ -688,6 +696,39 @@ mod tests {
         assert!(
             result.is_err(),
             "a handler panic must surface as an error; the server process survives"
+        );
+    }
+
+    /// #712: a typo'd tool name must return a "did you mean" hint from the
+    /// live registry instead of a bare unknown-tool error; a name nowhere
+    /// near any registered tool must stay suggestion-free.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unknown_tool_suggests_closest_registered_name() {
+        let server = crate::tools::create_server();
+
+        let err = server
+            .dispatch_tool("ctx_raed", None, false)
+            .await
+            .expect_err("typo'd tool must error");
+        assert!(
+            err.message.contains("Unknown tool: ctx_raed"),
+            "unexpected message: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("did you mean 'ctx_read'"),
+            "missing suggestion: {}",
+            err.message
+        );
+
+        let err = server
+            .dispatch_tool("zzz_qqq_www", None, false)
+            .await
+            .expect_err("unrelated name must error");
+        assert!(
+            !err.message.contains("did you mean"),
+            "no confident suggestion for garbage: {}",
+            err.message
         );
     }
 }

@@ -521,7 +521,13 @@ fn print_config_provenance() {
     println!();
 }
 
+/// Closest config key: dotted-path match within distance 3, then a
+/// leaf-segment match within distance 2 (`proxy.prt` → `proxy.port`).
+/// Distances come from the shared [`crate::core::levenshtein`] helper (#712);
+/// the fixed budgets here predate the shared length-scaled one and are kept —
+/// dotted keys are long, so a length-scaled budget would over-suggest.
 fn find_closest(needle: &str, haystack: &[String]) -> Option<String> {
+    use crate::core::levenshtein::levenshtein;
     let mut best: Option<(usize, &str)> = None;
     for candidate in haystack {
         let d = levenshtein(needle, candidate);
@@ -542,28 +548,6 @@ fn find_closest(needle: &str, haystack: &[String]) -> Option<String> {
         }
     }
     leaf_best.map(|(_, s)| s.to_string())
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let (m, n) = (a.len(), b.len());
-    let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for (i, row) in dp.iter_mut().enumerate().take(m + 1) {
-        row[0] = i;
-    }
-    for (j, val) in dp[0].iter_mut().enumerate().take(n + 1) {
-        *val = j;
-    }
-    for i in 1..=m {
-        for j in 1..=n {
-            let cost = usize::from(a[i - 1] != b[j - 1]);
-            dp[i][j] = (dp[i - 1][j] + 1)
-                .min(dp[i][j - 1] + 1)
-                .min(dp[i - 1][j - 1] + cost);
-        }
-    }
-    dp[m][n]
 }
 
 fn normalize_optional_upstream(value: &str) -> Option<String> {
