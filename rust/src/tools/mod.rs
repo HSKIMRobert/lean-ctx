@@ -472,4 +472,47 @@ mod resolve_path_tests {
         let session = server.session.read().await;
         assert_eq!(session.project_root.as_deref(), Some(root_value.as_str()));
     }
+
+    // #707: a mid-session worktree switch moves shell_cwd into a nested linked
+    // worktree (own `.git` *file*) while project_root stays at initialize-time.
+    // The path `src/lib.rs` deliberately also exists relative to the test
+    // process CWD (`rust/`): the server's `p.exists()` probe used to
+    // short-circuit on exactly that and serve the stale root copy before the
+    // divergent-checkout precedence could apply.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn resolve_path_prefers_worktree_copy_after_mid_session_switch() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let root_value = create_git_root(&repo);
+        let wt = repo.join(".claude/worktrees/wt");
+        std::fs::create_dir_all(wt.join("src")).unwrap();
+        std::fs::write(wt.join(".git"), "gitdir: ../../../.git/worktrees/wt\n").unwrap();
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/lib.rs"), "stale").unwrap();
+        std::fs::write(wt.join("src/lib.rs"), "fresh").unwrap();
+
+        let server = LeanCtxServer::new_with_project_root(Some(&root_value));
+        {
+            // The worktree switch as ctx_shell's cwd tracking records it.
+            let mut session = server.session.write().await;
+            session.shell_cwd = Some(wt.to_string_lossy().to_string());
+        }
+
+        let out = server.resolve_path("src/lib.rs").await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&out).unwrap(),
+            "fresh",
+            "worktree copy must win over the stale project_root copy: {out}"
+        );
+
+        // Switching back restores the established precedence.
+        {
+            let mut session = server.session.write().await;
+            session.shell_cwd = Some(root_value.clone());
+        }
+        let out = server.resolve_path("src/lib.rs").await.unwrap();
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "stale");
+    }
 }

@@ -38,25 +38,38 @@ impl LeanCtxServer {
                 .unwrap_or(".")
                 .to_string();
 
-            let resolved = if p.is_absolute() || p.exists() {
+            // #707: a shell_cwd tracking a mid-session worktree switch
+            // (different git checkout) outranks the stale project_root — same
+            // precedence as core::path_resolve. Checked BEFORE the `p.exists()`
+            // probe below: that probe runs against the *process* CWD, which
+            // IDEs routinely set to the original project root, so it would
+            // short-circuit every relative path back to the stale checkout and
+            // the divergence rule could never apply.
+            let worktree_cwd = if p.is_absolute() {
+                None
+            } else {
+                session
+                    .project_root
+                    .as_deref()
+                    .zip(session.shell_cwd.as_deref())
+                    .filter(|(root, cwd)| {
+                        crate::core::path_resolve::shell_cwd_is_divergent_checkout(root, cwd)
+                    })
+                    .map(|(_, cwd)| std::path::Path::new(cwd).join(&normalized))
+            };
+
+            let resolved = if let Some(overridden) = worktree_cwd {
+                overridden
+            } else if p.is_absolute() || p.exists() {
                 std::path::PathBuf::from(&normalized)
             } else if let Some(ref root) = session.project_root {
-                // #707: a shell_cwd tracking a mid-session worktree switch
-                // (different git checkout) outranks the stale project_root —
-                // same precedence as core::path_resolve.
-                if let Some(ref cwd) = session.shell_cwd
-                    && crate::core::path_resolve::shell_cwd_is_divergent_checkout(root, cwd)
-                {
+                let joined = std::path::Path::new(root).join(&normalized);
+                if joined.exists() {
+                    joined
+                } else if let Some(ref cwd) = session.shell_cwd {
                     std::path::Path::new(cwd).join(&normalized)
                 } else {
-                    let joined = std::path::Path::new(root).join(&normalized);
-                    if joined.exists() {
-                        joined
-                    } else if let Some(ref cwd) = session.shell_cwd {
-                        std::path::Path::new(cwd).join(&normalized)
-                    } else {
-                        std::path::Path::new(&jail_root).join(&normalized)
-                    }
+                    std::path::Path::new(&jail_root).join(&normalized)
                 }
             } else if let Some(ref cwd) = session.shell_cwd {
                 std::path::Path::new(cwd).join(&normalized)
