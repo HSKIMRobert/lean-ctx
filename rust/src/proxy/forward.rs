@@ -163,6 +163,27 @@ pub async fn forward_request(
     } else {
         build_upstream_url(&parts, upstream_base, default_path)
     };
+
+    // Counterfactual probe (#701, opt-in, Anthropic native only — a
+    // cross-shape route has no Anthropic upstream to ask): fire the free
+    // count_tokens call with the ORIGINAL body, concurrent with the forward
+    // below; `usage_meter::record` reads the slot when the billed usage
+    // arrives at response end. `parsed` is the pre-compression body
+    // (compression ran on a clone) — exactly what the counterfactual must
+    // count. A detached task: it can never delay or fail the real request.
+    let counterfactual = if provider_label == "Anthropic" && !xlat {
+        super::counterfactual::maybe_spawn_probe(
+            &state.client,
+            &parts,
+            upstream_base,
+            parsed.as_ref(),
+            route.as_ref().map(|r| r.routed_from.as_str()),
+            compressed_size < original_size,
+        )
+    } else {
+        None
+    };
+
     let response = send_upstream(
         &state,
         &parts,
@@ -209,6 +230,7 @@ pub async fn forward_request(
             wire.is_local = local;
         }
     }
+    wire.counterfactual = counterfactual;
     let wire = Some(wire);
 
     build_response(
@@ -280,7 +302,8 @@ fn wire_context(
         // bytes/4 — the same estimation basis the proxy stats use throughout.
         uncompressed_input_tokens: original_size as u64 / 4,
         is_local,
-        routed_from: None, // populated by the routing hook (wave 3)
+        routed_from: None,    // populated by the routing hook (wave 3)
+        counterfactual: None, // populated after the probe spawn (#701)
     })
 }
 

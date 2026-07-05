@@ -31,6 +31,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   LiteLLM gateway is compressed deterministically (prompt-cache-safe, #498) —
   no client change, including Claude Code via `ANTHROPIC_BASE_URL`. Cookbook:
   `docs/guides/compress-sdk.md`.
+- **Provider-verified savings receipts (GH #701, opt-in
+  `proxy.counterfactual_metering`).** Wire savings were estimated (bytes/4 or
+  local tokenizer). With metering on, every request the proxy rewrites also
+  fires Anthropic's free `count_tokens` endpoint with the original,
+  uncompressed body — concurrently with the real forward, spawned detached so
+  it can never delay, mutate or fail the request — and pairs the
+  provider-counted "would have billed N" with the same response's actually
+  billed usage. Same request, same moment: no traffic-mix confound
+  (methodology adopted from pxpipe's counterfactual metering). `/status` gains
+  a `verified_savings` block and `lean-ctx proxy status` a `Verified:` line
+  beside the estimate; per-model pairs persist across restarts in
+  `proxy_usage.json` (pre-#701 files load unchanged). Net-negative results are
+  reported signed, never clamped. Anthropic only (no free counting endpoint
+  elsewhere); probe failures silently degrade the row to the estimate.
 - **CCR round-trips through LiteLLM's agentic loop (GH #702).** A lossy
   `/v1/compress` rewrite now advertises its retrieval hash in the guardrail's
   regex-locked `hash=<24-hex>` form, and the new `GET /v1/retrieve/{hash}`
