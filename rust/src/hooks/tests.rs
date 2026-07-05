@@ -197,6 +197,59 @@ fn mcp_env_pairs_omit_roots_when_unset() {
     assert!(!keys.contains(&"LEAN_CTX_EXTRA_ROOTS"));
 }
 
+// ── #708: portable hook-binary override for multi-machine synced configs ──
+
+#[test]
+fn hook_command_binary_honors_override_and_skips_msys_rewrite() {
+    let _iso = crate::core::data_dir::isolated_data_dir();
+
+    crate::test_env::set_var("LEAN_CTX_HOOK_BINARY", "$HOME/.local/bin/lean-ctx");
+    assert_eq!(resolve_hook_command_binary(), "$HOME/.local/bin/lean-ctx");
+    // The override is already the user's chosen shell form — never rewritten
+    // into the MSYS `/c/…` form.
+    assert_eq!(resolve_binary_path_for_bash(), "$HOME/.local/bin/lean-ctx");
+
+    crate::test_env::remove_var("LEAN_CTX_HOOK_BINARY");
+    // Without an override the #367 contract holds: resolved absolute path.
+    assert!(std::path::Path::new(&resolve_hook_command_binary()).is_absolute());
+    // MCP server entries always keep the absolute path — env-var forms would
+    // break hosts that spawn the command without a shell.
+    assert!(std::path::Path::new(&resolve_binary_path()).is_absolute());
+}
+
+#[test]
+fn claude_settings_hooks_emit_override_verbatim_and_stay_idempotent() {
+    let _iso = crate::core::data_dir::isolated_data_dir();
+    crate::test_env::set_var(
+        "LEAN_CTX_HOOK_BINARY",
+        "$USERPROFILE/AppData/Roaming/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe",
+    );
+    let home = tempfile::tempdir().unwrap();
+
+    install_claude_hook_config(home.path());
+
+    let settings_path = home.path().join(".claude/settings.json");
+    let settings = std::fs::read_to_string(&settings_path).expect("settings.json written");
+    assert!(
+        settings.contains(
+            "$USERPROFILE/AppData/Roaming/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe hook rewrite"
+        ),
+        "hook command must carry the portable form verbatim: {settings}"
+    );
+    assert!(
+        !settings.contains(&resolve_binary_path()),
+        "no machine-absolute path may leak into the synced settings.json"
+    );
+
+    // Re-running with the same override is a no-op — the sync ping-pong #708
+    // reported came from exactly this rewrite cycle.
+    install_claude_hook_config(home.path());
+    let after = std::fs::read_to_string(&settings_path).unwrap();
+    assert_eq!(settings, after, "idempotent under a stable override");
+
+    crate::test_env::remove_var("LEAN_CTX_HOOK_BINARY");
+}
+
 #[test]
 fn hooks_installed_for_is_false_without_artifacts() {
     let tmp = unique_tmp_dir("leanctx_refresh_empty");
