@@ -97,6 +97,18 @@ pub struct ProxyConfig {
     /// Anthropic's minimum cacheable size. `None`/`false` (the default) leaves the
     /// request untouched. See [`ProxyConfig::cache_breakpoint_enabled`].
     pub cache_breakpoint: Option<bool>,
+    /// Opt-in counterfactual savings metering (#701). When enabled, each
+    /// *rewritten* Anthropic `/v1/messages` request additionally fires a **free**
+    /// `count_tokens` probe with the original, uncompressed body, concurrently
+    /// with the real forward. The provider-counted answer ("this request would
+    /// have cost N input tokens without lean-ctx") is paired with the actually
+    /// billed usage from the same response — provider-authoritative receipts
+    /// instead of local tokenizer estimates. The probe never mutates or delays
+    /// the forwarded request; probe failures degrade to the estimate. Off by
+    /// default: it adds one extra HTTP call per compressed request (free at
+    /// Anthropic, but latency/rate-limit surface). See
+    /// [`ProxyConfig::counterfactual_metering_enabled`].
+    pub counterfactual_metering: Option<bool>,
     /// Opt-in cache-aligner volatile-field telemetry (#940). When enabled, the
     /// proxy scans each *unanchored* Anthropic system prompt for volatile,
     /// cache-busting fields (ISO dates/datetimes, UUIDs, git SHAs) and records how
@@ -546,6 +558,17 @@ impl ProxyConfig {
     pub fn cache_breakpoint_enabled(&self) -> bool {
         std::env::var("LEAN_CTX_PROXY_CACHE_BREAKPOINT").is_ok()
             || self.cache_breakpoint.unwrap_or(false)
+    }
+
+    /// Whether opt-in counterfactual savings metering (#701) is enabled. Off by
+    /// default: it fires one extra (free) Anthropic `count_tokens` call per
+    /// rewritten request — pure telemetry, but extra latency budget and
+    /// rate-limit surface, so it must be an explicit opt-in.
+    /// `LEAN_CTX_PROXY_COUNTERFACTUAL` (any value) wins, then `[proxy]
+    /// counterfactual_metering` in config.toml, else `false`.
+    pub fn counterfactual_metering_enabled(&self) -> bool {
+        std::env::var("LEAN_CTX_PROXY_COUNTERFACTUAL").is_ok()
+            || self.counterfactual_metering.unwrap_or(false)
     }
 
     /// Whether opt-in cache-aligner volatile-field telemetry (#940) is enabled.

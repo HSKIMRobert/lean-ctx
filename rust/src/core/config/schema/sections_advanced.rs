@@ -119,6 +119,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     proxy.insert(
+        "counterfactual_metering".into(),
+        key_with_env(
+            "bool",
+            serde_json::json!(cfg.proxy.counterfactual_metering_enabled()),
+            "Opt-in counterfactual savings metering (#701): each rewritten Anthropic /v1/messages request fires a free count_tokens probe with the original, uncompressed body, concurrently with the real forward. The provider-counted answer is paired with the same response's billed usage — provider-authoritative savings receipts ('would have cost N, billed M') instead of local tokenizer estimates, shown as verified_savings on /status. The probe never mutates or delays the forwarded request; failures degrade to the estimate. Default false (one extra free HTTP call per compressed request)",
+            "LEAN_CTX_PROXY_COUNTERFACTUAL",
+        ),
+    );
+    proxy.insert(
         "cache_breakpoint".into(),
         key_with_env(
             "bool",

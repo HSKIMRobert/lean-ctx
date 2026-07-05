@@ -76,6 +76,38 @@ fn print_compression_by_upstream(v: &serde_json::Value) {
     }
 }
 
+/// Prints the provider-verified savings line (#701) when counterfactual
+/// metering has covered at least one request. Both sides of the pair were
+/// counted by Anthropic on the same request — receipts, not the bytes/4
+/// estimate above. Silent when the opt-in feature is off or no probe has
+/// answered yet (`verified_savings` is `null`).
+fn print_verified_savings(v: &serde_json::Value) {
+    let Some(vs) = v.get("verified_savings").filter(|x| x.is_object()) else {
+        return;
+    };
+    let saved = vs
+        .get("verified_saved_tokens")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0);
+    let requests = vs
+        .get("requests")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let counterfactual = vs
+        .get("counterfactual_input_tokens")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    #[allow(clippy::cast_precision_loss)]
+    let pct = if counterfactual > 0 {
+        saved as f64 * 100.0 / counterfactual as f64
+    } else {
+        0.0
+    };
+    println!(
+        "  Verified:    {saved} tok saved across {requests} probed req ({pct:.1}% — provider-counted, #701)"
+    );
+}
+
 /// Prints the proxy's live upstreams (from `/status`) and warns when they drift
 /// from what the operator expects. Covers both #449 cases: a shell-exported
 /// `LEAN_CTX_*_UPSTREAM` that never reached the MCP/service-spawned proxy, and a
@@ -463,11 +495,12 @@ pub(crate) fn cmd_proxy(rest: &[String]) {
                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) {
                             println!("  Requests:    {}", v["requests_total"]);
                             println!("  Compressed:  {}", v["requests_compressed"]);
-                            println!("  Tokens saved: {}", v["tokens_saved"]);
+                            println!("  Tokens saved: {} (estimated)", v["tokens_saved"]);
                             println!(
                                 "  Compression: {}%",
                                 v["compression_ratio_pct"].as_str().unwrap_or("0.0")
                             );
+                            print_verified_savings(&v);
                             print_compression_by_upstream(&v);
                             print_live_upstreams_and_drift(&v, &cfg);
                         }

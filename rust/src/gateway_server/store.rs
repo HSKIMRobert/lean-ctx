@@ -462,6 +462,7 @@ mod tests {
             uncompressed_input_tokens: 5000,
             is_local: false,
             routed_from: Some("claude-opus-4-5".into()),
+            counterfactual: None,
         })));
         let event = UsageEvent::from_usage(
             &usage,
@@ -525,6 +526,7 @@ mod tests {
             uncompressed_input_tokens: 2000,
             is_local: true,
             routed_from: None,
+            counterfactual: None,
         })));
         let event =
             UsageEvent::from_usage(&usage, &ModelPricing::load(), &BaselineConfig::default());

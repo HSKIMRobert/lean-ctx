@@ -28,6 +28,19 @@ pub struct ModelUsage {
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
     pub reasoning_tokens: u64,
+    /// Requests whose free `count_tokens` probe answered (#701) — the rows the
+    /// verified-savings pair below covers. `serde(default)` keeps pre-#701
+    /// usage files loadable.
+    #[serde(default)]
+    pub counterfactual_requests: u64,
+    /// Provider-counted input tokens the covered requests would have billed
+    /// WITHOUT lean-ctx (sum of probe answers on the original bodies).
+    #[serde(default)]
+    pub counterfactual_input_tokens: u64,
+    /// Input-side tokens those same requests actually billed (input +
+    /// cache read + cache write) — same request, same moment, no confound.
+    #[serde(default)]
+    pub counterfactual_billed_tokens: u64,
 }
 
 impl ModelUsage {
@@ -38,6 +51,19 @@ impl ModelUsage {
         self.cache_read_tokens += u.cache_read_tokens;
         self.cache_write_tokens += u.cache_write_tokens;
         self.reasoning_tokens += u.reasoning_tokens;
+        // Verified-savings pair (#701): only when the probe answered by the
+        // time the billed usage arrived — both sides of the pair or neither.
+        if let Some(counted) = u
+            .wire
+            .as_deref()
+            .and_then(|w| w.counterfactual.as_ref())
+            .and_then(super::counterfactual::CounterfactualSlot::get)
+        {
+            self.counterfactual_requests += 1;
+            self.counterfactual_input_tokens += counted;
+            self.counterfactual_billed_tokens +=
+                u.input_tokens + u.cache_read_tokens + u.cache_write_tokens;
+        }
     }
 
     fn billable_tokens(&self) -> u64 {
@@ -158,6 +184,9 @@ pub fn resume_from_disk() {
         acc.cache_read_tokens += usage.cache_read_tokens;
         acc.cache_write_tokens += usage.cache_write_tokens;
         acc.reasoning_tokens += usage.reasoning_tokens;
+        acc.counterfactual_requests += usage.counterfactual_requests;
+        acc.counterfactual_input_tokens += usage.counterfactual_input_tokens;
+        acc.counterfactual_billed_tokens += usage.counterfactual_billed_tokens;
     }
     drop(map);
     let mut cohorts = cohort_store()
@@ -284,6 +313,50 @@ pub fn total_cost_usd() -> f64 {
     snapshot().iter().map(|m| m.cost_usd).sum()
 }
 
+/// Cross-model verified-savings totals (#701) for `/status` and the dashboard.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VerifiedSavings {
+    /// Requests covered by a successful `count_tokens` probe.
+    pub requests: u64,
+    /// Provider-counted input tokens those requests would have billed
+    /// without lean-ctx.
+    pub counterfactual_input_tokens: u64,
+    /// Input-side tokens (input + cache read + cache write) they actually
+    /// billed.
+    pub billed_input_tokens: u64,
+    /// `counterfactual - billed`; negative when stub overhead outweighed the
+    /// squeeze — reported honestly, never clamped.
+    pub verified_saved_tokens: i64,
+}
+
+/// Aggregated provider-verified savings across all models (#701), or `None`
+/// until at least one probe-covered request has been recorded. Unlike the
+/// `tokens_saved` estimate (bytes/4), both sides of this pair were counted by
+/// the provider on the same request — receipts, not estimates.
+pub fn verified_savings() -> Option<VerifiedSavings> {
+    let map = store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    verified_of(&map)
+}
+
+/// Pure aggregation behind [`verified_savings`], shared with tests.
+#[allow(clippy::cast_possible_wrap)]
+fn verified_of(map: &HashMap<String, ModelUsage>) -> Option<VerifiedSavings> {
+    let (mut requests, mut counterfactual, mut billed) = (0u64, 0u64, 0u64);
+    for usage in map.values() {
+        requests += usage.counterfactual_requests;
+        counterfactual += usage.counterfactual_input_tokens;
+        billed += usage.counterfactual_billed_tokens;
+    }
+    (requests > 0).then(|| VerifiedSavings {
+        requests,
+        counterfactual_input_tokens: counterfactual,
+        billed_input_tokens: billed,
+        verified_saved_tokens: counterfactual as i64 - billed as i64,
+    })
+}
+
 /// Prices a model usage map into sorted [`ModelSpend`] rows. Pure: shared by the
 /// in-memory snapshot and the cross-process [`persisted_snapshot`].
 pub fn price_models(map: &HashMap<String, ModelUsage>) -> Vec<ModelSpend> {
@@ -406,6 +479,114 @@ mod tests {
             cache_read_tokens: cache_read,
             ..Default::default()
         }
+    }
+
+    /// #701: the verified pair is recorded only when the probe answered — both
+    /// sides of the pair or neither, never a half row.
+    #[test]
+    fn counterfactual_pair_recorded_only_when_probe_answered() {
+        let slot = super::super::counterfactual::CounterfactualSlot::new();
+        slot.set(5_000);
+        let with_probe = super::super::usage::RealUsage {
+            wire: Some(Box::new(super::super::usage::WireContext {
+                counterfactual: Some(slot),
+                ..Default::default()
+            })),
+            cache_write_tokens: 200,
+            ..usage("claude-sonnet-4.5", 1_000, 0, 300)
+        };
+        let mut acc = ModelUsage::default();
+        acc.add(&with_probe);
+        assert_eq!(acc.counterfactual_requests, 1);
+        assert_eq!(acc.counterfactual_input_tokens, 5_000);
+        // billed side = input + cache read + cache write of the same turn.
+        assert_eq!(acc.counterfactual_billed_tokens, 1_000 + 300 + 200);
+
+        // Empty slot (probe failed / still in flight) → row degrades to the
+        // estimate: no pair recorded, normal usage still counted.
+        let empty = super::super::usage::RealUsage {
+            wire: Some(Box::new(super::super::usage::WireContext {
+                counterfactual: Some(super::super::counterfactual::CounterfactualSlot::new()),
+                ..Default::default()
+            })),
+            ..usage("claude-sonnet-4.5", 1_000, 0, 0)
+        };
+        acc.add(&empty);
+        assert_eq!(acc.requests, 2);
+        assert_eq!(acc.counterfactual_requests, 1, "empty slot adds no pair");
+
+        // No wire context at all (tests / non-forward paths) → no pair.
+        acc.add(&usage("claude-sonnet-4.5", 10, 0, 0));
+        assert_eq!(acc.counterfactual_requests, 1);
+    }
+
+    /// #701: cross-model aggregation and the honest signed difference.
+    #[test]
+    fn verified_of_aggregates_and_reports_signed_savings() {
+        let mut map = HashMap::new();
+        assert!(verified_of(&map).is_none(), "no coverage → None, not zeros");
+
+        map.insert(
+            "claude-sonnet-4.5".to_string(),
+            ModelUsage {
+                counterfactual_requests: 2,
+                counterfactual_input_tokens: 10_000,
+                counterfactual_billed_tokens: 6_000,
+                ..Default::default()
+            },
+        );
+        // Stub overhead outweighed the squeeze on this model: billed MORE
+        // than the counterfactual. The total must subtract honestly.
+        map.insert(
+            "claude-haiku-4.5".to_string(),
+            ModelUsage {
+                counterfactual_requests: 1,
+                counterfactual_input_tokens: 1_000,
+                counterfactual_billed_tokens: 1_400,
+                ..Default::default()
+            },
+        );
+        let v = verified_of(&map).expect("covered rows present");
+        assert_eq!(v.requests, 3);
+        assert_eq!(v.counterfactual_input_tokens, 11_000);
+        assert_eq!(v.billed_input_tokens, 7_400);
+        assert_eq!(v.verified_saved_tokens, 3_600);
+
+        map.get_mut("claude-sonnet-4.5")
+            .unwrap()
+            .counterfactual_input_tokens = 0;
+        map.get_mut("claude-sonnet-4.5")
+            .unwrap()
+            .counterfactual_billed_tokens = 0;
+        let negative = verified_of(&map).unwrap();
+        assert_eq!(
+            negative.verified_saved_tokens, -400,
+            "a net-negative verified saving is reported, never clamped"
+        );
+    }
+
+    /// #701: persisted usage files from before the feature load cleanly and
+    /// the new fields round-trip.
+    #[test]
+    fn counterfactual_fields_roundtrip_and_default_for_legacy_files() {
+        let legacy = r#"{"ts":1,"models":{"m":{"requests":1,"input_tokens":10,"output_tokens":5,"cache_read_tokens":0,"cache_write_tokens":0,"reasoning_tokens":0}}}"#;
+        let p: PersistedUsage = serde_json::from_str(legacy).expect("legacy file loads");
+        assert_eq!(p.models["m"].counterfactual_requests, 0);
+
+        let mut p = PersistedUsage::default();
+        p.models.insert(
+            "m".into(),
+            ModelUsage {
+                counterfactual_requests: 4,
+                counterfactual_input_tokens: 9_999,
+                counterfactual_billed_tokens: 5_555,
+                ..Default::default()
+            },
+        );
+        let back: PersistedUsage =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(back.models["m"].counterfactual_input_tokens, 9_999);
+        assert_eq!(back.models["m"].counterfactual_billed_tokens, 5_555);
     }
 
     #[test]

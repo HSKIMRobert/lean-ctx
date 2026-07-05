@@ -16,6 +16,7 @@ pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
 pub mod cost;
+pub mod counterfactual;
 pub mod effort;
 pub mod forward;
 pub mod gateway_identity;
@@ -735,6 +736,10 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "requests_compressed": s.requests_compressed.load(Relaxed),
         "tokens_saved": s.tokens_saved.load(Relaxed),
         "tokens_saved_estimated": true,
+        // Provider-verified savings (#701, opt-in counterfactual metering):
+        // both sides counted by Anthropic on the same request. `null` until
+        // the first probe-covered request lands.
+        "verified_savings": usage_meter::verified_savings(),
         "bytes_original": s.bytes_original.load(Relaxed),
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),

@@ -96,6 +96,11 @@ pub struct WireContext {
     /// Originally requested model when the router downgraded/aliased it
     /// (enterprise#13); `None` for passthrough.
     pub routed_from: Option<String>,
+    /// Provider-counted input tokens of the ORIGINAL (uncompressed) request,
+    /// from the free `count_tokens` probe (#701). `None` when metering is off
+    /// or no probe was spawned; an empty slot at read time (probe failed or
+    /// still in flight) degrades the row to the local estimate.
+    pub counterfactual: Option<super::counterfactual::CounterfactualSlot>,
 }
 
 impl RealUsage {
@@ -489,6 +494,7 @@ mod tests {
             uncompressed_input_tokens: 500,
             is_local: false,
             routed_from: None,
+            counterfactual: None,
         });
         let mut s = Scanner::new(Provider::Anthropic, None).with_wire_context(Some(wire.clone()));
         s.feed_body(
