@@ -119,6 +119,10 @@ fn is_symbol_flood(line: &str) -> bool {
 /// It removes lines that contain degenerate CJK artifacts or symbol floods,
 /// which can appear when upstream compression produces content that confuses
 /// downstream summarizer models.
+///
+/// NOT applied to protected read tools (`firewall::is_protected_read`; see
+/// `sanitized_tool_text` in `server::dispatch`): their contract is
+/// byte-fidelity — file content is never a model artifact (#709).
 pub fn sanitize(output: &str) -> String {
     if output.is_empty() {
         return output.to_string();

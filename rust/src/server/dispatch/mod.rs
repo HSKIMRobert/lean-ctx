@@ -375,7 +375,7 @@ impl LeanCtxServer {
 
             let saved = output.saved_tokens;
             let raw_text = header_line.unwrap_or(output.text);
-            let final_text = crate::core::output_sanitizer::sanitize(&raw_text);
+            let final_text = sanitized_tool_text(name, raw_text);
 
             // Context immune system: scan for prompt-injection patterns in tool output.
             let injection_signals = crate::core::output_sanitizer::detect_injection(&final_text);
@@ -543,6 +543,19 @@ impl LeanCtxServer {
     }
 }
 
+/// Last-pass degenerate-output filter — EXCEPT for protected read tools (#709):
+/// their contract is byte-fidelity. File content is never a model artifact, so
+/// a file that legitimately contains flood-like lines (`!!!!!!!!!!` in test
+/// fixtures, ASCII art) must survive a `mode=raw`/`full` read byte-for-byte.
+/// Every other tool keeps the #257 degenerate-CJK/flood cleanup, whose target
+/// is compressed/summarized output.
+fn sanitized_tool_text(name: &str, raw_text: String) -> String {
+    if crate::core::firewall::is_protected_read(name) {
+        return raw_text;
+    }
+    crate::core::output_sanitizer::sanitize(&raw_text)
+}
+
 /// Read the configured watchdog budget in seconds (defaults to
 /// [`DEFAULT_TOOL_TIMEOUT_SECS`]). Kept separate from the policy so the pure
 /// `secs -> Option<Duration>` mapping stays trivially testable.
@@ -587,6 +600,30 @@ const PATH_LIKE_KEYS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn protected_reads_bypass_the_degenerate_output_sanitizer() {
+        // #709 follow-up: an explicit read is byte-exact even for content that
+        // *looks* like degenerate model output (fixtures full of `!!!!!!!!!!`).
+        let fixture = "ok line\n!!!!!!!!!!!!\ntail\n".to_string();
+        assert_eq!(
+            sanitized_tool_text("ctx_read", fixture.clone()),
+            fixture,
+            "ctx_read must never lose file bytes to the flood filter"
+        );
+        assert_eq!(
+            sanitized_tool_text("ctx_multi_read", fixture.clone()),
+            fixture
+        );
+
+        // Non-read tools keep the #257 degenerate-output cleanup.
+        let cleaned = sanitized_tool_text("ctx_shell", fixture);
+        assert!(
+            !cleaned.contains("!!!!!!!!!!"),
+            "flood line must be removed"
+        );
+        assert!(cleaned.contains("ok line") && cleaned.contains("tail"));
+    }
 
     #[test]
     fn path_like_keys_has_no_duplicates() {
