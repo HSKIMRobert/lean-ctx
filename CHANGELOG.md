@@ -96,8 +96,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   design (`ctx_edit`/`ctx_patch` stay session-rooted until undo history is
   multi-repo-aware); unknown aliases error with the list of known ones, and
   jail + secret screening apply against the resolved repo root.
+- **A corrupt `stats.json` is quarantined, never silently reset (GH #706 —
+  thanks @getappz).** A crash mid-write (or disk-full) could leave truncated
+  JSON; the loader's `unwrap_or_default()` then wiped months of savings
+  history without a trace on the next write. Unparseable stats now move to
+  `stats.json.corrupt` (one warning log; the file is evidence and stays
+  recoverable by hand), and `doctor` reports the quarantine with recovery
+  guidance instead of everyone silently starting from zero.
+- **Relative paths follow a mid-session worktree switch (GH #707 — thanks
+  @getappz).** `project_root` is captured once at MCP `initialize`; when the
+  client later enters a git worktree (Claude Code `EnterWorktree` nests a
+  full checkout under `.claude/worktrees/<n>/`), every relative path kept
+  resolving into the *stale* root — silently, because the same layout exists
+  in both trees. Resolution now walks both `shell_cwd` and `project_root` up
+  to their nearest `.git` entry (dir or worktree file); when the boundaries
+  differ, the live `shell_cwd` wins. A plain `cd rust/` inside the same
+  checkout shares the boundary and is untouched, and a `shell_cwd` with no
+  git upward gives no signal — so the monorepo behavior stays exactly as
+  before.
+- **`ctx_read` raw mode no longer swallows markdown table delimiters
+  (GH #709 — thanks @getappz).** The output sanitizer's symbol-flood guard
+  (meant for degenerate model output like `@@@@@@…`) also matched legitimate
+  document structure — `|----|----|` delimiter rows, `====`/`----` setext
+  underlines and HR lines vanished from raw reads, breaking the mode's
+  byte-fidelity contract. Structural characters no longer count toward the
+  flood check, and a removed flood line no longer eats the file's trailing
+  newline.
+- **Unknown MCP tool names now suggest the nearest registered tool
+  (GH #712 — thanks @getappz).** `ctx_serach` returned a bare "Unknown tool"
+  while the CLI has long offered "did you mean" for typos; the
+  Levenshtein suggester is now shared (`core::levenshtein`) and the MCP
+  dispatch error appends "— did you mean 'ctx_search'?" within a
+  length-scaled edit budget, so agents self-correct in one turn instead of
+  falling back to native tools.
 
 ### Added
+- **Portable hook binary for synced agent configs (GH #708,
+  `hook_binary` / `LEAN_CTX_HOOK_BINARY`).** Generated hook commands bake
+  the machine-absolute binary path (#367: agent hosts run hooks without your
+  PATH). If you sync `~/.claude/settings.json` between machines with
+  different usernames, that absolute path is wrong on every other machine —
+  and re-running `init`/`doctor --fix` there rewrites the file, ping-ponging
+  your sync forever. Setting `hook_binary = "$HOME/.local/bin/lean-ctx"`
+  (config) or `LEAN_CTX_HOOK_BINARY` (env) emits that expression verbatim
+  into every shell-executed hook command — the hook host's shell expands it
+  at run time — and `doctor` accepts it as current, ending the rewrite
+  cycle. MCP server registrations and launchd/systemd autostart units keep
+  the real absolute path: nothing expands variables there.
 - **The AI Gateway (team mode).** The engine can now run as a shared
   org gateway — one deployment your whole team points its IDEs at, with
   per-person attribution, governance and audited savings. Compiled into the
