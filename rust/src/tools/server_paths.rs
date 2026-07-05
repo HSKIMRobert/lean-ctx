@@ -41,13 +41,22 @@ impl LeanCtxServer {
             let resolved = if p.is_absolute() || p.exists() {
                 std::path::PathBuf::from(&normalized)
             } else if let Some(ref root) = session.project_root {
-                let joined = std::path::Path::new(root).join(&normalized);
-                if joined.exists() {
-                    joined
-                } else if let Some(ref cwd) = session.shell_cwd {
+                // #707: a shell_cwd tracking a mid-session worktree switch
+                // (different git checkout) outranks the stale project_root —
+                // same precedence as core::path_resolve.
+                if let Some(ref cwd) = session.shell_cwd
+                    && crate::core::path_resolve::shell_cwd_is_divergent_checkout(root, cwd)
+                {
                     std::path::Path::new(cwd).join(&normalized)
                 } else {
-                    std::path::Path::new(&jail_root).join(&normalized)
+                    let joined = std::path::Path::new(root).join(&normalized);
+                    if joined.exists() {
+                        joined
+                    } else if let Some(ref cwd) = session.shell_cwd {
+                        std::path::Path::new(cwd).join(&normalized)
+                    } else {
+                        std::path::Path::new(&jail_root).join(&normalized)
+                    }
                 }
             } else if let Some(ref cwd) = session.shell_cwd {
                 std::path::Path::new(cwd).join(&normalized)
