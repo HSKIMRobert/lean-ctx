@@ -130,12 +130,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   resolution. A jail-accepted explicit `cwd` is now persisted, verified
   end-to-end over a real MCP session (read resolves into the worktree copy
   after `ctx_shell cwd=<worktree>`).
-- **`lean-ctx stop`/`dev-install` no longer SIGTERM their own ancestor chain
+- **`lean-ctx stop`/`dev-install` no longer SIGTERM their own process tree
   (GH #714).** Run under the lean-ctx shell wrapper (`lean-ctx -c … → sh →
   lean-ctx dev-install`), the process sweep matched the wrapper parent and
   killed the pipeline mid-install (exit 143) — after the binary swap but
   before autostart was re-enabled. The sweep now excludes the full
-  `ps ppid` ancestor chain, not just `getpid()`.
+  `ps ppid` ancestor chain *and* every member of its own foreground process
+  group — agent harnesses (Cursor's shell) reparent intermediaries to PID 1
+  mid-run, which broke the ancestor walk alone; the group covers the wrapper
+  regardless of reparenting. Verified: `dev-install` under the Cursor agent
+  shell now completes end-to-end, including autostart re-enable.
 - **Unknown MCP tool names now suggest the nearest registered tool
   (GH #712 — thanks @getappz).** `ctx_serach` returned a bare "Unknown tool"
   while the CLI has long offered "did you mean" for typos; the
