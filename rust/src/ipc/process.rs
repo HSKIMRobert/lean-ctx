@@ -188,7 +188,8 @@ pub fn force_kill(pid: u32) -> Result<()> {
     }
 }
 
-/// PIDs this process must never signal: itself plus its ancestor chain.
+/// PIDs this process must never signal: itself, its ancestor chain, and every
+/// member of its own process group.
 ///
 /// The ancestor chain matters whenever `lean-ctx stop`/`dev-install` runs
 /// *under* lean-ctx itself — the shell hook routes commands through a
@@ -196,6 +197,12 @@ pub fn force_kill(pid: u32) -> Result<()> {
 /// `lean-ctx -c … → sh → lean-ctx dev-install`. Excluding only `getpid()`
 /// SIGTERMed the wrapper parent, which took the whole pipeline down mid-run
 /// (exit 143) before autostart was re-enabled (#714).
+///
+/// The process *group* matters because agent harnesses (Cursor's shell) can
+/// reparent intermediaries to PID 1 mid-run — the `ps ppid` walk then stops
+/// before reaching the outer wrapper, but the wrapper still shares the
+/// foreground pgid; signalling it kills the pipeline all the same (#714
+/// follow-up, reproduced twice on the first fix).
 fn protected_self_pids() -> std::collections::HashSet<u32> {
     let mut protected = std::collections::HashSet::new();
     protected.insert(std::process::id());
@@ -219,6 +226,20 @@ fn protected_self_pids() -> std::collections::HashSet<u32> {
                 break;
             }
             pid = ppid;
+        }
+
+        // SAFETY: getpgrp() takes no arguments and cannot fail.
+        let own_pgid = unsafe { libc::getpgrp() };
+        if own_pgid > 0
+            && let Ok(output) = std::process::Command::new("pgrep")
+                .args(["-g", &own_pgid.to_string()])
+                .output()
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    protected.insert(pid);
+                }
+            }
         }
     }
     protected
@@ -451,6 +472,29 @@ mod tests {
     fn killable_with_no_mcp_returns_all() {
         let all = vec![10, 20, 30];
         assert_eq!(killable_excluding_mcp(all.clone(), &[]), all);
+    }
+
+    /// #714 follow-up: agent harnesses reparent intermediaries to PID 1, so
+    /// the ppid walk alone misses the outer wrapper — the shared foreground
+    /// process group must be protected too.
+    #[cfg(unix)]
+    #[test]
+    fn protected_pids_cover_own_process_group() {
+        let protected = protected_self_pids();
+        // SAFETY: getpgrp() takes no arguments and cannot fail.
+        let pgid = unsafe { libc::getpgrp() };
+        let out = std::process::Command::new("pgrep")
+            .args(["-g", &pgid.to_string()])
+            .output()
+            .expect("pgrep runs");
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Ok(pid) = line.trim().parse::<u32>() {
+                assert!(
+                    protected.contains(&pid),
+                    "group member {pid} missing from protected set"
+                );
+            }
+        }
     }
 
     /// #714: `stop`/`dev-install` running *under* a lean-ctx shell wrapper
