@@ -515,6 +515,11 @@ pub fn run() -> u32 {
     let bm25_health = bm25_cache_health_outcome();
     board.check(&bm25_health);
 
+    // 15-pre) Quarantined corrupt stats.json (#706): the loader preserved a
+    // display cache it could not parse — surface it instead of losing history.
+    let stats_quarantine = stats_quarantine_outcome();
+    board.check(&stats_quarantine);
+
     // 15a) Semantic index runtime status (state/timing/persistence) for the
     // active project — surfaces a stuck "warming" index (issue #249).
     let semantic_index = semantic_index_outcome();

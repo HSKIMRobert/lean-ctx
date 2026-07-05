@@ -370,6 +370,46 @@ mod tests {
         }
     }
 
+    /// #706: a corrupt `stats.json` must never be silently replaced by an
+    /// empty store. The loader quarantines the bytes to `stats.json.corrupt`
+    /// (recoverable), and an existing quarantine is never overwritten — the
+    /// older copy is the one closest to the lost history.
+    #[test]
+    fn corrupt_stats_file_is_quarantined_not_silently_reset() {
+        let dir = crate::core::data_dir::isolated_data_dir();
+        let stats_path = dir.path().join("stats.json");
+        let quarantine = dir.path().join("stats.json.corrupt");
+        let truncated = r#"{"total_commands": 15677, "total_input_tok"#;
+        std::fs::write(&stats_path, truncated).unwrap();
+
+        let loaded = io::load_from_disk();
+        assert_eq!(loaded.total_commands, 0, "fresh store after corruption");
+        assert!(
+            !stats_path.exists(),
+            "corrupt file must be moved aside, not left to be overwritten"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&quarantine).unwrap(),
+            truncated,
+            "quarantine preserves the corrupt bytes verbatim for recovery"
+        );
+
+        // A second corruption must NOT clobber the first quarantine.
+        std::fs::write(&stats_path, "{ newer corruption").unwrap();
+        let loaded = io::load_from_disk();
+        assert_eq!(loaded.total_commands, 0);
+        assert_eq!(
+            std::fs::read_to_string(&quarantine).unwrap(),
+            truncated,
+            "the OLDER quarantine wins — it is closest to the lost history"
+        );
+
+        // And a healthy file still loads normally.
+        let healthy = make_store(42, 9000, 1000);
+        std::fs::write(&stats_path, serde_json::to_string(&healthy).unwrap()).unwrap();
+        assert_eq!(io::load_from_disk().total_commands, 42);
+    }
+
     #[test]
     fn aggregate_for_display_is_noop_without_siblings() {
         // The common case: only the primary dir has stats. Aggregation must

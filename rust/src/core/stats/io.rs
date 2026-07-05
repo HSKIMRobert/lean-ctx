@@ -17,18 +17,70 @@ pub(super) fn load_from_disk() -> StatsStore {
     };
 
     match std::fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(store) => store,
+            // Corrupt display cache (#706): NEVER silently reset — the next
+            // flush would overwrite the good file with an empty store and the
+            // whole history would be gone. Quarantine the corrupt bytes so
+            // they stay recoverable, warn loudly, and start fresh.
+            Err(e) => {
+                quarantine_corrupt(&path, &e);
+                StatsStore::default()
+            }
+        },
         Err(_) => StatsStore::default(),
     }
+}
+
+/// Moves an unparseable `stats.json` aside to `stats.json.corrupt` (#706)
+/// instead of letting the next flush overwrite it with an empty store. An
+/// existing quarantine file is never overwritten — the OLDER corrupt copy is
+/// the one closest to the lost history, so it wins. Pure display-cache
+/// hygiene: the savings ledger (`savings/ledger.jsonl`) remains the
+/// append-only source of truth either way.
+fn quarantine_corrupt(path: &std::path::Path, err: &serde_json::Error) {
+    let quarantine = path.with_extension("json.corrupt");
+    let preserved = if quarantine.exists() {
+        false
+    } else {
+        std::fs::rename(path, &quarantine).is_ok()
+    };
+    tracing::warn!(
+        "stats.json is corrupt ({err}) — starting a fresh stats store. {}",
+        if preserved {
+            format!(
+                "The corrupt file was preserved at {} for recovery; \
+                 `lean-ctx doctor` will flag it",
+                quarantine.display()
+            )
+        } else {
+            format!(
+                "A previous corrupt copy already exists at {} and was kept \
+                 (older = closer to the lost history)",
+                quarantine.display()
+            )
+        }
+    );
 }
 
 /// Loads `stats.json` from a *specific* directory (no in-process buffer applied).
 /// Used by [`crate::core::stats::load_for_display`] to fold sibling data dirs
 /// into the displayed total when an XDG split (#408/#414/#500) spread savings
-/// across more than one tree. Missing/corrupt files degrade to an empty store.
+/// across more than one tree. Missing files degrade to an empty store; corrupt
+/// files warn (#706) but are NOT quarantined here — this is a read-only peek
+/// into a sibling tree that another lean-ctx instance owns.
 pub(super) fn load_from_dir(dir: &std::path::Path) -> StatsStore {
     match std::fs::read_to_string(dir.join("stats.json")) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Ok(content) => match serde_json::from_str(&content) {
+            Ok(store) => store,
+            Err(e) => {
+                tracing::warn!(
+                    "sibling stats file {} is corrupt ({e}) — folding it in as empty",
+                    dir.join("stats.json").display()
+                );
+                StatsStore::default()
+            }
+        },
         Err(_) => StatsStore::default(),
     }
 }
