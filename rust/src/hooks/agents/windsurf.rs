@@ -1,5 +1,5 @@
 use super::super::{
-    install_mcp_json_agent, mcp_server_quiet_mode, resolve_binary_path, write_file,
+    install_mcp_json_agent, mcp_server_quiet_mode, resolve_hook_command_binary, write_file,
 };
 use super::shared::prepare_project_rules_path;
 
@@ -33,7 +33,7 @@ pub(crate) fn install_windsurf_rules(global: bool) {
 
 pub(crate) fn install_windsurf_hooks(home: &std::path::Path) {
     let hooks_json = home.join(".codeium").join("windsurf").join("hooks.json");
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let observe_cmd = format!("{binary} hook observe");
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");

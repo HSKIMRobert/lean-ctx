@@ -107,6 +107,15 @@ pub(crate) fn cmd_matches_expected(cmd: &str, portable: &str) -> bool {
     if cmd == "lean-ctx" {
         return true;
     }
+    // #708: a configured verbatim hook binary ($HOME/.local/bin/lean-ctx for
+    // settings synced across machines) is the expected command by definition —
+    // never flag it stale, or doctor --fix would rewrite it back to the
+    // machine-absolute path and restart the sync ping-pong.
+    if let Some(override_cmd) = crate::core::portable_binary::hook_binary_override()
+        && cmd == override_cmd.trim()
+    {
+        return true;
+    }
     if let Some(resolved) = resolve_lean_ctx_binary()
         && cmd == resolved.to_string_lossy().trim()
     {

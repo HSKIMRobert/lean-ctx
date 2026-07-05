@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::super::{
-    HookMode, hybrid_rules_content, mcp_server_quiet_mode, resolve_binary_path, write_file,
+    HookMode, hybrid_rules_content, mcp_server_quiet_mode, resolve_hook_command_binary, write_file,
 };
 
 pub(crate) fn install_qoder_hook_with_mode(mode: HookMode) {
@@ -26,7 +26,7 @@ pub(crate) fn install_qoder_hook() {
 }
 
 fn install_qoder_hook_config_at(name: &str, settings_path: &Path) -> bool {
-    let command = format!("{} hook rewrite", resolve_binary_path());
+    let command = format!("{} hook rewrite", resolve_hook_command_binary());
     let mut changed = false;
     let mut root = if settings_path.exists() {
         if let Some(parsed) = std::fs::read_to_string(settings_path)

@@ -1,6 +1,6 @@
 use super::super::{
     ensure_codex_hooks_enabled as shared_ensure_codex_hooks_enabled, ensure_state_dir,
-    install_codex_instruction_docs, mcp_server_quiet_mode, resolve_binary_path,
+    install_codex_instruction_docs, mcp_server_quiet_mode, resolve_hook_command_binary,
     upsert_lean_ctx_codex_hook_entries, write_file,
 };
 
@@ -32,7 +32,7 @@ pub fn install_codex_hook() {
 }
 
 fn install_codex_hook_config(codex_dir: &std::path::Path) -> bool {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let session_start_cmd = format!("{binary} hook codex-session-start");
     let pre_tool_use_cmd = format!("{binary} hook codex-pretooluse");
     let hooks_json_path = codex_dir.join("hooks.json");

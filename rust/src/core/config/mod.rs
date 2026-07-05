@@ -581,6 +581,19 @@ pub struct Config {
     /// Override via LEAN_CTX_ALLOW_REROOT env var.
     #[serde(default)]
     pub allow_auto_reroot: bool,
+    /// Verbatim binary path/expression for generated agent-hook commands
+    /// (#708). Users who sync agent settings (`~/.claude/settings.json`, …)
+    /// across machines with different usernames need an env-based form like
+    /// `$HOME/.local/bin/lean-ctx` — agent hosts run hook commands through a
+    /// shell, which expands it. When set (env `LEAN_CTX_HOOK_BINARY` wins,
+    /// then this key), every hook writer emits the value verbatim instead of
+    /// the machine-absolute exe path, so `init`/`doctor --fix`/`update` stop
+    /// rewriting synced files into sync ping-pong. Autostart plists/services
+    /// and daemon spawns are NOT affected — launchd/systemd do not expand
+    /// shell variables, so those keep the real absolute path. Empty (default)
+    /// = automatic absolute-path resolution (#367).
+    #[serde(default)]
+    pub hook_binary: Option<String>,
     /// Disable PathJail entirely by setting `path_jail = false` in config.toml.
     /// Useful in container/Docker environments where the sandbox is the boundary.
     /// (The former `LEAN_CTX_NO_JAIL=1` env override was removed in v3.7.3.)
@@ -762,6 +775,7 @@ impl Default for Config {
             gateway_server: GatewayServerConfig::default(),
             addons: crate::core::addons::AddonsConfig::default(),
             allow_auto_reroot: false,
+            hook_binary: None,
             path_jail: None,
             sandbox_level: 0,
             reference_results: false,

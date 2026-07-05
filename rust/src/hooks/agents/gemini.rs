@@ -1,4 +1,4 @@
-use super::super::{mcp_server_quiet_mode, resolve_binary_path, write_file};
+use super::super::{mcp_server_quiet_mode, resolve_hook_command_binary, write_file};
 use super::shared::install_standard_hook_scripts;
 use crate::core::config::{Config, RulesInjection, RulesScope};
 
@@ -146,7 +146,7 @@ pub(crate) fn install_gemini_hook_scripts(home: &std::path::Path) {
 }
 
 pub(crate) fn install_gemini_hook_config(home: &std::path::Path) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
 

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use super::super::{
-    mcp_server_quiet_mode, resolve_binary_path, to_bash_compatible_path, write_file,
+    mcp_server_quiet_mode, resolve_binary_path, resolve_hook_command_binary,
+    to_bash_compatible_path, write_file,
 };
 
 pub(crate) fn install_copilot_hook(global: bool) {
@@ -176,7 +177,7 @@ fn cleanup_legacy_global_hooks_at(legacy: &std::path::Path) -> bool {
 }
 
 fn install_copilot_pretooluse_hook(global: bool) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
 
     let hook_config = serde_json::json!({
         "version": 1,

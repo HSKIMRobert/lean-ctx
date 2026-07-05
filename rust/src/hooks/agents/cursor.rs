@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::super::{
-    HookMode, make_executable, mcp_server_quiet_mode, resolve_binary_path, write_file,
+    HookMode, make_executable, mcp_server_quiet_mode, resolve_hook_command_binary, write_file,
 };
 use super::shared::install_standard_hook_scripts;
 
@@ -219,7 +219,7 @@ pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".cursor").join("hooks");
     install_standard_hook_scripts(&hooks_dir, "lean-ctx-rewrite.sh", "lean-ctx-redirect.sh");
 
-    let native_binary = resolve_binary_path();
+    let native_binary = resolve_hook_command_binary();
     let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
     write_file(
         &rewrite_native,
@@ -236,7 +236,7 @@ pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {
 }
 
 pub(crate) fn install_cursor_hook_config(home: &std::path::Path) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
 

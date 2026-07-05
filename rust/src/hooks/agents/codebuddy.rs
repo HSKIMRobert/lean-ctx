@@ -1,6 +1,6 @@
 use super::super::{
     HookMode, REDIRECT_SCRIPT_CLAUDE, generate_rewrite_script, make_executable,
-    mcp_server_quiet_mode, resolve_binary_path, resolve_binary_path_for_bash, write_file,
+    mcp_server_quiet_mode, resolve_binary_path_for_bash, resolve_hook_command_binary, write_file,
 };
 use super::shared::remove_all_blocks;
 
@@ -237,7 +237,7 @@ pub(crate) fn install_codebuddy_hook_scripts(home: &std::path::Path) {
     let hooks_dir = crate::core::editor_registry::codebuddy_state_dir(home).join("hooks");
     let _ = std::fs::create_dir_all(&hooks_dir);
 
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
 
     let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
     let rewrite_script = generate_rewrite_script(&resolve_binary_path_for_bash());
@@ -417,7 +417,7 @@ fn ensure_codebuddy_observe_hooks(
 
 pub(crate) fn install_codebuddy_hook_config(home: &std::path::Path) {
     let hooks_dir = crate::core::editor_registry::codebuddy_state_dir(home).join("hooks");
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
 
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
@@ -494,7 +494,7 @@ pub(crate) fn install_codebuddy_hook_config(home: &std::path::Path) {
 }
 
 pub(crate) fn install_codebuddy_project_hooks(cwd: &std::path::Path) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
     let observe_cmd = format!("{binary} hook observe");

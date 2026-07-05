@@ -627,6 +627,15 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
+        "hook_binary".into(),
+        key_with_env(
+            "string?",
+            serde_json::json!(null),
+            "Verbatim binary path/expression for generated agent-hook commands (e.g. $HOME/.local/bin/lean-ctx) — for settings files synced across machines with different usernames. Shell-expanded by the hook host at run time; doctor accepts it as current. Empty = automatic absolute-path resolution",
+            "LEAN_CTX_HOOK_BINARY",
+        ),
+    );
+    root.insert(
         "path_jail".into(),
         key(
             "bool?",

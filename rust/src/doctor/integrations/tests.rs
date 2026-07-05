@@ -217,6 +217,27 @@ fn stale_hook_binary_accepts_bare_path_command() {
     assert!(stale_hook_binary(content, "/anything/lean-ctx").is_none());
 }
 
+/// #708: a configured verbatim hook binary ($HOME/... synced across machines)
+/// is the expected command — doctor must not flag it stale, or --fix would
+/// rewrite it back to an absolute path and restart the sync ping-pong.
+#[test]
+fn stale_hook_binary_accepts_configured_portable_override() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    // SAFETY: serialized by test_env_lock.
+    unsafe { std::env::set_var("LEAN_CTX_HOOK_BINARY", "$HOME/.local/bin/lean-ctx") };
+    let content = r#""$HOME/.local/bin/lean-ctx hook rewrite""#;
+    assert!(stale_hook_binary(content, "/machine/abs/lean-ctx").is_none());
+    // SAFETY: serialized by test_env_lock.
+    unsafe { std::env::remove_var("LEAN_CTX_HOOK_BINARY") };
+
+    // Without the override the same content IS stale — the acceptance is
+    // strictly opt-in.
+    assert_eq!(
+        stale_hook_binary(content, "/machine/abs/lean-ctx").as_deref(),
+        Some("$HOME/.local/bin/lean-ctx")
+    );
+}
+
 #[test]
 fn finalize_hook_check_reports_drift_missing_and_stale() {
     let p = std::path::Path::new("/tmp/hooks.json");

@@ -1,4 +1,6 @@
-use super::super::{mcp_server_quiet_mode, resolve_binary_path, write_file};
+use super::super::{
+    mcp_server_quiet_mode, resolve_binary_path, resolve_hook_command_binary, write_file,
+};
 
 pub(crate) fn install_antigravity_hook() {
     let Some(home) = crate::core::home::resolve_home_dir() else {
@@ -98,7 +100,7 @@ fn install_antigravity_mcp_config(home: &std::path::Path, subdir: &str) {
 }
 
 fn install_antigravity_gemini_hooks(home: &std::path::Path) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let rewrite_cmd = format!("{binary} hook rewrite");
     let redirect_cmd = format!("{binary} hook redirect");
     let observe_cmd = format!("{binary} hook observe");
@@ -240,7 +242,7 @@ pub(crate) fn antigravity_cli_config_dir(home: &std::path::Path) -> std::path::P
 ///   do host-side. Note: `agy -p` print mode bypasses the hook subsystem entirely
 ///   (hooks run in interactive sessions only).
 fn install_antigravity_cli_hooks(home: &std::path::Path) {
-    let binary = resolve_binary_path();
+    let binary = resolve_hook_command_binary();
     let observe_cmd = format!("{binary} hook observe");
 
     let plugin_dir = antigravity_cli_plugin_dir(home);

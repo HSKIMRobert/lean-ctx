@@ -592,6 +592,25 @@ lean-ctx hook <rewrite|redirect|observe|copilot|codex-pretooluse|codex-session-s
 not typed manually — listed here so the integration surface is fully accounted
 for.
 
+**Portable hook binary — `hook_binary` / `LEAN_CTX_HOOK_BINARY` (#708).**
+Generated hook commands normally bake the machine-absolute binary path
+(agent hosts run hooks under a minimal shell without your `PATH`, #367). If
+you sync agent settings such as `~/.claude/settings.json` across machines
+with different usernames, that absolute path is wrong everywhere else — and
+each machine's `init`/`doctor --fix` rewrites it, turning your settings sync
+into permanent ping-pong. Set a verbatim, env-based expression instead:
+
+```bash
+lean-ctx config set hook_binary '$HOME/.local/bin/lean-ctx'
+# or per-invocation: LEAN_CTX_HOOK_BINARY='$HOME/.local/bin/lean-ctx' lean-ctx init
+```
+
+Every *shell-executed* hook command then emits the expression verbatim — the
+hook host's shell expands `$HOME` at run time — and `doctor` accepts it as
+current. MCP server registrations and launchd/systemd autostart units are
+deliberately unaffected: nothing expands shell variables there, so they keep
+the real absolute path.
+
 ---
 
 ## 10. MCP Tool-Catalog Gateway — `ctx_tools` (downstream MCP servers)
