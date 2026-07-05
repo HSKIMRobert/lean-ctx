@@ -460,6 +460,24 @@ impl SessionState {
         }
     }
 
+    /// Persist an explicit, jail-accepted `cwd` argument as the live shell
+    /// cwd (#707). `update_shell_cwd` only tracks `cd` inside the command
+    /// text, but clients that switch checkouts mid-session (Claude Code
+    /// after `EnterWorktree`) pass the new directory as the `cwd` *param* of
+    /// every subsequent call — without persisting it, the worktree-divergence
+    /// detection in path resolution never sees the switch. Callers must pass
+    /// a cwd that already passed the project-root jail.
+    pub fn note_explicit_cwd(&mut self, cwd: &str) {
+        let path = std::path::Path::new(cwd);
+        if path.is_absolute() && path.is_dir() {
+            self.shell_cwd = Some(
+                crate::core::pathutil::safe_canonicalize_or_self(path)
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+    }
+
     /// Updates shell_cwd by detecting `cd` in the command.
     /// Handles: `cd /abs/path`, `cd rel/path` (relative to current cwd),
     /// `cd ..`, and chained commands like `cd foo && ...`.

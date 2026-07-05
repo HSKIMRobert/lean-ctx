@@ -75,6 +75,7 @@ impl McpTool for CtxShellTool {
                 .ok_or_else(|| ErrorData::internal_error("session not available", None))?;
 
             let explicit_cwd = get_str(args, "cwd");
+            let had_explicit_cwd = explicit_cwd.is_some();
             let (effective_cwd, cwd_jail_reason) = {
                 let guard = crate::server::bounded_lock::read(session_lock, "ctx_shell_cwd");
                 match guard {
@@ -86,6 +87,7 @@ impl McpTool for CtxShellTool {
             // the root (deliberate sandboxing). Surface that swap as a one-line
             // hint so the caller does not mistake the run dir for the requested
             // one (#629); appended at the end of the output like the other hints.
+            let cwd_jail_reason_was_none = cwd_jail_reason.is_none();
             let cwd_jail_hint = cwd_jail_reason.map_or_else(String::new, |reason| {
                 format!(
                     "\n[cwd: requested path rejected by project-root jail ({reason}) \u{2014} ran in {effective_cwd} instead]"
@@ -125,6 +127,13 @@ impl McpTool for CtxShellTool {
                         ..ToolOutput::simple(format!("{output}{exit_suffix}"))
                     });
                 };
+                // #707: a jail-accepted explicit `cwd` param is the client
+                // telling us where it now works (worktree switches arrive
+                // this way, not as `cd` commands) — persist it so path
+                // resolution's divergence check tracks the live checkout.
+                if had_explicit_cwd && cwd_jail_reason_was_none {
+                    session.note_explicit_cwd(&effective_cwd);
+                }
                 session.update_shell_cwd(&command);
                 let root_missing = session
                     .project_root
