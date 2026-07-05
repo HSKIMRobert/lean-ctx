@@ -507,12 +507,19 @@ mod resolve_path_tests {
             "worktree copy must win over the stale project_root copy: {out}"
         );
 
-        // Switching back restores the established precedence.
+        // Switching back restores the established precedence: without
+        // divergence the project_root fallback serves the root copy again.
+        // Probed via a path that does NOT exist relative to the test process
+        // CWD — `src/lib.rs` would hit the (intended) `p.exists()` fast path
+        // and resolve to the real checkout's file, making the assertion
+        // environment-dependent (that is exactly how CI diverged from local).
         {
             let mut session = server.session.write().await;
             session.shell_cwd = Some(root_value.clone());
         }
-        let out = server.resolve_path("src/lib.rs").await.unwrap();
+        std::fs::write(repo.join("src/back_707.rs"), "stale").unwrap();
+        std::fs::write(wt.join("src/back_707.rs"), "fresh").unwrap();
+        let out = server.resolve_path("src/back_707.rs").await.unwrap();
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "stale");
     }
 }
