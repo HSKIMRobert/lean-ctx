@@ -3,6 +3,20 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.9.1] — 2026-07-05
+
+### Fixed
+- **`gateway keys add` corrupted the key file scaffolded by `gateway init`
+  (GH #716).** `init` writes the canonical empty set `keys = []`; `keys add`
+  appended a `[[keys]]` table to that body, leaving BOTH representations in
+  the file — invalid TOML (`duplicate key`), so the documented onboarding flow
+  (`init` → `keys add`) failed on first use, and a full `revoke` re-armed the
+  same trap. `add` now strips the empty-array form before appending, and all
+  key-file writers (`add`/`rotate`/`revoke`) validate the assembled body
+  **before** the atomic swap — a bad assembly can never replace a good file on
+  disk. Regression tests cover init → add → revoke-to-empty → add and verify
+  a poisoned file is refused byte-for-byte untouched.
+
 ## [3.9.0] — 2026-07-05
 
 ### Changed

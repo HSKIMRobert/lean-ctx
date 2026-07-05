@@ -100,6 +100,17 @@ pub fn add_key(
              # Managed by `lean-ctx gateway keys`; manual edits are fine (same format).\n",
         )
     };
+    // `gateway init` scaffolds (and a full `revoke` serializes) the canonical
+    // empty set as a top-level `keys = []`. Appending a `[[keys]]` table to
+    // that body would make BOTH representations coexist — invalid TOML
+    // ("duplicate key", #716). The array form only ever encodes emptiness
+    // (entries are always written as `[[keys]]` tables), so drop it before
+    // appending the first entry.
+    body = body
+        .lines()
+        .filter(|line| line.trim() != "keys = []")
+        .collect::<Vec<_>>()
+        .join("\n");
     if !body.is_empty() && !body.ends_with('\n') {
         body.push('\n');
     }
@@ -113,13 +124,16 @@ pub fn add_key(
         body.push_str(&format!("default_project = \"{}\"\n", toml_escape(project)));
     }
 
-    write_atomic(path, &body)?;
-    // Sanity: the file we just wrote must parse and contain the new key.
-    let reloaded = GatewayKeys::load(path)?;
+    // Validate the assembled body BEFORE the swap — a bad assembly must never
+    // replace a good file on disk (#716: write-then-validate left the file
+    // corrupted for every subsequent command).
+    let assembled = GatewayKeys::parse(&body, path)
+        .map_err(|e| anyhow::anyhow!("refusing to write an invalid key file: {e}"))?;
     anyhow::ensure!(
-        reloaded.lookup(&key).is_some(),
-        "post-write validation failed — key not resolvable"
+        assembled.lookup(&key).is_some(),
+        "pre-write validation failed — key not resolvable in assembled file"
     );
+    write_atomic(path, &body)?;
     Ok(key)
 }
 
@@ -234,17 +248,19 @@ pub fn rotate_key(path: &Path, person: &str) -> anyhow::Result<RotatedKey> {
          # Managed by `lean-ctx gateway keys`; manual edits are fine (same format).\n",
     );
     body.push_str(&toml::to_string_pretty(&value)?);
-    write_atomic(path, &body)?;
 
-    // Post-write validation: the new key must resolve with the old identity.
-    let reloaded = GatewayKeys::load(path)?;
-    let tags = reloaded
+    // Pre-write validation (#716): the new key must resolve with the old
+    // identity in the assembled body — only then may it replace the file.
+    let assembled = GatewayKeys::parse(&body, path)
+        .map_err(|e| anyhow::anyhow!("refusing to write an invalid key file: {e}"))?;
+    let tags = assembled
         .lookup(&key)
-        .ok_or_else(|| anyhow::anyhow!("post-write validation failed — key not resolvable"))?;
+        .ok_or_else(|| anyhow::anyhow!("pre-write validation failed — key not resolvable"))?;
     anyhow::ensure!(
         tags.person.as_deref() == Some(person),
-        "post-write validation failed — identity mismatch"
+        "pre-write validation failed — identity mismatch"
     );
+    write_atomic(path, &body)?;
 
     Ok(RotatedKey {
         key,
@@ -281,8 +297,10 @@ pub fn revoke_keys(path: &Path, person: &str) -> anyhow::Result<usize> {
              # Managed by `lean-ctx gateway keys`; manual edits are fine (same format).\n",
         );
         body.push_str(&toml::to_string_pretty(&value)?);
+        // Pre-write validation (#716) — never replace a good file with a bad one.
+        GatewayKeys::parse(&body, path)
+            .map_err(|e| anyhow::anyhow!("refusing to write an invalid key file: {e}"))?;
         write_atomic(path, &body)?;
-        GatewayKeys::load(path)?; // post-write validation
     }
     Ok(removed)
 }
@@ -378,6 +396,45 @@ mod tests {
         let keys = GatewayKeys::load(&path).unwrap();
         assert!(keys.lookup(&key1).is_none());
         assert!(keys.lookup(&key2).is_some());
+    }
+
+    // #716: the documented onboarding flow is `gateway init` (scaffolds
+    // `keys = []`) followed by `gateway keys add`. Appending `[[keys]]` to a
+    // body that still contains the empty-array form is invalid TOML — the
+    // add must strip it, and a failing assembly must never reach the disk.
+    #[test]
+    fn add_key_after_init_scaffold_and_after_full_revoke() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("gateway-keys.toml");
+
+        // 1. Exactly what `gateway init` writes.
+        write_empty(&path).unwrap();
+        let key = add_key(&path, "alice@zuehlke.com", Some("core"), None, false)
+            .expect("add after init scaffold must work (#716)");
+        let keys = GatewayKeys::load(&path).unwrap();
+        assert_eq!(
+            keys.lookup(&key).unwrap().person.as_deref(),
+            Some("alice@zuehlke.com")
+        );
+        // The init comment header survives the strip, the array form does not.
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("# lean-ctx gateway keys"));
+        assert!(!body.contains("keys = []"));
+
+        // 2. A full revoke serializes back to the canonical empty array —
+        //    the next add must handle that state too.
+        assert_eq!(revoke_keys(&path, "alice@zuehlke.com").unwrap(), 1);
+        assert!(GatewayKeys::load(&path).unwrap().is_empty());
+        let key2 = add_key(&path, "bob@zuehlke.com", None, None, false)
+            .expect("add after revoke-to-empty must work (#716)");
+        assert!(GatewayKeys::load(&path).unwrap().lookup(&key2).is_some());
+
+        // 3. Pre-write validation: a poisoned existing file fails the add
+        //    loudly and is left byte-for-byte untouched (no half-written swap).
+        let poisoned = "keys = []\n\n[[keys]]\nsha256_hex = \"zz\"\nperson = \"x\"\n";
+        std::fs::write(&path, poisoned).unwrap();
+        assert!(add_key(&path, "carol@zuehlke.com", None, None, false).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), poisoned);
     }
 
     #[test]

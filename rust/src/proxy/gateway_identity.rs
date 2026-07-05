@@ -96,21 +96,29 @@ impl GatewayKeys {
         }
         let raw = std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
+        Self::parse(&raw, path)
+    }
+
+    /// Parses a key-file body without touching disk. `origin` is only used in
+    /// error messages. Callers that assemble a file body by hand validate it
+    /// through this BEFORE the atomic write, so an invalid assembly can never
+    /// replace a good file on disk (#716).
+    pub fn parse(raw: &str, origin: &Path) -> anyhow::Result<Self> {
         let file: GatewayKeysFile =
-            toml::from_str(&raw).map_err(|e| anyhow::anyhow!("parse {}: {e}", path.display()))?;
+            toml::from_str(raw).map_err(|e| anyhow::anyhow!("parse {}: {e}", origin.display()))?;
         let mut by_sha = HashMap::new();
         for entry in file.keys {
             let sha = entry.sha256_hex.trim().to_ascii_lowercase();
             if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
                 anyhow::bail!(
                     "{}: key for '{}' has invalid sha256_hex (expected 64 hex chars)",
-                    path.display(),
+                    origin.display(),
                     entry.person
                 );
             }
             let person = entry.person.trim();
             if person.is_empty() {
-                anyhow::bail!("{}: entry with empty person", path.display());
+                anyhow::bail!("{}: entry with empty person", origin.display());
             }
             by_sha.insert(
                 sha,
