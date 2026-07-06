@@ -145,7 +145,9 @@ fn infer_agents_from_events() -> Vec<serde_json::Value> {
         (now - local_event_ts_to_utc(ts)).num_minutes().max(0)
     });
 
-    let status = if age_min <= 5 { "active" } else { "idle" };
+    // #717: same freshness threshold as /api/workspaces — the two panels
+    // used to disagree ("active" here, "idle" there) for the same session.
+    let status = if age_min < 10 { "active" } else { "idle" };
 
     vec![serde_json::json!({
         "id": "lean-ctx-session",

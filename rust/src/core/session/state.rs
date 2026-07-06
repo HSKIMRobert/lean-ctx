@@ -11,6 +11,10 @@ const MAX_DECISIONS: usize = 10;
 const MAX_FILES: usize = 50;
 const MAX_EVIDENCE: usize = 500;
 pub(crate) const BATCH_SAVE_INTERVAL: u32 = 5;
+/// #717: max time an unsaved change may linger before it is flushed even
+/// below the batch threshold — the dashboard reads session JSONs from disk,
+/// so a slow trickle of tool calls must still become visible promptly.
+pub(crate) const SESSION_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_mins(1);
 
 impl Default for SessionState {
     fn default() -> Self {
@@ -47,6 +51,7 @@ impl SessionState {
             wakeup_manifest: Vec::new(),
             playbook: super::playbook::Playbook::default(),
             last_semantic_query: None,
+            last_flush: None,
         }
         .with_compression_from_config()
     }
@@ -66,9 +71,23 @@ impl SessionState {
         self.stats.unsaved_changes += 1;
     }
 
-    /// Returns `true` if enough changes have accumulated to warrant a disk save.
+    /// Returns `true` if enough changes have accumulated to warrant a disk
+    /// save — or, since #717, if any change has waited longer than
+    /// [`SESSION_FLUSH_INTERVAL`]: the 5-change batch alone left slow
+    /// sessions invisible to the dashboard (stuck "idle") for the whole
+    /// batch window. A fresh in-memory session flushes its first change
+    /// immediately so new activity surfaces at once.
     pub fn should_save(&self) -> bool {
-        self.stats.unsaved_changes >= BATCH_SAVE_INTERVAL
+        if self.stats.unsaved_changes == 0 {
+            return false;
+        }
+        if self.stats.unsaved_changes >= BATCH_SAVE_INTERVAL {
+            return true;
+        }
+        match self.last_flush {
+            Some(t) => t.elapsed() >= SESSION_FLUSH_INTERVAL,
+            None => true,
+        }
     }
 
     /// Sets the active task and infers a structured intent from the description.

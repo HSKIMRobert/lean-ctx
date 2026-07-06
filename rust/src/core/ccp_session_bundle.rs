@@ -286,6 +286,7 @@ pub fn import_bundle_v1_into_session(
         wakeup_manifest: Vec::new(),
         playbook: crate::core::session::Playbook::default(),
         last_semantic_query: None,
+        last_flush: None,
     };
 
     ImportReportV1 {

@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use super::super::{
-    HookMode, make_executable, mcp_server_quiet_mode, resolve_hook_command_binary, write_file,
+    HookMode, make_executable, mcp_server_quiet_mode, resolve_binary_path_for_bash,
+    resolve_hook_command_binary, shell_quoted_binary, write_file, write_wrapper_file,
 };
 use super::shared::install_standard_hook_scripts;
 
@@ -217,20 +218,29 @@ fn cursor_mdc_content(home: &std::path::Path) -> String {
 
 pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".cursor").join("hooks");
-    install_standard_hook_scripts(&hooks_dir, "lean-ctx-rewrite.sh", "lean-ctx-redirect.sh");
+    install_standard_hook_scripts(
+        &hooks_dir,
+        home,
+        "lean-ctx-rewrite.sh",
+        "lean-ctx-redirect.sh",
+    );
 
-    let native_binary = resolve_hook_command_binary();
+    // #719: quoted + heal-safe like the Claude wrappers; bash-compatible path
+    // because these are `#!/bin/sh` scripts.
+    let native_binary = shell_quoted_binary(&resolve_binary_path_for_bash());
     let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
-    write_file(
+    write_wrapper_file(
         &rewrite_native,
         &format!("#!/bin/sh\nexec {native_binary} hook rewrite\n"),
+        home,
     );
     make_executable(&rewrite_native);
 
     let redirect_native = hooks_dir.join("lean-ctx-redirect-native");
-    write_file(
+    write_wrapper_file(
         &redirect_native,
         &format!("#!/bin/sh\nexec {native_binary} hook redirect\n"),
+        home,
     );
     make_executable(&redirect_native);
 }

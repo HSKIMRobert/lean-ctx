@@ -16,6 +16,11 @@ pub struct SecretDetectionConfig {
     pub enabled: bool,
     pub redact: bool,
     pub custom_patterns: Vec<String>,
+    /// #718: subtractive counterpart to `custom_patterns` — a detected secret
+    /// whose matched text is covered by any of these regexes is neither
+    /// reported nor redacted. Lets users carve out known-safe identifiers or
+    /// repo naming conventions without disabling secret detection wholesale.
+    pub exclude_patterns: Vec<String>,
 }
 
 /// Controls what lean-ctx injects during `setup` and `update --rewire`.
@@ -105,6 +110,7 @@ impl Default for SecretDetectionConfig {
             enabled: true,
             redact: true,
             custom_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
         }
     }
 }

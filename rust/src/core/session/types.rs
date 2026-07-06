@@ -53,6 +53,12 @@ pub struct SessionState {
     /// query-conditioned IB compression when no explicit task is set.
     #[serde(default)]
     pub last_semantic_query: Option<String>,
+    /// #717: in-memory timestamp of the last flush to disk. Backs the
+    /// time-based save trigger so a slow trickle of changes (below the
+    /// 5-change batch) still reaches disk — the dashboard reads session
+    /// JSONs and otherwise showed "idle" for the whole batch window.
+    #[serde(skip)]
+    pub(crate) last_flush: Option<std::time::Instant>,
 }
 
 /// One item placed by the wakeup/instructions builder, used for LITM

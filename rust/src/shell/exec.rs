@@ -9,7 +9,20 @@ use crate::core::tokens::count_tokens;
 /// Kills the process if either limit is exceeded, returning what was
 /// captured so far. Prevents unbounded memory growth on commands that
 /// produce massive output (e.g. `rg -i "pattern"` over a large tree).
-fn wait_with_limits(mut child: Child, max_bytes: usize, timeout: std::time::Duration) -> Output {
+///
+/// `kill_group` (Unix): the child was spawned into its own process group
+/// (`process_group(0)`), so a timeout kill signals the whole group. Killing
+/// only the direct child (a shell) leaves orphaned grandchildren holding the
+/// stdout/stderr pipe write ends — the reader threads then never see EOF and
+/// the join below blocks forever, wedging the caller *despite* the timeout
+/// having fired (GH #720: an orphaned `rg` kept a Cursor shell session dead
+/// for hours).
+fn wait_with_limits(
+    mut child: Child,
+    max_bytes: usize,
+    timeout: std::time::Duration,
+    kill_group: bool,
+) -> Output {
     let stdout_pipe = child.stdout.take();
     let stderr_pipe = child.stderr.take();
     let start = std::time::Instant::now();
@@ -64,7 +77,7 @@ fn wait_with_limits(mut child: Child, max_bytes: usize, timeout: std::time::Dura
     let mut timed_out = false;
     loop {
         if start.elapsed() > timeout {
-            let _ = child.kill();
+            kill_child(&mut child, kill_group);
             let _ = child.wait();
             timed_out = true;
             break;
@@ -98,6 +111,23 @@ fn wait_with_limits(mut child: Child, max_bytes: usize, timeout: std::time::Dura
         stdout: stdout_buf,
         stderr: stderr_buf,
     }
+}
+
+/// Kill a timed-out child — and, when it owns a process group, every
+/// descendant in that group (GH #720). SIGKILL to the negative pgid reaps
+/// shells' grandchildren so the captured pipes actually close.
+fn kill_child(child: &mut Child, kill_group: bool) {
+    #[cfg(unix)]
+    if kill_group {
+        let pgid = child.id() as libc::pid_t;
+        if pgid > 0 {
+            // SAFETY: plain syscall; a stale pgid at worst returns ESRCH.
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = kill_group;
+    let _ = child.kill();
 }
 
 #[cfg(test)]
@@ -774,6 +804,25 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     }
 
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    // #720: the buffered path serves agents and pipes — there is no
+    // interactive stdin to forward. Inheriting the host's stdin let
+    // stdin-reading commands (`rg` with no path after an empty `$(…)`
+    // substitution, `cat` without a file) block forever on a pipe that never
+    // delivers EOF, wedging the host's persistent shell session. /dev/null
+    // answers with EOF immediately. A real TTY stdin is preserved so
+    // interactive `lean-ctx -c` (prompts, sudo) keeps working — and only in
+    // the non-TTY case do we detach the child into its own process group,
+    // so the timeout kill can reap grandchildren without stealing Ctrl+C
+    // from interactive users.
+    let isolate = !io::stdin().is_terminal();
+    if isolate {
+        cmd.stdin(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt as _;
+            cmd.process_group(0);
+        }
+    }
     super::reentry::mark_child(&mut cmd);
     super::platform::apply_utf8_locale(&mut cmd);
     super::platform::apply_profile_free_env(&mut cmd);
@@ -792,7 +841,7 @@ fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Con
     };
 
     let (max_bytes, timeout) = exec_limits(command);
-    let output = wait_with_limits(child, max_bytes, timeout);
+    let output = wait_with_limits(child, max_bytes, timeout, isolate);
 
     let duration_ms = start.elapsed().as_millis();
     let exit_code = output.status.code().unwrap_or(1);
@@ -980,7 +1029,7 @@ mod exec_tests {
             .spawn()
             .unwrap();
 
-        let output = super::wait_with_limits(child, 1024, std::time::Duration::from_secs(5));
+        let output = super::wait_with_limits(child, 1024, std::time::Duration::from_secs(5), false);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains("hello"),
@@ -999,7 +1048,8 @@ mod exec_tests {
             .spawn()
             .unwrap();
 
-        let output = super::wait_with_limits(child, 1024, std::time::Duration::from_secs(10));
+        let output =
+            super::wait_with_limits(child, 1024, std::time::Duration::from_secs(10), false);
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains("[lean-ctx: output truncated"),
@@ -1019,7 +1069,8 @@ mod exec_tests {
             .unwrap();
 
         let start = std::time::Instant::now();
-        let output = super::wait_with_limits(child, 1024, std::time::Duration::from_millis(200));
+        let output =
+            super::wait_with_limits(child, 1024, std::time::Duration::from_millis(200), false);
         let elapsed = start.elapsed();
 
         assert!(
@@ -1028,6 +1079,49 @@ mod exec_tests {
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("[lean-ctx: output truncated"));
+    }
+
+    /// GH #720: killing only the direct child (a shell) on timeout leaves its
+    /// grandchildren alive holding the stdout pipe — the reader threads never
+    /// see EOF and `wait_with_limits` blocks forever even though the timeout
+    /// fired. With the child in its own process group and a group kill, the
+    /// whole tree dies and the call returns promptly.
+    #[cfg(unix)]
+    #[test]
+    fn wait_with_limits_group_kill_reaps_grandchildren() {
+        use std::os::unix::process::CommandExt as _;
+        // The shell spawns a grandchild that inherits stdout and sleeps far
+        // beyond the timeout; the shell itself also sleeps so the timeout path
+        // (not natural exit) is exercised.
+        let mut cmd = std::process::Command::new("sh");
+        cmd.args(["-c", "sleep 30 & sleep 30"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        cmd.process_group(0);
+        let child = cmd.spawn().unwrap();
+        let pgid = child.id() as libc::pid_t;
+
+        let start = std::time::Instant::now();
+        let _ = super::wait_with_limits(child, 1024, std::time::Duration::from_millis(200), true);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(5),
+            "group kill must unblock the reader threads, took {elapsed:?}"
+        );
+        // The whole group must be gone (ESRCH), not just the direct child.
+        // A brief grace period lets the kernel finish reaping.
+        let mut group_gone = false;
+        for _ in 0..50 {
+            // SAFETY: signal 0 only probes for existence.
+            if unsafe { libc::killpg(pgid, 0) } == -1 {
+                group_gone = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(group_gone, "process group {pgid} must be fully reaped");
     }
 
     #[test]

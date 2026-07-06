@@ -67,8 +67,10 @@ pub fn normalize_dashboard_demo_path(path: &str) -> String {
         p = &p[2..];
     }
 
-    p.trim_start_matches(['\\', '/'])
-        .replace('\\', std::path::MAIN_SEPARATOR_STR)
+    // #715: forward slashes always — ledger entries and overlay item ids use
+    // the forward-slash canonical form, so emitting `\` on Windows made every
+    // dashboard action miss its ledger entry.
+    p.trim_start_matches(['\\', '/']).replace('\\', "/")
 }
 
 pub fn is_windows_absolute_path(path: &str) -> bool {

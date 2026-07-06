@@ -281,6 +281,57 @@ pub(crate) fn finalize_hook_check(
     }
 }
 
+/// #719: staleness check for the generated wrapper scripts in
+/// `<state>/hooks/`. `settings.json` staleness got covered in #708; the
+/// wrappers are the second place a machine-absolute path hides in a synced
+/// setup — a wrapper pointing at another machine's install dies at exec time
+/// with no surfaced error, so doctor must name it. A portable form
+/// (`$HOME/…`) that resolves on this machine is healthy by definition.
+pub(crate) fn check_hook_wrapper_scripts(
+    hooks_dir: &std::path::Path,
+    binary: &str,
+    home: &std::path::Path,
+) -> NamedCheck {
+    let wrapper_names = [
+        "lean-ctx-rewrite.sh",
+        "lean-ctx-rewrite-native",
+        "lean-ctx-redirect-native",
+    ];
+    let mut stale: Option<String> = None;
+    let mut seen = 0usize;
+    for name in wrapper_names {
+        let path = hooks_dir.join(name);
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        seen += 1;
+        let Some(token) = crate::hooks::wrapper_binary_token(&content) else {
+            continue;
+        };
+        let ok = super::wiring::cmd_matches_expected(&token, binary)
+            || crate::hooks::wrapper_content_is_portable_and_working(&content, home);
+        if !ok && stale.is_none() {
+            stale = Some(format!("{token} ({name})"));
+        }
+    }
+    let (ok, detail) = if seen == 0 {
+        // settings drift already reports a never-ran setup; no double report.
+        (true, format!("not installed ({})", hooks_dir.display()))
+    } else if let Some(s) = stale {
+        (
+            false,
+            format!("stale binary {s} — run lean-ctx setup --fix"),
+        )
+    } else {
+        (true, format!("ok ({seen} wrapper scripts)"))
+    };
+    NamedCheck {
+        name: "Hook wrappers".to_string(),
+        ok,
+        detail,
+    }
+}
+
 pub(crate) fn check_claude_hooks(path: &std::path::Path, binary: &str) -> NamedCheck {
     if !path.exists() {
         return NamedCheck {

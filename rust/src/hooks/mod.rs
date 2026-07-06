@@ -278,6 +278,94 @@ fn resolve_binary_path_for_bash() -> String {
     to_bash_compatible_path(&resolve_binary_path())
 }
 
+/// Shell-quotes a binary token for generated `#!/bin/sh` wrappers and
+/// `LEAN_CTX_BIN=` assignments (#719). Double quotes keep `$HOME`-style
+/// portable overrides (#708) expanding at execution time while paths with
+/// spaces survive word splitting (npm installs under
+/// `C:\Users\First Last\AppData\…`). `"` and `` ` `` are escaped; `$` stays
+/// active on purpose — portable forms rely on it.
+pub(crate) fn shell_quoted_binary(binary: &str) -> String {
+    let escaped = binary.replace('"', "\\\"").replace('`', "\\`");
+    format!("\"{escaped}\"")
+}
+
+/// #719: true when an existing generated wrapper references a portable binary
+/// form (`$HOME/…`, `${HOME}/…`, `%USERPROFILE%\…`) that resolves to an
+/// existing binary on THIS machine. Such a wrapper is healthy and must not be
+/// re-stamped with a machine-absolute path: on multi-machine synced setups
+/// (Dropbox'd `~/.claude`, different usernames) a heal on the machine WITHOUT
+/// the portable override would otherwise bake its absolute path into the
+/// wrapper, and every new session on the peer machine dies mid tool call with
+/// no surfaced error.
+fn wrapper_is_portable_and_working(path: &std::path::Path, home: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .is_ok_and(|content| wrapper_content_is_portable_and_working(&content, home))
+}
+
+pub(crate) fn wrapper_content_is_portable_and_working(
+    content: &str,
+    home: &std::path::Path,
+) -> bool {
+    let Some(token) = wrapper_binary_token(content) else {
+        return false;
+    };
+    if !(token.contains("$HOME") || token.contains("${HOME}") || token.contains("%USERPROFILE%")) {
+        return false;
+    }
+    let home_s = home.to_string_lossy();
+    let expanded = token
+        .replace("${HOME}", &home_s)
+        .replace("$HOME", &home_s)
+        .replace("%USERPROFILE%", &home_s);
+    std::path::Path::new(&from_bash_to_native_path(&expanded)).exists()
+}
+
+/// Extracts the binary token from a generated wrapper script: the
+/// `LEAN_CTX_BIN=` assignment (rewrite scripts) or the `exec <binary> hook …`
+/// line (native wrappers) — quoted or bare.
+pub(crate) fn wrapper_binary_token(content: &str) -> Option<String> {
+    for line in content.lines() {
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("LEAN_CTX_BIN=") {
+            let rest = rest.trim();
+            let tok = rest
+                .strip_prefix('"')
+                .map_or(rest, |r| r.split('"').next().unwrap_or_default());
+            if !tok.is_empty() {
+                return Some(tok.to_string());
+            }
+        }
+        if let Some(rest) = t.strip_prefix("exec ") {
+            let rest = rest.trim();
+            let tok = match rest.strip_prefix('"') {
+                Some(r) => r.split('"').next().unwrap_or_default().to_string(),
+                None => rest
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            };
+            if !tok.is_empty() {
+                return Some(tok);
+            }
+        }
+    }
+    None
+}
+
+/// Writes a generated hook wrapper unless the portable override is unset AND
+/// the existing file already carries a working portable reference (#719) —
+/// healing must never replace a synced portable wrapper with a
+/// machine-absolute path.
+fn write_wrapper_file(path: &std::path::Path, content: &str, home: &std::path::Path) {
+    if crate::core::portable_binary::hook_binary_override().is_none()
+        && wrapper_is_portable_and_working(path, home)
+    {
+        return;
+    }
+    write_file(path, content);
+}
+
 pub fn to_bash_compatible_path(path: &str) -> String {
     let path = match crate::core::pathutil::strip_verbatim_str(path) {
         Some(stripped) => stripped,
@@ -305,12 +393,16 @@ pub fn normalize_tool_path(path: &str) -> String {
 
 pub fn generate_rewrite_script(binary: &str) -> String {
     let case_pattern = crate::rewrite_registry::bash_case_pattern();
+    // #719: assignment + rewritten command carry the binary quoted, so
+    // portable `$HOME/…` overrides expand at exec time and paths with spaces
+    // survive word splitting.
+    let quoted_binary = shell_quoted_binary(binary);
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx PreToolUse hook — rewrites bash commands to lean-ctx equivalents
 set -euo pipefail
 
-LEAN_CTX_BIN="{binary}"
+LEAN_CTX_BIN={quoted_binary}
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | grep -oE '"tool_name":"([^"\\]|\\.)*"' | head -1 | sed 's/^"tool_name":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
@@ -322,7 +414,7 @@ esac
 
 CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g')
 
-if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then
+if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |\"?$LEAN_CTX_BIN\"? )"; then
   exit 0
 fi
 
@@ -330,7 +422,7 @@ case "$CMD" in
   {case_pattern})
     # Shell-escape then JSON-escape (two passes)
     SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
-    REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
+    REWRITE="\"$LEAN_CTX_BIN\" -c \"$SHELL_ESC\""
     JSON_CMD=$(printf '%s' "$REWRITE" | sed 's/\\/\\\\/g;s/"/\\"/g')
     printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{{"command":"%s"}}}}}}' "$JSON_CMD"
     ;;
@@ -342,18 +434,19 @@ esac
 
 pub fn generate_compact_rewrite_script(binary: &str) -> String {
     let case_pattern = crate::rewrite_registry::bash_case_pattern();
+    let quoted_binary = shell_quoted_binary(binary);
     format!(
         r#"#!/usr/bin/env bash
 # lean-ctx hook — rewrites shell commands
 set -euo pipefail
-LEAN_CTX_BIN="{binary}"
+LEAN_CTX_BIN={quoted_binary}
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | grep -oE '"command":"([^"\\]|\\.)*"' | head -1 | sed 's/^"command":"//;s/"$//' | sed 's/\\"/"/g;s/\\\\/\\/g' 2>/dev/null || echo "")
-if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |$LEAN_CTX_BIN )"; then exit 0; fi
+if [ -z "$CMD" ] || echo "$CMD" | grep -qE "^(lean-ctx |\"?$LEAN_CTX_BIN\"? )"; then exit 0; fi
 case "$CMD" in
   {case_pattern})
     SHELL_ESC=$(printf '%s' "$CMD" | sed 's/\\/\\\\/g;s/"/\\"/g')
-    REWRITE="$LEAN_CTX_BIN -c \"$SHELL_ESC\""
+    REWRITE="\"$LEAN_CTX_BIN\" -c \"$SHELL_ESC\""
     JSON_CMD=$(printf '%s' "$REWRITE" | sed 's/\\/\\\\/g;s/"/\\"/g')
     printf '{{"hookSpecificOutput":{{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{{"command":"%s"}}}}}}' "$JSON_CMD" ;;
   *) exit 0 ;;

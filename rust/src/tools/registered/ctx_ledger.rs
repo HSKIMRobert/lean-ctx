@@ -149,17 +149,24 @@ impl McpTool for CtxLedgerTool {
                         "[ledger evict unavailable — busy, retry]".to_string(),
                     ));
                 };
-                let removed = ledger.evict_paths(&targets);
-
-                // Add exclude overlays to prevent re-accumulation
+                // #715: resolve partial paths/basenames against the ledger's
+                // canonical absolute entries and report per-target outcomes.
                 let root = if ctx.project_root.is_empty() {
                     "."
                 } else {
                     &ctx.project_root
                 };
+                let outcomes = ledger.evict_paths_resolved(&targets, Some(root));
+                let removed = outcomes.iter().filter(|o| o.resolved.is_some()).count();
+
+                // Exclude overlays on the RESOLVED canonical paths, so the
+                // overlay actually blocks re-accumulation of the evicted file.
                 let mut overlays = OverlayStore::load_project(&std::path::PathBuf::from(root));
-                for target in &targets {
-                    let item_id = ContextItemId::from_file(target);
+                for outcome in &outcomes {
+                    let Some(resolved) = &outcome.resolved else {
+                        continue;
+                    };
+                    let item_id = ContextItemId::from_file(resolved);
                     let overlay = ContextOverlay::new(
                         item_id,
                         OverlayOp::Exclude {
@@ -176,11 +183,28 @@ impl McpTool for CtxLedgerTool {
                 ledger.save();
 
                 let pressure = ledger.pressure();
-                format!(
+                let mut lines = vec![format!(
                     "Evicted {removed}/{} target(s). Pressure now: {:.0}%. Files excluded from re-accumulation until session reset.",
                     targets.len(),
                     pressure.utilization * 100.0,
-                )
+                )];
+                for outcome in &outcomes {
+                    match (&outcome.resolved, outcome.ambiguous.is_empty()) {
+                        (Some(resolved), _) if resolved != &outcome.target => {
+                            lines.push(format!("  {} → {resolved}", outcome.target));
+                        }
+                        (Some(_), _) => {}
+                        (None, false) => lines.push(format!(
+                            "  {} is ambiguous ({}) — use a longer suffix",
+                            outcome.target,
+                            outcome.ambiguous.join(", ")
+                        )),
+                        (None, true) => {
+                            lines.push(format!("  {} not in ledger", outcome.target));
+                        }
+                    }
+                }
+                lines.join("\n")
             }
 
             _ => "Unknown action. Use: status, reset, evict".to_string(),

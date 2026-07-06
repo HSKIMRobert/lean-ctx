@@ -400,6 +400,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "Additional regex patterns to detect as secrets",
         ),
     );
+    secret_det.insert(
+        "exclude_patterns".into(),
+        key(
+            "array",
+            serde_json::json!(cfg.secret_detection.exclude_patterns),
+            "Subtractive allowlist: matches covered by these regexes are never reported or redacted (#718)",
+        ),
+    );
     sections.insert(
         "secret_detection".into(),
         SectionSchema {

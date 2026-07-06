@@ -104,14 +104,31 @@ mod tests {
         assert_eq!(ReadDedup::from_env(), None);
     }
 
+    /// Clear every env var the guard detection reads — including the Cursor
+    /// markers a Cursor agent shell exports itself (GH #720/#722) — so these
+    /// tests are deterministic on any host running `cargo test`.
+    fn clear_host_markers() {
+        for var in [
+            "LEAN_CTX_READ_DEDUP",
+            "CLAUDE_PROJECT_DIR",
+            "CLAUDECODE",
+            "CODEBUDDY",
+            "CURSOR_VERSION",
+            "CURSOR_PROJECT_DIR",
+            "CURSOR_TRANSCRIPT_PATH",
+            "CURSOR_EXTENSION_HOST_ROLE",
+            "CURSOR_AGENT",
+            "CURSOR_TRACE_ID",
+        ] {
+            crate::test_env::remove_var(var);
+        }
+    }
+
     #[test]
     fn auto_enables_only_on_guard_hosts() {
         // Inverse of read_redirect's auto: dedup where the redirect is off.
         let _lock = crate::core::data_dir::test_env_lock();
-        crate::test_env::remove_var("LEAN_CTX_READ_DEDUP");
-        crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-        crate::test_env::remove_var("CLAUDECODE");
-        crate::test_env::remove_var("CODEBUDDY");
+        clear_host_markers();
 
         let cfg = Config::default(); // Auto
         assert!(
@@ -132,15 +149,23 @@ mod tests {
             "auto must dedup under CodeBuddy (shared guard contract)"
         );
         crate::test_env::remove_var("CODEBUDDY");
+
+        // GH #722: Cursor exports CLAUDE_PROJECT_DIR for Claude-compat, but is
+        // NOT a guard host — the PreToolUse redirect runs there, so the
+        // PostToolUse dedup must stay passive.
+        crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
+        crate::test_env::set_var("CURSOR_VERSION", "3.7.36");
+        assert!(
+            !ReadDedup::read_dedup_enabled(&cfg),
+            "Cursor must not be treated as a guard host despite CLAUDE_PROJECT_DIR"
+        );
+        clear_host_markers();
     }
 
     #[test]
     fn on_and_off_are_absolute() {
         let _lock = crate::core::data_dir::test_env_lock();
-        crate::test_env::remove_var("LEAN_CTX_READ_DEDUP");
-        crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-        crate::test_env::remove_var("CLAUDECODE");
-        crate::test_env::remove_var("CODEBUDDY");
+        clear_host_markers();
 
         let cfg_on = Config {
             read_dedup: ReadDedup::On,

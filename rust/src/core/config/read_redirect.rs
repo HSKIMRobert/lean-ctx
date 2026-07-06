@@ -70,12 +70,38 @@ impl ReadRedirect {
 /// #637 — so it cannot be the primary in-hook signal. `CLAUDECODE` / `CODEBUDDY` are
 /// kept as extra markers (other entry points, the CodeBuddy fork) at no cost.
 ///
+/// **Cursor exception (GH #720):** Cursor ≥ 3.7 exports `CLAUDE_PROJECT_DIR` to its
+/// hook children for Claude-compat — alongside its own `CURSOR_*` markers. Cursor
+/// has no read-before-write guard, so treating it as Claude Code silently disabled
+/// the Read redirect for every Cursor session (0% read compression). The host's own
+/// identity markers win over the compat variable.
+///
 /// Shared with [`super::read_dedup`]: the PostToolUse re-read dedup targets exactly
 /// the hosts where this guard forces the PreToolUse redirect off.
 pub(crate) fn host_has_read_before_write_guard() -> bool {
+    if hook_host_is_cursor() {
+        return false;
+    }
     std::env::var_os("CLAUDE_PROJECT_DIR").is_some()
         || std::env::var_os("CLAUDECODE").is_some()
         || std::env::var_os("CODEBUDDY").is_some()
+}
+
+/// True when the hook subprocess was spawned by Cursor. Checks the markers Cursor
+/// actually exports to hook children (verified 3.7.36: `CURSOR_VERSION`,
+/// `CURSOR_PROJECT_DIR`, `CURSOR_TRANSCRIPT_PATH`, `CURSOR_EXTENSION_HOST_ROLE`)
+/// plus `CURSOR_AGENT`/`CURSOR_TRACE_ID` for agent shells and older builds.
+pub(crate) fn hook_host_is_cursor() -> bool {
+    [
+        "CURSOR_VERSION",
+        "CURSOR_PROJECT_DIR",
+        "CURSOR_TRANSCRIPT_PATH",
+        "CURSOR_EXTENSION_HOST_ROLE",
+        "CURSOR_AGENT",
+        "CURSOR_TRACE_ID",
+    ]
+    .iter()
+    .any(|var| std::env::var_os(var).is_some())
 }
 
 #[cfg(test)]
@@ -137,13 +163,30 @@ mod tests {
         crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
     }
 
+    /// Clear every env var the guard detection reads, so tests are
+    /// deterministic no matter which host runs `cargo test` (a Cursor agent
+    /// shell exports `CURSOR_*` itself, GH #720).
+    fn clear_host_markers() {
+        for var in [
+            "LEAN_CTX_READ_REDIRECT",
+            "CLAUDE_PROJECT_DIR",
+            "CLAUDECODE",
+            "CODEBUDDY",
+            "CURSOR_VERSION",
+            "CURSOR_PROJECT_DIR",
+            "CURSOR_TRANSCRIPT_PATH",
+            "CURSOR_EXTENSION_HOST_ROLE",
+            "CURSOR_AGENT",
+            "CURSOR_TRACE_ID",
+        ] {
+            crate::test_env::remove_var(var);
+        }
+    }
+
     #[test]
     fn enabled_on_and_off_are_absolute() {
         let _lock = crate::core::data_dir::test_env_lock();
-        crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
-        crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-        crate::test_env::remove_var("CLAUDECODE");
-        crate::test_env::remove_var("CODEBUDDY");
+        clear_host_markers();
 
         // `on` redirects even under a guard host.
         let cfg_on = Config {
@@ -164,10 +207,7 @@ mod tests {
     #[test]
     fn auto_disables_only_on_guard_hosts() {
         let _lock = crate::core::data_dir::test_env_lock();
-        crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
-        crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-        crate::test_env::remove_var("CLAUDECODE");
-        crate::test_env::remove_var("CODEBUDDY");
+        clear_host_markers();
 
         let cfg = Config::default(); // Auto
         assert!(
@@ -197,5 +237,38 @@ mod tests {
             "auto must disable the Read redirect under CodeBuddy (shared Claude hook contract)"
         );
         crate::test_env::remove_var("CODEBUDDY");
+    }
+
+    /// GH #720: Cursor ≥ 3.7 exports `CLAUDE_PROJECT_DIR` to hook children for
+    /// Claude-compat. Cursor has no read-before-write guard, so its own markers
+    /// must override the compat variable — otherwise every Cursor session runs
+    /// with the Read redirect silently disabled (0% read compression).
+    #[test]
+    fn auto_stays_enabled_when_cursor_exports_claude_project_dir() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        clear_host_markers();
+        let cfg = Config::default(); // Auto
+
+        // Exactly what the Cursor 3.7.36 extension host exports to hooks.
+        crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
+        crate::test_env::set_var("CURSOR_PROJECT_DIR", "/repo");
+        crate::test_env::set_var("CURSOR_VERSION", "3.7.36");
+        assert!(
+            ReadRedirect::read_redirect_enabled(&cfg),
+            "Cursor markers must win over the Claude-compat variable"
+        );
+        assert!(!host_has_read_before_write_guard());
+
+        // Agent-shell shape: only CURSOR_AGENT is present.
+        clear_host_markers();
+        crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
+        crate::test_env::set_var("CURSOR_AGENT", "1");
+        assert!(ReadRedirect::read_redirect_enabled(&cfg));
+
+        // Without any Cursor marker the Claude guard still wins (real Claude Code).
+        clear_host_markers();
+        crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
+        assert!(!ReadRedirect::read_redirect_enabled(&cfg));
+        clear_host_markers();
     }
 }

@@ -1,6 +1,7 @@
 use super::super::{
     HookMode, REDIRECT_SCRIPT_CLAUDE, generate_rewrite_script, make_executable,
-    mcp_server_quiet_mode, resolve_binary_path_for_bash, resolve_hook_command_binary, write_file,
+    mcp_server_quiet_mode, resolve_binary_path_for_bash, resolve_hook_command_binary,
+    shell_quoted_binary, write_file, write_wrapper_file,
 };
 use super::shared::remove_all_blocks;
 
@@ -237,46 +238,39 @@ pub(crate) fn install_codebuddy_hook_scripts(home: &std::path::Path) {
     let hooks_dir = crate::core::editor_registry::codebuddy_state_dir(home).join("hooks");
     let _ = std::fs::create_dir_all(&hooks_dir);
 
-    let binary = resolve_hook_command_binary();
-
+    // #719: wrapper writes go through write_wrapper_file — a synced portable
+    // wrapper is never re-stamped with a machine-absolute path, and the
+    // binary token is shell-quoted.
     let rewrite_path = hooks_dir.join("lean-ctx-rewrite.sh");
     let rewrite_script = generate_rewrite_script(&resolve_binary_path_for_bash());
-    write_file(&rewrite_path, &rewrite_script);
+    write_wrapper_file(&rewrite_path, &rewrite_script, home);
     make_executable(&rewrite_path);
 
     let redirect_path = hooks_dir.join("lean-ctx-redirect.sh");
     write_file(&redirect_path, REDIRECT_SCRIPT_CLAUDE);
     make_executable(&redirect_path);
 
-    let wrapper = |subcommand: &str| -> String {
-        if cfg!(windows) {
-            format!("{binary} hook {subcommand}")
-        } else {
-            format!("{} hook {subcommand}", resolve_binary_path_for_bash())
-        }
-    };
-
     let rewrite_native = hooks_dir.join("lean-ctx-rewrite-native");
-    write_file(
+    write_wrapper_file(
         &rewrite_native,
         &format!(
             "#!/bin/sh\nexec {} hook rewrite\n",
-            resolve_binary_path_for_bash()
+            shell_quoted_binary(&resolve_binary_path_for_bash())
         ),
+        home,
     );
     make_executable(&rewrite_native);
 
     let redirect_native = hooks_dir.join("lean-ctx-redirect-native");
-    write_file(
+    write_wrapper_file(
         &redirect_native,
         &format!(
             "#!/bin/sh\nexec {} hook redirect\n",
-            resolve_binary_path_for_bash()
+            shell_quoted_binary(&resolve_binary_path_for_bash())
         ),
+        home,
     );
     make_executable(&redirect_native);
-
-    let _ = wrapper;
 }
 
 const REDIRECT_MATCHER: &str = "Read|read|ReadFile|read_file|View|view|Grep|grep|Search|search|ListFiles|list_files|ListDirectory|list_directory|Glob|glob";

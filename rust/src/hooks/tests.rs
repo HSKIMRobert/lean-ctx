@@ -250,6 +250,107 @@ fn claude_settings_hooks_emit_override_verbatim_and_stay_idempotent() {
     crate::test_env::remove_var("LEAN_CTX_HOOK_BINARY");
 }
 
+// ── #719: wrapper scripts must honor the override and survive healing ──
+
+#[test]
+fn claude_wrapper_scripts_emit_override_verbatim_and_quoted() {
+    let _iso = crate::core::data_dir::isolated_data_dir();
+    // A portable form WITH a space — quoting is part of the contract.
+    crate::test_env::set_var(
+        "LEAN_CTX_HOOK_BINARY",
+        "$HOME/App Data/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe",
+    );
+    let home = tempfile::tempdir().unwrap();
+
+    install_claude_hook_scripts(home.path());
+
+    let hooks_dir = home.path().join(".claude/hooks");
+    for (file, needle) in [
+        (
+            "lean-ctx-rewrite-native",
+            "exec \"$HOME/App Data/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe\" hook rewrite",
+        ),
+        (
+            "lean-ctx-redirect-native",
+            "exec \"$HOME/App Data/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe\" hook redirect",
+        ),
+        (
+            "lean-ctx-rewrite.sh",
+            "LEAN_CTX_BIN=\"$HOME/App Data/npm/node_modules/lean-ctx-bin/bin/lean-ctx.exe\"",
+        ),
+    ] {
+        let content = std::fs::read_to_string(hooks_dir.join(file)).expect(file);
+        assert!(
+            content.contains(needle),
+            "{file} must carry the quoted portable form, got:\n{content}"
+        );
+        assert!(
+            !content.contains(&resolve_binary_path()),
+            "{file}: no machine-absolute path may leak into a synced wrapper"
+        );
+    }
+
+    crate::test_env::remove_var("LEAN_CTX_HOOK_BINARY");
+}
+
+#[test]
+fn heal_without_override_preserves_working_portable_wrapper() {
+    let _iso = crate::core::data_dir::isolated_data_dir();
+    crate::test_env::remove_var("LEAN_CTX_HOOK_BINARY");
+    let home = tempfile::tempdir().unwrap();
+
+    // The synced peer's portable wrapper resolves on THIS machine: the
+    // binary it points at exists under this home.
+    let bin_dir = home.path().join(".local/bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    std::fs::write(bin_dir.join("lean-ctx"), "#!/bin/sh\nexit 0\n").unwrap();
+
+    let hooks_dir = home.path().join(".claude/hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    let portable = "#!/bin/sh\nexec \"$HOME/.local/bin/lean-ctx\" hook rewrite\n";
+    let wrapper = hooks_dir.join("lean-ctx-rewrite-native");
+    std::fs::write(&wrapper, portable).unwrap();
+
+    // Session heal on the machine WITHOUT the override (the #719 scenario):
+    // the working portable wrapper must survive byte-for-byte.
+    install_claude_hook_scripts(home.path());
+    assert_eq!(
+        std::fs::read_to_string(&wrapper).unwrap(),
+        portable,
+        "heal must not stamp a machine-absolute path over a working portable wrapper"
+    );
+
+    // A portable wrapper whose binary does NOT resolve here is genuinely
+    // broken — healing must replace it.
+    let broken = "#!/bin/sh\nexec \"$HOME/nonexistent/lean-ctx\" hook redirect\n";
+    let redirect = hooks_dir.join("lean-ctx-redirect-native");
+    std::fs::write(&redirect, broken).unwrap();
+    install_claude_hook_scripts(home.path());
+    let healed = std::fs::read_to_string(&redirect).unwrap();
+    assert_ne!(healed, broken, "a dead portable wrapper must be healed");
+    assert!(healed.contains(" hook redirect"));
+}
+
+#[test]
+fn wrapper_binary_token_parses_all_generated_forms() {
+    // Quoted native wrapper.
+    assert_eq!(
+        wrapper_binary_token("#!/bin/sh\nexec \"$HOME/b in/lean-ctx\" hook rewrite\n").as_deref(),
+        Some("$HOME/b in/lean-ctx")
+    );
+    // Legacy unquoted native wrapper (pre-#719 installs).
+    assert_eq!(
+        wrapper_binary_token("#!/bin/sh\nexec /c/Users/B/lean-ctx.exe hook redirect\n").as_deref(),
+        Some("/c/Users/B/lean-ctx.exe")
+    );
+    // Rewrite script assignment, quoted and legacy-unquoted.
+    assert_eq!(
+        wrapper_binary_token("set -euo pipefail\nLEAN_CTX_BIN=\"$HOME/x/lean-ctx\"\n").as_deref(),
+        Some("$HOME/x/lean-ctx")
+    );
+    assert_eq!(wrapper_binary_token("#!/bin/sh\nexit 0\n"), None);
+}
+
 #[test]
 fn hooks_installed_for_is_false_without_artifacts() {
     let tmp = unique_tmp_dir("leanctx_refresh_empty");

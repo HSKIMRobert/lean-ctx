@@ -38,15 +38,20 @@ fn openai_key_re() -> &'static Regex {
     static_regex!(r"sk-[A-Za-z0-9]{20,}")
 }
 
+// #718 word boundaries for the generic key/value patterns: the keyword must
+// not be a camelCase subword (`superuserPassword`), while SNAKE_CASE env
+// names (`MY_TOKEN=…`) keep matching — `_` stays a permitted predecessor.
+// Group 1 = predecessor + key prefix (kept on redaction), group 2 = value
+// (guarded: identifier references and placeholders are benign).
 fn generic_api_key_re() -> &'static Regex {
     static_regex!(
-        r#"(?i)(?:api[_-]?key|secret[_-]?key|token|password|passwd|access[_-]?token|client[_-]?secret)\s*[=:]\s*['"]?[a-zA-Z0-9_\-]{20,}"#
+        r#"(?im)((?:^|[^a-z0-9])(?:api[_-]?key|secret[_-]?key|token|password|passwd|access[_-]?token|client[_-]?secret)\s*[=:]\s*)(['"]?[a-zA-Z0-9_\-]{20,})"#
     )
 }
 
 fn high_entropy_b64_re() -> &'static Regex {
     static_regex!(
-        r#"(?i)(?:key|token|secret|password|credential|auth)\s*[=:]\s*['"]?[A-Za-z0-9+/=\-_]{40,}"#
+        r#"(?im)((?:^|[^a-z0-9])(?:key|token|secret|password|credential|auth)\s*[=:]\s*)(['"]?[A-Za-z0-9+/=\-_]{40,})"#
     )
 }
 
@@ -91,9 +96,33 @@ const BUILTIN_PATTERNS: &[(&str, fn() -> &'static Regex)] = &[
     ("stripe_key", stripe_key_re),
     ("db_url", db_url_re),
     ("npm_token", npm_token_re),
+];
+
+/// Key/value patterns with a kept prefix (group 1) and a guarded value
+/// (group 2): identifier references, placeholders and language literals are
+/// benign (#718) and neither reported nor redacted.
+const GUARDED_PATTERNS: &[(&str, fn() -> &'static Regex)] = &[
     ("generic_api_key", generic_api_key_re),
     ("high_entropy_secret", high_entropy_b64_re),
 ];
+
+/// True when a guarded-pattern match should be skipped: the value is benign
+/// (#718) — shares the benign-value heuristics with `core::redaction` so the
+/// two layers cannot drift.
+fn guarded_match_is_benign(caps: &regex::Captures) -> bool {
+    caps.get(2)
+        .is_some_and(|value| crate::core::redaction::is_benign_secret_value(value.as_str()))
+}
+
+/// Compile the subtractive `exclude_patterns` from config (#718). Invalid
+/// regexes are skipped — a broken exclude must never disable detection.
+fn compile_excludes(patterns: &[String]) -> Vec<Regex> {
+    patterns.iter().filter_map(|p| Regex::new(p).ok()).collect()
+}
+
+fn excluded(excludes: &[Regex], matched: &str) -> bool {
+    excludes.iter().any(|ex| ex.is_match(matched))
+}
 
 fn make_redacted_preview(matched: &str) -> String {
     let chars: Vec<char> = matched.chars().collect();
@@ -105,7 +134,11 @@ fn make_redacted_preview(matched: &str) -> String {
     format!("{prefix}***{suffix}")
 }
 
-pub fn detect_secrets(content: &str) -> Vec<SecretMatch> {
+fn collect_matches(
+    content: &str,
+    custom_patterns: &[String],
+    excludes: &[Regex],
+) -> Vec<SecretMatch> {
     let mut matches = Vec::new();
 
     let line_offsets: Vec<usize> = std::iter::once(0)
@@ -122,6 +155,9 @@ pub fn detect_secrets(content: &str) -> Vec<SecretMatch> {
     for &(name, regex_fn) in BUILTIN_PATTERNS {
         let re = regex_fn();
         for m in re.find_iter(content) {
+            if excluded(excludes, m.as_str()) {
+                continue;
+            }
             matches.push(SecretMatch {
                 pattern_name: name,
                 line_number: offset_to_line(m.start()),
@@ -130,26 +166,31 @@ pub fn detect_secrets(content: &str) -> Vec<SecretMatch> {
         }
     }
 
-    matches
-}
-
-pub fn detect_secrets_with_custom(content: &str, custom_patterns: &[String]) -> Vec<SecretMatch> {
-    let mut matches = detect_secrets(content);
+    for &(name, regex_fn) in GUARDED_PATTERNS {
+        let re = regex_fn();
+        for caps in re.captures_iter(content) {
+            let whole = caps.get(0).map_or("", |m| m.as_str());
+            if guarded_match_is_benign(&caps) || excluded(excludes, whole) {
+                continue;
+            }
+            let start = caps.get(0).map_or(0, |m| m.start());
+            matches.push(SecretMatch {
+                pattern_name: name,
+                line_number: offset_to_line(start),
+                redacted_preview: make_redacted_preview(whole),
+            });
+        }
+    }
 
     for pattern_str in custom_patterns {
         if let Ok(re) = Regex::new(pattern_str) {
-            let line_offsets: Vec<usize> = std::iter::once(0)
-                .chain(content.match_indices('\n').map(|(i, _)| i + 1))
-                .collect();
-
             for m in re.find_iter(content) {
-                let line = match line_offsets.binary_search(&m.start()) {
-                    Ok(i) => i + 1,
-                    Err(i) => i,
-                };
+                if excluded(excludes, m.as_str()) {
+                    continue;
+                }
                 matches.push(SecretMatch {
                     pattern_name: "custom_pattern",
-                    line_number: line,
+                    line_number: offset_to_line(m.start()),
                     redacted_preview: make_redacted_preview(m.as_str()),
                 });
             }
@@ -157,6 +198,14 @@ pub fn detect_secrets_with_custom(content: &str, custom_patterns: &[String]) -> 
     }
 
     matches
+}
+
+pub fn detect_secrets(content: &str) -> Vec<SecretMatch> {
+    collect_matches(content, &[], &[])
+}
+
+pub fn detect_secrets_with_custom(content: &str, custom_patterns: &[String]) -> Vec<SecretMatch> {
+    collect_matches(content, custom_patterns, &[])
 }
 
 pub fn scan_and_redact(
@@ -167,7 +216,8 @@ pub fn scan_and_redact(
         return (content.to_string(), Vec::new());
     }
 
-    let matches = detect_secrets_with_custom(content, &config.custom_patterns);
+    let excludes = compile_excludes(&config.exclude_patterns);
+    let matches = collect_matches(content, &config.custom_patterns, &excludes);
 
     if matches.is_empty() || !config.redact {
         return (content.to_string(), matches);
@@ -177,8 +227,26 @@ pub fn scan_and_redact(
     for &(name, regex_fn) in BUILTIN_PATTERNS {
         let re = regex_fn();
         redacted = re
-            .replace_all(&redacted, |_: &regex::Captures| {
+            .replace_all(&redacted, |caps: &regex::Captures| {
+                let whole = caps.get(0).map_or("", |m| m.as_str());
+                if excluded(&excludes, whole) {
+                    return whole.to_string();
+                }
                 format!("[REDACTED:{name}]")
+            })
+            .to_string();
+    }
+
+    for &(name, regex_fn) in GUARDED_PATTERNS {
+        let re = regex_fn();
+        redacted = re
+            .replace_all(&redacted, |caps: &regex::Captures| {
+                let whole = caps.get(0).map_or("", |m| m.as_str());
+                if guarded_match_is_benign(caps) || excluded(&excludes, whole) {
+                    return whole.to_string();
+                }
+                let prefix = caps.get(1).map_or("", |m| m.as_str());
+                format!("{prefix}[REDACTED:{name}]")
             })
             .to_string();
     }
@@ -186,7 +254,13 @@ pub fn scan_and_redact(
     for pattern_str in &config.custom_patterns {
         if let Ok(re) = Regex::new(pattern_str) {
             redacted = re
-                .replace_all(&redacted, "[REDACTED:custom_pattern]")
+                .replace_all(&redacted, |caps: &regex::Captures| {
+                    let whole = caps.get(0).map_or("", |m| m.as_str());
+                    if excluded(&excludes, whole) {
+                        return whole.to_string();
+                    }
+                    "[REDACTED:custom_pattern]".to_string()
+                })
                 .to_string();
         }
     }
@@ -326,7 +400,7 @@ mod tests {
         let cfg = SecretDetectionConfig {
             enabled: true,
             redact: true,
-            custom_patterns: Vec::new(),
+            ..Default::default()
         };
         let input = "key = AKIAIOSFODNN7EXAMPLE";
         let (redacted, matches) = scan_and_redact(input, &cfg);
@@ -340,7 +414,7 @@ mod tests {
         let cfg = SecretDetectionConfig {
             enabled: true,
             redact: false,
-            custom_patterns: Vec::new(),
+            ..Default::default()
         };
         let input = "key = AKIAIOSFODNN7EXAMPLE";
         let (output, matches) = scan_and_redact(input, &cfg);
@@ -353,7 +427,7 @@ mod tests {
         let cfg = SecretDetectionConfig {
             enabled: false,
             redact: true,
-            custom_patterns: Vec::new(),
+            ..Default::default()
         };
         let input = "key = AKIAIOSFODNN7EXAMPLE";
         let (output, matches) = scan_and_redact(input, &cfg);
@@ -367,6 +441,7 @@ mod tests {
             enabled: true,
             redact: true,
             custom_patterns: vec![r"MYCORP_[A-Z]{10,}".to_string()],
+            ..Default::default()
         };
         let input = "value is MYCORP_ABCDEFGHIJKLMNO here";
         let (redacted, matches) = scan_and_redact(input, &cfg);

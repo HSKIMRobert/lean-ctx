@@ -123,11 +123,10 @@ fn dashboard_responding_false_for_non_dashboard_service() {
 
 #[test]
 fn normalize_dashboard_demo_path_strips_rooted_relative_windows_path() {
+    // #715: forward slashes on every host — ledger entries store the
+    // forward-slash canonical form, so a `\`-separated output missed them.
     let normalized = normalize_dashboard_demo_path(r"\backend\list_tables.js");
-    assert_eq!(
-        normalized,
-        format!("backend{}list_tables.js", std::path::MAIN_SEPARATOR)
-    );
+    assert_eq!(normalized, "backend/list_tables.js");
 }
 
 #[test]
@@ -150,8 +149,53 @@ fn normalize_dashboard_demo_path_strips_dot_slash_prefix() {
     );
     assert_eq!(
         normalize_dashboard_demo_path(r".\src\main.rs"),
-        format!("src{}main.rs", std::path::MAIN_SEPARATOR)
+        "src/main.rs"
     );
+}
+
+#[test]
+fn api_context_overlay_evict_removes_ledger_entry() {
+    // #715: the dashboard Evict must remove the ledger entry (pressure
+    // drops), resolving basenames against absolute canonical entries.
+    let _guard = ENV_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _iso = crate::core::data_dir::isolated_data_dir();
+
+    let mut ledger = crate::core::context_ledger::ContextLedger::with_window_size(100_000);
+    ledger.record("/tmp/proj715/src/gate715.rs", "full", 500, 500);
+    ledger.save();
+
+    let body = r#"{"action":"evict","path":"gate715.rs"}"#;
+    let (status, _ct, resp) =
+        routes::route_response("/api/context-overlay", "", None, None, true, "POST", body);
+    assert_eq!(status, "200 OK", "evict route must succeed: {resp}");
+    assert!(
+        resp.contains("gate715.rs"),
+        "response names the evicted canonical path: {resp}"
+    );
+
+    let reloaded = crate::core::context_ledger::ContextLedger::load();
+    assert!(
+        reloaded
+            .entries
+            .iter()
+            .all(|e| !e.path.contains("gate715.rs")),
+        "entry must be gone after dashboard evict"
+    );
+
+    // Unknown targets are a diagnosed 400, not a silent success.
+    let (status, _ct, resp) = routes::route_response(
+        "/api/context-overlay",
+        "",
+        None,
+        None,
+        true,
+        "POST",
+        r#"{"action":"evict","path":"missing715.rs"}"#,
+    );
+    assert_eq!(status, "400 Bad Request");
+    assert!(resp.contains("not in ledger"), "{resp}");
 }
 
 #[test]

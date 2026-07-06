@@ -258,11 +258,21 @@ scans it for credentials (AWS keys, tokens, etc.) and replaces matches with
 enabled = true
 redact = true
 custom_patterns = ["MYCORP_[A-Z0-9]{20}"]   # add org-specific secret shapes
+exclude_patterns = ["LCTX_PUBLIC_\\w+"]     # carve out known-safe matches (subtractive)
 ```
 
 Built-in patterns cover common cloud/credential formats; `custom_patterns` lets
 you redact organization-specific secret shapes. Matches are reported with a safe
 preview (e.g. `AKIA…`) so you know redaction fired without seeing the secret.
+
+`exclude_patterns` is the subtractive counterpart (#718): a detected match
+covered by any of these regexes is neither reported nor redacted — carve out a
+repo's own naming conventions without disabling secret detection wholesale.
+Since v3.9.2 the detector also skips benign non-values on its own: unquoted
+identifier/property references (`serverEnv.getStripeSecretKey`), camelCase
+subwords (`superuserPassword:` as a key), and obvious placeholders
+(`ghp_change_me`, `your_key_here`). Quoted string literals and digit-bearing
+values remain protected.
 
 ### 4.1 Sensitivity policy floor — per-item levels
 

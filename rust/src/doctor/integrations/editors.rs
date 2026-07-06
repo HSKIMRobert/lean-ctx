@@ -169,6 +169,11 @@ pub(crate) fn integration_claude(
     let settings_path = crate::core::editor_registry::claude_state_dir(home).join("settings.json");
     checks.push(check_claude_hooks(&settings_path, binary));
 
+    // #719: the generated wrapper scripts can carry a stale machine-absolute
+    // binary even when settings.json is healthy (synced multi-machine setups).
+    let hooks_dir = crate::core::editor_registry::claude_state_dir(home).join("hooks");
+    checks.push(check_hook_wrapper_scripts(&hooks_dir, binary, home));
+
     // v3 layout (GL #555, GH #396): instructions live in the CLAUDE.md block +
     // on-demand skill; `setup` removes the legacy rules file. Same detector as
     // the main doctor check, so the two views can never disagree again.
@@ -274,6 +279,10 @@ pub(crate) fn integration_codebuddy(
     let settings_path =
         crate::core::editor_registry::codebuddy_state_dir(home).join("settings.json");
     checks.push(check_claude_hooks(&settings_path, binary));
+
+    // #719: wrapper staleness, same rationale as the Claude check.
+    let hooks_dir = crate::core::editor_registry::codebuddy_state_dir(home).join("hooks");
+    checks.push(check_hook_wrapper_scripts(&hooks_dir, binary, home));
 
     // CodeBuddy uses the same block + skill pattern as Claude Code.
     {

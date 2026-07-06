@@ -130,6 +130,55 @@ fn post_overlay(body: &str) -> (&'static str, &'static str, String) {
         other => other.to_string(),
     };
 
+    // #715: the dashboard Evict button used to write only an exclude overlay —
+    // the ledger entry survived and pressure never dropped. A real eviction
+    // removes the entry (resolving partial paths) AND excludes the resolved
+    // canonical path against re-accumulation.
+    if action == "evict" {
+        let outcomes =
+            ledger.evict_paths_resolved(&[path_norm.as_str()], Some(project_root.as_str()));
+        let outcome = &outcomes[0];
+        for resolved in outcomes.iter().filter_map(|o| o.resolved.as_deref()) {
+            let item_id = crate::core::context_field::ContextItemId::from_file(resolved);
+            overlays.add(crate::core::context_overlay::ContextOverlay::new(
+                item_id,
+                crate::core::context_overlay::OverlayOp::Exclude {
+                    reason: "evicted via dashboard".into(),
+                },
+                crate::core::context_overlay::OverlayScope::Session,
+                String::new(),
+                crate::core::context_overlay::OverlayAuthor::User,
+            ));
+        }
+        ledger.save();
+        if let Err(e) = overlays.save_project(&root_path) {
+            return (
+                "500 Internal Server Error",
+                "application/json",
+                json_err(&e),
+            );
+        }
+        if outcome.resolved.is_none() {
+            let msg = if outcome.ambiguous.is_empty() {
+                format!("'{path_norm}' not in ledger")
+            } else {
+                format!(
+                    "'{path_norm}' is ambiguous ({}) — use a longer suffix",
+                    outcome.ambiguous.join(", ")
+                )
+            };
+            return ("400 Bad Request", "application/json", json_err(&msg));
+        }
+        let pressure = ledger.pressure();
+        let payload = serde_json::json!({
+            "ok": true,
+            "evicted": outcome.resolved,
+            "pressure": pressure.utilization,
+        });
+        let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        return ("200 OK", "application/json", json);
+    }
+
     if action == "expire" {
         let target = crate::core::context_field::ContextItemId::from_file(&path_norm);
         let secs: u64 = req

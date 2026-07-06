@@ -434,7 +434,7 @@ class CockpitCommander extends HTMLElement {
       } else {
         h += '<button type="button" class="action-btn" data-act="unpin" data-path="' + pd + '">Unpin</button> ';
       }
-      h += '<button type="button" class="action-btn danger" data-act="exclude" data-path="' + pd + '">Evict</button>';
+      h += '<button type="button" class="action-btn danger" data-act="evict" data-path="' + pd + '">Evict</button>';
       h += '</td></tr>';
 
       // Expandable trail row (power mode)
@@ -541,7 +541,8 @@ class CockpitCommander extends HTMLElement {
     if (!fetchJson) return;
 
     if (type === 'evict') {
-      await this._executeOverlay('exclude', path);
+      // #715: real ledger eviction (drops pressure), not just an exclude overlay.
+      await this._executeOverlay('evict', path);
     } else if (type === 'compress' && mode) {
       await this._executeOverlay('set_view', path, mode);
     } else if (type === 'full_read') {

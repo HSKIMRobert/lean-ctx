@@ -140,6 +140,7 @@ pub(crate) fn install_gemini_hook_scripts(home: &std::path::Path) {
     let hooks_dir = home.join(".gemini").join("hooks");
     install_standard_hook_scripts(
         &hooks_dir,
+        home,
         "lean-ctx-rewrite-gemini.sh",
         "lean-ctx-redirect-gemini.sh",
     );

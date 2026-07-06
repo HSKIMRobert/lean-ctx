@@ -86,6 +86,8 @@ impl SessionState {
         })
         .map_err(|e| e.to_string())?;
         self.stats.unsaved_changes = 0;
+        // #717: arm the time-based flush window.
+        self.last_flush = Some(std::time::Instant::now());
         Ok(PreparedSave {
             dir,
             id: self.id.clone(),

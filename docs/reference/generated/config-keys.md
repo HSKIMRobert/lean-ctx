@@ -383,6 +383,7 @@ Secret/credential detection and redaction settings
 
 - `custom_patterns` (array, default `[]`) — Additional regex patterns to detect as secrets
 - `enabled` (bool, default `true`) — Enable secret/credential detection in tool outputs
+- `exclude_patterns` (array, default `[]`) — Subtractive allowlist: matches covered by these regexes are never reported or redacted (#718)
 - `redact` (bool, default `true`) — Redact detected secrets from output
 
 ## `[sensitivity]`

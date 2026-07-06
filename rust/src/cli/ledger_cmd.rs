@@ -71,7 +71,12 @@ pub fn cmd_ledger(args: &[String]) {
             }
 
             let mut ledger = ContextLedger::load();
-            let removed = ledger.evict_paths(&targets);
+            // #715: resolve partial paths/basenames and report each outcome.
+            let root = std::env::current_dir()
+                .ok()
+                .map(|d| d.to_string_lossy().into_owned());
+            let outcomes = ledger.evict_paths_resolved(&targets, root.as_deref());
+            let removed = outcomes.iter().filter(|o| o.resolved.is_some()).count();
             ledger.save();
             let pressure = ledger.pressure();
             println!(
@@ -79,6 +84,20 @@ pub fn cmd_ledger(args: &[String]) {
                 targets.len(),
                 pressure.utilization * 100.0,
             );
+            for outcome in &outcomes {
+                match (&outcome.resolved, outcome.ambiguous.is_empty()) {
+                    (Some(resolved), _) if resolved != &outcome.target => {
+                        println!("  {} → {resolved}", outcome.target);
+                    }
+                    (Some(_), _) => {}
+                    (None, false) => println!(
+                        "  {} is ambiguous ({}) — use a longer suffix",
+                        outcome.target,
+                        outcome.ambiguous.join(", ")
+                    ),
+                    (None, true) => println!("  {} not in ledger", outcome.target),
+                }
+            }
         }
 
         "prune" => {

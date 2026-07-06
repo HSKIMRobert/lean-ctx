@@ -371,10 +371,13 @@ pub fn post_dispatch_record_with_task(
     if pressure.utilization > 0.9 {
         let candidates = ledger.eviction_candidates_by_phi(3);
         if !candidates.is_empty() {
+            // #715: emit targets the evict resolver can actually find —
+            // root-relative paths (or the full path), never display-shortened
+            // forms that used to produce "Evicted 0/N".
             let names: Vec<_> = candidates
                 .iter()
                 .take(3)
-                .map(|p| crate::core::protocol::shorten_path(p))
+                .map(|p| eviction_target_display(p, project_root))
                 .collect();
             return PostDispatchResult {
                 eviction_hint: Some(format!(
@@ -404,6 +407,21 @@ pub fn post_dispatch_record_with_task(
     }
 }
 
+/// #715: a resolvable evict target for hint output — project-root-relative
+/// when the candidate lives under the root, otherwise the full canonical
+/// path. Both forms round-trip through `ContextLedger::resolve_entry`.
+fn eviction_target_display(path: &str, project_root: Option<&str>) -> String {
+    if let Some(root) = project_root.filter(|r| !r.is_empty()) {
+        let root_prefix = format!("{}/", root.trim_end_matches(['/', '\\']).replace('\\', "/"));
+        if let Some(rel) = path.strip_prefix(&root_prefix)
+            && !rel.is_empty()
+        {
+            return rel.to_string();
+        }
+    }
+    path.to_string()
+}
+
 fn apply_reinjection_plan(ledger: &mut ContextLedger, action: &PressureAction) {
     if *action != PressureAction::ForceCompression && *action != PressureAction::EvictLeastRelevant
     {
@@ -427,6 +445,21 @@ fn try_load_graph(project_root: &str) -> Option<crate::core::graph_provider::Ope
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eviction_target_display_emits_resolvable_targets() {
+        // #715: root-relative when under the root, full path otherwise —
+        // never a display-shortened form the resolver cannot find.
+        assert_eq!(
+            eviction_target_display("/w/proj/src/a.rs", Some("/w/proj")),
+            "src/a.rs"
+        );
+        assert_eq!(
+            eviction_target_display("/other/b.rs", Some("/w/proj")),
+            "/other/b.rs"
+        );
+        assert_eq!(eviction_target_display("/x/c.rs", None), "/x/c.rs");
+    }
 
     #[test]
     fn pre_dispatch_passthrough_for_full() {

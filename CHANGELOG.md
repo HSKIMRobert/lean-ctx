@@ -3,6 +3,86 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.9.2] — 2026-07-06
+
+### Fixed
+- **Cursor sessions ran with read compression silently disabled (GH #722).**
+  Cursor ≥ 3.7 exports `CLAUDE_PROJECT_DIR` to its hook child processes for
+  Claude-compat — and lean-ctx's guard-host detection took that variable as
+  proof the host is Claude Code, so `read_redirect = auto` switched the
+  PreToolUse Read redirect off (the #637 protection) in **every Cursor
+  session**: native Reads/Greps passed through uncompressed, with no warning
+  (a 2-hour Cursor session showed 152 file reads, 0 redirected). Cursor has no
+  read-before-write guard, so its own markers (`CURSOR_VERSION`,
+  `CURSOR_PROJECT_DIR`, `CURSOR_AGENT`, …) now identify the host first and win
+  over the compat variable; the PostToolUse read-dedup inherits the same
+  corrected detection. Real Claude Code behavior is unchanged.
+- **A stdin-reading command could wedge an agent's shell session forever
+  (GH #723).** The buffered `lean-ctx -c` path inherited the host's stdin, so
+  a command that falls back to reading stdin — e.g. `rg` left without a path
+  argument by an empty `$(…)` substitution — blocked on a pipe that never
+  delivers EOF. Worse, the timeout kill only reaped the direct shell child:
+  orphaned grandchildren kept the captured stdout pipe open, the reader
+  threads never saw EOF, and the caller hung *after* the timeout had fired
+  (observed: one orphaned `rg` kept a Cursor shell session dead for hours).
+  In agent/pipe contexts (stdin not a TTY) the child now gets `/dev/null`
+  stdin (immediate EOF) and runs in its own process group, which the timeout
+  kill signals as a whole — grandchildren die, pipes close, the session stays
+  alive. Interactive TTY usage (prompts, Ctrl+C routing) is unchanged.
+- **Hook wrapper scripts killed every session on synced multi-machine setups
+  (GH #719).** Each session heal rewrote the `~/.claude/hooks/lean-ctx-*`
+  wrappers with the *machine-absolute* path of the local binary. On a peer
+  machine sharing that home directory (Dropbox/Syncthing, different username),
+  every hook then exec'd a non-existent path and each session died silently.
+  Wrappers now keep their portable `$HOME`-based form: a heal no longer
+  overwrites a wrapper whose binary resolves on this machine, the
+  `LEAN_CTX_HOOK_BINARY` override is emitted verbatim, and all binary
+  references are shell-quoted (installs under paths with spaces work). The
+  self-rewrite guard accepts both quoted and legacy unquoted forms, and
+  `lean-ctx doctor` now flags wrapper scripts whose binary no longer resolves.
+  Thanks @tr3lane for the precise follow-up to #708.
+- **`ledger evict` always reported "Evicted 0/1" (GH #715).** Eviction matched
+  targets by exact string equality, but the ledger stores absolute canonical
+  paths while users (and lean-ctx's own eviction hints) pass project-relative
+  paths or basenames — so nothing ever matched. Targets now resolve in three
+  stages: exact → relative to the project root → unique suffix match, with
+  ambiguous suffixes reported alongside their candidates instead of silently
+  doing nothing. The same resolver backs `remove` and `set_state`, eviction
+  hints print paths that actually resolve, and stored entries are lexically
+  normalized on load (migrating old backslash entries). The dashboard's
+  "Evict" button used to only add an exclude overlay — pressure never dropped;
+  it now performs a real ledger eviction and applies the overlay to the
+  resolved canonical path. `normalize_dashboard_demo_path` emits forward
+  slashes on Windows. Thanks @ITFinesse for the report.
+- **`secret_detection` redacted harmless identifiers (GH #718).** Keyword
+  alternations had no word boundaries, so camelCase identifiers
+  (`superuserPassword = "postgres"`, `getStripeSecretKey()`,
+  `GITHUB_FEEDBACK_TOKEN`) and the "Generic long secret" rule (any 32+ char
+  value, e.g. `confirmRequiredEndpointKeySchema`) triggered `[REDACTED]` in
+  compressed reads of ordinary source code. Detection keywords now require
+  word boundaries, right-hand sides that are code identifiers or property
+  access (no quotes, no digits) are exempt, and placeholder values
+  (`change_me`, `<your-key>`, `xxx…`, `dummy`) are skipped. A new subtractive
+  `secret_detection.exclude_patterns` config lets teams whitelist
+  project-specific false positives — applied in both redaction layers
+  (compressed output and audit/tee). Real credentials (`sk-ant-…`, AWS keys,
+  quoted high-entropy strings) redact exactly as before, with regression
+  tests covering every reported repro. Thanks @jackkeller for the
+  exceptionally precise report.
+- **Dashboard showed "idle" while a session was actively working (GH #717).**
+  Three stacked causes: `/api/workspaces` deduplicated workspaces by exact
+  string match, so Windows path variants of the same root (`C:\proj`,
+  `C:/proj`, `c:/proj`) rendered duplicate cards where the stale twin sat on
+  "idle"; unlike `/api/session` it never merged the proxy's live
+  `stats.last_use` freshness; and sessions only flushed to disk every 5
+  changes, so slow-ticking sessions stayed invisible for the whole batch
+  window. Workspaces now group under a lexical canonical key (freshest
+  timestamp wins, counters take the max), the freshest workspace absorbs
+  `stats.last_use`, and unsaved changes flush after 60 s (the first change of
+  a fresh session immediately). `/api/agents` uses the same 10-minute
+  activity threshold as the workspace panel, which now also shows tool calls
+  per workspace. Thanks @ITFinesse for the report.
+
 ## [3.9.1] — 2026-07-05
 
 ### Fixed

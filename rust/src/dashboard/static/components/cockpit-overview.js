@@ -643,6 +643,7 @@ class CockpitOverview extends HTMLElement {
         '<span title="' + esc(w.root) + '">' + esc(w.name) + '</span></td>' +
         '<td style="color:' + col + '">' + esc(w.status) + '</td>' +
         '<td class="r">' + esc(age) + '</td>' +
+        '<td class="r">' + fmt(w.tool_calls || 0) + '</td>' +
         '<td class="r">' + fmt(w.tokens_saved || 0) + '</td>' +
         '<td title="' + esc(task) + '">' + esc(shortTask) + '</td>' +
         '</tr>';
@@ -654,7 +655,7 @@ class CockpitOverview extends HTMLElement {
       '<span class="badge">' + list.length + ' projects</span></h3>' +
       '<div class="table-scroll"><table><thead><tr>' +
       '<th>Workspace</th><th>Status</th><th class="r">Last activity</th>' +
-      '<th class="r">Tokens saved</th><th>Task</th>' +
+      '<th class="r">Tool calls</th><th class="r">Tokens saved</th><th>Task</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div></div>'
     );
   }

@@ -82,6 +82,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// #717: the 5-change batch alone left slowly-ticking sessions invisible
+    /// to the dashboard. First change on a fresh in-memory session flushes
+    /// immediately; afterwards the time-based trigger fires once a change is
+    /// older than SESSION_FLUSH_INTERVAL, and the batch threshold still wins.
+    #[test]
+    fn should_save_flushes_first_change_and_stale_changes() {
+        use super::state::SESSION_FLUSH_INTERVAL;
+        let mut session = SessionState::new();
+        assert!(!session.should_save(), "no changes → no save");
+
+        session.increment();
+        assert!(session.should_save(), "first change must flush immediately");
+
+        session.last_flush = Some(std::time::Instant::now());
+        assert!(
+            !session.should_save(),
+            "inside window + below batch → defer"
+        );
+
+        for _ in 0..4 {
+            session.increment();
+        }
+        assert!(session.should_save(), "batch threshold still applies");
+
+        session.stats.unsaved_changes = 1;
+        if let Some(old) = std::time::Instant::now().checked_sub(SESSION_FLUSH_INTERVAL) {
+            session.last_flush = Some(old);
+            assert!(session.should_save(), "stale change must trigger flush");
+        }
+    }
+
     #[test]
     fn delete_session_removes_file_snapshot_and_latest_pointer() {
         let _data = crate::core::data_dir::isolated_data_dir();
