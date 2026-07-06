@@ -15,7 +15,7 @@
 //! Gateways that report the bill out-of-band do it via response headers:
 //! LiteLLM sends `x-litellm-response-cost` (USD) on every proxied turn, and
 //! corporate gateways often expose an equivalent under their own name
-//! (`[proxy] cost_response_header`). [`cost_from_headers`] turns those into
+//! (`[proxy] cost_response_header`). `cost_from_headers` turns those into
 //! the same measured figure the OpenRouter body path produces.
 
 use axum::http::HeaderMap;
