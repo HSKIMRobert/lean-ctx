@@ -161,5 +161,5 @@ Full protocol contract: `docs/contracts/org-sso-oidc-v1.md`.
 | A user can't sign in but others can | Their email domain differs from the verified domain, or the IdP reports `email_verified:false`. |
 | Owner locked out with SSO required | Owners are exempt by design — use your password. If a non-owner needs in, turn off **Require SSO** temporarily. |
 
-Still stuck? `support@leanctx.com` or the
+Still stuck? `hello@leanctx.com` or the
 [Discord community](https://discord.gg/pTHkG9Hew9).

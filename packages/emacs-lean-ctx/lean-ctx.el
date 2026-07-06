@@ -1,6 +1,6 @@
 ;;; lean-ctx.el --- Context intelligence layer for AI coding -*- lexical-binding: t; -*-
 
-;; Author: lean-ctx <support@leanctx.com>
+;; Author: lean-ctx <hello@leanctx.com>
 ;; URL: https://github.com/yvgude/lean-ctx
 ;; Version: 1.0.0
 ;; Package-Requires: ((emacs "27.1"))

@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.leanctx.plugin</id>
     <name>lean-ctx</name>
-    <vendor email="support@leanctx.com" url="https://leanctx.com">lean-ctx</vendor>
+    <vendor email="hello@leanctx.com" url="https://leanctx.com">lean-ctx</vendor>
 
     <description><![CDATA[
     <p>Context intelligence layer for AI coding assistants. Saves tokens, improves quality.</p>
