@@ -422,13 +422,15 @@ impl LeanCtxServer {
 
         // #212 — per-item sensitivity floor. Enforced uniformly here (before
         // archiving + compression) so it covers both the inline result and the
-        // out-of-band copy. No-op unless `sensitivity.enabled` (default off).
+        // out-of-band copy. No-op unless `sensitivity.enabled` (default off)
+        // or the active persona declares a floor above `public`
+        // (persona-spec-v1: e.g. `lead-gen` enforces `confidential`).
         {
             let path_hint = helpers::get_str(args, "path");
             let enforced = crate::core::sensitivity::enforce_text(
                 std::mem::take(&mut result_text),
                 path_hint.as_deref().map(std::path::Path::new),
-                &config.sensitivity,
+                &config.sensitivity_effective(),
             );
             result_text = enforced.into_text();
         }

@@ -3,6 +3,29 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Personas now drive the whole pipeline (persona-spec-v1 runtime wiring,
+  GL #1178).** The five declared persona fields were spec +
+  capability-reporting only; every one of them is now consumed at runtime:
+  `default_read_mode` enters the `ctx_read` mode chain (explicit arg > policy
+  pack > persona > profile/auto; `"auto"` = no opinion), `compressor` compacts
+  `ctx_url_read` flowing-text modes through the extension registry
+  (`research` → `markdown`, `support`/`lead-gen` → `prose`; extractive
+  `facts`/`quotes`/`links` stay verbatim to protect citations), `chunker`
+  makes token-budget truncation cut on chunk boundaries (paragraphs / line
+  windows) instead of mid-sentence, `intent_taxonomy` lands as the
+  contract-promised persona block (`PERSONA:` / `INTENTS:` / `DEFAULTS:`) in
+  the MCP session instructions, and `sensitivity_floor` folds into
+  `[sensitivity]` enforcement (`Config::sensitivity_effective`) — a floor
+  above `public` enables enforcement out of the box and can only tighten an
+  explicit config (`LEAN_CTX_SENSITIVITY=off` stays the kill switch). The
+  `coding` default declares the historical defaults
+  (`auto`/`identity`/`public`), so default installs remain byte-identical
+  (#498 prompt-cache stability). Contract doc gains a "Runtime wiring" table
+  (`docs/contracts/persona-spec-v1.md`).
+
 ## [3.9.2] — 2026-07-06
 
 ### Fixed

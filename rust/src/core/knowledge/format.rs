@@ -122,7 +122,10 @@ impl ProjectKnowledge {
         // #212 — pre-prompt sensitivity floor: never inject facts whose stored or
         // freshly-classified sensitivity meets/exceeds the configured floor. The
         // short-circuit means zero classification cost when disabled (default).
-        let sens = crate::core::config::Config::load().sensitivity;
+        // Persona floors (persona-spec-v1) are folded in via
+        // `sensitivity_effective`, so e.g. `support` keeps `internal`+ facts
+        // out of the prompt without any `[sensitivity]` config.
+        let sens = crate::core::config::Config::load().sensitivity_effective();
         let current_facts: Vec<&KnowledgeFact> = self
             .facts
             .iter()
