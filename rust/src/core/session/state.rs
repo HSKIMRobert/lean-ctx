@@ -73,7 +73,7 @@ impl SessionState {
 
     /// Returns `true` if enough changes have accumulated to warrant a disk
     /// save — or, since #717, if any change has waited longer than
-    /// [`SESSION_FLUSH_INTERVAL`]: the 5-change batch alone left slow
+    /// `SESSION_FLUSH_INTERVAL`: the 5-change batch alone left slow
     /// sessions invisible to the dashboard (stuck "idle") for the whole
     /// batch window. A fresh in-memory session flushes its first change
     /// immediately so new activity surfaces at once.
