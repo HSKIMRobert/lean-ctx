@@ -1222,6 +1222,18 @@ impl Config {
         super::persona::Persona::resolve(self).effective_tool_profile(self)
     }
 
+    /// The `[sensitivity]` config with the active persona's floor folded in
+    /// (persona-spec-v1). Enforcement chokepoints use this instead of the raw
+    /// field so a persona like `lead-gen` (`sensitivity_floor = "confidential"`)
+    /// protects PII out of the box. The `coding` default (`public`) passes the
+    /// config through unchanged.
+    #[must_use]
+    pub fn sensitivity_effective(&self) -> crate::core::sensitivity::SensitivityConfig {
+        self.sensitivity
+            .clone()
+            .with_persona_floor(super::persona::Persona::resolve(self).sensitivity_floor)
+    }
+
     /// Returns `true` if all automatic read-mode degradation is disabled.
     /// Checks LCTX_NO_DEGRADE env var first, then config.toml field.
     pub fn no_degrade_effective(&self) -> bool {

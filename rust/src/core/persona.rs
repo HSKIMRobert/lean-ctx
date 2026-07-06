@@ -137,6 +137,19 @@ impl PersonaSpec {
 /// The default persona name when nothing is configured.
 pub const DEFAULT_PERSONA: &str = "coding";
 
+/// Resolve the active persona from the loaded config (env > config > default).
+///
+/// This is the one entry point runtime consumers use (`ctx_read` mode
+/// resolution, `ctx_url_read` compression/trimming, sensitivity enforcement,
+/// MCP instructions). Resolution is cheap for built-ins (env read + match);
+/// only custom personas touch disk — same cost profile as
+/// [`Config::tool_profile_effective`](super::config::Config::tool_profile_effective),
+/// which resolves the persona on every call today.
+#[must_use]
+pub fn active() -> Persona {
+    Persona::resolve(&super::config::Config::load())
+}
+
 impl Persona {
     /// The built-in `coding` persona — reproduces today's default behavior so
     /// existing installs see no change.
@@ -290,6 +303,47 @@ impl Persona {
             self.tool_profile.clone()
         }
     }
+
+    /// The persona's `ctx_read` mode override, used when the caller passes no
+    /// explicit `mode` and no context policy pack pins a default. `"auto"`
+    /// (the `coding` default) means "no opinion" — the profile/auto selection
+    /// decides, exactly as before personas existed.
+    #[must_use]
+    pub fn read_mode_override(&self) -> Option<String> {
+        let mode = self.default_read_mode.trim();
+        if mode.is_empty() || mode.eq_ignore_ascii_case("auto") {
+            None
+        } else {
+            Some(mode.to_string())
+        }
+    }
+
+    /// Domain prompt block for the MCP instructions (persona-spec-v1:
+    /// "vocabulary + intent list"). Empty for the `coding` default so existing
+    /// installs stay byte-identical (#498 prompt-cache stability). For any
+    /// other persona the block is a deterministic function of the persona —
+    /// stable across sessions, so provider prompt caching still applies.
+    #[must_use]
+    pub fn prompt_block(&self) -> String {
+        if self.name == DEFAULT_PERSONA {
+            return String::new();
+        }
+        let mut out = format!("PERSONA: {}", self.name);
+        let desc = self.description.trim();
+        if !desc.is_empty() {
+            out.push_str(&format!(" — {desc}"));
+        }
+        if !self.intent_taxonomy.is_empty() {
+            out.push_str(&format!("\nINTENTS: {}", self.intent_taxonomy.join(", ")));
+        }
+        out.push_str(&format!(
+            "\nDEFAULTS: read mode {}; sensitivity floor {}",
+            self.default_read_mode,
+            self.sensitivity_floor.as_str()
+        ));
+        out.push('\n');
+        out
+    }
 }
 
 /// Whether the user explicitly pinned a tool profile (vs. leaving it to the
@@ -434,6 +488,52 @@ intent_taxonomy = ["prospect", "qualify", "enrich"]
     fn custom_profile_without_tools_is_rejected() {
         let err = PersonaSpec::from_toml("name = \"x\"\ntool_profile = \"custom\"\n").unwrap_err();
         assert!(matches!(err, PersonaError::Validation(_)));
+    }
+
+    #[test]
+    fn read_mode_override_treats_auto_as_no_opinion() {
+        // coding declares "auto" → the profile/auto selection stays in charge.
+        assert_eq!(Persona::coding().read_mode_override(), None);
+        assert_eq!(Persona::support().read_mode_override(), None);
+        // Domain personas with a real declaration override the default.
+        assert_eq!(
+            Persona::research().read_mode_override(),
+            Some("map".to_string())
+        );
+        assert_eq!(
+            Persona::lead_gen().read_mode_override(),
+            Some("map".to_string())
+        );
+        // Whitespace/empty declarations never produce a bogus mode.
+        let mut p = Persona::coding();
+        p.default_read_mode = "  ".to_string();
+        assert_eq!(p.read_mode_override(), None);
+    }
+
+    #[test]
+    fn prompt_block_is_empty_for_coding_and_carries_domain_vocabulary() {
+        // #498: the default persona must not perturb the instruction bytes.
+        assert_eq!(Persona::coding().prompt_block(), "");
+
+        let block = Persona::research().prompt_block();
+        assert!(block.contains("PERSONA: research"), "{block}");
+        assert!(
+            block.contains("INTENTS: explore, summarize, compare, cite, synthesize"),
+            "{block}"
+        );
+        assert!(block.contains("read mode map"), "{block}");
+
+        let lead = Persona::lead_gen().prompt_block();
+        assert!(lead.contains("sensitivity floor confidential"), "{lead}");
+    }
+
+    #[test]
+    fn active_honours_env_selection() {
+        let _guard = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_PERSONA", "research");
+        let p = active();
+        crate::test_env::remove_var("LEAN_CTX_PERSONA");
+        assert_eq!(p.name, "research");
     }
 
     #[test]

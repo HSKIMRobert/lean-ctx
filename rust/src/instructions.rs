@@ -43,19 +43,31 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
     } else {
         CompressionLevel::effective(&cfg)
     };
-    build_full_instructions(crp_mode, client_name, minimal, level, shadow)
+    // persona-spec-v1 — non-coding personas carry their domain block
+    // (intent vocabulary + defaults) into the session instructions. Empty for
+    // the `coding` default, so the skeleton stays byte-identical (#498).
+    let persona_block = crate::core::persona::Persona::resolve(&cfg).prompt_block();
+    build_full_instructions(
+        crp_mode,
+        client_name,
+        minimal,
+        level,
+        shadow,
+        &persona_block,
+    )
 }
 
 /// Deterministic STATIC Claude Code instructions for the char-budget test: the
 /// cold first-contact handshake surface (skeleton + shell hint + decoder +
 /// CLAUDE.md pointer + guidance). It pins `minimal=true` (the dynamic
 /// session/knowledge/gotcha payload is governed by `INSTRUCTION_CAP_TOKENS`, not
-/// the char budget) plus `level=Off`, `shadow=false` (the default template), so
-/// the result is independent of the developer's local lean-ctx config and the
-/// assertion stays deterministic (#498) for every contributor, not just clean CI.
+/// the char budget) plus `level=Off`, `shadow=false` (the default template) and
+/// an empty persona block (the `coding` default), so the result is independent
+/// of the developer's local lean-ctx config and the assertion stays
+/// deterministic (#498) for every contributor, not just clean CI.
 #[must_use]
 pub fn claude_code_static_instructions_for_test() -> String {
-    build_full_instructions(CrpMode::Off, "", true, CompressionLevel::Off, false)
+    build_full_instructions(CrpMode::Off, "", true, CompressionLevel::Off, false, "")
 }
 
 /// Deterministic variant for tests (no session/knowledge state).
@@ -190,6 +202,7 @@ fn build_full_instructions(
     minimal: bool,
     level: CompressionLevel,
     shadow: bool,
+    persona_block: &str,
 ) -> String {
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
     let loaded_session = if minimal {
@@ -318,8 +331,17 @@ fn build_full_instructions(
     // detailed instructions on demand from there instead of inlining them.
     let config_dir = claude_config_dir_display();
 
+    // Persona domain block (persona-spec-v1): placed right after the skeleton
+    // so the vocabulary frames everything that follows. Empty for `coding`.
+    let persona_section = if persona_block.is_empty() {
+        String::new()
+    } else {
+        format!("\n{persona_block}")
+    };
+
     let base = format!(
         "{skeleton}\n\
+        {persona_section}\
         {shell_hint}\n\
         {decoder_block}\n\
         Full instructions at {config_dir}/CLAUDE.md\n\
@@ -587,6 +609,34 @@ mod tests {
         assert!(
             !covered.contains(SKELETON_ANCHOR) && !covered.contains("MANDATORY MAPPING"),
             "hook-covered client must not carry the replace-native wording:\n{covered}"
+        );
+    }
+
+    #[test]
+    fn non_coding_persona_block_lands_in_instructions() {
+        let _guard = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_MINIMAL", "1");
+
+        crate::test_env::set_var("LEAN_CTX_PERSONA", "research");
+        let research = build_instructions_with_client(CrpMode::Off, "");
+
+        crate::test_env::set_var("LEAN_CTX_PERSONA", "coding");
+        let coding = build_instructions_with_client(CrpMode::Off, "");
+
+        crate::test_env::remove_var("LEAN_CTX_PERSONA");
+        crate::test_env::remove_var("LEAN_CTX_MINIMAL");
+
+        assert!(
+            research.contains("PERSONA: research"),
+            "research persona must announce its domain block:\n{research}"
+        );
+        assert!(
+            research.contains("INTENTS: explore, summarize, compare, cite, synthesize"),
+            "research persona must carry its intent vocabulary:\n{research}"
+        );
+        assert!(
+            !coding.contains("PERSONA:"),
+            "the coding default must keep the instructions byte-stable (#498):\n{coding}"
         );
     }
 

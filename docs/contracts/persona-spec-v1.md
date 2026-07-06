@@ -35,6 +35,20 @@ Non-coding personas also append a domain-specific terse output block (vocabulary
 + intent list) to the agent prompt. The `coding` persona leaves the prompt
 unchanged (no regression).
 
+## Runtime wiring
+
+Every field is consumed by the pipeline; `coding` declares the historical
+defaults, so default installs are byte-identical:
+
+| Field | Consumed by |
+|-------|-------------|
+| `tool_profile` / `tools` | Tool visibility (`Config::tool_profile_effective`). Explicit env/config profile settings still win. |
+| `default_read_mode` | `ctx_read` mode resolution: explicit `mode` arg > policy-pack `default_read_mode` > **persona** > profile/auto. `"auto"` means "no opinion". |
+| `compressor` | `ctx_url_read` flowing-text modes (`auto`/`markdown`/`text`/`transcript`). Extractive modes (`facts`/`quotes`/`links`) stay verbatim to protect citations. `identity` is a no-op. |
+| `chunker` | `ctx_url_read` token-budget trimming: the cut lands on the persona chunker's boundaries (paragraphs, line windows) instead of mid-sentence. |
+| `intent_taxonomy` | The persona prompt block in the MCP session instructions (`PERSONA:` / `INTENTS:` lines); reported at `/v1/capabilities`. |
+| `sensitivity_floor` | Folded into `[sensitivity]` enforcement (`Config::sensitivity_effective`): a floor above `public` enables enforcement and can only tighten the configured floor. `LEAN_CTX_SENSITIVITY=off` remains the kill switch. |
+
 ## Selection
 
 Resolution order (best-effort; unknown names fall back to `coding`):
@@ -84,3 +98,4 @@ built-in preset names are listed under `presets`.
 
 Additive fields are non-breaking within v1; clients must ignore unknown fields.
 Removing/renaming a field or changing selection semantics bumps the version.
+
