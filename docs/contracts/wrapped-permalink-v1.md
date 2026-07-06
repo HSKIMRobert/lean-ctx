@@ -224,4 +224,3 @@ person-facing field is the user-chosen `display_name`. Everything else is an agg
 - **Body cap** 8 KB; **`display_name`** length-capped and rejected if it contains markup/control
   characters (defence against stored XSS); the frontend additionally HTML-escapes on render.
 - **Ids** are ≥128-bit from a CSPRNG → not enumerable; `GET` never reveals the `edit_token`.
-
