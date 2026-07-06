@@ -101,7 +101,7 @@ impl EmbeddingEngine {
         // deterministic regardless via score quantization; this is extra hardening.
         let deterministic = deterministic_inference();
         let eps = if deterministic {
-            Vec::new()
+            vec![ort::ep::CPU::default().build()]
         } else {
             crate::core::ort_execution_providers::gpu_execution_providers()
         };
@@ -110,7 +110,16 @@ impl EmbeddingEngine {
         } else {
             std::thread::available_parallelism().map_or(4, |n| n.get().max(1))
         };
+        tracing::info!(
+            model = %config.name,
+            model_path = %model_path.display(),
+            deterministic,
+            num_cpus,
+            execution_providers = eps.len(),
+            "Loading ONNX embedding model"
+        );
         crate::core::ort_environment::ensure_ort_env(&eps)?;
+        tracing::debug!("ONNX Runtime environment ready; creating embedding session builder");
         let mut session = ort::session::Session::builder()
             .map_err(|e| anyhow::anyhow!("ORT builder: {e}"))?
             .with_intra_threads(num_cpus)
@@ -119,6 +128,7 @@ impl EmbeddingEngine {
             .map_err(|e| anyhow::anyhow!("ORT optimization: {e}"))?
             .commit_from_file(&model_path)
             .map_err(|e| anyhow::anyhow!("ORT load model: {e}"))?;
+        tracing::debug!("ONNX embedding session loaded; inspecting graph signature");
 
         let input_names: Vec<String> = session
             .inputs()
@@ -177,6 +187,7 @@ impl EmbeddingEngine {
             config.max_seq_len,
         )
         .unwrap_or(config.dimensions);
+        tracing::debug!(dimensions, "ONNX embedding dimensions resolved");
 
         tracing::info!(
             "Embedding engine loaded: model={}, {}d, max_seq_len={}, topology={}",
@@ -678,10 +689,17 @@ static SHARED_ENGINE: std::sync::OnceLock<anyhow::Result<EmbeddingEngine>> =
 /// For non-blocking access, use `try_shared_engine()` instead.
 #[cfg(feature = "embeddings")]
 pub fn shared_engine() -> Option<&'static EmbeddingEngine> {
+    shared_engine_result().ok()
+}
+
+/// Global singleton embedding engine with the load error preserved for callers
+/// that can surface diagnostics to users.
+#[cfg(feature = "embeddings")]
+pub fn shared_engine_result() -> anyhow::Result<&'static EmbeddingEngine> {
     SHARED_ENGINE
         .get_or_init(EmbeddingEngine::load_default)
         .as_ref()
-        .ok()
+        .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Non-blocking variant: returns the engine ONLY if already loaded.
