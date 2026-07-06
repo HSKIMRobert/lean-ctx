@@ -528,6 +528,26 @@ pub struct CostConfig {
     /// `[cost.models]` then `cursor = "claude-opus-4.5"`.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub models: HashMap<String, String>,
+    /// Operator price overrides (#1189), keyed by model name — for negotiated
+    /// enterprise rates (committed-use discounts, Azure PTU, zero-rated
+    /// internal models) that no public catalog can know. Merged into the
+    /// pricing table as **exact** entries, overriding embedded and live rows;
+    /// only a provider-measured bill beats them. Example:
+    /// `[cost.prices."internal-llm"]` then `input_per_m = 0.10`,
+    /// `output_per_m = 0.40`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub prices: HashMap<String, PriceOverride>,
+}
+
+/// One `[cost.prices.<model>]` row: USD per million tokens. Omitted cache
+/// rates default to the input rate (the same convention the catalogs use).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PriceOverride {
+    pub input_per_m: Option<f64>,
+    pub output_per_m: Option<f64>,
+    pub cache_write_per_m: Option<f64>,
+    pub cache_read_per_m: Option<f64>,
 }
 
 impl CostConfig {

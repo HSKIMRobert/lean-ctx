@@ -141,6 +141,9 @@ pub struct Scanner {
     cohort: Option<super::holdout::Arm>,
     /// Request-side gateway context (enterprise#11/#18), stamped at finalize.
     wire: Option<Box<WireContext>>,
+    /// Billed USD from a gateway response header (#1189), stamped at finalize
+    /// unless the body already reported the charge.
+    header_cost: Option<f64>,
     buf: Vec<u8>,
     usage: RealUsage,
 }
@@ -152,6 +155,7 @@ impl Scanner {
             url_model,
             cohort: None,
             wire: None,
+            header_cost: None,
             buf: Vec::new(),
             usage: RealUsage::default(),
         }
@@ -169,6 +173,17 @@ impl Scanner {
     #[must_use]
     pub fn with_wire_context(mut self, wire: Option<Box<WireContext>>) -> Self {
         self.wire = wire;
+        self
+    }
+
+    /// Attaches a billed USD figure reported by the upstream via a response
+    /// header (LiteLLM `x-litellm-response-cost`, or the operator-configured
+    /// `[proxy] cost_response_header`, #1189). Applied at finalize only when
+    /// the body did not already carry a measured cost — a body figure
+    /// (OpenRouter `usage.cost`) is the bill itself and always wins.
+    #[must_use]
+    pub fn with_header_cost(mut self, cost: Option<f64>) -> Self {
+        self.header_cost = cost.filter(|c| c.is_finite() && *c >= 0.0);
         self
     }
 
@@ -201,6 +216,11 @@ impl Scanner {
         if !self.buf.is_empty() {
             let line = std::mem::take(&mut self.buf);
             self.scan_line(&line);
+        }
+        // Gateway header cost (#1189): measured, but the body figure is the
+        // bill itself (OpenRouter usage.cost) and keeps priority when present.
+        if self.usage.provider_cost_usd.is_none() {
+            self.usage.provider_cost_usd = self.header_cost;
         }
         if self.usage.is_meaningful() {
             self.usage.cohort = self.cohort;
@@ -614,6 +634,29 @@ mod tests {
             (cost - 1.0).abs() < 1e-12,
             "OpenRouter fee + BYOK upstream bill"
         );
+    }
+
+    #[test]
+    fn gateway_header_cost_fills_when_body_has_none() {
+        // #1189: a LiteLLM-style gateway reports the bill in a header; tokens
+        // come from a normal OpenAI-shaped body without `usage.cost`.
+        let mut s = Scanner::new(Provider::OpenAi, None).with_header_cost(Some(0.0042));
+        s.feed_body(
+            br#"{"model":"azure-gpt-4o","usage":{"prompt_tokens":100,"completion_tokens":10}}"#,
+        );
+        let u = s.finalize().expect("usage");
+        assert_eq!(u.provider_cost_usd, Some(0.0042), "header is measured");
+    }
+
+    #[test]
+    fn body_reported_cost_beats_the_header_figure() {
+        // OpenRouter behind another gateway: `usage.cost` is the bill itself.
+        let mut s = Scanner::new(Provider::OpenAi, None).with_header_cost(Some(9.99));
+        s.feed_body(
+            br#"{"model":"deepseek/deepseek-v4-flash","usage":{"prompt_tokens":100,"completion_tokens":10,"cost":0.05}}"#,
+        );
+        let u = s.finalize().expect("usage");
+        assert_eq!(u.provider_cost_usd, Some(0.05), "body wins over header");
     }
 
     #[test]

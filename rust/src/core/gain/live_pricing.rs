@@ -1,17 +1,25 @@
-//! Live model prices from the OpenRouter models API (#1179).
+//! Live model prices from public provider catalogs (#1179, universal #1189).
 //!
 //! The embedded table in [`super::model_pricing`] can only ever know the
 //! models that existed at release time; anything newer used to fall into a
 //! family heuristic and could be priced an order of magnitude off (a tester's
 //! DeepSeek V4 Flash was billed at 2025 V3 list prices — ~15× too high).
 //!
-//! This module fetches `GET https://openrouter.ai/api/v1/models` (public, no
-//! key, ~340 models covering every major vendor), converts the USD-per-token
-//! strings to per-MTok [`ModelCost`] rows, and caches the result on disk. The
-//! table is loaded into a process-wide snapshot **only when a run-mode opts
-//! in** (`ensure_loaded` / `spawn_background_refresh` from the proxy, gateway
-//! or spend CLI): plain CLI tools and the test suite keep the deterministic
-//! embedded table.
+//! Two public, key-less catalogs are fetched and merged (#1189):
+//!
+//! 1. `GET https://openrouter.ai/api/v1/models` — ~340 market-priced models
+//!    covering every major vendor, incl. `:free`/`:extended` variants.
+//!    Wins on key conflicts: it is market data refreshed continuously.
+//! 2. The LiteLLM community price map (`model_prices_and_context_window.json`,
+//!    ~2900 entries) — fills everything OpenRouter does not list: `azure/`,
+//!    `bedrock/`, `vertex_ai/`, `groq/`, `mistral/`, embeddings, niche hosts.
+//!
+//! Either source failing is tolerated (partial refresh, fail-open); both
+//! failing keeps the previous table. USD-per-token values are converted to
+//! per-MTok [`ModelCost`] rows and cached on disk. The table is loaded into a
+//! process-wide snapshot **only when a run-mode opts in** (`ensure_loaded` /
+//! `spawn_background_refresh` from the proxy, gateway or spend CLI): plain
+//! CLI tools and the test suite keep the deterministic embedded table.
 //!
 //! Precedence inside [`super::model_pricing::ModelPricing::quote`]:
 //! embedded exact > **live** > heuristic > blended fallback. Live hits are
@@ -35,6 +43,11 @@ const REFRESH_INTERVAL_SECS: u64 = 12 * 60 * 60;
 const CACHE_FILE: &str = "model-prices.json";
 
 const MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+
+/// LiteLLM community price map (#1189) — the de-facto industry catalog for
+/// models OpenRouter does not route (Azure, Bedrock, Vertex, embeddings…).
+const LITELLM_URL: &str =
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
 /// A fetched-and-indexed price table. `models` is keyed by canonicalized
 /// lookup keys (see `canon`) — several keys may point at the same cost row.
@@ -175,15 +188,14 @@ fn store_cache_file(table: &LivePriceTable) {
     }
 }
 
-/// Fetches the OpenRouter model list and swaps the snapshot + disk cache.
-/// Returns the number of lookup keys on success.
-///
-/// # Errors
-/// Network / decode errors propagate; the caller decides whether they matter
-/// (the background task just logs and keeps the previous table — fail-open).
-pub async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
+/// Fetches one catalog URL and parses it into a lookup map.
+async fn fetch_catalog(
+    client: &reqwest::Client,
+    url: &str,
+    parse: fn(&serde_json::Value) -> HashMap<String, ModelCost>,
+) -> anyhow::Result<HashMap<String, ModelCost>> {
     let body = client
-        .get(MODELS_URL)
+        .get(url)
         .timeout(std::time::Duration::from_secs(30))
         .send()
         .await?
@@ -191,8 +203,53 @@ pub async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
         .bytes()
         .await?;
     let json: serde_json::Value = serde_json::from_slice(&body)?;
-    let models = parse_openrouter_models(&json);
-    anyhow::ensure!(!models.is_empty(), "OpenRouter model list parsed empty");
+    let map = parse(&json);
+    anyhow::ensure!(!map.is_empty(), "catalog {url} parsed empty");
+    Ok(map)
+}
+
+/// Fetches both public catalogs, merges them (OpenRouter wins on conflicts —
+/// market data including variants; LiteLLM fills the gaps: Azure, Bedrock,
+/// Vertex, embeddings, niche hosts, #1189) and swaps the snapshot + disk
+/// cache. One source failing is tolerated; the refresh only errors when *no*
+/// source delivered anything.
+///
+/// # Errors
+/// Network / decode errors propagate; the caller decides whether they matter
+/// (the background task just logs and keeps the previous table — fail-open).
+pub async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
+    let (openrouter, litellm) = tokio::join!(
+        fetch_catalog(client, MODELS_URL, parse_openrouter_models),
+        fetch_catalog(client, LITELLM_URL, parse_litellm_models),
+    );
+
+    let mut models = match &openrouter {
+        Ok(map) => map.clone(),
+        Err(e) => {
+            tracing::warn!("OpenRouter price catalog unavailable: {e:#}");
+            HashMap::new()
+        }
+    };
+    match &litellm {
+        // `or_insert`: OpenRouter keys keep priority, LiteLLM extends coverage.
+        Ok(map) => {
+            for (k, v) in map {
+                models.entry(k.clone()).or_insert(*v);
+            }
+        }
+        Err(e) => tracing::warn!("LiteLLM price catalog unavailable: {e:#}"),
+    }
+    anyhow::ensure!(
+        !models.is_empty(),
+        "no price catalog reachable (OpenRouter: {}, LiteLLM: {})",
+        openrouter
+            .as_ref()
+            .map_or_else(ToString::to_string, |m| format!("{} keys", m.len())),
+        litellm
+            .as_ref()
+            .map_or_else(ToString::to_string, |m| format!("{} keys", m.len())),
+    );
+
     let table = LivePriceTable {
         fetched_at: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -393,6 +450,63 @@ fn parse_openrouter_models(json: &serde_json::Value) -> HashMap<String, ModelCos
     map
 }
 
+/// A LiteLLM USD-per-token number field → USD per MTok. Unlike OpenRouter's
+/// string prices these are plain JSON numbers; `null`/absent → `None`.
+fn litellm_per_mtok(entry: &serde_json::Value, field: &str) -> Option<f64> {
+    let n = entry.get(field)?.as_f64()?;
+    if n.is_finite() && n >= 0.0 {
+        Some(n * 1_000_000.0)
+    } else {
+        None
+    }
+}
+
+/// Parses the LiteLLM `model_prices_and_context_window.json` map (#1189).
+///
+/// Top level is `{ "<model-key>": { input_cost_per_token, output_cost_per_token,
+/// cache_read_input_token_cost, cache_creation_input_token_cost, mode, … } }`.
+/// Keys carry LiteLLM's routing prefixes (`azure/gpt-4o`,
+/// `bedrock/anthropic.claude-…`) which [`index_keys`] also resolves bare.
+/// `sample_spec` is documentation, not a model. Entries priced per request /
+/// per image / per second (no token prices) are skipped — the meter prices
+/// tokens. Embedding rows (output cost 0) are kept: their input side is real.
+fn parse_litellm_models(json: &serde_json::Value) -> HashMap<String, ModelCost> {
+    let mut map: HashMap<String, ModelCost> = HashMap::new();
+    let Some(entries) = json.as_object() else {
+        return map;
+    };
+    for (key, entry) in entries {
+        if key == "sample_spec" || !entry.is_object() {
+            continue;
+        }
+        let Some(input) = litellm_per_mtok(entry, "input_cost_per_token") else {
+            continue;
+        };
+        // Embeddings legitimately have no output price — bill output at 0
+        // only when the mode says so; chat rows without output cost are junk.
+        let output = match litellm_per_mtok(entry, "output_cost_per_token") {
+            Some(o) => o,
+            None if entry.get("mode").and_then(serde_json::Value::as_str) == Some("embedding") => {
+                0.0
+            }
+            None => continue,
+        };
+        let cost = ModelCost {
+            input_per_m: input,
+            output_per_m: output,
+            cache_write_per_m: litellm_per_mtok(entry, "cache_creation_input_token_cost")
+                .unwrap_or(input),
+            cache_read_per_m: litellm_per_mtok(entry, "cache_read_input_token_cost")
+                .unwrap_or(input),
+        };
+        let (keys, _) = index_keys(key);
+        for k in keys {
+            map.entry(k).or_insert(cost);
+        }
+    }
+    map
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,6 +607,83 @@ mod tests {
             "short numeric tails are versions"
         );
         assert_eq!(strip_date_suffix("no-date"), None);
+    }
+
+    fn litellm_fixture() -> serde_json::Value {
+        serde_json::json!({
+            "sample_spec": {
+                "input_cost_per_token": 0.0,
+                "output_cost_per_token": 0.0,
+                "mode": "one of: chat, embedding, completion, …"
+            },
+            "azure/gpt-4o": {
+                "input_cost_per_token": 2.5e-6,
+                "output_cost_per_token": 1e-5,
+                "cache_read_input_token_cost": 1.25e-6,
+                "mode": "chat",
+                "litellm_provider": "azure"
+            },
+            "bedrock/anthropic.claude-sonnet-4-5": {
+                "input_cost_per_token": 3e-6,
+                "output_cost_per_token": 1.5e-5,
+                "cache_creation_input_token_cost": 3.75e-6,
+                "cache_read_input_token_cost": 3e-7,
+                "mode": "chat"
+            },
+            "text-embedding-3-small": {
+                "input_cost_per_token": 2e-8,
+                "mode": "embedding"
+            },
+            "vertex_ai/imagegeneration": {
+                "output_cost_per_image": 0.02,
+                "mode": "image_generation"
+            }
+        })
+    }
+
+    #[test]
+    fn litellm_map_parses_prefixes_embeddings_and_skips_junk() {
+        let map = parse_litellm_models(&litellm_fixture());
+
+        // Azure deployment resolves under the prefixed AND the bare name.
+        let azure = map.get("azure/gpt-4o").expect("prefixed key");
+        assert!((azure.input_per_m - 2.5).abs() < 1e-9);
+        assert!((azure.output_per_m - 10.0).abs() < 1e-9);
+        assert!((azure.cache_read_per_m - 1.25).abs() < 1e-9);
+        assert!(map.contains_key("gpt-4o"), "bare key indexed too");
+
+        // Bedrock naming resolves; explicit cache-write price kept.
+        let bedrock = map
+            .get("bedrock/anthropic-claude-sonnet-4-5")
+            .expect("bedrock key (canon: dots→dashes)");
+        assert!((bedrock.cache_write_per_m - 3.75).abs() < 1e-9);
+
+        // Embedding rows are real prices with zero output cost.
+        let emb = map.get("text-embedding-3-small").expect("embedding");
+        assert!((emb.input_per_m - 0.02).abs() < 1e-9);
+        assert!((emb.output_per_m - 0.0).abs() < f64::EPSILON);
+
+        // Documentation stub and per-image rows never enter the table.
+        assert!(!map.contains_key("sample_spec"));
+        assert!(!map.contains_key("vertex_ai/imagegeneration"));
+    }
+
+    #[test]
+    fn merged_table_lets_openrouter_win_and_litellm_fill_gaps() {
+        // Mirrors the merge in `refresh_now`: OpenRouter first, LiteLLM only
+        // fills keys OpenRouter does not own.
+        let mut merged = parse_openrouter_models(&fixture());
+        for (k, v) in parse_litellm_models(&litellm_fixture()) {
+            merged.entry(k).or_insert(v);
+        }
+
+        // Gap-fill: Azure exists only in LiteLLM.
+        assert!(merged.contains_key("azure/gpt-4o"));
+        // OpenRouter ownership survives: the fixture's deepseek price stays.
+        let flash = merged
+            .get("deepseek/deepseek-v4-flash")
+            .expect("openrouter");
+        assert!((flash.input_per_m - 0.07).abs() < 1e-9);
     }
 
     #[test]

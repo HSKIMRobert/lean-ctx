@@ -76,6 +76,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     proxy.insert(
+        "cost_response_header".into(),
+        key(
+            "string",
+            serde_json::json!(cfg.proxy.cost_response_header()),
+            "Extra response header carrying the upstream gateway's billed USD for the turn (e.g. a corporate gateway's cost header). LiteLLM's x-litellm-response-cost is always recognized. Measured header costs beat table estimates; body-reported costs (OpenRouter usage.cost) beat headers",
+        ),
+    );
+    proxy.insert(
         "cold_prefix_repack".into(),
         key_with_env(
             "bool",
@@ -250,6 +258,14 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
             "string?",
             serde_json::json!(cfg.cost.default_model),
             "Fallback pricing model for MCP-only IDEs whose real model lean-ctx cannot observe (Cursor, Copilot, Windsurf, …). Unset → blended heuristic. Per-IDE overrides live in [cost.models]",
+        ),
+    );
+    cost.insert(
+        "prices".into(),
+        key(
+            "table?",
+            serde_json::json!(cfg.cost.prices.keys().collect::<Vec<_>>()),
+            "Operator price overrides per model, USD per million tokens: [cost.prices.\"<model>\"] with input_per_m / output_per_m / cache_write_per_m / cache_read_per_m. For negotiated enterprise rates (committed-use discounts, Azure PTU, zero-rated internal models); overrides embedded and live catalog rows, only a provider-measured bill beats it",
         ),
     );
     sections.insert(

@@ -754,6 +754,15 @@ async fn build_response(
     let status = StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::OK);
     let resp_headers = response.headers().clone();
 
+    // Gateway-billed USD from response headers (#1189): LiteLLM's standard
+    // header plus the operator-configured one. Body-reported costs (OpenRouter
+    // usage.cost) beat this inside the scanner.
+    let extra_cost_header = crate::core::config::Config::load()
+        .proxy
+        .cost_response_header();
+    let header_cost =
+        super::usage_accounting::cost_from_headers(&resp_headers, extra_cost_header.as_deref());
+
     let is_stream = resp_headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
@@ -769,7 +778,8 @@ async fn build_response(
         // Anthropic SSE — metering always reads the raw upstream stream.
         let scanner = super::usage::Scanner::new(usage_provider, url_model)
             .with_cohort(cohort)
-            .with_wire_context(wire);
+            .with_wire_context(wire)
+            .with_header_cost(header_cost);
         let inner = Box::pin(response.bytes_stream());
         let teed = Box::pin(super::usage::tee_stream(inner, scanner));
         let body = xlat_stream_body(teed, xlat);
@@ -793,7 +803,8 @@ async fn build_response(
     // Non-streaming: the whole body is one JSON object carrying `usage`.
     let mut scanner = super::usage::Scanner::new(usage_provider, url_model)
         .with_cohort(cohort)
-        .with_wire_context(wire);
+        .with_wire_context(wire)
+        .with_header_cost(header_cost);
     scanner.feed_body(&resp_bytes);
     if let Some(usage) = scanner.finalize() {
         super::usage_meter::record(&usage);

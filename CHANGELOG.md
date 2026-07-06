@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- **Universal cost coverage for every provider — LiteLLM catalog, gateway cost
+  headers, operator price overrides (GL #1189).** GL #1179 made OpenRouter
+  turns exactly billed and OpenRouter-listed models live-priced; three gaps
+  remained and are now closed: (1) **second live catalog** — the LiteLLM
+  community price map (~2900 entries, no key) is fetched alongside the
+  OpenRouter catalog in the same refresh/disk-cache/kill-switch cycle and
+  merged gap-filling (OpenRouter wins on conflicts), covering `azure/`,
+  `bedrock/`, `vertex_ai/`, `groq/`, `mistral/`, embedding models and niche
+  hosts; either source failing is tolerated (fail-open, previous table kept);
+  (2) **measured cost from response headers** — LiteLLM-style gateways report
+  the billed USD per turn in `x-litellm-response-cost`, which the proxy now
+  reads (plus an operator-defined header via `[proxy] cost_response_header`)
+  and books as provider-measured cost; a body-reported figure (OpenRouter
+  `usage.cost`) always beats the header, and junk header values never enter
+  the ledger; (3) **first-class negotiated prices** — `[cost.prices."<model>"]`
+  in config.toml (`input_per_m`, `output_per_m`, optional cache rates) merges
+  into the pricing table as exact entries, overriding embedded and live
+  catalog rows for committed-use discounts, Azure PTU or zero-rated internal
+  models; only a provider-measured bill ranks higher. Exact matching now runs
+  against the full loaded table (custom override names price exactly), and the
+  price-source ladder is uniform for every provider: measured bill > operator
+  override > live catalogs > embedded list > family heuristic > blended
+  fallback — each rung honestly labeled via `cost_source`.
+
 ### Fixed
 - **MCP stdio server processes leaked after client disconnect (GH #733).**
   When the transport closed while an abandoned tool handler (#271 watchdog)

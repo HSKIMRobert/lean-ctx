@@ -38,6 +38,12 @@ pub struct ProxyConfig {
     /// trailing usage chunk. Anthropic/Gemini/OpenAI-Responses report usage
     /// without any request change, so this only affects Chat Completions.
     pub meter_openai_usage: Option<bool>,
+    /// Additional response header carrying the upstream gateway's billed USD
+    /// for the turn (#1189). LiteLLM's `x-litellm-response-cost` is always
+    /// recognized; set this for a corporate gateway that reports the charge
+    /// under its own header name. Measured header costs beat table estimates
+    /// (body-reported costs, e.g. OpenRouter `usage.cost`, beat headers).
+    pub cost_response_header: Option<String>,
     /// Opt-in "big-gap cold-prefix repack" (#480). When the proxy can confidently
     /// predict (from idle time vs the provider cache TTL) that the client-cached
     /// prefix has already expired, it overrides the normal "never rewrite the
@@ -472,6 +478,16 @@ impl ProxyConfig {
     /// in config.toml, default `true`.
     pub fn meters_openai_usage(&self) -> bool {
         self.meter_openai_usage.unwrap_or(true)
+    }
+
+    /// Operator-configured extra cost header (#1189), normalized to lowercase.
+    /// `None` when unset/blank — LiteLLM's standard header is always checked.
+    pub fn cost_response_header(&self) -> Option<String> {
+        self.cost_response_header
+            .as_deref()
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_lowercase)
     }
 
     /// Resolved prose-ranker strategy (#895). Precedence: the

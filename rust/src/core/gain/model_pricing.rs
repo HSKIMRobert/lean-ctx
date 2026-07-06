@@ -53,6 +53,7 @@ pub struct ModelPricing {
 impl ModelPricing {
     pub fn load() -> Self {
         let mut p = Self::embedded();
+        p.apply_config_overrides(&crate::core::config::Config::load().cost.prices);
         p.apply_env_override();
         p
     }
@@ -264,14 +265,21 @@ impl ModelPricing {
 
     pub fn quote(&self, model: Option<&str>) -> ModelQuote {
         let raw = model.unwrap_or_default();
-        if let Some(k) = Self::infer_model_key(raw)
-            && let Some(cost) = self.models.get(&k).copied()
-        {
-            return ModelQuote {
-                model_key: k,
-                cost,
-                match_kind: PricingMatchKind::Exact,
-            };
+        // Exact = a direct hit in the loaded table (embedded + operator
+        // overrides, #1189) — not a fixed key list, so `[cost.prices]` rows
+        // with custom names ("internal-llm") price exactly. Dashed API ids
+        // (`claude-sonnet-4-5`) retry with dotted versions (`…-4.5`).
+        let m = normalize(raw);
+        if !m.is_empty() {
+            for k in [m.clone(), dot_versions(&m)] {
+                if let Some(cost) = self.models.get(&k).copied() {
+                    return ModelQuote {
+                        model_key: k,
+                        cost,
+                        match_kind: PricingMatchKind::Exact,
+                    };
+                }
+            }
         }
 
         // Live provider price list (#1179): exact market prices for models the
@@ -326,54 +334,6 @@ impl ModelPricing {
     /// the `[cost]` config, not just the env override.
     pub fn quote_from_env_or_agent_type(&self, agent_type: &str) -> ModelQuote {
         self.quote_for_client(agent_type)
-    }
-
-    pub fn infer_model_key(model: &str) -> Option<String> {
-        let m = normalize(model);
-        if m.is_empty() {
-            return None;
-        }
-
-        let exact_keys = [
-            "claude-fable-5",
-            "claude-opus-4.5",
-            "claude-sonnet-4.5",
-            "claude-haiku-4.5",
-            "claude-3.5-sonnet",
-            "claude-3-opus",
-            "claude-3-haiku",
-            "gpt-5.4",
-            "gpt-5.4-mini",
-            "gpt-5.4-nano",
-            "gemini-2.5-pro",
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-            "phi-4",
-            "phi-4-mini",
-            "deepseek-v3.2",
-            "deepseek-v3",
-            "llama-3.3-70b",
-            "llama-4-maverick",
-            "fallback-blended",
-        ];
-        for k in exact_keys {
-            if m == k {
-                return Some(k.to_string());
-            }
-        }
-        // Anthropic API ids write versions with dashes ("claude-sonnet-4-5")
-        // where the table keys use dots ("claude-sonnet-4.5") — same model,
-        // same list price. Retry with dotted versions so real API ids hit
-        // their exact entry instead of degrading to the family heuristic.
-        let dotted = dot_versions(&m);
-        if dotted != m {
-            for k in exact_keys {
-                if dotted == k {
-                    return Some(k.to_string());
-                }
-            }
-        }
-        None
     }
 
     fn heuristic_key(model: &str) -> Option<(String, PricingMatchKind)> {
@@ -468,6 +428,52 @@ impl ModelPricing {
         }
 
         None
+    }
+
+    /// Merges `[cost.prices]` operator overrides (#1189) into the table as
+    /// exact entries. Negotiated enterprise rates override embedded rows and
+    /// (via exact-match precedence) every live/heuristic price; only a
+    /// provider-measured bill beats them. Rows without any rate are ignored;
+    /// omitted fields inherit from the existing row for that key, falling back
+    /// to the blended profile — cache rates default to the input rate.
+    fn apply_config_overrides(
+        &mut self,
+        prices: &std::collections::HashMap<String, crate::core::config::PriceOverride>,
+    ) {
+        for (model, o) in prices {
+            if o.input_per_m.is_none()
+                && o.output_per_m.is_none()
+                && o.cache_write_per_m.is_none()
+                && o.cache_read_per_m.is_none()
+            {
+                continue;
+            }
+            let key = normalize(model);
+            if key.is_empty() {
+                continue;
+            }
+            let base = self.models.get(&key).copied();
+            let input = o
+                .input_per_m
+                .or(base.map(|b| b.input_per_m))
+                .unwrap_or(2.50);
+            let merged = ModelCost {
+                input_per_m: input,
+                output_per_m: o
+                    .output_per_m
+                    .or(base.map(|b| b.output_per_m))
+                    .unwrap_or(10.00),
+                cache_write_per_m: o
+                    .cache_write_per_m
+                    .or(base.map(|b| b.cache_write_per_m))
+                    .unwrap_or(input),
+                cache_read_per_m: o
+                    .cache_read_per_m
+                    .or(base.map(|b| b.cache_read_per_m))
+                    .unwrap_or(input),
+            };
+            self.models.insert(key, merged);
+        }
     }
 
     fn apply_env_override(&mut self) {
@@ -638,6 +644,57 @@ mod tests {
             after.match_kind,
             PricingMatchKind::Fallback,
             "no snapshot → fallback"
+        );
+    }
+
+    #[test]
+    fn config_price_overrides_are_exact_and_beat_embedded_rows() {
+        // #1189: negotiated enterprise rates. A custom model name unknown to
+        // any catalog prices exactly; an embedded row is overridden in place.
+        let mut p = ModelPricing::embedded();
+        let overrides: std::collections::HashMap<String, crate::core::config::PriceOverride> = [
+            (
+                "internal-llm".to_string(),
+                crate::core::config::PriceOverride {
+                    input_per_m: Some(0.10),
+                    output_per_m: Some(0.40),
+                    ..Default::default()
+                },
+            ),
+            (
+                "claude-opus-4.5".to_string(),
+                crate::core::config::PriceOverride {
+                    input_per_m: Some(4.00), // committed-use discount
+                    ..Default::default()
+                },
+            ),
+            (
+                "empty-row".to_string(),
+                crate::core::config::PriceOverride::default(),
+            ),
+        ]
+        .into();
+        p.apply_config_overrides(&overrides);
+
+        let custom = p.quote(Some("internal-llm"));
+        assert_eq!(custom.match_kind, PricingMatchKind::Exact);
+        assert!((custom.cost.input_per_m - 0.10).abs() < 1e-9);
+        assert!(
+            (custom.cost.cache_read_per_m - 0.10).abs() < 1e-9,
+            "omitted cache rates default to the input rate"
+        );
+
+        let discounted = p.quote(Some("claude-opus-4.5"));
+        assert!((discounted.cost.input_per_m - 4.00).abs() < 1e-9);
+        assert!(
+            (discounted.cost.output_per_m - 25.00).abs() < 1e-9,
+            "omitted fields inherit the embedded row"
+        );
+
+        assert_eq!(
+            p.quote(Some("empty-row")).match_kind,
+            PricingMatchKind::Fallback,
+            "a row without any rate is ignored"
         );
     }
 
