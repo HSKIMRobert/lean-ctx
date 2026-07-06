@@ -588,7 +588,7 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         key(
             "string",
             serde_json::json!(""),
-            "Env var holding the upstream credential the gateway injects as `Authorization: Bearer …` (callers never see it)",
+            "Env var holding the upstream credential the gateway injects as `Authorization: Bearer <env value>` (callers never see it)",
         ),
     );
     mcp_servers.insert(

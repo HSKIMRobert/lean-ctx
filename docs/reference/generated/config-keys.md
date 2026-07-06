@@ -219,7 +219,7 @@ Downstream MCP servers (array of tables: `[[gateway.servers]]`)
 
 Org-gateway MCP registry (array of tables: `[[gateway_server.mcp_servers]]`): reverse-proxied under /mcp/{id} with per-person keys, metered into mcp_events, tool definitions hash-tracked (observe stage, GL#91)
 
-- `auth_env` (string, default `""`) — Env var holding the upstream credential the gateway injects as `Authorization: Bearer …` (callers never see it)
+- `auth_env` (string, default `""`) — Env var holding the upstream credential the gateway injects as `Authorization: Bearer <env value>` (callers never see it)
 - `enabled` (bool, default `true`) — Per-server switch (default true)
 - `id` (string, default `""`) — Registry id; becomes the governed route `/mcp/{id}` on the proxy port (lowercase alnum/-/_)
 - `url` (string, default `""`) — Upstream Streamable-HTTP endpoint (HTTPS; loopback HTTP ok; plain HTTP needs [proxy] allow_insecure_http_upstream)
