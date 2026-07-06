@@ -35,6 +35,7 @@ pub(crate) fn cmd_pack(args: &[String]) {
         "pr" => cmd_pack_pr(args, &project_root),
         "create" => cmd_pack_create(args, &project_root),
         "install" => cmd_pack_install(args, &project_root),
+        "update" => super::pack_remote::cmd_pack_update(args, &project_root),
         "list" | "ls" => cmd_pack_list(),
         "info" => cmd_pack_info(args),
         "remove" | "rm" => cmd_pack_remove(args),
@@ -145,6 +146,8 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
     let mut level: u32 = 1;
     let mut scope: Option<String> = None;
     let mut private = false;
+    let mut kind: Option<String> = None;
+    let mut from_dir: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -155,6 +158,28 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
         }
         if a == "--private" {
             private = true;
+            i += 1;
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("--kind=") {
+            kind = Some(v.to_string());
+            i += 1;
+            continue;
+        }
+        if a == "--kind" {
+            i += 1;
+            kind = args.get(i).filter(|v| !v.starts_with("--")).cloned();
+            i += 1;
+            continue;
+        }
+        if let Some(v) = a.strip_prefix("--from=") {
+            from_dir = Some(v.to_string());
+            i += 1;
+            continue;
+        }
+        if a == "--from" {
+            i += 1;
+            from_dir = args.get(i).filter(|v| !v.starts_with("--")).cloned();
             i += 1;
             continue;
         }
@@ -212,6 +237,37 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
         eprintln!("ERROR: --name is required for pack create");
         return;
     };
+
+    // kind=skills (GH #727): a content pack built from a directory of files,
+    // not from project stores — its own branch, everything else unchanged.
+    match kind.as_deref() {
+        None | Some("context") => {}
+        Some("skills") => {
+            let Some(dir) = from_dir else {
+                eprintln!("ERROR: --from <dir> is required for --kind skills");
+                eprintln!(
+                    "Usage: lean-ctx pack create --kind skills --name @ns/name --from ./skills-dir"
+                );
+                return;
+            };
+            create_skills_pack(
+                &pkg_name,
+                &version,
+                &description,
+                author.as_deref(),
+                tags,
+                &dir,
+            );
+            return;
+        }
+        Some(other) => {
+            eprintln!(
+                "ERROR: unsupported --kind `{other}` for pack create (supported: context, skills)"
+            );
+            eprintln!("  kind=addon packs are built with `lean-ctx addon publish --check`.");
+            return;
+        }
+    }
 
     let requested_layers: Vec<&str> = layers_str.as_deref().map_or_else(
         || vec!["knowledge", "graph", "session", "gotchas"],
@@ -339,6 +395,64 @@ fn cmd_pack_create(args: &[String], project_root: &str) {
     }
 }
 
+/// `pack create --kind skills` — build, sign and register a content pack
+/// from a directory of skill files (GH #727).
+fn create_skills_pack(
+    name: &str,
+    version: &str,
+    description: &str,
+    author: Option<&str>,
+    tags: Vec<String>,
+    dir: &str,
+) {
+    use crate::core::context_package::skills;
+
+    let plan = match skills::build_skills_pack(
+        std::path::Path::new(dir),
+        name,
+        version,
+        description,
+        author,
+        tags,
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("ERROR: {e}");
+            return;
+        }
+    };
+
+    let registry = match crate::core::context_package::LocalRegistry::open() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("ERROR: cannot open registry: {e}");
+            return;
+        }
+    };
+    match registry.install(&plan.manifest, &plan.content) {
+        Ok(pkg_dir) => {
+            println!("Skills pack created successfully:");
+            println!("  Name:     {}", plan.name);
+            println!("  Version:  {}", plan.version);
+            println!(
+                "  Files:    {} ({} plaintext)",
+                plan.file_count,
+                format_bytes(plan.total_bytes as u64)
+            );
+            println!("  Signed:   ed25519 (verify with `lean-ctx pack verify`)");
+            println!("  Location: {}", pkg_dir.display());
+            let skills_root =
+                skills::skills_dir(registry.root(), &plan.manifest.name, &plan.manifest.version);
+            println!("  Materialized: {}", skills_root.display());
+            println!(
+                "\nPublish with: lean-ctx pack publish {}@{}",
+                plan.name, plan.version
+            );
+        }
+        Err(e) => eprintln!("ERROR: install failed: {e}"),
+    }
+}
+
 fn cmd_pack_install(args: &[String], project_root: &str) {
     let mut pkg_name: Option<String> = None;
     let mut pkg_version: Option<String> = None;
@@ -372,7 +486,7 @@ fn cmd_pack_install(args: &[String], project_root: &str) {
         match registry.import_from_file(std::path::Path::new(&file_path)) {
             Ok(manifest) => {
                 println!("Imported: {} v{}", manifest.name, manifest.version);
-                apply_package(&manifest.name, &manifest.version, project_root);
+                apply_or_report(&manifest.name, &manifest.version, project_root);
             }
             Err(e) => eprintln!("ERROR: import failed: {e}"),
         }
@@ -392,10 +506,11 @@ fn cmd_pack_install(args: &[String], project_root: &str) {
             Some(v) => format!("{name}@{v}"),
             None => name,
         };
-        cmd_pack_install_remote(
+        super::pack_remote::cmd_pack_install_remote(
             &raw_ref,
             parse_flag(args, "--registry").as_deref(),
             project_root,
+            false,
         );
         return;
     }
@@ -426,7 +541,7 @@ fn cmd_pack_install(args: &[String], project_root: &str) {
         &resolved_version
     };
 
-    apply_package(&name, version, project_root);
+    apply_or_report(&name, version, project_root);
 }
 
 fn apply_package(name: &str, version: &str, project_root: &str) {
@@ -832,7 +947,7 @@ fn cmd_pack_import(args: &[String], project_root: &str) {
             println!("  Size:   {}", format_bytes(manifest.integrity.byte_size));
 
             if apply {
-                apply_package(&manifest.name, &manifest.version, project_root);
+                apply_or_report(&manifest.name, &manifest.version, project_root);
             } else {
                 println!("\nTo apply this package to the current project:");
                 println!("  lean-ctx pack install {}", manifest.name);
@@ -981,7 +1096,7 @@ fn cmd_pack_auto_load(args: &[String]) {
     }
 }
 
-fn format_bytes(bytes: u64) -> String {
+pub(crate) fn format_bytes(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{bytes} B")
     } else if bytes < 1024 * 1024 {
@@ -1048,110 +1163,33 @@ fn cmd_pack_publish(args: &[String]) {
     }
 }
 
-/// Install `ns/name[@version]` from the hosted registry: resolve the version,
-/// download, verify the artifact hash against the index, then run the normal
-/// import path (manifest validation + content integrity + local signature
-/// re-verification) and pin the result in `.lean-ctx/ctxpkg.lock`.
-fn cmd_pack_install_remote(raw_ref: &str, registry_flag: Option<&str>, project_root: &str) {
-    use crate::core::context_package::{LocalRegistry, lockfile, remote};
+/// Apply a context pack to the project — or, for kind=skills, report where
+/// the verified files were materialized (they load from disk, not sessions).
+pub(crate) fn apply_or_report(name: &str, version: &str, project_root: &str) {
+    use crate::core::context_package::manifest::PackageKind;
 
-    let Some(remote_ref) = remote::parse_remote_ref(raw_ref) else {
-        eprintln!("ERROR: '{raw_ref}' is not a valid ns/name[@version] reference");
-        return;
-    };
-    let base = remote::registry_base(registry_flag);
-    let ns = &remote_ref.namespace;
-    let name = &remote_ref.name;
-    // CTXPKG_TOKEN (ctxp_ or read-only ctxr_) unlocks private packages (#524).
-    let token = remote::publish_token(None);
+    let kind = crate::core::context_package::LocalRegistry::open()
+        .ok()
+        .and_then(|r| r.load_package(name, version).ok())
+        .map(|(m, _)| m.kind);
 
-    println!("Resolving @{ns}/{name} via {base} …");
-    let versions = match remote::fetch_versions(&base, ns, name, token.as_deref()) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("ERROR: {e}");
-            return;
+    if kind == Some(PackageKind::Skills) {
+        let root = crate::core::context_package::LocalRegistry::open()
+            .map(|r| crate::core::context_package::skills::skills_dir(r.root(), name, version));
+        match root {
+            Ok(dir) => {
+                println!(
+                    "Skills pack {name}@{version} materialized at {}",
+                    dir.display()
+                );
+                println!("  Files are read-only and SHA-256 verified against the manifest.");
+            }
+            Err(e) => eprintln!("ERROR: {e}"),
         }
-    };
-    let info = match remote::select_version(&versions, remote_ref.version.as_deref()) {
-        Ok(i) => i,
-        Err(e) => {
-            eprintln!("ERROR: {e}");
-            return;
-        }
-    };
-    if info.yanked {
-        eprintln!(
-            "WARNING: @{ns}/{name}@{} is YANKED — installing only because the version \
-             was pinned explicitly",
-            info.version
-        );
-    }
-
-    let bytes = match remote::download_verified(&base, ns, name, info, token.as_deref()) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("ERROR: {e}");
-            return;
-        }
-    };
-    println!(
-        "Downloaded @{ns}/{name}@{} ({}, sha256 verified)",
-        info.version,
-        format_bytes(bytes.len() as u64)
-    );
-
-    // Hand the artifact to the standard import path via a temp file so every
-    // local gate (extension, size cap, manifest validation, content integrity)
-    // applies identically to remote and local installs.
-    let tmp = std::env::temp_dir().join(format!("ctxpkg-install-{}.ctxpkg", std::process::id()));
-    if let Err(e) = std::fs::write(&tmp, &bytes) {
-        eprintln!("ERROR: stage artifact: {e}");
         return;
     }
-    let imported = (|| {
-        let registry = LocalRegistry::open()?;
-        registry.import_from_file(&tmp)
-    })();
-    std::fs::remove_file(&tmp).ok();
 
-    let manifest = match imported {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("ERROR: import failed: {e}");
-            return;
-        }
-    };
-
-    // Registry compromise ≠ client compromise: re-verify the signature locally.
-    match crate::core::context_package::verify_signature(&manifest) {
-        Ok(true) => println!("Signature: ed25519 verified locally"),
-        Ok(false) => {
-            eprintln!(
-                "WARNING: package is unsigned — the hosted registry should not have accepted it"
-            );
-        }
-        Err(e) => {
-            eprintln!("ERROR: signature verification failed: {e}");
-            return;
-        }
-    }
-
-    if let Err(e) = lockfile::upsert(
-        std::path::Path::new(project_root),
-        lockfile::LockedPackage {
-            name: manifest.name.clone(),
-            version: manifest.version.clone(),
-            artifact_sha256: info.artifact_sha256.clone(),
-            registry: base,
-        },
-    ) {
-        eprintln!("WARNING: could not update ctxpkg.lock: {e}");
-    } else {
-        println!("Pinned in {}", lockfile::LOCKFILE_REL_PATH);
-    }
-
-    apply_package(&manifest.name, &manifest.version, project_root);
+    apply_package(name, version, project_root);
 }
 
 fn cmd_pack_send(args: &[String], project_root: &str) {
@@ -1321,7 +1359,7 @@ fn cmd_pack_receive(args: &[String], project_root: &str) {
                 match registry.import_from_file(&tmp) {
                     Ok(manifest) => {
                         eprintln!("Imported: {} v{}", manifest.name, manifest.version);
-                        apply_package(&manifest.name, &manifest.version, project_root);
+                        apply_or_report(&manifest.name, &manifest.version, project_root);
                     }
                     Err(e) => eprintln!("ERROR: import failed: {e}"),
                 }
@@ -1353,7 +1391,7 @@ fn cmd_pack_receive(args: &[String], project_root: &str) {
 }
 
 /// Parse `--flag=value` or `--flag value` from args.
-fn parse_flag(args: &[String], flag: &str) -> Option<String> {
+pub(crate) fn parse_flag(args: &[String], flag: &str) -> Option<String> {
     let prefix = format!("{flag}=");
     let mut iter = args.iter();
     while let Some(a) = iter.next() {
@@ -1378,6 +1416,7 @@ fn print_usage() {
          \n\
          Create & Manage:\n\
          \x20 create   --name <name> [--version <v>] [--level 1|2|3] [--scope @ns] [--description <d>] [--author <a>] [--tags <t>] [--layers <l>]\n\
+         \x20 create   --kind skills --name @ns/<name> --from <dir> --description <d>  Build a signed skills pack from a directory\n\
          \x20 list     List all installed packages\n\
          \x20 info     <name>[@version]  Show package details\n\
          \x20 remove   <name>[@version]  Remove a package\n\
@@ -1388,7 +1427,9 @@ fn print_usage() {
          \x20 verify   <file.{ext}> [...]                Verify integrity + signature, no install (spec \u{a7}8/\u{a7}9; exit 1 on failure)\n\
          \x20 install  <name>[@version] [--file=<path>]    Apply package to current project\n\
          \x20 install  <ns>/<name>[@version]              Install from the hosted registry\n\
-         \x20                                             (ctxpkg.com; verifies sha256 + signature, pins in ctxpkg.lock)\n\
+         \x20                                             (ctxpkg.com; verifies sha256 + signature, pins in ctxpkg.lock,\n\
+         \x20                                             resolves declared dependencies depth-1)\n\
+         \x20 update   <ns>/<name>                        Refresh a hosted pack + its dependencies to the newest versions\n\
          \x20 publish  <file.{ext}> [--registry <url>] [--token <ctxp_…>]  Publish (signed, scoped @ns/name)\n\
          \n\
          A2A Transport:\n\
