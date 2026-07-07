@@ -5,7 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.9.2] — 2026-07-07
+
 ### Added
+- **Unified distribution, Phase 2 (GH #724/#726): self-service addon
+  publishing + hosted installs.** New `lean-ctx addon publish --namespace
+  <ns>` wraps the authoring `lean-ctx-addon.toml` verbatim into a signed
+  `kind=addon` context package and uploads it through the existing ctxpkg
+  publish path — after local gates that mirror the hosted listing bar
+  (schema, runnable `[mcp]` endpoint, audit verdict: blocking findings
+  refuse, `review` publishes disclosed; `--check` runs everything without
+  network I/O). `lean-ctx addon add <ns>/<name>[@version]` installs hosted
+  packs: index-verified download, integrity hashes, **mandatory** ed25519
+  signature, kind ↔ payload coherence — then the embedded manifest walks the
+  unchanged consent → preflight → health-probe pipeline; `addon update`
+  re-resolves from the install source. The context registry refuses to
+  import `kind=addon` packs (wrong trust chain, use `addon add`). The
+  bundled registries are now generated snapshots: `gen_registry` validates,
+  sorts and canonicalizes `rust/data/{addon,grammar}_registry.json`;
+  CI + preflight fail on drift (deterministic, timestamp-free, #498).
+- **Unified distribution, Phase 1 (GH #724/#725): managed addon binaries +
+  the `kind` package taxonomy.** `.ctxpkg` manifests gain an optional `kind`
+  field (`context` | `skills` | `addon` | `grammar`; default `context`,
+  omitted when serializing, so every existing package stays byte-identical —
+  non-context kinds require schema v2). Addon manifests gain an
+  `[artifacts.<target-triple>]` block: `addon add` downloads the prebuilt
+  binary for the current platform into the managed bin dir
+  (`<data_dir>/addons/bin/<name>/<version>/`, never `PATH`), verifies its
+  SHA-256 before the atomic install, auto-pins that hash as the spawn-time
+  binhash, and rewrites the gateway command to the absolute managed path —
+  zero `PATH` interaction, tamper ⇒ spawn refused, `addons.policy = locked`
+  blocks the fetch before any network I/O. New `lean-ctx addon update <name>`
+  installs side-by-side, health-gates, then prunes; `addon remove` deletes the
+  managed binaries; `doctor` verifies every receipt (exists + hash + not
+  revoked). The grammar-dylib fetch (#690) now shares the same
+  download→verify→install core (`artifact_install`), byte-identical behavior.
 - **Universal cost coverage for every provider — LiteLLM catalog, gateway cost
   headers, operator price overrides (GL #1189).** GL #1179 made OpenRouter
   turns exactly billed and OpenRouter-listed models live-priced; three gaps
@@ -29,6 +63,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   price-source ladder is uniform for every provider: measured bill > operator
   override > live catalogs > embedded list > family heuristic > blended
   fallback — each rung honestly labeled via `cost_source`.
+- **Index-time include/exclude filters (GH #735).** The retrieval corpus is
+  now declared explicitly instead of abusing `.gitignore` for retrieval
+  policy: new `[index]` config (`exclude`, `include`, `respect_gitignore`)
+  plus per-run CLI overlays on every `lean-ctx index` build command —
+  repeatable `--exclude <glob>` / `--include <glob>` (both `--flag value` and
+  `--flag=value` forms) and `--no-gitignore` / `--respect-gitignore`. One
+  shared filter layer (`core::index_filter`) drives the BM25 walk, the graph
+  scan, the graph staleness check, and the watch snapshot; the semantic index
+  chunks the BM25 corpus and inherits the same universe — excluded files
+  produce no chunks, graph nodes, or embeddings. Globs match the
+  root-relative path (forward slashes on every platform); exclude wins over
+  include; a non-empty include list admits matching files only. CLI
+  `--exclude` appends to config, `--include` replaces the config set for the
+  run, and a run with overlay flags skips the daemon delegation so the
+  one-off corpus can't be overwritten by a config-built index. `index status`
+  (human + `--json`) reports the active filter summary; repo-local config
+  extends global excludes and can only tighten gitignore handling. Empty
+  filters preserve today's behavior byte-for-byte.
+- **Personas now drive the whole pipeline (persona-spec-v1 runtime wiring,
+  GL #1178).** The five declared persona fields were spec +
+  capability-reporting only; every one of them is now consumed at runtime:
+  `default_read_mode` enters the `ctx_read` mode chain (explicit arg > policy
+  pack > persona > profile/auto; `"auto"` = no opinion), `compressor` compacts
+  `ctx_url_read` flowing-text modes through the extension registry
+  (`research` → `markdown`, `support`/`lead-gen` → `prose`; extractive
+  `facts`/`quotes`/`links` stay verbatim to protect citations), `chunker`
+  makes token-budget truncation cut on chunk boundaries (paragraphs / line
+  windows) instead of mid-sentence, `intent_taxonomy` lands as the
+  contract-promised persona block (`PERSONA:` / `INTENTS:` / `DEFAULTS:`) in
+  the MCP session instructions, and `sensitivity_floor` folds into
+  `[sensitivity]` enforcement (`Config::sensitivity_effective`) — a floor
+  above `public` enables enforcement out of the box and can only tighten an
+  explicit config (`LEAN_CTX_SENSITIVITY=off` stays the kill switch). The
+  `coding` default declares the historical defaults
+  (`auto`/`identity`/`public`), so default installs remain byte-identical
+  (#498 prompt-cache stability). Contract doc gains a "Runtime wiring" table
+  (`docs/contracts/persona-spec-v1.md`).
 
 ### Fixed
 - **MCP stdio server processes leaked after client disconnect (GH #733).**
@@ -68,83 +139,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   freshness. Result: OpenRouter-billed turns show the exact invoice amount;
   everything else shows current list prices instead of stale hardcoded ones,
   and estimates are visibly labeled as such.
-
-### Added
-- **Index-time include/exclude filters (GH #735).** The retrieval corpus is
-  now declared explicitly instead of abusing `.gitignore` for retrieval
-  policy: new `[index]` config (`exclude`, `include`, `respect_gitignore`)
-  plus per-run CLI overlays on every `lean-ctx index` build command —
-  repeatable `--exclude <glob>` / `--include <glob>` (both `--flag value` and
-  `--flag=value` forms) and `--no-gitignore` / `--respect-gitignore`. One
-  shared filter layer (`core::index_filter`) drives the BM25 walk, the graph
-  scan, the graph staleness check, and the watch snapshot; the semantic index
-  chunks the BM25 corpus and inherits the same universe — excluded files
-  produce no chunks, graph nodes, or embeddings. Globs match the
-  root-relative path (forward slashes on every platform); exclude wins over
-  include; a non-empty include list admits matching files only. CLI
-  `--exclude` appends to config, `--include` replaces the config set for the
-  run, and a run with overlay flags skips the daemon delegation so the
-  one-off corpus can't be overwritten by a config-built index. `index status`
-  (human + `--json`) reports the active filter summary; repo-local config
-  extends global excludes and can only tighten gitignore handling. Empty
-  filters preserve today's behavior byte-for-byte.
-- **Personas now drive the whole pipeline (persona-spec-v1 runtime wiring,
-  GL #1178).** The five declared persona fields were spec +
-  capability-reporting only; every one of them is now consumed at runtime:
-  `default_read_mode` enters the `ctx_read` mode chain (explicit arg > policy
-  pack > persona > profile/auto; `"auto"` = no opinion), `compressor` compacts
-  `ctx_url_read` flowing-text modes through the extension registry
-  (`research` → `markdown`, `support`/`lead-gen` → `prose`; extractive
-  `facts`/`quotes`/`links` stay verbatim to protect citations), `chunker`
-  makes token-budget truncation cut on chunk boundaries (paragraphs / line
-  windows) instead of mid-sentence, `intent_taxonomy` lands as the
-  contract-promised persona block (`PERSONA:` / `INTENTS:` / `DEFAULTS:`) in
-  the MCP session instructions, and `sensitivity_floor` folds into
-  `[sensitivity]` enforcement (`Config::sensitivity_effective`) — a floor
-  above `public` enables enforcement out of the box and can only tighten an
-  explicit config (`LEAN_CTX_SENSITIVITY=off` stays the kill switch). The
-  `coding` default declares the historical defaults
-  (`auto`/`identity`/`public`), so default installs remain byte-identical
-  (#498 prompt-cache stability). Contract doc gains a "Runtime wiring" table
-  (`docs/contracts/persona-spec-v1.md`).
-
-## [3.9.2] — 2026-07-06
-
-### Added
-- **Unified distribution, Phase 2 (GH #724/#726): self-service addon
-  publishing + hosted installs.** New `lean-ctx addon publish --namespace
-  <ns>` wraps the authoring `lean-ctx-addon.toml` verbatim into a signed
-  `kind=addon` context package and uploads it through the existing ctxpkg
-  publish path — after local gates that mirror the hosted listing bar
-  (schema, runnable `[mcp]` endpoint, audit verdict: blocking findings
-  refuse, `review` publishes disclosed; `--check` runs everything without
-  network I/O). `lean-ctx addon add <ns>/<name>[@version]` installs hosted
-  packs: index-verified download, integrity hashes, **mandatory** ed25519
-  signature, kind ↔ payload coherence — then the embedded manifest walks the
-  unchanged consent → preflight → health-probe pipeline; `addon update`
-  re-resolves from the install source. The context registry refuses to
-  import `kind=addon` packs (wrong trust chain, use `addon add`). The
-  bundled registries are now generated snapshots: `gen_registry` validates,
-  sorts and canonicalizes `rust/data/{addon,grammar}_registry.json`;
-  CI + preflight fail on drift (deterministic, timestamp-free, #498).
-- **Unified distribution, Phase 1 (GH #724/#725): managed addon binaries +
-  the `kind` package taxonomy.** `.ctxpkg` manifests gain an optional `kind`
-  field (`context` | `skills` | `addon` | `grammar`; default `context`,
-  omitted when serializing, so every existing package stays byte-identical —
-  non-context kinds require schema v2). Addon manifests gain an
-  `[artifacts.<target-triple>]` block: `addon add` downloads the prebuilt
-  binary for the current platform into the managed bin dir
-  (`<data_dir>/addons/bin/<name>/<version>/`, never `PATH`), verifies its
-  SHA-256 before the atomic install, auto-pins that hash as the spawn-time
-  binhash, and rewrites the gateway command to the absolute managed path —
-  zero `PATH` interaction, tamper ⇒ spawn refused, `addons.policy = locked`
-  blocks the fetch before any network I/O. New `lean-ctx addon update <name>`
-  installs side-by-side, health-gates, then prunes; `addon remove` deletes the
-  managed binaries; `doctor` verifies every receipt (exists + hash + not
-  revoked). The grammar-dylib fetch (#690) now shares the same
-  download→verify→install core (`artifact_install`), byte-identical behavior.
-
-### Fixed
 - **Cursor sessions ran with read compression silently disabled (GH #722).**
   Cursor ≥ 3.7 exports `CLAUDE_PROJECT_DIR` to its hook child processes for
   Claude-compat — and lean-ctx's guard-host detection took that variable as
