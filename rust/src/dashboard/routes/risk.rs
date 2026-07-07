@@ -18,6 +18,26 @@ pub(super) fn handle(
         .map(|s| s.files_touched.iter().map(|f| f.path.clone()).collect())
         .unwrap_or_default();
 
+    let project_root = detect_project_root_for_dashboard();
+
+    // Load overlays early so we can suppress warnings for paths the user
+    // already promoted to "full" via the dashboard's "Read Full" button.
+    let overlays = crate::core::context_overlay::OverlayStore::load_project(
+        &std::path::PathBuf::from(&project_root),
+    );
+
+    let has_full_view_overlay = |path: &str| -> bool {
+        let target = crate::core::context_field::ContextItemId::from_file(path);
+        overlays.for_item(&target).iter().any(|o| {
+            matches!(
+                &o.operation,
+                crate::core::context_overlay::OverlayOp::SetView(
+                    crate::core::context_field::ViewKind::Full
+                )
+            )
+        })
+    };
+
     let mut warnings: Vec<serde_json::Value> = Vec::new();
 
     let mut files_read_full = 0usize;
@@ -25,7 +45,7 @@ pub(super) fn handle(
     let mut files_edited_after_compressed: Vec<String> = Vec::new();
 
     for entry in &ledger.entries {
-        let is_full = entry.mode == "full";
+        let is_full = entry.mode == "full" || has_full_view_overlay(&entry.path);
         if is_full {
             files_read_full += 1;
         } else {
@@ -48,10 +68,6 @@ pub(super) fn handle(
         }
     }
 
-    let project_root = detect_project_root_for_dashboard();
-    let overlays = crate::core::context_overlay::OverlayStore::load_project(
-        &std::path::PathBuf::from(&project_root),
-    );
     let pinned_count = overlays
         .all()
         .iter()
