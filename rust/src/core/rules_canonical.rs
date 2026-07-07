@@ -77,9 +77,13 @@ pub const COMPRESSION_BLOCK_END: &str = "<!-- /lean-ctx-compression -->";
 /// absorbs the loop taxonomy and navigation paradox; the verbose
 /// `AGENT_LOOP`/`NAV_PARADOX`/`RECOVER`/`CEP` sections move to the LONGFORM
 /// profile that only the on-demand project `LEAN-CTX.md` carries).
+/// v6: HookCovered profile strengthened — ctx_compose-first priority, imperative
+/// session memory requirement, ctx_callgraph/ctx_search(semantic) promoted from
+/// optional to mandatory. Fixes agents falling back to native Read+Grep for
+/// exploration on hook-covered hosts (Cursor).
 /// Bumping it forces every committed `LEAN-CTX.md` artifact to be regenerated
 /// (see `tests/rules_drift.rs`) and every injected user file to resync.
-pub const RULES_VERSION: usize = 5;
+pub const RULES_VERSION: usize = 6;
 
 /// Banner placed at the top of dedicated rule files (non-shadow only).
 pub const CRITICAL: &str = "CRITICAL: ALWAYS use lean-ctx ctx_* tools instead of native equivalents. \
@@ -217,17 +221,18 @@ Exclusive tools (no native trigger): ctx_compose (understand code, call first), 
 /// removes the instruction dissonance instead of losing the battle silently.
 pub const HOOK_COVERED_HEADER: &str = "\
 lean-ctx hooks cover this session: native Shell, Read and Grep are compressed \
-transparently (PreToolUse rewrite/redirect) — using them is fine and already saves tokens.";
+transparently (PreToolUse rewrite/redirect) — using them is fine for single known files.\n\
+PRIORITY: call ctx_compose FIRST to orient before scattering individual Read/Grep calls.";
 
 /// The tools worth an explicit MCP call on a hook-covered host: capabilities
 /// with *no* native equivalent the hooks could intercept. Kept in sync with
 /// [`SHADOW_MINIMAL`]'s exclusive-tools line (same rationale, different cause).
 pub const HOOK_COVERED_TOOLS: &str = "\
-Call the ctx_* MCP tools for what native tools cannot do:\n\
-• ctx_compose — orient in code (bundles search + read + symbols in one call)\n\
-• ctx_symbol / ctx_callgraph — exact definitions, callers, blast radius\n\
-• ctx_semantic_search — search by meaning, not pattern\n\
-• ctx_knowledge / ctx_session — persistent memory across sessions\n\
+MANDATORY ctx_* tools (no native equivalent):\n\
+• ctx_compose — orient in code FIRST (bundles search + read + symbols) — call before editing/debugging\n\
+• ctx_search(action=symbol|semantic) — exact definitions or search by meaning, not pattern\n\
+• ctx_callgraph — callers, callees, blast radius — use instead of manual file reading\n\
+• ctx_session / ctx_knowledge — persistent memory — record decisions & progress after milestones\n\
 • ctx_expand — recover full text from [Archived]/compressed output";
 
 // ── Output-style compression prompts ───────────────────────────
@@ -1247,7 +1252,7 @@ mod tests {
             "must state that hooks compress native tools"
         );
         assert!(
-            out.contains("ctx_compose") && out.contains("ctx_semantic_search"),
+            out.contains("ctx_compose") && out.contains("action=symbol|semantic"),
             "must advertise the exclusive capabilities"
         );
     }

@@ -185,9 +185,13 @@ export ANTHROPIC_AUTH_TOKEN=&lt;personal key — see `lean-ctx gateway keys add`
         </table>
       </div>
       <div id="mcp-empty" class="empty empty-onboard" hidden>
-        <p><b>No tool calls in this window yet.</b> Point an MCP client at the gateway:</p>
-        <pre class="mono">"url": "http://&lt;gateway-host&gt;:8484/mcp/&lt;server-id&gt;",
-"headers": { "Authorization": "Bearer &lt;personal key&gt;" }</pre>
+        <p><b>No MCP servers registered yet.</b> The tool channel monitors every MCP tool your org uses — calls, errors, latency, context cost, and schema drift (rug-pull detection).</p>
+        <p style="margin-top:8px">Register an upstream server in <code>config.toml</code>:</p>
+        <pre class="mono">[[gateway_server.mcp_servers]]
+id = "my-server"
+url = "http://host:port"
+auth_env = "MY_SERVER_TOKEN"   # optional</pre>
+        <p style="margin-top:8px;color:var(--muted)">Then point MCP clients at the gateway: <code>http://&lt;gateway&gt;:8484/mcp/my-server</code></p>
       </div>
     </section>
 

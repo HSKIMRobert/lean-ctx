@@ -97,4 +97,3 @@ The $29 hosted-index price move requires **30 consecutive days** with all
 three SLOs green, measured by the control-plane probe (external) and
 cross-checked against the server-side `/v1/metrics` series. Evidence is the
 probe's monthly SLO report — keep it with the release notes of the GA tag.
-

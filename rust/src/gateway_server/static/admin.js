@@ -360,10 +360,23 @@ function renderBreakdown() {
 function renderMcp() {
   const m = state.mcp;
   const panel = $('#mcp-panel');
-  // No registered servers → the whole section disappears (zero noise for
-  // LLM-only deployments).
-  if (!m || !m.servers || m.servers.length === 0) { panel.hidden = true; return; }
+  // Always show the panel so visitors see the capability — even without
+  // registered servers. The empty state has onboarding instructions.
   panel.hidden = false;
+  if (!m || !m.servers || m.servers.length === 0) {
+    $('#mcp-strip').innerHTML = '';
+    $('#mcp-kpi-calls').textContent = '—';
+    $('#mcp-kpi-calls-foot').textContent = '';
+    $('#mcp-kpi-tokens').textContent = '—';
+    $('#mcp-kpi-tokens-foot').textContent = '';
+    $('#mcp-kpi-cost').textContent = '—';
+    $('#mcp-kpi-cost-foot').textContent = '';
+    $('#mcp-kpi-changed').textContent = '—';
+    $('#mcp-kpi-changed-foot').textContent = '';
+    $('#mcp-body').innerHTML = '';
+    $('#mcp-empty').hidden = false;
+    return;
+  }
 
   const strip = m.servers.map((s) => {
     const st = s.changed_tools > 0 ? 'st-warn' : 'st-ok';

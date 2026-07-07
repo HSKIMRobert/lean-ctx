@@ -79,4 +79,3 @@ Full dashboard: https://leanctx.com/account/team/
   cost is one `users` scan per hour.
 - CORS on the cloud server allows `PUT`/`PATCH` (needed by the digest toggle
   and the team settings endpoint, GL #388).
-

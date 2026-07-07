@@ -239,6 +239,18 @@ pub(super) fn cmd_dev_install() {
             Err(e) => eprintln!("  Warning: daemon start: {e} (will be started by editor)"),
         }
     }
+
+    // Resync agent rules after install so a RULES_VERSION bump is propagated
+    // without requiring a separate `lean-ctx setup` or `init` call.
+    let cfg = crate::core::config::Config::load();
+    if cfg.setup.should_inject_rules()
+        && let Some(home) = dirs::home_dir()
+    {
+        let result = crate::rules_inject::inject_all_rules(&home);
+        if !result.updated.is_empty() {
+            eprintln!("  ✓ Rules updated: {}", result.updated.join(", "));
+        }
+    }
 }
 
 /// One-time setup of the persistent macOS code-signing identity (#356).

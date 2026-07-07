@@ -148,4 +148,3 @@ unchanged.)
 The metered **hosted-index storage-overage** add-on is documented separately in
 [`billing-plane-v2`](billing-plane-v2.md): a new metered surface layered on top
 of these plans, additive and Local-Free-preserving.
-

@@ -595,4 +595,3 @@ regenerated from code.
 - **The gateway in depth:** [Advanced & Integrations §10](reference/05-advanced.md)
 - **Security surface:** [Security & Governance](reference/13-security-and-governance.md)
 - **Always-current tool list:** [generated MCP tools](reference/generated/mcp-tools.md)
-

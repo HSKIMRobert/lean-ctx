@@ -168,4 +168,3 @@ Full protocol contract: `docs/contracts/org-sso-oidc-v1.md`.
 
 Still stuck? `hello@leanctx.com` or the
 [Discord community](https://discord.gg/pTHkG9Hew9).
-

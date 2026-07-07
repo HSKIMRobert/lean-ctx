@@ -202,4 +202,3 @@ it is additive and changes no v1 plan/entitlement or local-free semantics.
 Adding further metered dimensions (connector sync volume, retrieval queries)
 under the same display-first, signed/server-measured, Local-Free rules stays
 `v2`.
-

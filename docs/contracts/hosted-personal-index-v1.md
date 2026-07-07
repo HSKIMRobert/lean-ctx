@@ -101,4 +101,3 @@ One bundle per `(account, project_hash)`, last-writer-wins; the server keeps
 `updated_at` + `sha256` so clients can skip no-op pushes and detect drift
 (`lean-ctx sync index status`). Conflicts are impossible by construction —
 the bundle is device-generated derived state, not a merged document.
-

@@ -17,12 +17,9 @@ Write, Delete, Glob — use normally.
 <!-- lean-ctx -->
 ## lean-ctx
 
-Prefer lean-ctx MCP tools over native equivalents for token savings:
-`ctx_read` > Read/cat, `ctx_search` > Grep/rg, `ctx_shell` > bash, `ctx_tree` > ls/find,
-`ctx_patch` (anchored) for edits after `ctx_read(mode="anchored")`. Native Edit/Write/Glob stay as-is.
+lean-ctx is active — the MCP tools replace native equivalents.
 Full rules: LEAN-CTX.md (open on demand — do not auto-load).
 <!-- /lean-ctx -->
-
 <!-- lean-ctx-compression -->
 OUTPUT STYLE: concise
 - Bullet points over paragraphs
