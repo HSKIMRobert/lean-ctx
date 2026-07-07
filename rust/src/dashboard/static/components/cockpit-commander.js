@@ -386,7 +386,8 @@ class CockpitCommander extends HTMLElement {
       const r = filtered[idx];
       const pd = encodeURIComponent(r.path);
       const hasRisk = r.risk_flags && r.risk_flags.length > 0;
-      const rowCls = hasRisk ? ' cmdr-row-risk' : r.pinned ? ' cmdr-row-pinned' : '';
+      const rowCls = r.state === 'excluded' ? ' cmdr-row-excluded'
+        : hasRisk ? ' cmdr-row-risk' : r.pinned ? ' cmdr-row-pinned' : '';
 
       h += '<tr class="cmdr-table-row' + rowCls + '">';
       h += '<td class="ctx-path-cell" title="' + esc(r.path) + '">' + esc(shortenPath(r.path)) + '</td>';
@@ -425,6 +426,9 @@ class CockpitCommander extends HTMLElement {
       if (r.editor_active) {
         h += ' <span title="Currently open in the editor">\ud83d\udc41</span>';
       }
+      if (r.state === 'excluded') {
+        h += ' <span class="tag td">Excluded</span>';
+      }
       h += '</td>';
 
       // Actions
@@ -434,7 +438,11 @@ class CockpitCommander extends HTMLElement {
       } else {
         h += '<button type="button" class="action-btn" data-act="unpin" data-path="' + pd + '">Unpin</button> ';
       }
-      h += '<button type="button" class="action-btn danger" data-act="evict" data-path="' + pd + '">Evict</button>';
+      if (r.state === 'excluded') {
+        h += '<span class="tag td" style="font-size:10px">Excluded</span>';
+      } else {
+        h += '<button type="button" class="action-btn danger" data-act="evict" data-path="' + pd + '">Evict</button>';
+      }
       h += '</td></tr>';
 
       // Expandable trail row (power mode)
@@ -565,7 +573,7 @@ class CockpitCommander extends HTMLElement {
         timeoutMs: 15000,
       });
       toast(action + ': ' + shortenPath(path), 'success');
-      this.loadData();
+      await this.loadData();
     } catch (e) {
       toast('Failed: ' + (e?.error || String(e)), 'error');
     }

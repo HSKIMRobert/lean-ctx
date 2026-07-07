@@ -481,7 +481,8 @@ class CockpitContext extends HTMLElement {
         const selModes = VIEW_MODES.map(m =>
           '<option value="' + esc(m) + '"' + (m === r.mode ? ' selected' : '') + '>' + esc(m) + '</option>'
         ).join('');
-        h += '<tr>';
+        const ctxRowCls = r.state === 'excluded' ? ' cmdr-row-excluded' : '';
+        h += '<tr class="' + ctxRowCls + '">';
         h += '<td title="' + esc(r.path) + '" class="ctx-path-cell">' + esc(shortenPath(r.path)) + '</td>';
         h += '<td><span class="tag tg">' + esc(r.mode) + '</span></td>';
         h += '<td class="r">' + ff(r.sent_tokens) + '</td>';
@@ -494,7 +495,11 @@ class CockpitContext extends HTMLElement {
         h += '<td class="r" title="high token cost + long idle + rarely re-read"><span style="color:' + ec + '">' + r.evict + '</span></td>';
         h += '<td style="white-space:nowrap">';
         h += '<button type="button" class="action-btn" data-act="pin" data-path="' + pd + '">Pin</button> ';
-        h += '<button type="button" class="action-btn danger" data-act="exclude" data-path="' + pd + '">Excl</button> ';
+        if (r.state === 'excluded') {
+          h += '<span class="tag td" style="font-size:10px">Excluded</span> ';
+        } else {
+          h += '<button type="button" class="action-btn danger" data-act="exclude" data-path="' + pd + '">Excl</button> ';
+        }
         h += '<span class="cockpit-ctx-dd" data-path="' + pd + '">';
         h += '<button type="button" class="action-btn" data-act="mode_toggle">Mode \u25be</button>';
         h += '<div class="cockpit-ctx-dd-panel"><select class="cockpit-ctx-mode-sel" data-path="' + pd + '">' + selModes + '</select></div></span>';
