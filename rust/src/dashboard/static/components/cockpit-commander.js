@@ -572,7 +572,12 @@ class CockpitCommander extends HTMLElement {
         body: JSON.stringify(body),
         timeoutMs: 15000,
       });
-      toast(action + ': ' + shortenPath(path), 'success');
+      const msg = action === 'set_view'
+        ? 'View → ' + (value || 'default') + ': ' + shortenPath(path) + ' (next read)'
+        : action === 'evict'
+          ? 'Evicted: ' + shortenPath(path)
+          : action + ': ' + shortenPath(path);
+      toast(msg, 'success');
       await this.loadData();
     } catch (e) {
       toast('Failed: ' + (e?.error || String(e)), 'error');
@@ -593,3 +598,4 @@ class CockpitCommander extends HTMLElement {
 customElements.define('cockpit-commander', CockpitCommander);
 
 export { CockpitCommander };
+
