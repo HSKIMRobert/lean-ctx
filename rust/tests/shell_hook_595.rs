@@ -136,6 +136,41 @@ fn real_bashprovider_wrapper_with_source_prefix_runs() {
     );
 }
 
+/// GitHub #745: zsh sandbox wraps with `setopt … && eval '<cmd>' … && pwd`
+/// (stdout cwd, no file redirect). Must run the inner command, not exit 126.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "zsh sandbox uses POSIX features; cross-platform security covered by model_chosen_eval test (#1057)"
+)]
+fn zsh_sandbox_wrapper_runs_inner_command() {
+    let tmp = tempfile::tempdir().unwrap();
+    let marker = "LEANCTX745OK";
+
+    let wrapper = format!(
+        "setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && eval 'echo {marker}' < /dev/null && pwd"
+    );
+
+    let out = run_dash_c(&wrapper, tmp.path());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    assert_ne!(
+        out.status.code(),
+        Some(126),
+        "zsh sandbox wrapper must not be blocked (exit 126) — stderr: {stderr}"
+    );
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "zsh sandbox wrapper should run cleanly; stdout: {stdout} stderr: {stderr}"
+    );
+    assert!(
+        stdout.contains(marker),
+        "inner command output missing; stdout: {stdout}"
+    );
+}
+
 #[test]
 fn model_chosen_eval_without_cwd_marker_still_blocks() {
     // SECURITY regression: an `eval` the model itself chose (no host cwd

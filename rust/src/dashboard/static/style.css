@@ -1428,6 +1428,7 @@ tr:hover td{background:var(--surface-2)}
 .cmdr-table-row{}
 .cmdr-row-risk{background:rgba(251,191,36,0.04)}
 .cmdr-row-pinned{background:rgba(129,140,248,0.04)}
+.cmdr-row-excluded{opacity:0.45;text-decoration:line-through;text-decoration-color:var(--muted)}
 .cmdr-pin-badge{font-size:12px}
 .cmdr-risk-dot{color:var(--yellow);font-size:14px}
 
