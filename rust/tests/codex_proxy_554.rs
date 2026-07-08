@@ -167,10 +167,8 @@ fn proxy_enable_respects_codex_auth_mode_554() {
             "opt-in ChatGPT login must select the lean-ctx ChatGPT provider, got:\n{cfg}"
         );
         assert!(
-            cfg.contains(&format!(
-                "chatgpt_base_url = \"http://127.0.0.1:{port}/backend-api/\""
-            )),
-            "opt-in ChatGPT login must use the ChatGPT backend rail, got:\n{cfg}"
+            !cfg.contains("chatgpt_base_url"),
+            "stale ChatGPT aux/app routing must be removed, got:\n{cfg}"
         );
         assert!(
             cfg.contains(&format!(

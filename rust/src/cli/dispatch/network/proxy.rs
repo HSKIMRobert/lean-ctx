@@ -361,11 +361,12 @@ fn codex_chatgpt_status(port: u16) {
     let codex_cfg = crate::core::home::resolve_codex_dir()
         .unwrap_or_else(|| home.join(".codex"))
         .join("config.toml");
-    let routed = std::fs::read_to_string(&codex_cfg).is_ok_and(|c| c.contains("chatgpt_base_url"));
+    let routed = std::fs::read_to_string(&codex_cfg)
+        .is_ok_and(|c| c.contains("leanctx-chatgpt") || c.contains("chatgpt_base_url"));
     println!(
         "  Codex cfg: {}",
         if routed {
-            "chatgpt_base_url → proxy (routed)"
+            "model_provider → leanctx-chatgpt (routed)"
         } else {
             "native (no proxy entry)"
         }
