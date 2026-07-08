@@ -5,6 +5,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.9.3] — 2026-07-08
+
+### Fixed
+- **Bypass-hint gates — tool-drift prevention for all 34 editors (GH #748,
+  #749, #750).** Three gates silently suppressed the nudge that reminds models
+  to use ctx_* tools: (1) bypass hints were gated behind `minimal_overhead`
+  instead of their own `bypass_hints` config key — decoupled; (2) cold-start
+  sessions (no ctx_* call yet) never triggered a hint because `LAST_LCTX_CALL_TS`
+  was 0 — added `SERVER_START_TS` fallback; (3) Cursor's `conversation_id` UUID
+  never matched lean-ctx's `session_id`, so filtered counts returned 0 —
+  added unfiltered fallback. All three fixes ride MCP tool responses and reach
+  every editor that connects via MCP.
+- **ctx_read lock contention with parallel subagents — Two-Phase Read (GH
+  #751).** The slow path held the global `SessionCache` write-lock during disk
+  I/O, compression, and graph-hint SQLite queries, serializing parallel
+  subagents reading different files. Restructured: Phase 1 tries the
+  `[unchanged]` stub under a shared read lock (~70% of calls complete here);
+  Phase 2a reads the file under per-file lock without the cache lock; Phase 2b
+  takes a brief write lock for `handle_with_preread()`. Graph hints
+  (`graph_related_hint()`) are now computed after lock release. Documented in
+  `LOCK_ORDERING.md`.
+- **Dashboard "Evict" UX — missing await + no visual state (GH #744).**
+  `_executeOverlay()` now awaits `loadData()` so the table re-renders before
+  the user can interact. Excluded rows render with line-through, reduced
+  opacity, an "Excluded" badge, and a disabled evict button.
+- **agent_wrapper detection — zsh sandbox variant (GH #745).** `unwrap_agent_wrapper()`
+  now detects the zsh sandbox shape (`setopt NO_EXTENDED_GLOB` + bare `pwd`)
+  alongside the existing bash redirect path.
+- **Gateway double-counts OpenRouter non-BYOK usage.cost (GH #746).**
+  `absorb_openai()` no longer sums `usage.cost + upstream_inference_cost` when
+  they are identical (non-BYOK mirror).
+- **Dashboard "Read Full" button risk warning persists (GH #747).** `risk.rs`
+  now checks `SetView(Full)` overlays when computing risk warnings, so files
+  with an active "Read Full" override no longer show a stale compressed-read
+  warning.
+
+### Added
+- **Cursor SessionStart additionalContext reactivated (GH #752).** Cursor
+  fixed SessionStart `additionalContext` support circa Q1 2026; the prior
+  exclusion (#1031) is removed. Shared-mode hosts now receive a short
+  reinforcement nudge for exclusive tools (ctx_compose, ctx_semantic_search,
+  ctx_callgraph, ctx_knowledge, ctx_session).
+- **Redirect-suffix for drifting models (GH #753).** When no ctx_* call has
+  been seen in the last 5 minutes, Read-redirect `.lctx` temp files append a
+  one-line separator: `--- lean-ctx: ctx_compose bundles search+read+symbols
+  in one call ---`. Applies to Cursor, Claude Code (`read_redirect=on`), and
+  Copilot CLI; not Windsurf.
+- **HookCovered MUST_INVOKE wording (GH #753).** Strengthened the
+  `HOOK_COVERED_HEADER` to use CRITICAL/ALWAYS wording and "ACTUALLY EMIT the
+  call — describing it is not calling it".
+
 ## [3.9.2] — 2026-07-07
 
 ### Added
