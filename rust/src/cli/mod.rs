@@ -6,6 +6,7 @@ mod call_cmd;
 mod cheatsheet_cmd;
 pub mod cloud;
 mod common;
+pub mod completions;
 mod compliance_cmd;
 mod compress_cmd;
 mod config_cmd;

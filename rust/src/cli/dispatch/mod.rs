@@ -7,7 +7,7 @@ mod help;
 mod lifecycle;
 mod network;
 mod server;
-mod suggest;
+pub(crate) mod suggest;
 
 #[allow(clippy::wildcard_imports)]
 use analytics::*;
@@ -691,6 +691,15 @@ pub fn run() {
             }
             "export-rules" => {
                 super::export_rules::run(&rest);
+                return;
+            }
+            "completions" => {
+                super::completions::run_completions(&rest);
+                return;
+            }
+            "__complete" => {
+                #[allow(non_snake_case)]
+                super::completions::run___complete(&rest);
                 return;
             }
             "gotchas" | "bugs" => {
