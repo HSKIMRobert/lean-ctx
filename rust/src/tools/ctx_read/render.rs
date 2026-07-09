@@ -203,6 +203,16 @@ pub(crate) fn process_mode_tuned(
 ) -> (String, usize) {
     let _mode_guard = crate::core::savings_footer::ModeGuard::new(mode);
     let line_count = content.lines().count();
+    let ctx = RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        crp_mode,
+        line_count,
+        task,
+    };
 
     match mode {
         "raw" => {
@@ -239,437 +249,11 @@ pub(crate) fn process_mode_tuned(
             task,
         ),
         "anchored" => format_anchored_output(file_ref, short, content, line_count),
-        "signatures" => {
-            let sigs = signatures::extract_signatures(content, ext);
-            let dep_info = deps::extract_deps(content, ext);
-
-            let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
-                format!("{file_ref}={short} {line_count}L")
-            } else {
-                format!("{short} {line_count}L")
-            };
-            if !dep_info.imports.is_empty() {
-                let imports_str: Vec<&str> = dep_info
-                    .imports
-                    .iter()
-                    .take(8)
-                    .map(std::string::String::as_str)
-                    .collect();
-                output.push_str(&format!("\n deps {}", imports_str.join(",")));
-            }
-            // Self-describing outputs (GL #580): symbol notation always ships
-            // its own one-line legend so vanilla agents can read it.
-            if crp_mode.is_tdd() {
-                let refs: Vec<&signatures::Signature> = sigs.iter().collect();
-                let legend = signatures::tdd_legend(&refs);
-                if !legend.is_empty() {
-                    output.push('\n');
-                    output.push_str(&legend);
-                }
-            }
-            let health = health_annotations(content, ext);
-            for sig in &sigs {
-                output.push('\n');
-                if crp_mode.is_tdd() {
-                    output.push_str(&sig.to_tdd_located());
-                } else {
-                    output.push_str(&sig.to_compact_located());
-                }
-                if let Some(note) = health.get(&sig.name) {
-                    output.push_str("  ");
-                    output.push_str(note);
-                }
-            }
-            // Same honesty rule as map: an empty signature view for a language
-            // without an extractor must be labeled (limitations audit, #4).
-            if sigs.is_empty() && dep_info.imports.is_empty() {
-                output.push_str(&no_structure_marker(ext));
-            }
-            if let Some(body) = task_relevant_body(content, file_path, ext, task) {
-                output.push('\n');
-                output.push_str(&body);
-            }
-            // JIT disclosure (GL#447): signatures carry L-spans, so point at the
-            // targeted range expansion before the full-read escalation.
-            if crate::core::profiles::active_profile()
-                .output_hints
-                .compressed_hint()
-                && !sigs.is_empty()
-            {
-                output.push_str(&format!(
-                    "\n  ↳ expand a symbol: ctx_read(\"{file_path}\", mode=\"lines:N-M\") using the spans above"
-                ));
-                // Located symbols are addressable as stable handles (#607).
-                output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
-            }
-            let sent = count_tokens(&output);
-            (
-                append_compressed_hint(
-                    &protocol::append_savings(&output, original_tokens, sent),
-                    file_path,
-                ),
-                sent,
-            )
-        }
-        "map" => {
-            if ext == "php"
-                && let Some(php_map) = crate::core::patterns::php::compress_php_map(content, short)
-            {
-                let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
-                    format!("{file_ref}={short} {line_count}L\n{php_map}")
-                } else {
-                    format!("{short} {line_count}L\n{php_map}")
-                };
-                let sent = count_tokens(&output);
-                let output = protocol::append_savings(&output, original_tokens, sent);
-                return (append_compressed_hint(&output, file_path), sent);
-            }
-
-            let structured = match ext {
-                "md" | "mdx" | "rst" => {
-                    crate::core::structured_read::extract_markdown_outline(content)
-                }
-                "json" => crate::core::structured_read::extract_json_structure(content),
-                "yaml" | "yml" => crate::core::structured_read::extract_yaml_structure(content),
-                "toml" => crate::core::structured_read::extract_toml_structure(content),
-                _ if file_path.to_lowercase().ends_with(".lock")
-                    || file_path.to_lowercase().ends_with("go.sum") =>
-                {
-                    crate::core::structured_read::extract_lock_summary(content, file_path)
-                }
-                _ => String::new(),
-            };
-
-            if !structured.is_empty() {
-                let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
-                    format!("{file_ref}={short} {line_count}L\n{structured}")
-                } else {
-                    format!("{short} {line_count}L\n{structured}")
-                };
-                let sent = count_tokens(&output);
-                output = protocol::append_savings(&output, original_tokens, sent);
-                return (append_compressed_hint(&output, file_path), sent);
-            }
-
-            let sigs = signatures::extract_signatures(content, ext);
-            let dep_info = deps::extract_deps(content, ext);
-
-            let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
-                format!("{file_ref}={short} {line_count}L")
-            } else {
-                format!("{short} {line_count}L")
-            };
-
-            if !dep_info.imports.is_empty() {
-                output.push_str("\n  deps: ");
-                output.push_str(&dep_info.imports.join(", "));
-            }
-
-            let key_sigs: Vec<&signatures::Signature> = sigs
-                .iter()
-                .filter(|s| s.is_exported || s.indent == 0)
-                .collect();
-
-            // Drop exports the API section already lists with full signatures
-            // (pure redundant tokens in map mode, #361).
-            let extra_exports = signatures::exports_not_in_signatures(&dep_info.exports, &key_sigs);
-            if !extra_exports.is_empty() {
-                output.push_str("\n  exports: ");
-                output.push_str(&extra_exports.join(", "));
-            }
-
-            if !key_sigs.is_empty() {
-                output.push_str("\n  API:");
-                // Self-describing outputs (GL #580): legend precedes symbols.
-                if crp_mode.is_tdd() {
-                    let legend = signatures::tdd_legend(&key_sigs);
-                    if !legend.is_empty() {
-                        output.push_str(&format!(" {legend}"));
-                    }
-                }
-                let health = health_annotations(content, ext);
-                for sig in &key_sigs {
-                    output.push_str("\n    ");
-                    if crp_mode.is_tdd() {
-                        output.push_str(&sig.to_tdd_located());
-                    } else {
-                        output.push_str(&sig.to_compact_located());
-                    }
-                    if let Some(note) = health.get(&sig.name) {
-                        output.push_str("  ");
-                        output.push_str(note);
-                    }
-                }
-            }
-
-            // Nothing extractable (no grammar/regex coverage for this language):
-            // an information-free map must say so, or the caller reads the bare
-            // header as "this file has no API" (limitations audit, #4 residual).
-            if key_sigs.is_empty() && dep_info.imports.is_empty() && extra_exports.is_empty() {
-                output.push_str(&no_structure_marker(ext));
-            }
-
-            if let Some(body) = task_relevant_body(content, file_path, ext, task) {
-                output.push('\n');
-                output.push_str(&body);
-            }
-            // Located symbols are addressable as stable handles (#607).
-            if crate::core::profiles::active_profile()
-                .output_hints
-                .compressed_hint()
-                && !key_sigs.is_empty()
-            {
-                output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
-            }
-
-            let sent = count_tokens(&output);
-            (
-                append_compressed_hint(
-                    &protocol::append_savings(&output, original_tokens, sent),
-                    file_path,
-                ),
-                sent,
-            )
-        }
-        "aggressive" => {
-            // Structured JSON (#936): a redundant array-of-objects compacts far
-            // better — and losslessly — through the shared `json_crush` core than
-            // generic text pruning, which mangles structure. Fires only when it
-            // at least halves the file and shrinks the token count; the exact
-            // bytes stay recoverable via a `full`/`raw` re-read.
-            if ext == "json"
-                && let Some(crushed) = crate::core::json_crush::crush_text_if_beneficial(content)
-            {
-                let header = build_header(file_ref, short, ext, content, line_count, true);
-                let body = format!("{header}\n{crushed}");
-                let sent = count_tokens(&body);
-                if sent < original_tokens {
-                    let savings = protocol::format_savings(original_tokens, sent);
-                    return (
-                        append_compressed_hint(&format!("{body}\n{savings}"), file_path),
-                        sent,
-                    );
-                }
-            }
-
-            // Tabular data (CSV/TSV, #982): a redundant table hoists its constant
-            // columns once through the columnar crusher (lossless); the exact
-            // bytes stay recoverable via a `full`/`raw` re-read.
-            if let Some(delim) = compressor::tabular_delimiter(Some(ext))
-                && let Some(crushed) =
-                    crate::core::tabular_crush::crush_text_if_beneficial(content, delim)
-            {
-                let header = build_header(file_ref, short, ext, content, line_count, true);
-                let body = format!("{header}\n{crushed}");
-                let sent = count_tokens(&body);
-                if sent < original_tokens {
-                    let savings = protocol::format_savings(original_tokens, sent);
-                    return (
-                        append_compressed_hint(&format!("{body}\n{savings}"), file_path),
-                        sent,
-                    );
-                }
-            }
-
-            // YAML (#985): a verbose document compacts losslessly to compact JSON
-            // through the shared crusher (formatting dropped, redundant
-            // `items`/`list` arrays factored); the exact bytes stay recoverable
-            // via a `full`/`raw` re-read.
-            if compressor::is_yaml_ext(Some(ext))
-                && let Some(crushed) = crate::core::yaml_crush::crush_text_if_beneficial(content)
-            {
-                let header = build_header(file_ref, short, ext, content, line_count, true);
-                let body = format!("{header}\n{crushed}");
-                let sent = count_tokens(&body);
-                if sent < original_tokens {
-                    let savings = protocol::format_savings(original_tokens, sent);
-                    return (
-                        append_compressed_hint(&format!("{body}\n{savings}"), file_path),
-                        sent,
-                    );
-                }
-            }
-
-            #[cfg(feature = "tree-sitter")]
-            let ast_pruned = crate::core::signatures_ts::ast_prune(content, ext);
-            #[cfg(not(feature = "tree-sitter"))]
-            let ast_pruned: Option<String> = None;
-
-            let base = ast_pruned.as_deref().unwrap_or(content);
-
-            let session_intent = crate::core::session::SessionState::load_latest()
-                .and_then(|s| s.active_structured_intent);
-            let raw = if let Some(ref intent) = session_intent {
-                compressor::task_aware_compress(base, Some(ext), intent)
-            } else {
-                compressor::aggressive_compress(base, Some(ext))
-            };
-            let compressed = compressor::safeguard_ratio(content, &raw);
-            let header = build_header(file_ref, short, ext, content, line_count, true);
-
-            let mut sym = SymbolMap::new();
-            let idents = symbol_map::extract_identifiers(&compressed, &[ext]);
-            for ident in &idents {
-                sym.register(ident);
-            }
-
-            if symbol_map::substitution_enabled() && sym.len() >= 3 {
-                let sym_table = sym.format_table();
-                let sym_applied = sym.apply(&compressed);
-                let orig_tok = count_tokens(&compressed);
-                let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
-                let net = orig_tok.saturating_sub(comp_tok);
-                if orig_tok > 0 && net * 100 / orig_tok >= 5 {
-                    let savings = protocol::format_savings(original_tokens, comp_tok);
-                    return (
-                        append_compressed_hint(
-                            &format!("{header}\n{sym_applied}{sym_table}\n{savings}"),
-                            file_path,
-                        ),
-                        comp_tok,
-                    );
-                }
-                let savings = protocol::format_savings(original_tokens, orig_tok);
-                return (
-                    append_compressed_hint(
-                        &format!("{header}\n{compressed}\n{savings}"),
-                        file_path,
-                    ),
-                    orig_tok,
-                );
-            }
-
-            let sent = count_tokens(&compressed);
-            let savings = protocol::format_savings(original_tokens, sent);
-            (
-                append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
-                sent,
-            )
-        }
-        "entropy" => {
-            // Query-conditioned IB (#542) — relevance source chain: explicit
-            // task param > active session intent > last semantic-search query.
-            let task_kws: Vec<String> = task
-                .filter(|t| !t.trim().is_empty())
-                .map(|t| crate::core::task_relevance::parse_task_hints(t).1)
-                .filter(|kws| !kws.is_empty())
-                .or_else(|| {
-                    let session = crate::core::session::SessionState::load_latest()?;
-                    if let Some(intent) = session.active_structured_intent
-                        && !intent.keywords.is_empty()
-                    {
-                        return Some(intent.keywords);
-                    }
-                    let q = session.last_semantic_query?;
-                    let kws = crate::core::task_relevance::parse_task_hints(&q).1;
-                    (!kws.is_empty()).then_some(kws)
-                })
-                .unwrap_or_default();
-            let result = match (task_kws.is_empty(), tuning.aggressiveness) {
-                // Aggressiveness overrides the learned BPE-entropy threshold for
-                // the plain (no task keywords) path; task-conditioned entropy
-                // keeps its own relevance-aware thresholds.
-                (true, Some(a)) => entropy::entropy_compress_with_threshold(
-                    content,
-                    file_path,
-                    AggressivenessProfile::from_level(a).bpe_entropy,
-                    tuning.protect,
-                ),
-                (true, None) => {
-                    entropy::entropy_compress_adaptive(content, file_path, tuning.protect)
-                }
-                (false, _) => entropy::entropy_compress_task_conditioned(
-                    content,
-                    file_path,
-                    &task_kws,
-                    tuning.protect,
-                ),
-            };
-            let avg_h = entropy::analyze_entropy(content).avg_entropy;
-            let header = build_header(file_ref, short, ext, content, line_count, false);
-            let output = format!(
-                "{header} H̄={avg_h:.1}{}\n{}",
-                techniques_tag(&result.techniques),
-                result.output
-            );
-            let sent = count_tokens(&output);
-            let savings = protocol::format_savings(original_tokens, sent);
-            let compression_ratio = if original_tokens > 0 {
-                1.0 - (sent as f64 / original_tokens as f64)
-            } else {
-                0.0
-            };
-            crate::core::adaptive_thresholds::report_bandit_outcome_for_path(
-                file_path,
-                compression_ratio > 0.15,
-            );
-            (
-                append_compressed_hint(&format!("{output}\n{savings}"), file_path),
-                sent,
-            )
-        }
-        "task" => {
-            let task_str = task.unwrap_or("");
-            if task_str.is_empty() {
-                let header = build_header(file_ref, short, ext, content, line_count, true);
-                let out = format!("{header}\n{content}\n[task mode: no task set — returned full]");
-                let sent = count_tokens(&out);
-                return (out, sent);
-            }
-            let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
-            if keywords.is_empty() {
-                let header = build_header(file_ref, short, ext, content, line_count, true);
-                let out = format!(
-                    "{header}\n{content}\n[task mode: no keywords extracted — returned full]"
-                );
-                let sent = count_tokens(&out);
-                return (out, sent);
-            }
-            // Aggressiveness tightens the IB keep-budget; default 0.3 preserved
-            // when the knob is unset.
-            let ib_budget = tuning.aggressiveness.map_or(0.3, |a| {
-                AggressivenessProfile::from_level(a).ib_budget_ratio
-            });
-            let filtered = crate::core::task_relevance::information_bottleneck_filter(
-                content,
-                &keywords,
-                ib_budget,
-                tuning.protect,
-            );
-            let filtered_lines = filtered.lines().count();
-            let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
-                format!(
-                    "{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]"
-                )
-            } else {
-                format!("{short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
-            };
-            let graph_ctx = if crate::core::profiles::active_profile()
-                .output_hints
-                .graph_context_block()
-            {
-                let project_root = detect_project_root(file_path);
-                crate::core::graph_context::build_graph_context(
-                    file_path,
-                    &project_root,
-                    Some(crate::core::graph_context::GraphContextOptions::default()),
-                )
-                .map(|c| crate::core::graph_context::format_graph_context(&c))
-                .unwrap_or_default()
-            } else {
-                String::new()
-            };
-
-            let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
-            let savings = protocol::format_savings(original_tokens, sent);
-            (
-                append_compressed_hint(
-                    &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
-                    file_path,
-                ),
-                sent,
-            )
-        }
+        "signatures" => render_signatures(content, ctx),
+        "map" => render_map(content, ctx),
+        "aggressive" => render_aggressive(content, ctx),
+        "entropy" => render_entropy(content, ctx, &tuning),
+        "task" => render_task_mode(content, ctx, &tuning),
         "reference" => {
             let tok = count_tokens(content);
             let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
@@ -901,4 +485,493 @@ mod render_tests {
             " [density target=0.40]"
         );
     }
+}
+
+/// Shared, `Copy` bundle of the per-call rendering context threaded to the
+/// per-mode `render_*` helpers extracted from `process_mode_tuned` (keeps each
+/// mode arm testable and the dispatcher a thin `match`).
+#[derive(Clone, Copy)]
+struct RenderCtx<'a> {
+    file_ref: &'a str,
+    short: &'a str,
+    ext: &'a str,
+    file_path: &'a str,
+    original_tokens: usize,
+    crp_mode: CrpMode,
+    line_count: usize,
+    task: Option<&'a str>,
+}
+
+fn render_signatures(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        crp_mode,
+        line_count,
+        task,
+    } = ctx;
+    let sigs = signatures::extract_signatures(content, ext);
+    let dep_info = deps::extract_deps(content, ext);
+
+    let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L")
+    } else {
+        format!("{short} {line_count}L")
+    };
+    if !dep_info.imports.is_empty() {
+        let imports_str: Vec<&str> = dep_info
+            .imports
+            .iter()
+            .take(8)
+            .map(std::string::String::as_str)
+            .collect();
+        output.push_str(&format!("\n deps {}", imports_str.join(",")));
+    }
+    // Self-describing outputs (GL #580): symbol notation always ships
+    // its own one-line legend so vanilla agents can read it.
+    if crp_mode.is_tdd() {
+        let refs: Vec<&signatures::Signature> = sigs.iter().collect();
+        let legend = signatures::tdd_legend(&refs);
+        if !legend.is_empty() {
+            output.push('\n');
+            output.push_str(&legend);
+        }
+    }
+    let health = health_annotations(content, ext);
+    for sig in &sigs {
+        output.push('\n');
+        if crp_mode.is_tdd() {
+            output.push_str(&sig.to_tdd_located());
+        } else {
+            output.push_str(&sig.to_compact_located());
+        }
+        if let Some(note) = health.get(&sig.name) {
+            output.push_str("  ");
+            output.push_str(note);
+        }
+    }
+    // Same honesty rule as map: an empty signature view for a language
+    // without an extractor must be labeled (limitations audit, #4).
+    if sigs.is_empty() && dep_info.imports.is_empty() {
+        output.push_str(&no_structure_marker(ext));
+    }
+    if let Some(body) = task_relevant_body(content, file_path, ext, task) {
+        output.push('\n');
+        output.push_str(&body);
+    }
+    // JIT disclosure (GL#447): signatures carry L-spans, so point at the
+    // targeted range expansion before the full-read escalation.
+    if crate::core::profiles::active_profile()
+        .output_hints
+        .compressed_hint()
+        && !sigs.is_empty()
+    {
+        output.push_str(&format!(
+                    "\n  ↳ expand a symbol: ctx_read(\"{file_path}\", mode=\"lines:N-M\") using the spans above"
+                ));
+        // Located symbols are addressable as stable handles (#607).
+        output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
+    }
+    let sent = count_tokens(&output);
+    (
+        append_compressed_hint(
+            &protocol::append_savings(&output, original_tokens, sent),
+            file_path,
+        ),
+        sent,
+    )
+}
+
+fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        crp_mode,
+        line_count,
+        task,
+    } = ctx;
+    if ext == "php"
+        && let Some(php_map) = crate::core::patterns::php::compress_php_map(content, short)
+    {
+        let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+            format!("{file_ref}={short} {line_count}L\n{php_map}")
+        } else {
+            format!("{short} {line_count}L\n{php_map}")
+        };
+        let sent = count_tokens(&output);
+        let output = protocol::append_savings(&output, original_tokens, sent);
+        return (append_compressed_hint(&output, file_path), sent);
+    }
+
+    let structured = match ext {
+        "md" | "mdx" | "rst" => crate::core::structured_read::extract_markdown_outline(content),
+        "json" => crate::core::structured_read::extract_json_structure(content),
+        "yaml" | "yml" => crate::core::structured_read::extract_yaml_structure(content),
+        "toml" => crate::core::structured_read::extract_toml_structure(content),
+        _ if file_path.to_lowercase().ends_with(".lock")
+            || file_path.to_lowercase().ends_with("go.sum") =>
+        {
+            crate::core::structured_read::extract_lock_summary(content, file_path)
+        }
+        _ => String::new(),
+    };
+
+    if !structured.is_empty() {
+        let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+            format!("{file_ref}={short} {line_count}L\n{structured}")
+        } else {
+            format!("{short} {line_count}L\n{structured}")
+        };
+        let sent = count_tokens(&output);
+        output = protocol::append_savings(&output, original_tokens, sent);
+        return (append_compressed_hint(&output, file_path), sent);
+    }
+
+    let sigs = signatures::extract_signatures(content, ext);
+    let dep_info = deps::extract_deps(content, ext);
+
+    let mut output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L")
+    } else {
+        format!("{short} {line_count}L")
+    };
+
+    if !dep_info.imports.is_empty() {
+        output.push_str("\n  deps: ");
+        output.push_str(&dep_info.imports.join(", "));
+    }
+
+    let key_sigs: Vec<&signatures::Signature> = sigs
+        .iter()
+        .filter(|s| s.is_exported || s.indent == 0)
+        .collect();
+
+    // Drop exports the API section already lists with full signatures
+    // (pure redundant tokens in map mode, #361).
+    let extra_exports = signatures::exports_not_in_signatures(&dep_info.exports, &key_sigs);
+    if !extra_exports.is_empty() {
+        output.push_str("\n  exports: ");
+        output.push_str(&extra_exports.join(", "));
+    }
+
+    if !key_sigs.is_empty() {
+        output.push_str("\n  API:");
+        // Self-describing outputs (GL #580): legend precedes symbols.
+        if crp_mode.is_tdd() {
+            let legend = signatures::tdd_legend(&key_sigs);
+            if !legend.is_empty() {
+                output.push_str(&format!(" {legend}"));
+            }
+        }
+        let health = health_annotations(content, ext);
+        for sig in &key_sigs {
+            output.push_str("\n    ");
+            if crp_mode.is_tdd() {
+                output.push_str(&sig.to_tdd_located());
+            } else {
+                output.push_str(&sig.to_compact_located());
+            }
+            if let Some(note) = health.get(&sig.name) {
+                output.push_str("  ");
+                output.push_str(note);
+            }
+        }
+    }
+
+    // Nothing extractable (no grammar/regex coverage for this language):
+    // an information-free map must say so, or the caller reads the bare
+    // header as "this file has no API" (limitations audit, #4 residual).
+    if key_sigs.is_empty() && dep_info.imports.is_empty() && extra_exports.is_empty() {
+        output.push_str(&no_structure_marker(ext));
+    }
+
+    if let Some(body) = task_relevant_body(content, file_path, ext, task) {
+        output.push('\n');
+        output.push_str(&body);
+    }
+    // Located symbols are addressable as stable handles (#607).
+    if crate::core::profiles::active_profile()
+        .output_hints
+        .compressed_hint()
+        && !key_sigs.is_empty()
+    {
+        output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
+    }
+
+    let sent = count_tokens(&output);
+    (
+        append_compressed_hint(
+            &protocol::append_savings(&output, original_tokens, sent),
+            file_path,
+        ),
+        sent,
+    )
+}
+
+fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        line_count,
+        ..
+    } = ctx;
+    // Structured JSON (#936): a redundant array-of-objects compacts far
+    // better — and losslessly — through the shared `json_crush` core than
+    // generic text pruning, which mangles structure. Fires only when it
+    // at least halves the file and shrinks the token count; the exact
+    // bytes stay recoverable via a `full`/`raw` re-read.
+    if ext == "json"
+        && let Some(crushed) = crate::core::json_crush::crush_text_if_beneficial(content)
+    {
+        let header = build_header(file_ref, short, ext, content, line_count, true);
+        let body = format!("{header}\n{crushed}");
+        let sent = count_tokens(&body);
+        if sent < original_tokens {
+            let savings = protocol::format_savings(original_tokens, sent);
+            return (
+                append_compressed_hint(&format!("{body}\n{savings}"), file_path),
+                sent,
+            );
+        }
+    }
+
+    // Tabular data (CSV/TSV, #982): a redundant table hoists its constant
+    // columns once through the columnar crusher (lossless); the exact
+    // bytes stay recoverable via a `full`/`raw` re-read.
+    if let Some(delim) = compressor::tabular_delimiter(Some(ext))
+        && let Some(crushed) = crate::core::tabular_crush::crush_text_if_beneficial(content, delim)
+    {
+        let header = build_header(file_ref, short, ext, content, line_count, true);
+        let body = format!("{header}\n{crushed}");
+        let sent = count_tokens(&body);
+        if sent < original_tokens {
+            let savings = protocol::format_savings(original_tokens, sent);
+            return (
+                append_compressed_hint(&format!("{body}\n{savings}"), file_path),
+                sent,
+            );
+        }
+    }
+
+    // YAML (#985): a verbose document compacts losslessly to compact JSON
+    // through the shared crusher (formatting dropped, redundant
+    // `items`/`list` arrays factored); the exact bytes stay recoverable
+    // via a `full`/`raw` re-read.
+    if compressor::is_yaml_ext(Some(ext))
+        && let Some(crushed) = crate::core::yaml_crush::crush_text_if_beneficial(content)
+    {
+        let header = build_header(file_ref, short, ext, content, line_count, true);
+        let body = format!("{header}\n{crushed}");
+        let sent = count_tokens(&body);
+        if sent < original_tokens {
+            let savings = protocol::format_savings(original_tokens, sent);
+            return (
+                append_compressed_hint(&format!("{body}\n{savings}"), file_path),
+                sent,
+            );
+        }
+    }
+
+    #[cfg(feature = "tree-sitter")]
+    let ast_pruned = crate::core::signatures_ts::ast_prune(content, ext);
+    #[cfg(not(feature = "tree-sitter"))]
+    let ast_pruned: Option<String> = None;
+
+    let base = ast_pruned.as_deref().unwrap_or(content);
+
+    let session_intent =
+        crate::core::session::SessionState::load_latest().and_then(|s| s.active_structured_intent);
+    let raw = if let Some(ref intent) = session_intent {
+        compressor::task_aware_compress(base, Some(ext), intent)
+    } else {
+        compressor::aggressive_compress(base, Some(ext))
+    };
+    let compressed = compressor::safeguard_ratio(content, &raw);
+    let header = build_header(file_ref, short, ext, content, line_count, true);
+
+    let mut sym = SymbolMap::new();
+    let idents = symbol_map::extract_identifiers(&compressed, &[ext]);
+    for ident in &idents {
+        sym.register(ident);
+    }
+
+    if symbol_map::substitution_enabled() && sym.len() >= 3 {
+        let sym_table = sym.format_table();
+        let sym_applied = sym.apply(&compressed);
+        let orig_tok = count_tokens(&compressed);
+        let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
+        let net = orig_tok.saturating_sub(comp_tok);
+        if orig_tok > 0 && net * 100 / orig_tok >= 5 {
+            let savings = protocol::format_savings(original_tokens, comp_tok);
+            return (
+                append_compressed_hint(
+                    &format!("{header}\n{sym_applied}{sym_table}\n{savings}"),
+                    file_path,
+                ),
+                comp_tok,
+            );
+        }
+        let savings = protocol::format_savings(original_tokens, orig_tok);
+        return (
+            append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
+            orig_tok,
+        );
+    }
+
+    let sent = count_tokens(&compressed);
+    let savings = protocol::format_savings(original_tokens, sent);
+    (
+        append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
+        sent,
+    )
+}
+
+fn render_entropy(content: &str, ctx: RenderCtx<'_>, tuning: &ReadTuning<'_>) -> (String, usize) {
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        line_count,
+        task,
+        ..
+    } = ctx;
+    // Query-conditioned IB (#542) — relevance source chain: explicit
+    // task param > active session intent > last semantic-search query.
+    let task_kws: Vec<String> = task
+        .filter(|t| !t.trim().is_empty())
+        .map(|t| crate::core::task_relevance::parse_task_hints(t).1)
+        .filter(|kws| !kws.is_empty())
+        .or_else(|| {
+            let session = crate::core::session::SessionState::load_latest()?;
+            if let Some(intent) = session.active_structured_intent
+                && !intent.keywords.is_empty()
+            {
+                return Some(intent.keywords);
+            }
+            let q = session.last_semantic_query?;
+            let kws = crate::core::task_relevance::parse_task_hints(&q).1;
+            (!kws.is_empty()).then_some(kws)
+        })
+        .unwrap_or_default();
+    let result = match (task_kws.is_empty(), tuning.aggressiveness) {
+        // Aggressiveness overrides the learned BPE-entropy threshold for
+        // the plain (no task keywords) path; task-conditioned entropy
+        // keeps its own relevance-aware thresholds.
+        (true, Some(a)) => entropy::entropy_compress_with_threshold(
+            content,
+            file_path,
+            AggressivenessProfile::from_level(a).bpe_entropy,
+            tuning.protect,
+        ),
+        (true, None) => entropy::entropy_compress_adaptive(content, file_path, tuning.protect),
+        (false, _) => entropy::entropy_compress_task_conditioned(
+            content,
+            file_path,
+            &task_kws,
+            tuning.protect,
+        ),
+    };
+    let avg_h = entropy::analyze_entropy(content).avg_entropy;
+    let header = build_header(file_ref, short, ext, content, line_count, false);
+    let output = format!(
+        "{header} H̄={avg_h:.1}{}\n{}",
+        techniques_tag(&result.techniques),
+        result.output
+    );
+    let sent = count_tokens(&output);
+    let savings = protocol::format_savings(original_tokens, sent);
+    let compression_ratio = if original_tokens > 0 {
+        1.0 - (sent as f64 / original_tokens as f64)
+    } else {
+        0.0
+    };
+    crate::core::adaptive_thresholds::report_bandit_outcome_for_path(
+        file_path,
+        compression_ratio > 0.15,
+    );
+    (
+        append_compressed_hint(&format!("{output}\n{savings}"), file_path),
+        sent,
+    )
+}
+
+fn render_task_mode(content: &str, ctx: RenderCtx<'_>, tuning: &ReadTuning<'_>) -> (String, usize) {
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        line_count,
+        task,
+        ..
+    } = ctx;
+    let task_str = task.unwrap_or("");
+    if task_str.is_empty() {
+        let header = build_header(file_ref, short, ext, content, line_count, true);
+        let out = format!("{header}\n{content}\n[task mode: no task set — returned full]");
+        let sent = count_tokens(&out);
+        return (out, sent);
+    }
+    let (_files, keywords) = crate::core::task_relevance::parse_task_hints(task_str);
+    if keywords.is_empty() {
+        let header = build_header(file_ref, short, ext, content, line_count, true);
+        let out =
+            format!("{header}\n{content}\n[task mode: no keywords extracted — returned full]");
+        let sent = count_tokens(&out);
+        return (out, sent);
+    }
+    // Aggressiveness tightens the IB keep-budget; default 0.3 preserved
+    // when the knob is unset.
+    let ib_budget = tuning.aggressiveness.map_or(0.3, |a| {
+        AggressivenessProfile::from_level(a).ib_budget_ratio
+    });
+    let filtered = crate::core::task_relevance::information_bottleneck_filter(
+        content,
+        &keywords,
+        ib_budget,
+        tuning.protect,
+    );
+    let filtered_lines = filtered.lines().count();
+    let header = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
+    } else {
+        format!("{short} {line_count}L [task-filtered: {line_count}→{filtered_lines}]")
+    };
+    let graph_ctx = if crate::core::profiles::active_profile()
+        .output_hints
+        .graph_context_block()
+    {
+        let project_root = detect_project_root(file_path);
+        crate::core::graph_context::build_graph_context(
+            file_path,
+            &project_root,
+            Some(crate::core::graph_context::GraphContextOptions::default()),
+        )
+        .map(|c| crate::core::graph_context::format_graph_context(&c))
+        .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
+    let savings = protocol::format_savings(original_tokens, sent);
+    (
+        append_compressed_hint(
+            &format!("{header}\n{filtered}{graph_ctx}\n{savings}"),
+            file_path,
+        ),
+        sent,
+    )
 }
