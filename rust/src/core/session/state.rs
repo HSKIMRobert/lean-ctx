@@ -471,7 +471,7 @@ impl SessionState {
     /// jail-rejection reason as the second tuple element so callers can surface
     /// it instead of silently substituting the root (#629). `None` means the
     /// candidate was accepted as-is.
-fn jail_cwd(candidate: &str, fallback_root: &str) -> (String, Option<String>) {
+    fn jail_cwd(candidate: &str, fallback_root: &str) -> (String, Option<String>) {
         let p = std::path::Path::new(candidate);
         match crate::core::pathjail::jail_path(p, std::path::Path::new(fallback_root)) {
             Ok(jailed) => (jailed.to_string_lossy().to_string(), None),

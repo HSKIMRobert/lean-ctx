@@ -1,5 +1,5 @@
-use thiserror::Error;
 use std::path::PathBuf;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LeanCtxError {
@@ -72,7 +72,9 @@ pub enum ConfigError {
     #[error("Cannot set table '{value}' via CLI. Edit config.toml directly.")]
     CannotSetTable { value: String },
 
-    #[error("Cannot set '{key}': '{part}' already holds a non-table value in config.toml. Fix or remove that key first.")]
+    #[error(
+        "Cannot set '{key}': '{part}' already holds a non-table value in config.toml. Fix or remove that key first."
+    )]
     NonTableParent { key: String, part: String },
 
     #[error("{0}")]

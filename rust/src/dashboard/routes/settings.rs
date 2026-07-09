@@ -94,11 +94,9 @@ fn apply_setting(key: &str, value: &str) -> Result<(), String> {
     match key {
         "compression_level" => apply_compression(value),
         "tool_profile" => apply_tool_profile(value),
-        "structure_first" => {
-            crate::core::config::setter::set_by_key("structure_first", value)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }
+        "structure_first" => crate::core::config::setter::set_by_key("structure_first", value)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
         "terse_agent" => apply_terse_agent(value),
         // validate_setting already rejected anything else.
         _ => Err(format!("unknown or non-editable setting: '{key}'")),

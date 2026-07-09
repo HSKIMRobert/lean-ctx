@@ -14,11 +14,12 @@ use super::schema::{ConfigSchema, KeySchema};
 /// Returns the updated `Config` on success, or a user-friendly error message.
 pub fn set_by_key(key: &str, value: &str) -> Result<Config, crate::core::error::ConfigError> {
     let schema = ConfigSchema::generate();
-    let key_schema = schema
-        .lookup(key)
-        .ok_or_else(|| crate::core::error::ConfigError::UnknownKey {
-            key: key.to_string(),
-        })?;
+    let key_schema =
+        schema
+            .lookup(key)
+            .ok_or_else(|| crate::core::error::ConfigError::UnknownKey {
+                key: key.to_string(),
+            })?;
 
     let mut table = load_config_as_table()?;
     let toml_value = parse_value(value, key_schema)?;
@@ -26,12 +27,16 @@ pub fn set_by_key(key: &str, value: &str) -> Result<Config, crate::core::error::
 
     let cfg: Config = toml::Value::Table(table)
         .try_into()
-        .map_err(|e: toml::de::Error| crate::core::error::ConfigError::InvalidValue {
-            key: key.to_string(),
-            message: e.to_string(),
-        })?;
+        .map_err(
+            |e: toml::de::Error| crate::core::error::ConfigError::InvalidValue {
+                key: key.to_string(),
+                message: e.to_string(),
+            },
+        )?;
     cfg.save()
-        .map_err(|e| crate::core::error::ConfigError::Save { source: Box::new(e) })?;
+        .map_err(|e| crate::core::error::ConfigError::Save {
+            source: Box::new(e),
+        })?;
     Ok(cfg)
 }
 
@@ -92,11 +97,12 @@ fn parse_value(
             }),
         },
         "u8" | "u16" | "u32" | "u64" | "usize" | "u64?" => {
-            let n: i64 = value.parse().map_err(|_| {
-                crate::core::error::ConfigError::ExpectedInteger {
-                    value: value.to_string(),
-                }
-            })?;
+            let n: i64 =
+                value
+                    .parse()
+                    .map_err(|_| crate::core::error::ConfigError::ExpectedInteger {
+                        value: value.to_string(),
+                    })?;
             if n < 0 {
                 return Err(crate::core::error::ConfigError::ExpectedUnsignedInteger {
                     value: value.to_string(),
@@ -105,11 +111,12 @@ fn parse_value(
             Ok(toml::Value::Integer(n))
         }
         "f32" | "f64" => {
-            let n: f64 = value.parse().map_err(|_| {
-                crate::core::error::ConfigError::ExpectedNumber {
-                    value: value.to_string(),
-                }
-            })?;
+            let n: f64 =
+                value
+                    .parse()
+                    .map_err(|_| crate::core::error::ConfigError::ExpectedNumber {
+                        value: value.to_string(),
+                    })?;
             Ok(toml::Value::Float(n))
         }
         "string" | "string?" => Ok(toml::Value::String(value.to_string())),

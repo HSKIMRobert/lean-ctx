@@ -9,8 +9,8 @@ mod mode;
 #[cfg(test)]
 mod tests;
 
-pub use mode::ShellSecurity;
 use crate::core::error::ShellError;
+pub use mode::ShellSecurity;
 
 /// Checks whether a command may run, honouring the active [`ShellSecurity`] mode
 /// (GL #788). This is the single chokepoint shared by MCP `ctx_shell` and the
@@ -68,7 +68,8 @@ fn enforce_shell_allowlist(command: &str) -> Result<(), ShellError> {
              which is blocked regardless of allowlist. \
              This is a permanent security restriction, not a transient error.\n\
              Command: {command}"
-        ).into());
+        )
+        .into());
     }
 
     let strict = crate::core::config::Config::load().shell_strict_mode;
@@ -106,7 +107,8 @@ fn check_substitution_in_args(command: &str, strict: bool) -> Result<(), ShellEr
                  arguments is blocked because shell_strict_mode = true. \
                  This is a permanent security restriction.\n\
                  Command: {command}"
-            ).into());
+            )
+            .into());
         }
         tracing::warn!(
             "[SECURITY] Command substitution in arguments detected (warn-only, set shell_strict_mode=true to block): {command}"
@@ -189,7 +191,8 @@ fn check_pipe_to_bare_interpreter(command: &str, strict: bool) -> Result<(), She
                     "[BLOCKED — DO NOT RETRY] Piping into bare interpreter '{base}' is blocked \
                      because shell_strict_mode = true. Run a script file instead.\n\
                      Command: {command}"
-                ).into());
+                )
+                .into());
             }
             tracing::warn!("[SECURITY] Pipe to bare interpreter '{base}' detected (warn-only)");
         }
@@ -207,7 +210,8 @@ fn check_unconditional_blocked_only(command: &str) -> Result<(), ShellError> {
                 "[BLOCKED — DO NOT RETRY] '{base}' is unconditionally blocked \
                  regardless of allowlist configuration.\n\
                  Command: {command}"
-            ).into());
+            )
+            .into());
         }
         check_inline_env_block(seg)?;
         check_interpreter_eval_only(seg)?;
@@ -320,14 +324,16 @@ fn check_interpreter_eval_only_inner(segment: &str, depth: usize) -> Result<(), 
                 "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with inline code execution \
                  flag '{tok}' is blocked. Use a script file instead.\n\
                  This is a permanent security restriction."
-            ).into());
+            )
+            .into());
         }
         if has_eval_flag_prefix(tok) {
             return Err(format!(
                 "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
                  containing eval flag is blocked.\n\
                  This is a permanent security restriction."
-            ).into());
+            )
+            .into());
         }
     }
     if tokens[1..].iter().any(|t| t.contains("<<")) {
@@ -427,14 +433,16 @@ fn check_interpreter_abuse_inner(
                     "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with inline code execution \
                      flag '{tok}' is blocked. Use a script file instead.\n\
                      This is a permanent security restriction."
-                ).into());
+                )
+                .into());
             }
             if has_eval_flag_prefix(tok) {
                 return Err(format!(
                     "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
                      containing eval flag is blocked.\n\
                      This is a permanent security restriction."
-                ).into());
+                )
+                .into());
             }
         }
         if tokens[1..].iter().any(|t| t.contains("<<")) {
@@ -450,7 +458,8 @@ fn check_interpreter_abuse_inner(
                 return Err(format!(
                     "[BLOCKED — DO NOT RETRY] '{base}' delegates to '{delegated}' which is not \
                      in the shell allowlist. This is a permanent restriction."
-                ).into());
+                )
+                .into());
             }
             let rest_str = rest_tokens.join(" ");
             check_interpreter_abuse_inner(&rest_str, allowlist, depth + 1)?;
@@ -557,7 +566,8 @@ fn check_dangerous_flags(segment: &str) -> Result<(), ShellError> {
                         "[BLOCKED — DO NOT RETRY] 'find' with '{tok}' is blocked. \
                          Use 'find ... -print' and pipe to xargs instead.\n\
                          This is a permanent security restriction."
-                    ).into());
+                    )
+                    .into());
                 }
             }
         }
@@ -567,7 +577,8 @@ fn check_dangerous_flags(segment: &str) -> Result<(), ShellError> {
                     return Err(format!(
                         "[BLOCKED — DO NOT RETRY] '{base}' with 'system()' call is blocked.\n\
                          This is a permanent security restriction."
-                    ).into());
+                    )
+                    .into());
                 }
             }
         }
@@ -583,7 +594,8 @@ fn check_inline_env_block(segment: &str) -> Result<(), ShellError> {
             return Err(format!(
                 "[BLOCKED — DO NOT RETRY] Inline environment override '{blocked}' is blocked.\n\
                  This is a permanent security restriction."
-            ).into());
+            )
+            .into());
         }
     }
     Ok(())
@@ -618,7 +630,8 @@ fn expand_to_leaf_segments(command: &str) -> Result<Vec<String>, ShellError> {
              restricted (allowlisted) shell mode — their `pattern)` arms cannot be \
              leaf-validated safely. Run a script file or disable the allowlist instead.\n\
              Command: {command}"
-        ).into());
+        )
+        .into());
     }
     let mut leaves = Vec::new();
     for seg in extract_all_commands(command) {
@@ -638,7 +651,8 @@ fn resolve_segment_leaves(
         return Err(format!(
             "[BLOCKED — DO NOT RETRY] Shell command nests compound/subshell groups too \
              deeply to validate safely.\nCommand: {segment}"
-        ).into());
+        )
+        .into());
     }
     let mut s = segment.trim();
     loop {
@@ -796,7 +810,8 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellEr
              which is blocked in restricted mode. \
              This is a permanent security restriction, not a transient error.\n\
              Command: {command}"
-        ).into());
+        )
+        .into());
     }
 
     let segments = expand_to_leaf_segments(command)?;
@@ -816,7 +831,8 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellEr
                  regardless of allowlist membership. \
                  This is a permanent security restriction.\n\
                  Command: {command}"
-            ).into());
+            )
+            .into());
         }
         check_interpreter_abuse(seg, allowlist)?;
         check_dangerous_flags(seg)?;

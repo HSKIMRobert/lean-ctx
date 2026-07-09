@@ -412,10 +412,11 @@ pub fn jail_path_with_roots(
                 .map(|r| canonicalize_secure(Path::new(r))),
         );
 
-        let (base, remainder) = canonicalize_existing_ancestor(candidate)
-            .ok_or_else(|| PathJailError::NoExistingAncestor {
+        let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
+            PathJailError::NoExistingAncestor {
                 path: candidate.to_path_buf(),
-            })?;
+            }
+        })?;
 
         let allowed =
             is_under_prefix(&base, &root) || allow.iter().any(|p| is_under_prefix(&base, p));

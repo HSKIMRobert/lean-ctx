@@ -1606,10 +1606,13 @@ impl Config {
     {
         let mut cfg = match std::fs::read_to_string(path) {
             Ok(raw) if !raw.trim().is_empty() => toml::from_str::<Self>(&raw).map_err(|e| {
-                super::error::LeanCtxError::Config(format!(
-                    "refusing to modify an unparseable config.toml ({e}); fix it \
+                super::error::LeanCtxError::Config(
+                    format!(
+                        "refusing to modify an unparseable config.toml ({e}); fix it \
                      manually or run `lean-ctx doctor --fix`, then retry"
-                ).into())
+                    )
+                    .into(),
+                )
             })?,
             _ => Self::default(),
         };

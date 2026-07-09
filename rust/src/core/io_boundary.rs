@@ -257,7 +257,10 @@ pub fn jail_and_check_path(
         // Only a real jail escape is a security event. A path that simply doesn't exist
         // (stale graph entry, removed file) is benign — emitting a policy violation for it
         // spams the event feed and mislabels missing files as denials.
-        if !matches!(e, crate::core::error::PathJailError::NoExistingAncestor { .. }) {
+        if !matches!(
+            e,
+            crate::core::error::PathJailError::NoExistingAncestor { .. }
+        ) {
             let msg = format!("pathjail denied: {} ({e})", candidate.display());
             events::emit_policy_violation(&role_name, tool, &msg);
         }
