@@ -28,7 +28,7 @@ Two tables: `[addon]` (metadata) and `[mcp]` (how lean-ctx runs the server).
 | `license` | string | `""` | SPDX id (e.g. `Apache-2.0`). |
 | `categories` | string[] | `[]` | Coarse buckets for browsing (e.g. `plans`, `workflow`, `search`). |
 | `keywords` | string[] | `[]` | Free-form search terms. |
-| `min_lean_ctx` | string | `""` | Minimum lean-ctx version targeted (informational). |
+| `min_lean_ctx` | string | `""` | Minimum lean-ctx version required. **Enforced**: `addon add` / `addon update` abort when the running binary is older, naming both versions. Empty = no requirement. |
 | `verified` | bool | `false` | **Registry-controlled** trust tier. `true` only for entries a maintainer has audited and vouched for. Setting it in a hand-written manifest is meaningless — trust is conferred by the registry an entry ships in, not by the entry claiming it. |
 
 ### `[mcp]`
