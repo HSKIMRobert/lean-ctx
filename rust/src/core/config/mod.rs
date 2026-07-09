@@ -585,7 +585,7 @@ pub struct Config {
     /// servers. Global-only (never merged from project-local config) and a full
     /// no-op until `gateway.enabled = true`.
     #[serde(default)]
-    pub gateway: crate::core::gateway::GatewayConfig,
+    pub gateway: crate::core::mcp_catalog::GatewayConfig,
     /// Self-hosted org gateway server (`[gateway_server]`, enterprise#20):
     /// deployment parameters for the usage cockpit — seat count for the
     /// org-wide projection, display label, and the central admin API the local
@@ -795,7 +795,7 @@ impl Default for Config {
             boundary_policy: crate::core::memory_boundary::BoundaryPolicy::default(),
             secret_detection: SecretDetectionConfig::default(),
             sensitivity: crate::core::sensitivity::SensitivityConfig::default(),
-            gateway: crate::core::gateway::GatewayConfig::default(),
+            gateway: crate::core::mcp_catalog::GatewayConfig::default(),
             gateway_server: GatewayServerConfig::default(),
             addons: crate::core::addons::AddonsConfig::default(),
             allow_auto_reroot: false,

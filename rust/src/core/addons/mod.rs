@@ -4,7 +4,7 @@
 //! [`lean-ctx-addon.toml`](manifest) manifest, so a third-party tool plugs into
 //! lean-ctx's MCP gateway with a single `lean-ctx addon add` — no fork, no
 //! recompile. Addons are user-global and reuse the gateway trust model
-//! (`[gateway]` is global-only and opt-in; see [`crate::core::gateway`]).
+//! (`[gateway]` is global-only and opt-in; see [`crate::core::mcp_catalog`]).
 //!
 //! Layers:
 //! - [`manifest`] — the `lean-ctx-addon.toml` contract (also the registry entry shape).

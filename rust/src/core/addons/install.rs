@@ -11,7 +11,7 @@ use super::manifest::AddonManifest;
 use super::policy::AddonsConfig;
 use super::store::{ArtifactReceipt, InstalledAddon, InstalledStore};
 use crate::core::config::Config;
-use crate::core::gateway::GatewayServer;
+use crate::core::mcp_catalog::GatewayServer;
 
 /// Result of a successful [`install`].
 pub struct InstallOutcome {
@@ -142,7 +142,7 @@ pub fn install(
     });
     store.save()?;
 
-    crate::core::gateway::catalog::invalidate();
+    crate::core::mcp_catalog::catalog::invalidate();
 
     Ok(InstallOutcome {
         name,
@@ -177,7 +177,7 @@ pub fn remove(name: &str) -> Result<RemoveOutcome, String> {
     let last_removed = store.addons.is_empty();
     store.save()?;
 
-    crate::core::gateway::catalog::invalidate();
+    crate::core::mcp_catalog::catalog::invalidate();
 
     Ok(RemoveOutcome {
         name: name.to_string(),

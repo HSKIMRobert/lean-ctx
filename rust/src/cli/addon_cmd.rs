@@ -939,7 +939,7 @@ fn cmd_revoke(name: &str, args: &[String]) {
             if InstalledStore::load().get(name).is_some() {
                 println!("  It is still installed — `lean-ctx addon remove {name}` to unwire it.");
             }
-            crate::core::gateway::catalog::invalidate();
+            crate::core::mcp_catalog::catalog::invalidate();
         }
         Err(e) => {
             eprintln!("Error: {e}");
@@ -966,7 +966,7 @@ fn cmd_unrevoke(name: &str, args: &[String]) {
     match list.save() {
         Ok(()) => {
             println!("✓ Lifted revocation on `{name}`.");
-            crate::core::gateway::catalog::invalidate();
+            crate::core::mcp_catalog::catalog::invalidate();
         }
         Err(e) => {
             eprintln!("Error: {e}");
@@ -1028,7 +1028,7 @@ fn cmd_verify() {
 /// current directory. `--http` for an HTTP addon, `--force` to overwrite.
 fn cmd_init(args: &[String]) {
     use crate::core::addons::scaffold;
-    use crate::core::gateway::TransportKind;
+    use crate::core::mcp_catalog::TransportKind;
 
     let transport = if args.iter().any(|a| a == "--http") {
         TransportKind::Http
@@ -1180,7 +1180,7 @@ fn cmd_audit(target: &str) {
     );
     println!(
         "  binary pin:     {}",
-        if manifest.mcp.transport == crate::core::gateway::TransportKind::Http {
+        if manifest.mcp.transport == crate::core::mcp_catalog::TransportKind::Http {
             "n/a (http transport)"
         } else if report.binary_pinned {
             "pinned (sha256)"
@@ -1265,7 +1265,7 @@ fn print_install_preview(manifest: &AddonManifest) {
     );
     println!("  transport: {}", mcp.transport.as_str());
     match mcp.transport {
-        crate::core::gateway::TransportKind::Stdio => {
+        crate::core::mcp_catalog::TransportKind::Stdio => {
             println!("  command:   {}", mcp.command);
             if !mcp.args.is_empty() {
                 println!("  args:      {}", mcp.args.join(" "));
@@ -1284,7 +1284,7 @@ fn print_install_preview(manifest: &AddonManifest) {
                 );
             }
         }
-        crate::core::gateway::TransportKind::Http => {
+        crate::core::mcp_catalog::TransportKind::Http => {
             println!("  url:       {}", mcp.url);
             if !mcp.headers.is_empty() {
                 let keys: Vec<&str> = mcp.headers.keys().map(String::as_str).collect();
@@ -1359,7 +1359,7 @@ fn print_capabilities(manifest: &AddonManifest) {
             }
         }
         None => {
-            if manifest.mcp.transport == crate::core::gateway::TransportKind::Stdio {
+            if manifest.mcp.transport == crate::core::mcp_catalog::TransportKind::Stdio {
                 println!(
                     "\n  Capabilities: none declared — governed by `addons.sandbox` \
                      (set a [capabilities] block for a per-addon sandbox)."

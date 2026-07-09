@@ -13,7 +13,7 @@ use std::path::Path;
 
 use super::bootstrap::AddonInstall;
 use super::capabilities::AddonCapabilities;
-use crate::core::gateway::{GatewayServer, TransportKind};
+use crate::core::mcp_catalog::{GatewayServer, TransportKind};
 
 /// `[addon]` — human + catalog metadata.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -129,7 +129,7 @@ impl AddonManifest {
     /// `addon.integration` if set, otherwise derived from `addon.categories`.
     /// Returns the canonical adapter slug (or empty for none).
     pub fn integration_kind(&self) -> String {
-        use crate::core::gateway::adapters::IntegrationKind;
+        use crate::core::mcp_catalog::adapters::IntegrationKind;
         let explicit = self.addon.integration.trim();
         let kind = if explicit.is_empty() {
             IntegrationKind::from_categories(&self.addon.categories)

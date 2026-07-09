@@ -236,7 +236,7 @@ mod tests {
         // that flips the single gateway spawn point from the legacy "inherit the
         // full host env" path to the scrubbed path (env_clear + base allowlist) —
         // so a runnable addon without one silently leaks host API keys to the
-        // child. See `core::addons::env_scrub` + `core::gateway::client`.
+        // child. See `core::addons::env_scrub` + `core::mcp_catalog::client`.
         //
         // A block may pass through a *small, reviewed* set of BYO-key env names
         // (e.g. cognee needs `LLM_API_KEY`). Any name outside this allowlist must

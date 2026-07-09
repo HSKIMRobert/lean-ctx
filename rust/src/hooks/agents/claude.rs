@@ -94,7 +94,7 @@ fn install_claude_mcp_server(home: &std::path::Path) {
 /// appended a duplicate (GH #549).
 pub(crate) const CLAUDE_MD_BLOCK_START: &str = crate::core::rules_canonical::AGENTS_BLOCK_START;
 const CLAUDE_MD_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
-const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v5";
+const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v6";
 
 // v3 (GL #555): self-contained, no `@rules/lean-ctx.md` import. Claude Code
 // expands `@` imports inline at launch ("imports do not reduce context usage"
@@ -115,7 +115,7 @@ const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v5";
 // Read → Edit stays fully supported (v4's guard semantics unchanged).
 const CLAUDE_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v5 -->
+<!-- lean-ctx-claude-v6 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:

@@ -101,18 +101,43 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
         redirect_cmd,
     );
 
-    // Observe hooks for full context awareness
+    // Observe hooks — only essential ones (#1200). postToolUse caused
+    // Cursor to append hook stdout to edited files, corrupting source code.
     let observe_cmd = rewrite_cmd.replace("hook rewrite", "hook observe");
-    ensure_observe_hook(hooks_obj, "afterMCPExecution", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "postToolUse", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "afterShellExecution", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "beforeReadFile", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "afterAgentResponse", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "afterAgentThought", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "beforeSubmitPrompt", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "preCompact", &observe_cmd);
     ensure_observe_hook(hooks_obj, "sessionStart", &observe_cmd);
-    ensure_observe_hook(hooks_obj, "sessionEnd", &observe_cmd);
+    ensure_observe_hook(hooks_obj, "preCompact", &observe_cmd);
+
+    // Clean up previously installed problematic hooks
+    for stale in &[
+        "postToolUse",
+        "afterShellExecution",
+        "afterMCPExecution",
+        "beforeReadFile",
+        "afterAgentResponse",
+        "afterAgentThought",
+        "beforeSubmitPrompt",
+        "sessionEnd",
+    ] {
+        remove_observe_hook(hooks_obj, stale, &observe_cmd);
+    }
+}
+
+fn remove_observe_hook(
+    hooks_obj: &mut serde_json::Map<String, serde_json::Value>,
+    event: &str,
+    _observe_cmd: &str,
+) {
+    let Some(arr) = hooks_obj.get_mut(event).and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    arr.retain(|e| {
+        !e.get("command")
+            .and_then(|c| c.as_str())
+            .is_some_and(|c| c.contains("hook observe"))
+    });
+    if arr.is_empty() {
+        hooks_obj.remove(event);
+    }
 }
 
 pub fn install_cursor_hook(global: bool) {

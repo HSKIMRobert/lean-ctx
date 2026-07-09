@@ -375,7 +375,6 @@ pub mod fep_prefetch;
 pub mod filters;
 pub mod free_energy_budget;
 pub mod gain;
-pub mod gateway;
 pub mod git;
 pub mod git_cache;
 pub mod git_signals;
@@ -390,6 +389,7 @@ pub mod hnsw;
 pub mod home;
 pub mod homeostasis;
 pub mod immune_detector;
+pub mod mcp_catalog;
 pub mod qubo_select;
 
 pub mod agent_registry;
