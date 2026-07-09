@@ -339,18 +339,22 @@ fn sweep_stale_sessions(root: &std::path::Path) {
 mod tests {
     use super::*;
 
-    /// RAII guard-host marker (read_dedup=auto requires one). Restores the
-    /// environment on drop, even when an assert fails mid-test. Callers hold
-    /// `test_env_lock`, so the set/remove pair is race-free.
+    /// RAII guard that forces `read_dedup=on` for deterministic tests regardless
+    /// of host (Cursor exports its own env vars that would make Auto resolve to
+    /// disabled). Restores the environment on drop.
     struct GuardHost;
     impl GuardHost {
         fn claude() -> Self {
+            // Force dedup on — avoids depending on host_has_read_before_write_guard()
+            // which fails inside Cursor agent shells (CURSOR_* vars present).
+            crate::test_env::set_var("LEAN_CTX_READ_DEDUP", "on");
             crate::test_env::set_var("CLAUDE_PROJECT_DIR", "/repo");
             GuardHost
         }
     }
     impl Drop for GuardHost {
         fn drop(&mut self) {
+            crate::test_env::remove_var("LEAN_CTX_READ_DEDUP");
             crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
         }
     }

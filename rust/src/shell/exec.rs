@@ -325,7 +325,21 @@ fn is_heavy_command(command: &str) -> bool {
         "mise ",
         "just ",
     ];
-    HEAVY_PREFIXES.iter().any(|p| lower.starts_with(p))
+
+    let matches_heavy = |s: &str| HEAVY_PREFIXES.iter().any(|p| s.starts_with(p));
+
+    if matches_heavy(&lower) {
+        return true;
+    }
+
+    // Agents often prefix commands with `cd /path && ...` or `cd /path;`.
+    // Extract the final segment after the last `&&` or `;` and check that too.
+    let final_cmd = lower
+        .rsplit_once("&&")
+        .or_else(|| lower.rsplit_once(';'))
+        .map_or("", |(_, rhs)| rhs.trim());
+
+    !final_cmd.is_empty() && matches_heavy(final_cmd)
 }
 
 /// Execute a command from pre-split argv without going through `sh -c`.
@@ -1140,6 +1154,11 @@ mod exec_tests {
             // preflight) must not be killed at the default ceiling (#854).
             "git commit --amend --no-edit",
             "git push -u origin HEAD",
+            // Agents prefix with `cd /path && ...` — heavy detection must
+            // look through it to avoid 120s timeout on builds.
+            "cd /some/path && cargo test --lib",
+            "cd /foo/bar && cargo build --release",
+            "cd /workspace; npm ci",
         ] {
             let (bytes, _) = super::exec_limits(cmd);
             assert_eq!(bytes, super::HEAVY_MAX_BYTES, "heavy byte limit for {cmd}");
@@ -1195,6 +1214,19 @@ mod exec_tests {
         );
         assert_eq!(super::shell_timeout("git status"), super::DEFAULT_TIMEOUT);
         assert_eq!(super::shell_timeout("ls -la"), super::DEFAULT_TIMEOUT);
+        // `cd ... && heavy` must resolve to HEAVY so agents don't get killed at 120s.
+        assert_eq!(
+            super::shell_timeout("cd /some/project && cargo test --lib"),
+            super::HEAVY_TIMEOUT
+        );
+        assert_eq!(
+            super::shell_timeout("cd /workspace && cargo build --release"),
+            super::HEAVY_TIMEOUT
+        );
+        assert_eq!(
+            super::shell_timeout("cd /app; npm ci"),
+            super::HEAVY_TIMEOUT
+        );
 
         // Per-tier env overrides win over the built-in constants. (Non-round
         // second values keep the literals clippy-clean and unambiguous.)
