@@ -55,6 +55,9 @@ pub const REWRITE_COMMANDS: &[RewriteEntry] = &[
     re("cmake", Category::Build),
     re("make", Category::Build),
     // Search (rewritten in hooks to enforce hybrid)
+    re("grep", Category::Search),
+    re("egrep", Category::Search),
+    re("fgrep", Category::Search),
     re("rg", Category::Search),
     // File read alternatives (rewritten to lean-ctx read, not lean-ctx -c)
     re("cat", Category::FileRead),
@@ -185,6 +188,9 @@ mod tests {
         assert!(!prefixes.contains(&"head ".to_string()));
         assert!(!prefixes.contains(&"tail ".to_string()));
         assert!(prefixes.contains(&"rg ".to_string()));
+        assert!(prefixes.contains(&"grep ".to_string()));
+        assert!(prefixes.contains(&"egrep ".to_string()));
+        assert!(prefixes.contains(&"fgrep ".to_string()));
         assert!(prefixes.contains(&"ls ".to_string()));
         assert!(prefixes.contains(&"find ".to_string()));
         assert!(prefixes.contains(&"git ".to_string()));
@@ -214,6 +220,9 @@ mod tests {
         assert!(!is_rewritable_command("cat file.rs"));
         assert!(!is_rewritable_command("head -20 file.rs"));
         assert!(is_rewritable_command("rg pattern"));
+        assert!(is_rewritable_command("grep -rn pattern src/"));
+        assert!(is_rewritable_command("egrep 'foo|bar' file.rs"));
+        assert!(is_rewritable_command("fgrep literal file.rs"));
         assert!(is_rewritable_command("ls /tmp"));
         assert!(is_rewritable_command("find . -name '*.rs'"));
     }

@@ -1201,3 +1201,85 @@ fn passes_enforced_is_mode_independent() {
     assert!(!tricky_off, "mode-independent: sink still fails under off");
     assert!(clean_off, "clean pipeline passes regardless of mode");
 }
+
+// --- GH #760: path segments must not be mistaken for command names ---
+
+#[test]
+fn gh760_find_with_lib_path_segment_not_blocked() {
+    let list = allow(&["find", "tr"]);
+    let cmd = "find target/quarkus-app/lib -name \"*.jar\" | tr '\\n' ':'";
+    let result = check_all_segments(cmd, &list);
+    assert!(
+        result.is_ok(),
+        "path segment 'lib' in find args must not be treated as a command: {result:?}"
+    );
+}
+
+#[test]
+fn gh760_find_with_deeply_nested_path_not_blocked() {
+    let list = allow(&["find", "wc"]);
+    let cmd = "find /usr/local/lib/python3/dist-packages -name '*.py' | wc -l";
+    let result = check_all_segments(cmd, &list);
+    assert!(
+        result.is_ok(),
+        "path arguments must not be scanned for command names: {result:?}"
+    );
+}
+
+#[test]
+fn gh760_extract_base_ignores_path_arguments() {
+    assert_eq!(
+        extract_base_from_segment("find target/quarkus-app/lib -name \"*.jar\""),
+        "find",
+        "base command must be the first token, not a path segment"
+    );
+    assert_eq!(
+        extract_base_from_segment("ls /usr/local/lib"),
+        "ls",
+        "base command must be ls, not lib"
+    );
+}
+
+#[test]
+fn gh760_non_allowlisted_single_command_passes_enforced_false() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git,cargo");
+    let mvnw = passes_enforced("mvnw clean package");
+    let md5sum = passes_enforced("md5sum file.txt");
+    let update_alt = passes_enforced("update-alternatives --list java");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        !mvnw,
+        "non-allowlisted mvnw must fail passes_enforced (hook leaves it raw)"
+    );
+    assert!(!md5sum, "non-allowlisted md5sum must fail passes_enforced");
+    assert!(
+        !update_alt,
+        "non-allowlisted update-alternatives must fail passes_enforced"
+    );
+}
+
+#[test]
+fn gh760_pipeline_with_all_allowed_passes() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "find,tr,sort");
+    let result =
+        passes_enforced("find target/quarkus-app/lib -name \"*.jar\" | tr '\\n' ':' | sort");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        result,
+        "pipeline with all-allowlisted commands must pass enforced"
+    );
+}
+
+#[test]
+fn gh760_pipeline_with_non_allowed_sink_fails() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "find");
+    let result = passes_enforced("find . -name '*.jar' | custom-tool");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        !result,
+        "pipeline with non-allowlisted sink must fail (hook leaves raw)"
+    );
+}

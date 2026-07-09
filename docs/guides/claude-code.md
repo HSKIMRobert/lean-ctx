@@ -354,6 +354,3 @@ The shell hook intercepts these commands transparently — no changes needed to 
 - [CLI Reference](https://leanctx.com/docs/cli-reference/)
 - [Session Memory Guide](https://leanctx.com/docs/session-memory/)
 - [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code)
-
-
---- lean-ctx: ctx_compose bundles search+read+symbols in one call ---
