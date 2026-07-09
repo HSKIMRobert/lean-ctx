@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [3.9.4] — 2026-07-09
+
+### Added
+- **`lean-ctx wrap <agent>` — one-command setup (GH #premium-setup).** Replaces
+  the 5-step manual setup (install → PATH → onboard → shell reload → IDE restart)
+  with a single command that orchestrates everything: config snapshot, shell hooks,
+  MCP registration, agent hooks, daemon start, MCP connection probe, and a premium
+  terminal summary. Undo with `lean-ctx unwrap <agent>`.
+- **`lean-ctx unwrap <agent>` — byte-for-byte config restore.** Reads the wrap
+  snapshot and restores every modified file to its pre-wrap state, removes MCP
+  registration, and cleans up the snapshot directory.
+- **MCP verify probe.** `wrap` spawns `lean-ctx mcp`, sends JSON-RPC `initialize`
+  + `tools/list`, and confirms `ctx_read` is present — gives instant feedback that
+  the MCP server works before the user opens their editor.
+- **Agent launch detection.** `wrap` checks whether Cursor/VS Code is already
+  running and gives context-aware restart hints (process detection via `pgrep`
+  on macOS/Linux, `tasklist` on Windows).
+- **install.sh auto-PATH fix.** The installer now adds `~/.local/bin` to PATH
+  automatically (appends to shell RC + exports in current session). Opt out with
+  `LEAN_CTX_NO_PATH_FIX=1`.
+- **install.sh auto-onboard.** After binary installation, `lean-ctx onboard` runs
+  automatically. Opt out with `LEAN_CTX_NO_ONBOARD=1`.
+- **npm postinstall auto-onboard.** `npm install -g lean-ctx-bin` now runs
+  `lean-ctx onboard` after download (skipped in CI).
+
+### Changed
+- **CLI help: wrap-first progressive disclosure.** Quickstart, concise help, and
+  full reference now lead with `lean-ctx wrap <agent>` as the primary getting-started
+  path. `onboard` and `setup` remain available as alternatives.
+- **README: 30-second setup.** "Get started" section updated from 5 manual steps
+  to `lean-ctx wrap cursor`.
+- **Website: wrap-first flow.** Landing page hero, getting-started prompt generator,
+  and setup commands reference all updated to the wrap-first workflow.
+
 ## [3.9.3] — 2026-07-08
 
 ### Fixed
