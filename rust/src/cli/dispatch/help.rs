@@ -12,10 +12,10 @@ With no arguments, lean-ctx speaks the MCP protocol on stdin/stdout — that is
 for your AI editor, not for interactive use, so it is waiting silently. You
 probably want one of these:
 
-  lean-ctx onboard   Connect lean-ctx to your AI tools (start here)
-  lean-ctx doctor    Check that everything is wired up correctly
-  lean-ctx gain      See how many tokens you have saved
-  lean-ctx help      Common commands (or `help all` for everything)
+  lean-ctx wrap cursor   One-command setup for Cursor (recommended)
+  lean-ctx wrap claude   One-command setup for Claude Code
+  lean-ctx doctor        Check that everything is wired up correctly
+  lean-ctx help          Common commands (or `help all` for everything)
 
 Docs: https://leanctx.com
 ",
@@ -52,7 +52,9 @@ pub(super) fn concise_help_text() -> String {
 {banner}
 
 GETTING STARTED:
-    lean-ctx onboard               Connect your AI tools with one command (recommended)
+    lean-ctx wrap <agent>          One-command setup (wrap cursor / wrap claude / wrap codex)
+    lean-ctx unwrap <agent>        Undo wrap, restore pre-wrap config
+    lean-ctx onboard               Connect all AI tools at once (zero questions)
     lean-ctx setup                 Guided setup with full control over every option
     lean-ctx doctor                Check that everything is wired up correctly
     lean-ctx gain                  See how many tokens you have saved
@@ -97,7 +99,9 @@ pub(super) fn print_help() {
 {banner}
 
 GETTING STARTED:
-    lean-ctx onboard               Connect your AI tools with one command (recommended)
+    lean-ctx wrap <agent>          One-command setup (wrap cursor / wrap claude / wrap codex)
+    lean-ctx unwrap <agent>        Undo wrap, restore pre-wrap config
+    lean-ctx onboard               Connect all AI tools at once (zero questions)
     lean-ctx setup                 Guided setup with full control over every option
     lean-ctx doctor                Check that everything is wired up correctly
     lean-ctx gain                  See how many tokens you have saved

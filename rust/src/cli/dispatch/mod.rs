@@ -435,6 +435,14 @@ pub fn run() {
                 }
                 return;
             }
+            "wrap" => {
+                crate::wrap::run_wrap(&rest);
+                return;
+            }
+            "unwrap" => {
+                crate::wrap::run_unwrap(&rest);
+                return;
+            }
             "status" => {
                 let code = status::run_cli(&rest);
                 if code != 0 {
@@ -991,10 +999,7 @@ mod tests {
     #[test]
     fn quickstart_is_short_and_points_to_setup() {
         let q = quickstart_text();
-        assert!(
-            q.contains("lean-ctx onboard"),
-            "quickstart must point to onboard"
-        );
+        assert!(q.contains("lean-ctx wrap"), "quickstart must point to wrap");
         assert!(q.contains("lean-ctx help"), "quickstart must point to help");
         // Must stay a *quickstart*, not the full reference — keep it tight.
         assert!(
@@ -1011,7 +1016,7 @@ mod tests {
     #[test]
     fn concise_help_is_short_and_points_to_full() {
         let h = concise_help_text();
-        assert!(h.contains("lean-ctx onboard"), "must lead with onboard");
+        assert!(h.contains("lean-ctx wrap"), "must lead with wrap");
         assert!(
             h.contains("lean-ctx help all"),
             "must point to full reference"

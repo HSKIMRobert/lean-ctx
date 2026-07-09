@@ -73,3 +73,4 @@ pub mod status;
 #[cfg(test)]
 pub(crate) mod test_env;
 pub mod uninstall;
+pub mod wrap;

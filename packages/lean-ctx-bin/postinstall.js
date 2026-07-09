@@ -194,16 +194,29 @@ async function main() {
     }
 
     console.log(`lean-ctx: installed to ${BINARY_PATH}`);
+
+    // Auto-onboard unless in CI or opted out
+    if (!process.env.CI && process.env.LEAN_CTX_NO_ONBOARD !== "1") {
+      try {
+        const { execSync: exec } = require("child_process");
+        console.log("");
+        console.log("Running onboard (connecting your AI tools)...");
+        exec(`"${BINARY_PATH}" onboard`, { stdio: "inherit", timeout: 30000 });
+      } catch {
+        // Non-fatal: onboard may fail in restricted envs
+      }
+    }
+
     console.log("");
     console.log("\x1b[1m┌─────────────────────────────────────────────────────┐\x1b[0m");
     console.log("\x1b[1m│\x1b[0m  \x1b[32m\x1b[1m✓ lean-ctx installed successfully\x1b[0m                  \x1b[1m│\x1b[0m");
     console.log("\x1b[1m│\x1b[0m                                                     \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  \x1b[36m1.\x1b[0m Run:  \x1b[1mlean-ctx onboard\x1b[0m                          \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m     \x1b[2mConfigures shell, editors, and agent rules\x1b[0m      \x1b[1m│\x1b[0m");
+    console.log("\x1b[1m│\x1b[0m  Quick start:                                       \x1b[1m│\x1b[0m");
+    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap cursor\x1b[0m  (one-command setup)        \x1b[1m│\x1b[0m");
+    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap claude\x1b[0m  (Claude Code)              \x1b[1m│\x1b[0m");
+    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap codex\x1b[0m   (Codex CLI)                \x1b[1m│\x1b[0m");
     console.log("\x1b[1m│\x1b[0m                                                     \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  \x1b[36m2.\x1b[0m \x1b[33m\x1b[1mRestart your IDE\x1b[0m (Cursor, VS Code, etc.)        \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m     \x1b[2mSo the MCP connection picks up lean-ctx\x1b[0m         \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m                                                     \x1b[1m│\x1b[0m");
+    console.log("\x1b[1m│\x1b[0m  Full control: \x1b[2mlean-ctx setup\x1b[0m                        \x1b[1m│\x1b[0m");
     console.log("\x1b[1m│\x1b[0m  \x1b[2mDocs: https://leanctx.com/docs\x1b[0m                     \x1b[1m│\x1b[0m");
     console.log("\x1b[1m└─────────────────────────────────────────────────────┘\x1b[0m");
   } finally {
@@ -216,3 +229,6 @@ main().catch((err) => {
   console.error("Install from source instead: cargo install lean-ctx");
   process.exit(1);
 });
+
+
+--- lean-ctx: ctx_compose bundles search+read+symbols in one call ---

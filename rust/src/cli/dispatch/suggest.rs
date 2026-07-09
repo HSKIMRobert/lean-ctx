@@ -118,6 +118,8 @@ pub(crate) const KNOWN_COMMANDS: &[&str] = &[
     "learn",
     "buddy",
     "cloud",
+    "wrap",
+    "unwrap",
     "help",
     "mcp",
 ];

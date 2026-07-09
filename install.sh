@@ -38,37 +38,66 @@ echo "lean-ctx installer"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 finish() {
+  # --- Auto-fix PATH if needed ---
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
       echo ""
-      echo "Warning: $INSTALL_DIR is not in your PATH."
       shell_name="$(basename "${SHELL:-bash}" 2>/dev/null || echo bash)"
       rc="$HOME/.bashrc"
       case "$shell_name" in
         zsh)  rc="$HOME/.zshrc" ;;
         fish) rc="$HOME/.config/fish/config.fish" ;;
       esac
-      if [ "$shell_name" = "fish" ]; then
-        echo "  fish_add_path $INSTALL_DIR"
+
+      if [ "${LEAN_CTX_NO_PATH_FIX:-}" = "1" ]; then
+        echo "Warning: $INSTALL_DIR is not in your PATH."
+        echo "  Add it manually, then run: lean-ctx onboard"
       else
-        echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> $rc && source $rc"
-        # macOS (and any bash login shell) reads ~/.bash_profile, not ~/.bashrc — so a PATH
-        # line in ~/.bashrc never loads in Terminal.app/IDE login shells. 'lean-ctx onboard'
-        # fixes this automatically; this is the manual one-liner if you skip onboarding.
-        if [ "$shell_name" = "bash" ] && [ "$(uname -s)" = "Darwin" ]; then
-          echo "  # then make login shells load ~/.bashrc (macOS bash):"
-          echo "  grep -qs '.bashrc' \"\$HOME/.bash_profile\" 2>/dev/null || printf '\\n[ -f ~/.bashrc ] && . ~/.bashrc\\n' >> \"\$HOME/.bash_profile\""
+        echo "Adding $INSTALL_DIR to PATH..."
+        if [ "$shell_name" = "fish" ]; then
+          printf '\nfish_add_path %s\n' "$INSTALL_DIR" >> "$rc" 2>/dev/null || true
+        else
+          printf '\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc" 2>/dev/null || true
+          if [ "$shell_name" = "bash" ] && [ "$(uname -s)" = "Darwin" ]; then
+            grep -qs '.bashrc' "$HOME/.bash_profile" 2>/dev/null || \
+              printf '\n[ -f ~/.bashrc ] && . ~/.bashrc\n' >> "$HOME/.bash_profile" 2>/dev/null || true
+          fi
         fi
+        export PATH="$INSTALL_DIR:$PATH"
+        echo "  Done. PATH updated in $rc and current session."
       fi
       ;;
   esac
+
   echo ""
-  echo "Done! Verify with: lean-ctx --version"
+  echo "Done! lean-ctx $(\"$INSTALL_DIR/lean-ctx\" --version 2>/dev/null || echo 'installed')."
+
+  # --- Auto-onboard unless opted out ---
+  if [ "${LEAN_CTX_NO_ONBOARD:-}" = "1" ]; then
+    echo ""
+    echo "Next step: Run 'lean-ctx onboard' to connect your AI tools."
+    return
+  fi
+
   echo ""
-  echo "Next step: Run 'lean-ctx onboard' to connect your AI tools (zero questions)."
-  echo "  Sets up MCP tools, shell hooks, and editor rules with sensible defaults."
-  echo "  Want to choose every option yourself? Run 'lean-ctx setup' instead."
+  echo "Running onboard (connecting your AI tools)..."
+  "$INSTALL_DIR/lean-ctx" onboard 2>&1 || true
+
+  # --- Detect installed agents and suggest wrap ---
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "Setup complete! Quick start:"
+  echo ""
+  echo "  lean-ctx wrap cursor   # one-command setup for Cursor"
+  echo "  lean-ctx wrap claude   # one-command setup for Claude Code"
+  echo "  lean-ctx wrap codex    # one-command setup for Codex CLI"
+  echo ""
+  echo "  lean-ctx doctor        # verify installation"
+  echo "  lean-ctx gain          # see savings after first use"
+  echo ""
+  echo "Full control: lean-ctx setup  (interactive wizard)"
+  echo "Skip auto-onboard: curl ... | LEAN_CTX_NO_ONBOARD=1 sh"
 }
 
 detect_target() {
@@ -338,3 +367,6 @@ case "${1:-}" in
     fi
     ;;
 esac
+
+
+--- lean-ctx: ctx_compose bundles search+read+symbols in one call ---

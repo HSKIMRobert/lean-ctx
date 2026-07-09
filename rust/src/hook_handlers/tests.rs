@@ -1387,12 +1387,27 @@ fn rg_json_falls_through() {
 // --- is_shell_tool covers Gemini/Antigravity tool names ---
 
 #[test]
-fn is_shell_tool_covers_gemini_antigravity() {
-    assert!(is_shell_tool("run_command"));
-    assert!(is_shell_tool("run_shell_command"));
-    assert!(is_shell_tool("execute_command"));
-    assert!(is_shell_tool("exec_command"));
-    assert!(is_shell_tool("command_exec"));
+fn is_shell_tool_covers_all_ide_variants() {
+    for name in [
+        "run_command",
+        "run_shell_command",
+        "execute_command",
+        "exec_command",
+        "command_exec",
+        "run_terminal",
+        "runterminal",
+        "run",
+        "exec",
+        "execute",
+        "command",
+        "cmd",
+        "sh",
+    ] {
+        assert!(
+            is_shell_tool(name),
+            "{name} must be recognized as shell tool"
+        );
+    }
 }
 
 // --- Andi's real-world pattern ---
