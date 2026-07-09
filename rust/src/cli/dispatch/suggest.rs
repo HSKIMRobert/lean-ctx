@@ -6,7 +6,7 @@
 //! dispatch — so it can lag the match slightly without breaking anything.
 
 /// Known top-level command names + their well-known aliases.
-const KNOWN_COMMANDS: &[&str] = &[
+pub(crate) const KNOWN_COMMANDS: &[&str] = &[
     "shell",
     "gain",
     "spend",
@@ -113,6 +113,7 @@ const KNOWN_COMMANDS: &[&str] = &[
     "doctor",
     "harden",
     "export-rules",
+    "completions",
     "gotchas",
     "learn",
     "buddy",
