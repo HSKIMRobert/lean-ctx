@@ -1106,3 +1106,51 @@ fn gating_decision_fails_open_on_timeout() {
         "fail-open must not wait for the hung work"
     );
 }
+
+// --- GH #760: non-allowlisted binaries must pass through, not block ---
+
+#[test]
+fn gh760_non_rewritable_command_not_wrapped() {
+    assert_eq!(
+        rewrite_candidate("mvnw clean package", "lean-ctx"),
+        None,
+        "mvnw is not in REWRITE_COMMANDS — hook must not wrap it"
+    );
+    assert_eq!(
+        rewrite_candidate("md5sum file.txt", "lean-ctx"),
+        None,
+        "md5sum is not rewritable — must pass through raw"
+    );
+    assert_eq!(
+        rewrite_candidate("update-alternatives --list java", "lean-ctx"),
+        None,
+        "update-alternatives is not rewritable — must pass through raw"
+    );
+}
+
+#[test]
+fn gh760_pipeline_with_path_segments_wraps_when_gate_clean() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "find,tr");
+    let cmd = "find target/quarkus-app/lib -name \"*.jar\" | tr '\\n' ':'";
+    let result = rewrite_candidate(cmd, "lean-ctx");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert_eq!(
+        result,
+        Some(expect_wrapped(cmd, "lean-ctx")),
+        "gate-clean pipeline must be wrapped whole; path segment 'lib' must not interfere"
+    );
+}
+
+#[test]
+fn gh760_pipeline_with_non_allowed_sink_left_raw() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "find");
+    let cmd = "find . -name '*.jar' | custom-tool";
+    let result = rewrite_candidate(cmd, "lean-ctx");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert_eq!(
+        result, None,
+        "non-allowlisted sink must not be wrapped (passes through raw)"
+    );
+}
