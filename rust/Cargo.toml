@@ -479,3 +479,10 @@ harness = false
 [[bench]]
 name = "efficiency"
 harness = false
+
+# rmcp 2.0.0 is not always resolvable from crates.io in some environments
+# (download times out). Pin to the upstream rust-sdk git rev that provides the
+# matching 2.x API so builds resolve without the crates.io artifact.
+[patch.crates-io]
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", rev = "67a3085", package = "rmcp" }
+rmcp-macros = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", rev = "67a3085", package = "rmcp-macros" }

@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use crate::core::error::PathJailError;
+
 /// `allow_paths` / `extra_roots` come from `config.toml`, where no shell ever
 /// runs — users writing `"$HOME/code"` or `"~/code"` got a literal,
 /// never-matching prefix and concluded the whole option was broken (GH #392).
@@ -352,7 +354,7 @@ fn canonicalize_existing_ancestor(path: &Path) -> Option<(PathBuf, Vec<std::ffi:
     }
 }
 
-pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, String> {
+pub fn jail_path(candidate: &Path, jail_root: &Path) -> Result<PathBuf, PathJailError> {
     jail_path_with_roots(candidate, jail_root, &[])
 }
 
@@ -369,9 +371,9 @@ pub fn jail_path_with_roots(
     candidate: &Path,
     jail_root: &Path,
     extra_roots: &[String],
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, PathJailError> {
     if candidate.to_string_lossy().as_bytes().contains(&0) {
-        return Err("path contains null byte".to_string());
+        return Err(PathJailError::NullByte);
     }
 
     #[cfg(feature = "no-jail")]
@@ -411,10 +413,9 @@ pub fn jail_path_with_roots(
         );
 
         let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
-            format!(
-                "path does not exist and has no existing ancestor: {}",
-                candidate.display()
-            )
+            PathJailError::NoExistingAncestor {
+                path: candidate.to_path_buf(),
+            }
         })?;
 
         let allowed =
@@ -424,11 +425,6 @@ pub fn jail_path_with_roots(
         let allowed = allowed || is_under_prefix_windows(&base, &root);
 
         if !allowed {
-            let base_msg = format!(
-                "path escapes project root: {} (root: {})",
-                candidate.display(),
-                root.display(),
-            );
             let mut hint = if crate::core::protocol::meta_visible() {
                 let dir = candidate.parent().unwrap_or(candidate).display();
                 format!(
@@ -457,7 +453,11 @@ pub fn jail_path_with_roots(
                     missing.display()
                 ));
             }
-            return Err(format!("{base_msg}{hint}"));
+            return Err(PathJailError::EscapesRoot {
+                path: candidate.to_path_buf(),
+                root,
+                hint,
+            });
         }
 
         #[cfg(windows)]
@@ -477,11 +477,10 @@ pub fn jail_path_with_roots(
             #[cfg(windows)]
             let final_ok = final_ok || is_under_prefix_windows(&final_canon, &root);
             if !final_ok {
-                return Err(format!(
-                    "post-canonicalize jail escape detected: {} resolves to {}",
-                    candidate.display(),
-                    final_canon.display()
-                ));
+                return Err(PathJailError::PostCanonicalizeEscape {
+                    path: candidate.to_path_buf(),
+                    resolved: final_canon,
+                });
             }
         }
 
@@ -503,15 +502,14 @@ fn normalize_windows_path(s: &str) -> String {
 }
 
 #[cfg(windows)]
-fn reject_symlink_on_windows(path: &Path) -> Result<(), String> {
+fn reject_symlink_on_windows(path: &Path) -> Result<(), PathJailError> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
         // Junctions and other reparse points redirect like symlinks but are
         // invisible to `is_symlink()` — reject them too (GL#442).
         if super::pathutil::is_symlink_or_reparse(&meta) {
-            return Err(format!(
-                "symlink not allowed in jailed path: {}",
-                path.display()
-            ));
+            return Err(PathJailError::Symlink {
+                path: path.to_path_buf(),
+            });
         }
     }
     Ok(())
@@ -797,7 +795,7 @@ mod tests {
 
         let err = jail_path(&other.join("b.txt"), &root).unwrap_err();
         assert!(
-            err.contains("path escapes project root"),
+            err.to_string().contains("path escapes project root"),
             "error should mention escape: {err}"
         );
     }
@@ -953,7 +951,7 @@ mod tests {
         let result = jail_path(&bad_path, &root);
         assert!(result.is_err(), "null byte in path must be rejected");
         assert!(
-            result.unwrap_err().contains("null byte"),
+            result.unwrap_err().to_string().contains("null byte"),
             "error must mention null byte"
         );
     }
