@@ -1,4 +1,4 @@
-//! `ctx_tools` business logic (#210): the MCP Tool-Catalog Gateway meta-tool.
+//! `ctx_tools` business logic (#210): the MCP Tool-Catalog meta-tool.
 //!
 //! Keeps the registered wrapper thin: this module owns config gating, action
 //! routing, and driving the async [`mcp_catalog`] from the synchronous tool
