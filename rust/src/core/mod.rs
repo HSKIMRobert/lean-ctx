@@ -36,6 +36,7 @@ pub mod rule_artifacts;
 pub mod rules_canonical;
 pub mod rules_channel;
 pub mod rules_overhead;
+pub mod rules_sections;
 pub mod structural_tokenizer;
 pub mod structured_read;
 pub mod tabular_crush;

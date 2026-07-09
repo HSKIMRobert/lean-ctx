@@ -15,12 +15,10 @@ pub(super) fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> 
     let cfg = crate::core::config::Config::load();
     let shadow = cfg.shadow_mode;
     let level = CompressionLevel::effective(&cfg);
+    let profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
     let wrapper = match target.format {
         RulesFormat::SharedMarkdown => Wrapper::Shared,
         RulesFormat::DedicatedMarkdown => Wrapper::Dedicated,
-        // Hook-covered Cursor installs get the honest reduced profile
-        // (GL #1153); the byte-exact drift check below then keeps the mdc in
-        // sync when hooks are installed or removed later.
         RulesFormat::CursorMdc => super::content::cursor_wrapper_for_mdc(&target.path),
     };
 
@@ -28,26 +26,18 @@ pub(super) fn inject_rules(target: &RulesTarget) -> Result<RulesResult, String> 
         let content = std::fs::read_to_string(&target.path).map_err(|e| e.to_string())?;
         let file = RulesFile::parse(&content);
 
-        // Skip the rewrite only when the on-disk block is BOTH version-current
-        // AND already byte-identical to a fresh render. A version-only check
-        // would leave a `compression_level` / `shadow_mode` / canonical-text
-        // change unpropagated whenever RULES_VERSION happens to be unchanged
-        // (#548).
         if file.has_content()
             && file.is_current()
-            && file.block_matches_render(shadow, wrapper, level)
+            && file.block_matches_render(shadow, wrapper, level, &profile)
         {
             return Ok(RulesResult::AlreadyPresent);
         }
 
-        file.merged(shadow, wrapper, level)
+        file.merged(shadow, wrapper, level, &profile)
+    } else if matches!(target.format, RulesFormat::CursorMdc) {
+        rules_content(&target.format, level, wrapper, &profile)
     } else {
-        // Cursor MDC needs frontmatter; others use canonical directly.
-        if matches!(target.format, RulesFormat::CursorMdc) {
-            rules_content(&target.format, level, wrapper)
-        } else {
-            RulesFile::initial(shadow, wrapper, level)
-        }
+        RulesFile::initial(shadow, wrapper, level, &profile)
     };
 
     ensure_parent(&target.path)?;
