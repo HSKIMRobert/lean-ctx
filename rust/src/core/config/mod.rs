@@ -1609,7 +1609,7 @@ impl Config {
                 super::error::LeanCtxError::Config(format!(
                     "refusing to modify an unparseable config.toml ({e}); fix it \
                      manually or run `lean-ctx doctor --fix`, then retry"
-                ))
+                ).into())
             })?,
             _ => Self::default(),
         };
@@ -1636,16 +1636,16 @@ impl Config {
             std::fs::create_dir_all(parent)?;
         }
         let content = toml::to_string_pretty(self)
-            .map_err(|e| super::error::LeanCtxError::Config(e.to_string()))?;
+            .map_err(|e| super::error::LeanCtxError::Config(e.to_string().into()))?;
         // Baseline = what loading an empty config yields. This honors serde's
         // field-level `#[serde(default)]` (which can diverge from the struct's
         // `Default` impl), so minimal mode skips exactly the keys that a fresh
         // load would produce — no spurious lines on save.
         let baseline = toml::from_str::<Self>("").unwrap_or_else(|_| Self::default());
         let defaults = toml::to_string_pretty(&baseline)
-            .map_err(|e| super::error::LeanCtxError::Config(e.to_string()))?;
+            .map_err(|e| super::error::LeanCtxError::Config(e.to_string().into()))?;
         crate::config_io::write_toml_preserving_minimal(path, &content, &defaults)
-            .map_err(super::error::LeanCtxError::Config)?;
+            .map_err(|e| super::error::LeanCtxError::Config(e.into()))?;
         Ok(())
     }
 

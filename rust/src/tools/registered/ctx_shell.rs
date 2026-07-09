@@ -62,7 +62,7 @@ impl McpTool for CtxShellTool {
         if let Err(msg) = crate::core::shell_allowlist::check_shell_allowlist(&command) {
             return Ok(ToolOutput {
                 shell_outcome: Some(ShellOutcome::Blocked),
-                ..ToolOutput::simple(msg)
+                ..ToolOutput::simple(msg.to_string())
             });
         }
 
