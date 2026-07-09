@@ -286,7 +286,6 @@ fn cmd_add(target: &str, args: &[String]) {
         || target.starts_with('.')
         || target.starts_with('/')
         || Path::new(target).exists();
-    let mut pack_manifest: Option<crate::core::context_package::PackageManifest> = None;
     let (manifest, source) = if is_local_path {
         match AddonManifest::from_path(Path::new(target)) {
             Ok(m) => (m, "local".to_string()),
@@ -298,10 +297,7 @@ fn cmd_add(target: &str, args: &[String]) {
     } else if let Some(remote_ref) = crate::core::context_package::remote::parse_remote_ref(target)
     {
         match fetch_addon_pack(&remote_ref, flag_value(args, "--registry").as_deref()) {
-            Ok((m, s, pm)) => {
-                pack_manifest = Some(pm);
-                (m, s)
-            }
+            Ok((m, s)) => (m, s),
             Err(e) => {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
@@ -358,11 +354,14 @@ fn cmd_add(target: &str, args: &[String]) {
     print_install_preview(&manifest);
 
     // Depth-1 dependency resolution (GH #727): declared deps are part of the
-    // consent surface — resolve before asking, install before wiring.
-    let resolved_deps = resolve_declared_deps(pack_manifest.as_ref(), args);
-    if !resolved_deps.is_empty() {
+    // consent surface — preview before asking, install before wiring. The
+    // dependency list lives in the addon manifest itself, so a local
+    // `lean-ctx-addon.toml` install resolves them the same as a hosted pack
+    // (Finding A).
+    let preview_deps = resolve_declared_deps(&manifest.dependencies, &manifest.addon.name, args);
+    if !preview_deps.is_empty() {
         println!("\nDeclared dependencies (installed alongside, depth-1):");
-        for d in &resolved_deps {
+        for d in &preview_deps {
             println!("  + {}@{}", d.name, d.version);
         }
     }
@@ -379,11 +378,17 @@ fn cmd_add(target: &str, args: &[String]) {
         return;
     }
 
-    if !resolved_deps.is_empty() {
-        install_declared_deps(pack_manifest.as_ref(), args);
-    }
+    // The slice wired into `[mcp.env]` must be the versions the install step
+    // actually landed (lockfile honoured), never the preview's highest-match
+    // resolution — otherwise `{pack_dir:}` could point at a directory that does
+    // not exist (Finding B).
+    let installed_deps = if preview_deps.is_empty() {
+        Vec::new()
+    } else {
+        install_declared_deps(&manifest.dependencies, &manifest.addon.name, args)
+    };
 
-    match provision_and_wire(manifest, &source, force, no_verify, &cfg, &resolved_deps) {
+    match provision_and_wire(manifest, &source, force, no_verify, &cfg, &installed_deps) {
         Ok((outcome, verified)) => {
             println!(
                 "\n✓ Installed `{}` → gateway server `{}`.",
@@ -529,14 +534,7 @@ fn provision_and_wire(
 fn fetch_addon_pack(
     remote_ref: &crate::core::context_package::remote::RemoteRef,
     registry_flag: Option<&str>,
-) -> Result<
-    (
-        AddonManifest,
-        String,
-        crate::core::context_package::PackageManifest,
-    ),
-    String,
-> {
+) -> Result<(AddonManifest, String), String> {
     use crate::core::context_package::{remote, verify};
 
     let base = remote::registry_base(registry_flag);
@@ -598,9 +596,11 @@ fn fetch_addon_pack(
     let manifest = AddonManifest::from_toml(&payload.manifest_toml)?;
 
     let source = format!("ctxpkg:@{ns}/{name}@{}", info.version);
-    // The pack manifest rides along for depth-1 dependency resolution
-    // (GH #727): declared skills/context deps install with the addon.
-    Ok((manifest, source, pack_manifest))
+    // Depth-1 dependencies (GH #727) travel inside the addon manifest itself
+    // (`manifest.dependencies`, parsed from the pack's embedded TOML above), so
+    // they resolve the same on every source path — the hosted `pack_manifest`
+    // no longer needs to ride along.
+    Ok((manifest, source))
 }
 
 /// `addon publish [manifest] --namespace <ns>` — build the signed
@@ -726,7 +726,6 @@ fn cmd_update(name: &str, args: &[String]) {
     // Re-resolve from where it came: a hosted ctxpkg pack updates against the
     // registry it was installed from (latest non-yanked version), everything
     // else against the bundled registry snapshot.
-    let mut pack_manifest: Option<crate::core::context_package::PackageManifest> = None;
     let (manifest, update_source) = if let Some(spec) = entry.source.strip_prefix("ctxpkg:") {
         let unpinned = spec.split('@').take(2).collect::<Vec<_>>().join("@");
         let Some(remote_ref) = crate::core::context_package::remote::parse_remote_ref(&unpinned)
@@ -738,10 +737,7 @@ fn cmd_update(name: &str, args: &[String]) {
             std::process::exit(1);
         };
         match fetch_addon_pack(&remote_ref, flag_value(args, "--registry").as_deref()) {
-            Ok((m, s, pm)) => {
-                pack_manifest = Some(pm);
-                (m, s)
-            }
+            Ok((m, s)) => (m, s),
             Err(e) => {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
@@ -782,7 +778,7 @@ fn cmd_update(name: &str, args: &[String]) {
         );
         // A skills/context dependency may have bumped even when the addon
         // itself did not (GH #727) — refresh those without re-wiring.
-        refresh_pack_dependencies(pack_manifest.as_ref(), args);
+        refresh_pack_dependencies(&manifest.dependencies, &manifest.addon.name, args);
         return;
     }
 
@@ -801,11 +797,16 @@ fn cmd_update(name: &str, args: &[String]) {
         return;
     }
 
-    let resolved_deps = resolve_declared_deps(pack_manifest.as_ref(), args);
-    if !resolved_deps.is_empty() {
+    let preview_deps = resolve_declared_deps(&manifest.dependencies, &manifest.addon.name, args);
+    // The wiring must expand `{pack_dir:}` against the versions the install step
+    // actually landed (lockfile honoured), not the preview's highest-match
+    // resolution (GH #727, Finding B).
+    let installed_deps = if preview_deps.is_empty() {
+        Vec::new()
+    } else {
         println!("Installing declared dependencies (depth-1) …");
-        install_declared_deps(pack_manifest.as_ref(), args);
-    }
+        install_declared_deps(&manifest.dependencies, &manifest.addon.name, args)
+    };
 
     let new_version = manifest.addon.version.clone();
     match provision_and_wire(
@@ -814,7 +815,7 @@ fn cmd_update(name: &str, args: &[String]) {
         force,
         no_verify,
         &cfg,
-        &resolved_deps,
+        &installed_deps,
     ) {
         Ok((outcome, verified)) => {
             // The new version is wired and healthy — now prune superseded
@@ -836,15 +837,15 @@ fn cmd_update(name: &str, args: &[String]) {
     }
 }
 
-/// Re-resolve and install the declared dependencies of an addon's pack
-/// manifest (GH #727) — used on `addon update`, where a dependency can move
-/// forward independently of the addon binary.
+/// Re-resolve and install the declared dependencies of an addon (GH #727) —
+/// used on `addon update`, where a dependency can move forward independently of
+/// the addon binary.
 fn refresh_pack_dependencies(
-    pack_manifest: Option<&crate::core::context_package::PackageManifest>,
+    deps: &[crate::core::context_package::manifest::PackageDependency],
+    root_name: &str,
     args: &[String],
 ) {
-    let Some(pm) = pack_manifest else { return };
-    if pm.dependencies.iter().all(|d| d.optional) {
+    if deps.iter().all(|d| d.optional) {
         return;
     }
     let base = crate::core::context_package::remote::registry_base(
@@ -854,7 +855,8 @@ fn refresh_pack_dependencies(
     let project_root = super::common::detect_project_root(args);
     println!("Refreshing declared dependencies (depth-1) …");
     if let Err(e) = super::pack_remote::install_declared_dependencies(
-        pm,
+        deps,
+        root_name,
         &base,
         token.as_deref(),
         &project_root,
@@ -864,22 +866,34 @@ fn refresh_pack_dependencies(
     }
 }
 
-/// Resolve the declared depth-1 dependencies of an addon's pack manifest so
-/// the caller can show them in the consent preview and hand them to
-/// `provision_and_wire` (GH #727). Exits on a resolution failure — nothing
-/// has been touched at this point.
+/// Resolve the declared depth-1 dependencies of an addon so the caller can
+/// show them in the consent preview (GH #727). Exits on a resolution failure —
+/// nothing has been touched at this point.
+///
+/// This is a **preview only**: it picks the highest in-range version and does
+/// not consult `ctxpkg.lock`. The authoritative versions that get wired into
+/// `[mcp.env]` come from [`install_declared_deps`] (which honours the lockfile),
+/// so in the rare case where the lockfile pins an older in-range version this
+/// preview may list a newer version than the install actually lands. The wiring
+/// is always correct; only the pre-consent print can differ.
 fn resolve_declared_deps(
-    pack_manifest: Option<&crate::core::context_package::PackageManifest>,
+    deps: &[crate::core::context_package::manifest::PackageDependency],
+    root_name: &str,
     args: &[String],
 ) -> Vec<crate::core::context_package::deps::ResolvedDep> {
-    let Some(pm) = pack_manifest.filter(|pm| pm.dependencies.iter().any(|d| !d.optional)) else {
+    if deps.iter().all(|d| d.optional) {
         return Vec::new();
-    };
+    }
     let base = crate::core::context_package::remote::registry_base(
         flag_value(args, "--registry").as_deref(),
     );
     let token = crate::core::context_package::remote::publish_token(None);
-    match crate::core::context_package::deps::resolve_dependencies(pm, &base, token.as_deref()) {
+    match crate::core::context_package::deps::resolve_dependencies(
+        deps,
+        root_name,
+        &base,
+        token.as_deref(),
+    ) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -888,28 +902,34 @@ fn resolve_declared_deps(
     }
 }
 
-/// Install the resolved dependencies **before** anything is wired. A path
+/// Install the declared dependencies **before** anything is wired and return
+/// the [`ResolvedDep`]s that actually landed (locked versions honoured). A path
 /// burned into `[mcp.env]` must exist before it is burned in, so a failed
-/// dependency install wires nothing at all.
+/// dependency install wires nothing at all — and the wiring expands
+/// `{pack_dir:}` against exactly this returned slice (GH #727, Finding B).
 fn install_declared_deps(
-    pack_manifest: Option<&crate::core::context_package::PackageManifest>,
+    deps: &[crate::core::context_package::manifest::PackageDependency],
+    root_name: &str,
     args: &[String],
-) {
-    let Some(pm) = pack_manifest else { return };
+) -> Vec<crate::core::context_package::deps::ResolvedDep> {
     let base = crate::core::context_package::remote::registry_base(
         flag_value(args, "--registry").as_deref(),
     );
     let token = crate::core::context_package::remote::publish_token(None);
     let project_root = super::common::detect_project_root(args);
-    if let Err(e) = super::pack_remote::install_declared_dependencies(
-        pm,
+    match super::pack_remote::install_declared_dependencies(
+        deps,
+        root_name,
         &base,
         token.as_deref(),
         &project_root,
         false,
     ) {
-        eprintln!("Error: dependency install failed: {e}\n  Nothing was wired.");
-        std::process::exit(1);
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: dependency install failed: {e}\n  Nothing was wired.");
+            std::process::exit(1);
+        }
     }
 }
 

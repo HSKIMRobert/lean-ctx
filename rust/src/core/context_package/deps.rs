@@ -15,7 +15,7 @@
 //! **highest non-yanked version matching the range** — and repeated installs
 //! short-circuit offline via the lockfile + local store (`already_satisfied`).
 
-use super::manifest::{PackageDependency, PackageManifest};
+use super::manifest::PackageDependency;
 use super::remote::{self, VersionInfo};
 
 /// One resolved direct dependency, ready to download.
@@ -33,21 +33,29 @@ pub struct ResolvedDep {
     pub artifact_sha256: String,
 }
 
-/// Resolve the direct, non-optional dependencies of `manifest` against the
-/// registry at `base`. Fails on: unscoped names, self-dependency, invalid
-/// ranges, and ranges with no installable match — a partially-resolved
-/// install is worse than a refused one.
+/// Resolve the direct, non-optional dependencies in `deps` (declared by the
+/// root package named `root_name`) against the registry at `base`. Fails on:
+/// unscoped names, self-dependency, invalid ranges, and ranges with no
+/// installable match — a partially-resolved install is worse than a refused
+/// one.
+///
+/// Takes the dependency slice + root name directly (rather than a
+/// `PackageManifest`) so every install source can resolve the same way — a
+/// local `lean-ctx-addon.toml` carries its `[[dependencies]]` in
+/// [`crate::core::addons::manifest::AddonManifest`], with no hosted
+/// `PackageManifest` to key off (GH #727, Finding A).
 pub fn resolve_dependencies(
-    manifest: &PackageManifest,
+    deps: &[PackageDependency],
+    root_name: &str,
     base: &str,
     token: Option<&str>,
 ) -> Result<Vec<ResolvedDep>, String> {
     let mut resolved = Vec::new();
-    for dep in &manifest.dependencies {
+    for dep in deps {
         if dep.optional {
             continue;
         }
-        resolved.push(resolve_one(&manifest.name, dep, base, token)?);
+        resolved.push(resolve_one(root_name, dep, base, token)?);
     }
     Ok(resolved)
 }
@@ -131,14 +139,20 @@ pub fn locked_version(name: &str, project_root: &std::path::Path) -> Option<Stri
         .map(|p| p.version.clone())
 }
 
-/// True when `name@version-satisfying-req` is already pinned in the lockfile
-/// **and** present in the local store — the offline-reproducible fast path:
-/// a second `pack install` touches no network for satisfied dependencies.
+/// The resolved dependency when `name@version-satisfying-req` is already
+/// pinned in the lockfile **and** present in the local store — the
+/// offline-reproducible fast path: a second `pack install` touches no network
+/// for satisfied dependencies.
+///
+/// Returns the full [`ResolvedDep`] (at the **locked** version, not a fresh
+/// highest-match) so the install step can hand the exact same version to
+/// `[mcp.env]` `{pack_dir:}` expansion — the wiring must point at the version
+/// that actually landed on disk (GH #727, Finding B).
 pub fn already_satisfied(
     project_root: &std::path::Path,
     registry: &super::registry::LocalRegistry,
     dep: &PackageDependency,
-) -> Option<String> {
+) -> Option<ResolvedDep> {
     let lock = super::lockfile::load(project_root).ok()?;
     let locked = lock.packages.iter().find(|p| p.name == dep.name)?;
     let req = parse_version_req(&dep.version_req).ok()?;
@@ -147,7 +161,14 @@ pub fn already_satisfied(
         return None;
     }
     let installed = registry.get(&dep.name, Some(&locked.version)).ok()??;
-    Some(installed.version)
+    let remote_ref = remote::parse_remote_ref(&dep.name)?;
+    Some(ResolvedDep {
+        name: dep.name.clone(),
+        namespace: remote_ref.namespace,
+        slug: remote_ref.name,
+        version: installed.version,
+        artifact_sha256: locked.artifact_sha256.clone(),
+    })
 }
 
 #[cfg(test)]
@@ -229,13 +250,25 @@ mod tests {
         };
         // resolve_one is exercised via resolve_dependencies; the self-check
         // fires before any network I/O, so an invalid base URL never matters.
-        let err = resolve_dependencies(&manifest, "http://127.0.0.1:1", None).unwrap_err();
+        let err = resolve_dependencies(
+            &manifest.dependencies,
+            &manifest.name,
+            "http://127.0.0.1:1",
+            None,
+        )
+        .unwrap_err();
         assert!(err.contains("depends on itself"), "got: {err}");
 
         // Optional dependencies are skipped entirely.
         manifest.dependencies[0].optional = true;
         assert_eq!(
-            resolve_dependencies(&manifest, "http://127.0.0.1:1", None).unwrap(),
+            resolve_dependencies(
+                &manifest.dependencies,
+                &manifest.name,
+                "http://127.0.0.1:1",
+                None
+            )
+            .unwrap(),
             Vec::new()
         );
     }
@@ -250,8 +283,58 @@ mod tests {
             }],
             ..minimal("@acme/root")
         };
-        let err = resolve_dependencies(&manifest, "http://127.0.0.1:1", None).unwrap_err();
+        let err = resolve_dependencies(
+            &manifest.dependencies,
+            &manifest.name,
+            "http://127.0.0.1:1",
+            None,
+        )
+        .unwrap_err();
         assert!(err.contains("not a scoped"), "got: {err}");
+    }
+
+    #[test]
+    fn already_satisfied_returns_the_locked_version_as_a_resolved_dep() {
+        use crate::core::context_package::lockfile::{self, LockedPackage};
+
+        let store = tempfile::tempdir().unwrap();
+        let proj = tempfile::tempdir().unwrap();
+        let registry = super::super::registry::LocalRegistry::open_at(store.path()).unwrap();
+
+        // The pack is installed on disk at the older, in-range 0.2.0…
+        let mut manifest = minimal("@ns/skills");
+        manifest.version = "0.2.0".into();
+        registry
+            .install(&manifest, &super::super::content::PackageContent::default())
+            .unwrap();
+
+        // …and the lockfile pins exactly that version.
+        lockfile::upsert(
+            proj.path(),
+            LockedPackage {
+                name: "@ns/skills".into(),
+                version: "0.2.0".into(),
+                artifact_sha256: "a".repeat(64),
+                registry: "https://example.test".into(),
+            },
+        )
+        .unwrap();
+
+        let dep = PackageDependency {
+            name: "@ns/skills".into(),
+            version_req: "^0.2".into(),
+            optional: false,
+        };
+        let resolved =
+            already_satisfied(proj.path(), &registry, &dep).expect("locked + present on disk");
+
+        // Regression (GH #727, Finding B): the version the env path burns in must
+        // be the LOCKED/on-disk one — never a fresh highest-match resolve that
+        // could point `{pack_dir:}` at a directory that does not exist.
+        assert_eq!(resolved.version, "0.2.0");
+        assert_eq!(resolved.name, "@ns/skills");
+        assert_eq!(resolved.namespace, "ns");
+        assert_eq!(resolved.slug, "skills");
     }
 
     fn minimal(name: &str) -> crate::core::context_package::manifest::PackageManifest {

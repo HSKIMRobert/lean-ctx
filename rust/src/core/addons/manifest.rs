@@ -609,4 +609,51 @@ version_req = "^0.2"
             .expect_err("unknown scheme");
         assert!(err.contains("unknown placeholder"), "{err}");
     }
+
+    /// Regression (GH #727, Finding A): the dependency list that drives
+    /// `{pack_dir:}` expansion is `AddonManifest::dependencies` — present on
+    /// **every** install source, including a local `lean-ctx-addon.toml` where
+    /// no hosted `PackageManifest` exists. `addon add` now builds the resolved
+    /// slice from `manifest.dependencies` on every path, so such a slice expands
+    /// the env instead of aborting with "not a declared dependency".
+    ///
+    /// Uncovered here (needs the network / a live registry, plan-forbidden as an
+    /// integration test): that `cmd_add`'s local path actually reaches
+    /// `resolve`/`install` for these deps. That wiring is guaranteed by the
+    /// type-checked call passing `&manifest.dependencies`.
+    #[test]
+    fn local_manifest_dependencies_drive_pack_dir_expansion() {
+        use crate::core::context_package::deps::ResolvedDep;
+        use crate::core::context_package::remote::parse_remote_ref;
+
+        let m = AddonManifest::from_toml(DEP_MANIFEST).expect("parses");
+        m.validate().expect("valid");
+
+        // Simulate the slice the install step produces from `manifest.dependencies`.
+        let resolved: Vec<ResolvedDep> = m
+            .dependencies
+            .iter()
+            .map(|d| {
+                let r = parse_remote_ref(&d.name).expect("scoped");
+                ResolvedDep {
+                    name: d.name.clone(),
+                    namespace: r.namespace,
+                    slug: r.name,
+                    version: "0.2.0".into(),
+                    artifact_sha256: "a".repeat(64),
+                }
+            })
+            .collect();
+
+        let out = crate::core::addons::pack_env::expand_pack_env(
+            &m.mcp.env,
+            &resolved,
+            std::path::Path::new("/store"),
+        )
+        .expect("expands against manifest.dependencies");
+        assert_eq!(
+            out["LEAN_MD_SKILLS_DIR"],
+            "/store/skills/@dasTholo__lean-md-skills/0.2.0"
+        );
+    }
 }
