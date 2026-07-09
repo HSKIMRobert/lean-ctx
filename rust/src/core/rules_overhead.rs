@@ -136,8 +136,15 @@ pub fn collect_rules_files(home: &Path, project: &Path) -> Vec<RulesFileCost> {
 
     // The parent walk can reach directories the global scan already covered
     // (e.g. ~/.cursor/rules when the walk ends at home) — count each file once.
+    // Canonicalize paths so symlink aliases (e.g. CLAUDE.md → AGENTS.md) are
+    // recognized as the same physical file (#759).
     let mut seen = std::collections::HashSet::new();
-    out.retain(|f| seen.insert(f.path.clone()));
+    out.retain(|f| {
+        let canonical = std::fs::canonicalize(&f.path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| f.path.clone());
+        seen.insert(canonical)
+    });
 
     out
 }

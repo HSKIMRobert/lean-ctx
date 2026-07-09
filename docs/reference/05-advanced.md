@@ -85,7 +85,7 @@ on the smaller history. Tune via `[proxy].history_mode` (or
 >   the lean-ctx MCP tools instead (`ctx_read` / `ctx_search` / `ctx_shell`).
 >   Other providers (OpenAI/Codex, Gemini, Ollama) are still routed through the
 >   proxy.
-> - **Pay-as-you-go?** Export `ANTHROPIC_API_KEY=[REDACTED:API key param], then run
+> - **Pay-as-you-go?** Export `ANTHROPIC_API_KEY=<your-key>`, then run
 >   `lean-ctx proxy enable` (or `--force` to override detection). Claude traffic is
 >   then compressed by the proxy.
 
@@ -213,8 +213,8 @@ proxy_max_rps = 100                               # optional; gateway default: 5
 ```
 
 - The provider-API-key auth fallback is **hard-disabled** (its justification is
-  strictly "loopback only") — every caller must send `Authorization: Bearer
-  [REDACTED:Authorization header] regardless of `proxy_require_token`.
+  strictly "loopback only") — every caller must send the lean-ctx Bearer
+  token regardless of `proxy_require_token`.
 - The Host allowlist extends the loopback-only guard; loopback names always pass.
 - A token-bucket rate limit activates (default 50 rps, burst 100; `proxy_max_rps`
   overrides, `0` disables). `/health` is exempt for orchestrator liveness probes.
@@ -236,7 +236,7 @@ team       = "platform"          # optional
 default_project = "billing"      # optional
 ```
 
-- A request whose `Authorization: Bearer [REDACTED:Authorization header] hash matches an entry
+- A request whose Bearer token hash matches an entry
   authenticates **and** tags the turn's measured usage with
   `person`/`team`/`project` — the basis for per-person/per-project metering.
 - The `x-leanctx-project: <name>` request header overrides the key's
@@ -755,5 +755,7 @@ gateway at an arbitrary command or endpoint. It is a complete no-op until you se
   `proxy status`, `.bak` backup).
 - "profile" is overloaded: tool profile (Journey 2) vs. context profile (here).
   Both journeys cross-reference each other to defuse the confusion.
+
+--- lean-ctx: ctx_compose bundles search+read+symbols in one call ---
 
 --- lean-ctx: ctx_compose bundles search+read+symbols in one call ---

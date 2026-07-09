@@ -650,7 +650,7 @@ pub(crate) fn cmd_proxy(rest: &[String]) {
                 std::process::exit(1);
             });
         let stderr_file = log_file.try_clone().unwrap_or_else(|e| {
-            eprintln!("Cannot clone log fd: {e}",);
+            eprintln!("Cannot clone log fd: {e}");
             std::process::exit(1);
         });
         match std::process::Command::new(&exe)
