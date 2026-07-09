@@ -107,10 +107,10 @@ impl EmbeddingEngine {
         };
         // Surface a loud, actionable warning when the user expected the GPU but
         // the CUDA runtime is unusable, so it doesn't silently crawl on CPU.
-        if !deterministic {
-            if let Some(msg) = crate::core::ort_execution_providers::gpu_fallback_warning() {
-                tracing::warn!("{msg}");
-            }
+        if !deterministic
+            && let Some(msg) = crate::core::ort_execution_providers::gpu_fallback_warning()
+        {
+            tracing::warn!("{msg}");
         }
         let num_cpus = if deterministic {
             1
@@ -295,11 +295,11 @@ impl EmbeddingEngine {
             .and_then(|v| v.parse().ok())
             .filter(|&v| v >= 1)
             .unwrap_or_else(|| {
+                #[cfg(any(feature = "embeddings", feature = "neural"))]
                 if crate::core::ort_execution_providers::gpu_active() {
-                    256
-                } else {
-                    64
+                    return 256;
                 }
+                64
             });
 
         let total = tokenized.len();

@@ -42,6 +42,10 @@ extern "C" fn handle_sigint(_sig: libc::c_int) {
         // Second Ctrl-C: the user wants out now. `_exit` is async-signal-safe
         // and terminates the process without running (unsafe-in-a-handler)
         // destructors; the OS/driver reclaims the CUDA context on death.
+        // SAFETY: `_exit` is async-signal-safe (POSIX.1-2017 §2.4.3) and does
+        // not run C++ destructors, Rust `Drop` impls, or atexit handlers.
+        // We call it only after the second SIGINT, where graceful shutdown has
+        // already been requested and the user explicitly wants immediate exit.
         unsafe { libc::_exit(130) };
     }
 }
@@ -55,10 +59,10 @@ pub fn install_ctrlc_handler() {
     if HANDLER_INSTALLED.swap(true, Ordering::SeqCst) {
         return;
     }
-    #[cfg(unix)]
     // SAFETY: `handle_sigint` only performs async-signal-safe work (atomic
     // stores, and `libc::_exit` on the second signal). Registering it replaces
     // the default terminate-immediately disposition with a cooperative one.
+    #[cfg(unix)]
     unsafe {
         libc::signal(
             libc::SIGINT,

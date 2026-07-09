@@ -243,7 +243,7 @@ fn inject_cursor_switches_profile_when_hooks_appear() {
     assert!(result.errors.is_empty());
     let after = std::fs::read_to_string(&mdc_path).unwrap();
     assert!(
-        !after.contains("MANDATORY MAPPING") && after.contains("hooks cover this session"),
+        after.contains("ALWAYS prefer lean-ctx") && after.contains("Hooks compress native"),
         "with hooks installed the mdc must carry the HookCovered profile"
     );
     assert!(

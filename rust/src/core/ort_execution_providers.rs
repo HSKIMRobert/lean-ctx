@@ -78,7 +78,7 @@ pub fn gpu_active() -> bool {
     // silently registers CPU instead; don't size batches for a phantom GPU.
     #[cfg(feature = "ort-cuda")]
     {
-        return cuda_runtime_available();
+        cuda_runtime_available()
     }
     #[cfg(not(feature = "ort-cuda"))]
     {
@@ -295,18 +295,19 @@ fn runtime_path_looks_gpu(path: &Path) -> bool {
 }
 
 fn compiled_gpu_provider_names() -> Vec<&'static str> {
-    #[allow(unused_mut)]
-    let mut names = Vec::new();
-    #[cfg(feature = "ort-cuda")]
-    names.push("cuda");
-    #[cfg(feature = "ort-rocm")]
-    names.push("rocm");
-    #[cfg(feature = "ort-webgpu")]
-    names.push("webgpu");
-    #[cfg(all(target_os = "windows", feature = "ort-directml"))]
-    names.push("directml");
-    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "ort-coreml"))]
-    names.push("coreml");
+    let mut names = vec![
+        #[cfg(feature = "ort-cuda")]
+        "cuda",
+        #[cfg(feature = "ort-rocm")]
+        "rocm",
+        #[cfg(feature = "ort-webgpu")]
+        "webgpu",
+        #[cfg(all(target_os = "windows", feature = "ort-directml"))]
+        "directml",
+        #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "ort-coreml"))]
+        "coreml",
+    ];
+    let _ = &mut names; // suppress unused_mut when no GPU feature is active
     names
 }
 
