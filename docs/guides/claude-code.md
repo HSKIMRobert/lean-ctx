@@ -80,7 +80,7 @@ lean-ctx maintains a marker-delimited block in `~/.claude/CLAUDE.md`:
 
 ```markdown
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v5 -->
+<!-- lean-ctx-claude-v6 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
@@ -354,3 +354,6 @@ The shell hook intercepts these commands transparently — no changes needed to 
 - [CLI Reference](https://leanctx.com/docs/cli-reference/)
 - [Session Memory Guide](https://leanctx.com/docs/session-memory/)
 - [Claude Code Documentation](https://docs.anthropic.com/en/docs/claude-code)
+
+
+--- lean-ctx: ctx_compose bundles search+read+symbols in one call ---
