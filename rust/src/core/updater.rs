@@ -227,7 +227,7 @@ fn run_with_mode(args: &[String], mode: UpdateMode) {
     if check_only {
         match mode {
             UpdateMode::Normal if pinned => {
-                println!("Run 'lean-ctx update {target_tag}' to install.")
+                println!("Run 'lean-ctx update {target_tag}' to install.");
             }
             UpdateMode::Normal => println!("Run 'lean-ctx update' to install."),
             UpdateMode::EnableGpu => println!("Run 'lean-ctx enable-gpu' to install {asset_name}."),
