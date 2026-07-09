@@ -358,27 +358,8 @@ fn cmd_add(target: &str, args: &[String]) {
     print_install_preview(&manifest);
 
     // Depth-1 dependency resolution (GH #727): declared deps are part of the
-    // consent surface — resolve before asking, install after wiring succeeds.
-    let registry_base = crate::core::context_package::remote::registry_base(
-        flag_value(args, "--registry").as_deref(),
-    );
-    let reg_token = crate::core::context_package::remote::publish_token(None);
-    let resolved_deps = match pack_manifest.as_ref() {
-        Some(pm) if pm.dependencies.iter().any(|d| !d.optional) => {
-            match crate::core::context_package::deps::resolve_dependencies(
-                pm,
-                &registry_base,
-                reg_token.as_deref(),
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        _ => Vec::new(),
-    };
+    // consent surface — resolve before asking, install before wiring.
+    let resolved_deps = resolve_declared_deps(pack_manifest.as_ref(), args);
     if !resolved_deps.is_empty() {
         println!("\nDeclared dependencies (installed alongside, depth-1):");
         for d in &resolved_deps {
@@ -398,7 +379,11 @@ fn cmd_add(target: &str, args: &[String]) {
         return;
     }
 
-    match provision_and_wire(manifest, &source, force, no_verify, &cfg) {
+    if !resolved_deps.is_empty() {
+        install_declared_deps(pack_manifest.as_ref(), args);
+    }
+
+    match provision_and_wire(manifest, &source, force, no_verify, &cfg, &resolved_deps) {
         Ok((outcome, verified)) => {
             println!(
                 "\n✓ Installed `{}` → gateway server `{}`.",
@@ -409,23 +394,6 @@ fn cmd_add(target: &str, args: &[String]) {
             }
             if let Some(n) = verified {
                 println!("  Verified: {n} tool(s) reachable.");
-            }
-            if let Some(pm) = pack_manifest.as_ref().filter(|_| !resolved_deps.is_empty()) {
-                let project_root = super::common::detect_project_root(args);
-                if let Err(e) = super::pack_remote::install_declared_dependencies(
-                    pm,
-                    &registry_base,
-                    reg_token.as_deref(),
-                    &project_root,
-                    false,
-                ) {
-                    eprintln!("Error: dependency install failed: {e}");
-                    eprintln!(
-                        "  The addon itself is wired; re-run `lean-ctx addon add {}` to retry.",
-                        outcome.name
-                    );
-                    std::process::exit(1);
-                }
             }
             println!(
                 "  Its tools are reachable via `ctx_tools` (find/call). \
@@ -440,16 +408,34 @@ fn cmd_add(target: &str, args: &[String]) {
 }
 
 /// The impure provisioning pipeline `add` and `update` share, run after user
-/// consent: managed artifact (GH #725) → bootstrap (#1105) → health probe
-/// (#1076) → wire. On any error nothing is wired. Returns the install outcome
-/// plus the probed tool count (`None` with `--no-verify`).
+/// consent: pack-env expansion (#727) → managed artifact (GH #725) → bootstrap
+/// (#1105) → health probe (#1076) → wire. On any error nothing is wired.
+/// Returns the install outcome plus the probed tool count (`None` with
+/// `--no-verify`).
 fn provision_and_wire(
     mut manifest: AddonManifest,
     source: &str,
     force: bool,
     no_verify: bool,
     cfg: &crate::core::config::Config,
+    resolved_deps: &[crate::core::context_package::deps::ResolvedDep],
 ) -> Result<(install::InstallOutcome, Option<usize>), String> {
+    // Pack-dir delivery (GH #727): expand `{pack_dir:@ns/name}` in [mcp.env]
+    // against the resolved dependency versions. The caller installed those
+    // dependencies already, so every path burned into the wiring exists. The
+    // parameter *is* the ordering guarantee — this cannot be called before the
+    // deps are resolved.
+    if !manifest.mcp.env.is_empty() {
+        let store_root = crate::core::context_package::LocalRegistry::open()?
+            .root()
+            .to_path_buf();
+        manifest.mcp.env = crate::core::addons::pack_env::expand_pack_env(
+            &manifest.mcp.env,
+            resolved_deps,
+            &store_root,
+        )?;
+    }
+
     // Managed artifact (GH #725, Phase 1): a prebuilt binary for this platform
     // takes precedence over [install]/PATH. It lands in the managed bin dir
     // (never PATH), hash-verified; the gateway command is rewritten to the
@@ -815,8 +801,21 @@ fn cmd_update(name: &str, args: &[String]) {
         return;
     }
 
+    let resolved_deps = resolve_declared_deps(pack_manifest.as_ref(), args);
+    if !resolved_deps.is_empty() {
+        println!("Installing declared dependencies (depth-1) …");
+        install_declared_deps(pack_manifest.as_ref(), args);
+    }
+
     let new_version = manifest.addon.version.clone();
-    match provision_and_wire(manifest, &update_source, force, no_verify, &cfg) {
+    match provision_and_wire(
+        manifest,
+        &update_source,
+        force,
+        no_verify,
+        &cfg,
+        &resolved_deps,
+    ) {
         Ok((outcome, verified)) => {
             // The new version is wired and healthy — now prune superseded
             // managed binaries (side-by-side rollback safety until here).
@@ -828,7 +827,6 @@ fn cmd_update(name: &str, args: &[String]) {
             if let Some(n) = verified {
                 println!("  Verified: {n} tool(s) reachable.");
             }
-            refresh_pack_dependencies(pack_manifest.as_ref(), args);
             println!("  Restart your MCP client to pick up the new version.");
         }
         Err(e) => {
@@ -863,6 +861,55 @@ fn refresh_pack_dependencies(
         true,
     ) {
         eprintln!("Warning: dependency refresh failed: {e}\n  The addon update itself succeeded.");
+    }
+}
+
+/// Resolve the declared depth-1 dependencies of an addon's pack manifest so
+/// the caller can show them in the consent preview and hand them to
+/// `provision_and_wire` (GH #727). Exits on a resolution failure — nothing
+/// has been touched at this point.
+fn resolve_declared_deps(
+    pack_manifest: Option<&crate::core::context_package::PackageManifest>,
+    args: &[String],
+) -> Vec<crate::core::context_package::deps::ResolvedDep> {
+    let Some(pm) = pack_manifest.filter(|pm| pm.dependencies.iter().any(|d| !d.optional)) else {
+        return Vec::new();
+    };
+    let base = crate::core::context_package::remote::registry_base(
+        flag_value(args, "--registry").as_deref(),
+    );
+    let token = crate::core::context_package::remote::publish_token(None);
+    match crate::core::context_package::deps::resolve_dependencies(pm, &base, token.as_deref()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Install the resolved dependencies **before** anything is wired. A path
+/// burned into `[mcp.env]` must exist before it is burned in, so a failed
+/// dependency install wires nothing at all.
+fn install_declared_deps(
+    pack_manifest: Option<&crate::core::context_package::PackageManifest>,
+    args: &[String],
+) {
+    let Some(pm) = pack_manifest else { return };
+    let base = crate::core::context_package::remote::registry_base(
+        flag_value(args, "--registry").as_deref(),
+    );
+    let token = crate::core::context_package::remote::publish_token(None);
+    let project_root = super::common::detect_project_root(args);
+    if let Err(e) = super::pack_remote::install_declared_dependencies(
+        pm,
+        &base,
+        token.as_deref(),
+        &project_root,
+        false,
+    ) {
+        eprintln!("Error: dependency install failed: {e}\n  Nothing was wired.");
+        std::process::exit(1);
     }
 }
 
