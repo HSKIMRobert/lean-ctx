@@ -610,19 +610,22 @@ version_req = "^0.2"
         assert!(err.contains("unknown placeholder"), "{err}");
     }
 
-    /// Regression (GH #727, Finding A): the dependency list that drives
-    /// `{pack_dir:}` expansion is `AddonManifest::dependencies` — present on
-    /// **every** install source, including a local `lean-ctx-addon.toml` where
-    /// no hosted `PackageManifest` exists. `addon add` now builds the resolved
-    /// slice from `manifest.dependencies` on every path, so such a slice expands
-    /// the env instead of aborting with "not a declared dependency".
+    /// Characterization of [`crate::core::addons::pack_env::expand_pack_env`]
+    /// (GH #727): a `{pack_dir:@ns/name}` placeholder resolves against the
+    /// resolved-dependency slice built from `AddonManifest::dependencies`,
+    /// yielding the versioned on-disk store path. This asserts the *expansion*
+    /// only — it hand-builds the `ResolvedDep` slice and does not exercise
+    /// `cmd_add`'s resolve/install wiring.
     ///
-    /// Uncovered here (needs the network / a live registry, plan-forbidden as an
-    /// integration test): that `cmd_add`'s local path actually reaches
-    /// `resolve`/`install` for these deps. That wiring is guaranteed by the
-    /// type-checked call passing `&manifest.dependencies`.
+    /// The self-dependency guard on the addon path (Finding A) is covered
+    /// elsewhere, not here: the root-reference derivation by
+    /// `cli::addon_cmd::addon_self_ref` (unit-tested in that module) and the
+    /// scoped-vs-bare refusal by
+    /// `context_package::deps::addon_scoped_self_dependency_is_refused`. The
+    /// end-to-end install path stays network-bound and is plan-forbidden as a
+    /// live-registry integration test.
     #[test]
-    fn local_manifest_dependencies_drive_pack_dir_expansion() {
+    fn expand_pack_env_maps_declared_dependency_to_pack_dir() {
         use crate::core::context_package::deps::ResolvedDep;
         use crate::core::context_package::remote::parse_remote_ref;
 

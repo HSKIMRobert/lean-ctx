@@ -358,7 +358,11 @@ fn cmd_add(target: &str, args: &[String]) {
     // dependency list lives in the addon manifest itself, so a local
     // `lean-ctx-addon.toml` install resolves them the same as a hosted pack
     // (Finding A).
-    let preview_deps = resolve_declared_deps(&manifest.dependencies, &manifest.addon.name, args);
+    // Self-dependency root: the addon's own scoped `@ns/slug` when the source
+    // names a namespace (hosted pack), else `None` (a local manifest cannot
+    // name itself) — never the bare `addon.name` slug (GH #727, Finding A).
+    let root_ref = addon_self_ref(&source);
+    let preview_deps = resolve_declared_deps(&manifest.dependencies, root_ref.as_deref(), args);
     if !preview_deps.is_empty() {
         println!("\nDeclared dependencies (installed alongside, depth-1):");
         for d in &preview_deps {
@@ -385,7 +389,7 @@ fn cmd_add(target: &str, args: &[String]) {
     let installed_deps = if preview_deps.is_empty() {
         Vec::new()
     } else {
-        install_declared_deps(&manifest.dependencies, &manifest.addon.name, args)
+        install_declared_deps(&manifest.dependencies, root_ref.as_deref(), args)
     };
 
     match provision_and_wire(manifest, &source, force, no_verify, &cfg, &installed_deps) {
@@ -756,6 +760,11 @@ fn cmd_update(name: &str, args: &[String]) {
     let force = args.iter().any(|a| a == "--force" || a == "-f");
     let no_verify = args.iter().any(|a| a == "--no-verify");
 
+    // Self-dependency root: the addon's own scoped `@ns/slug` derived from the
+    // (hosted) update source, else `None` — never the bare `addon.name` slug
+    // (GH #727, Finding A). A `local` source already exited above.
+    let root_ref = addon_self_ref(&update_source);
+
     // Up-to-date check: same version and (for managed binaries) same artifact
     // pin ⇒ nothing to do. `--force` reinstalls anyway.
     let same_version = manifest.addon.version == entry.version;
@@ -778,7 +787,7 @@ fn cmd_update(name: &str, args: &[String]) {
         );
         // A skills/context dependency may have bumped even when the addon
         // itself did not (GH #727) — refresh those without re-wiring.
-        refresh_pack_dependencies(&manifest.dependencies, &manifest.addon.name, args);
+        refresh_pack_dependencies(&manifest.dependencies, root_ref.as_deref(), args);
         return;
     }
 
@@ -797,7 +806,7 @@ fn cmd_update(name: &str, args: &[String]) {
         return;
     }
 
-    let preview_deps = resolve_declared_deps(&manifest.dependencies, &manifest.addon.name, args);
+    let preview_deps = resolve_declared_deps(&manifest.dependencies, root_ref.as_deref(), args);
     // The wiring must expand `{pack_dir:}` against the versions the install step
     // actually landed (lockfile honoured), not the preview's highest-match
     // resolution (GH #727, Finding B).
@@ -805,7 +814,7 @@ fn cmd_update(name: &str, args: &[String]) {
         Vec::new()
     } else {
         println!("Installing declared dependencies (depth-1) …");
-        install_declared_deps(&manifest.dependencies, &manifest.addon.name, args)
+        install_declared_deps(&manifest.dependencies, root_ref.as_deref(), args)
     };
 
     let new_version = manifest.addon.version.clone();
@@ -837,12 +846,29 @@ fn cmd_update(name: &str, args: &[String]) {
     }
 }
 
+/// The addon's own **scoped** package reference (`@ns/slug`), derived from the
+/// recorded install `source`. This is the self-dependency root handed to the
+/// depth-1 resolver (GH #727, Finding A): a declared dependency whose name
+/// equals it is the addon depending on its own pack and is refused.
+///
+/// Only a hosted `ctxpkg:@ns/slug@ver` source carries a namespace. A local
+/// manifest (`"local"`) or a bundled-registry slug (`"registry"`) has none, so
+/// a self-reference is unnameable and the guard is deliberately vacuous
+/// (`None`) — never the bare `[addon] name` slug, which could never equal a
+/// scoped `@ns/name` dependency and would only give the guard the false
+/// appearance of being active.
+fn addon_self_ref(source: &str) -> Option<String> {
+    let spec = source.strip_prefix("ctxpkg:")?;
+    let remote_ref = crate::core::context_package::remote::parse_remote_ref(spec)?;
+    Some(format!("@{}/{}", remote_ref.namespace, remote_ref.name))
+}
+
 /// Re-resolve and install the declared dependencies of an addon (GH #727) —
 /// used on `addon update`, where a dependency can move forward independently of
 /// the addon binary.
 fn refresh_pack_dependencies(
     deps: &[crate::core::context_package::manifest::PackageDependency],
-    root_name: &str,
+    root_name: Option<&str>,
     args: &[String],
 ) {
     if deps.iter().all(|d| d.optional) {
@@ -878,7 +904,7 @@ fn refresh_pack_dependencies(
 /// is always correct; only the pre-consent print can differ.
 fn resolve_declared_deps(
     deps: &[crate::core::context_package::manifest::PackageDependency],
-    root_name: &str,
+    root_name: Option<&str>,
     args: &[String],
 ) -> Vec<crate::core::context_package::deps::ResolvedDep> {
     if deps.iter().all(|d| d.optional) {
@@ -909,7 +935,7 @@ fn resolve_declared_deps(
 /// `{pack_dir:}` against exactly this returned slice (GH #727, Finding B).
 fn install_declared_deps(
     deps: &[crate::core::context_package::manifest::PackageDependency],
-    root_name: &str,
+    root_name: Option<&str>,
     args: &[String],
 ) -> Vec<crate::core::context_package::deps::ResolvedDep> {
     let base = crate::core::context_package::remote::registry_base(
@@ -1562,4 +1588,36 @@ fn print_help() {
          \n    \
              Full guide: docs/guides/addons.md"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pure part of the addon install path that GH #727 Finding A got
+    /// wrong: deriving the self-dependency root from the recorded install
+    /// source. A hosted `ctxpkg:@ns/slug@ver` source yields the scoped
+    /// `@ns/slug` the resolver's guard compares against; a `local` manifest or
+    /// a bundled `registry` slug has no namespace, so the guard is deliberately
+    /// vacuous (`None`) — the pre-fix code instead passed the bare `addon.name`
+    /// slug, which could never match a scoped dependency and silently disabled
+    /// the guard on this path.
+    #[test]
+    fn addon_self_ref_is_scoped_for_hosted_sources_and_none_otherwise() {
+        // Hosted pack: scoped `@ns/slug`, version pin stripped.
+        assert_eq!(
+            addon_self_ref("ctxpkg:@dasTholo/lean-md@0.2.0").as_deref(),
+            Some("@dasTholo/lean-md")
+        );
+        assert_eq!(
+            addon_self_ref("ctxpkg:@dasTholo/lean-md").as_deref(),
+            Some("@dasTholo/lean-md")
+        );
+
+        // No namespace ⇒ self-reference unnameable ⇒ guard vacuous.
+        assert_eq!(addon_self_ref("local"), None);
+        assert_eq!(addon_self_ref("registry"), None);
+        // A bare slug is never returned, so the bug (bare root) is unreachable.
+        assert_eq!(addon_self_ref("ctxpkg:demo"), None);
+    }
 }

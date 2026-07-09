@@ -152,7 +152,7 @@ pub(crate) fn cmd_pack_install_remote(
     // install from the same registry and land in the same lockfile.
     if let Err(e) = install_declared_dependencies(
         &manifest.dependencies,
-        &manifest.name,
+        Some(&manifest.name),
         &base,
         token.as_deref(),
         project_root,
@@ -184,7 +184,7 @@ pub(crate) fn cmd_pack_install_remote(
 /// way (Finding A).
 pub(crate) fn install_declared_dependencies(
     deps: &[crate::core::context_package::manifest::PackageDependency],
-    root_name: &str,
+    root_name: Option<&str>,
     base: &str,
     token: Option<&str>,
     project_root: &str,
