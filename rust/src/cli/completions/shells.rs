@@ -41,7 +41,7 @@ complete -F _lean_ctx_complete _lc_compress
 
 /// Generate a fish completion script that delegates to `lean-ctx __complete`.
 pub(super) fn fish_script() -> String {
-    r#"function __lean_ctx_complete
+    r"function __lean_ctx_complete
     set -l tokens (commandline -opc)
     set -e tokens[1]
     set -l current (commandline -ct)
@@ -53,7 +53,7 @@ complete -c lean-ctx -f -a '(__lean_ctx_complete)'
 complete -c lctx -f -a '(__lean_ctx_complete)'
 complete -c _lc -f -a '(__lean_ctx_complete)'
 complete -c _lc_compress -f -a '(__lean_ctx_complete)'
-"#
+"
     .to_string()
 }
 

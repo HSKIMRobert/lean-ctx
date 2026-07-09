@@ -23,15 +23,14 @@ pub(super) fn complete(words: &[String]) -> Vec<Completion> {
 
     match node {
         Some(node) => {
-            if let Some(prev) = remaining.last().or_else(|| preceding.last()) {
-                if let Some(flag) = find_flag(node, prev) {
-                    if flag.takes_value {
-                        if let Some(kind) = flag.value_kind {
-                            return filter(resolve_dynamic(kind), partial);
-                        }
-                        return vec![];
-                    }
+            if let Some(prev) = remaining.last().or_else(|| preceding.last())
+                && let Some(flag) = find_flag(node, prev)
+                && flag.takes_value
+            {
+                if let Some(kind) = flag.value_kind {
+                    return filter(resolve_dynamic(kind), partial);
                 }
+                return vec![];
             }
 
             let mut results = Vec::new();

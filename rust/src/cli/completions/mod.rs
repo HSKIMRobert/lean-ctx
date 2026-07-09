@@ -3,11 +3,11 @@
 
 mod engine;
 mod shells;
-pub(crate) mod spec;
+pub mod spec;
 
 /// `lean-ctx completions zsh|bash|fish` — print a static completion script.
 pub fn run_completions(args: &[String]) {
-    let shell = args.first().map(String::as_str).unwrap_or("zsh");
+    let shell = args.first().map_or("zsh", String::as_str);
     let script = match shell {
         "zsh" => shells::zsh_script(),
         "bash" => shells::bash_script(),
@@ -25,7 +25,7 @@ pub fn run_completions(args: &[String]) {
 pub fn run___complete(args: &[String]) {
     let (shell, words) = match args.iter().position(|a| a == "--") {
         Some(pos) => {
-            let shell = args.first().map(String::as_str).unwrap_or("zsh");
+            let shell = args.first().map_or("zsh", String::as_str);
             (shell, &args[pos + 1..])
         }
         None => ("zsh", args),
@@ -35,7 +35,6 @@ pub fn run___complete(args: &[String]) {
 
     let output = match shell {
         "zsh" => shells::format_zsh(&completions),
-        "bash" => shells::format_bash(&completions),
         "fish" => shells::format_fish(&completions),
         _ => shells::format_bash(&completions),
     };
