@@ -5,7 +5,7 @@
 
 /// Describes a dynamic value set resolved at completion time.
 #[derive(Clone, Copy)]
-pub(crate) enum DynamicKind {
+pub enum DynamicKind {
     Agents,
     Shells,
     Modes,
@@ -15,7 +15,7 @@ pub(crate) enum DynamicKind {
 }
 
 /// A flag/option accepted by a command.
-pub(crate) struct FlagSpec {
+pub struct FlagSpec {
     pub long: &'static str,
     pub short: Option<char>,
     pub description: &'static str,
@@ -24,7 +24,7 @@ pub(crate) struct FlagSpec {
 }
 
 /// A command or subcommand node in the tree.
-pub(crate) struct CommandNode {
+pub struct CommandNode {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub description: &'static str,
@@ -34,7 +34,7 @@ pub(crate) struct CommandNode {
     pub hidden: bool,
 }
 
-pub(crate) static COMMAND_TREE: &[CommandNode] = &[
+pub static COMMAND_TREE: &[CommandNode] = &[
     CommandNode {
         name: "shell",
         aliases: &[],
