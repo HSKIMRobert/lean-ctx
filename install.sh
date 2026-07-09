@@ -4,6 +4,7 @@
 # Usage:
 #   ./install.sh                # download pre-built binary (no Rust needed)
 #   ./install.sh --download     # download pre-built binary (no Rust needed)
+#   ./install.sh --cuda         # download Linux x86_64 CUDA-enabled binary
 #   ./install.sh --build-only   # build only, don't install
 #   ./install.sh --uninstall    # fully remove lean-ctx (processes, configs, autostart, data, binary)
 #
@@ -18,6 +19,7 @@ set -eu
 
 REPO="yvgude/lean-ctx"
 INSTALL_DIR="${LEAN_CTX_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_FLAVOR="${LEAN_CTX_INSTALL_FLAVOR:-cpu}"
 # Resolve the script's directory when invoked as a file. When piped via
 # `curl ... | sh`, $0 is "sh" (or similar) — the [ -f "$0" ] guard then
 # falls back to pwd, which is what the bottom-of-file dispatcher expects:
@@ -140,6 +142,21 @@ stop_running_instance() {
 
 install_download() {
   target="$(detect_target)"
+  case "$INSTALL_FLAVOR" in
+    cuda|gpu)
+      if [ "$target" != "x86_64-unknown-linux-gnu" ]; then
+        echo "Error: CUDA pre-built binary is currently published for x86_64 GNU/Linux only."
+        echo "Detected: $target"
+        exit 1
+      fi
+      target="${target}-cuda"
+      ;;
+    cpu|"") ;;
+    *)
+      echo "Error: unknown install flavor '$INSTALL_FLAVOR' (expected cpu or cuda)"
+      exit 1
+      ;;
+  esac
   echo "Mode: download pre-built binary"
   echo "Platform: $target"
   echo ""
@@ -294,13 +311,15 @@ uninstall() {
 
 case "${1:-}" in
   --download)    install_download ;;
+  --cuda|--gpu)  INSTALL_FLAVOR="cuda"; install_download ;;
   --build-only)  install_from_source --build-only ;;
   --uninstall)   shift; uninstall "$@" ;;
   --help|-h)
-    echo "Usage: $0 [--download|--build-only|--uninstall|--help]"
+    echo "Usage: $0 [--download|--cuda|--build-only|--uninstall|--help]"
     echo ""
     echo "  (no args)     Download pre-built binary (builds from source if run inside the lean-ctx repo)"
     echo "  --download    Download pre-built binary (no Rust needed)"
+    echo "  --cuda        Download Linux x86_64 CUDA-enabled binary"
     echo "  --build-only  Build only, don't install"
     echo "  --uninstall   Fully remove lean-ctx (processes, configs, autostart, data, binary)"
     echo ""
@@ -309,6 +328,7 @@ case "${1:-}" in
     echo ""
     echo "Environment:"
     echo "  LEAN_CTX_INSTALL_DIR  Custom install directory (default: ~/.local/bin)"
+    echo "  LEAN_CTX_INSTALL_FLAVOR  Binary flavor: cpu or cuda (default: cpu)"
     ;;
   *)
     if [ -d "$RUST_DIR" ]; then

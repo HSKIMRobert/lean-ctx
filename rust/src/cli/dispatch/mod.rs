@@ -163,6 +163,10 @@ pub fn run() {
                 crate::cli::embeddings_cmd::cmd_embeddings(&rest);
                 return;
             }
+            "enable-gpu" | "gpu" => {
+                core::updater::enable_gpu(&rest);
+                return;
+            }
             "rules" => {
                 crate::cli::rules_cmd::cmd_rules(&rest);
                 return;

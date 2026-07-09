@@ -54,7 +54,7 @@ pub fn ensure_ort_env(eps: &[ExecutionProviderDispatch]) -> anyhow::Result<()> {
 /// The library path is resolved by [`resolve_ort_dylib`]; errors are
 /// propagated eagerly to avoid hanging on first session creation.
 fn init_ort(eps: &[ExecutionProviderDispatch]) -> anyhow::Result<()> {
-    let path = resolve_ort_dylib()?;
+    let path = resolved_ort_dylib_path()?;
 
     tracing::debug!("Loading libonnxruntime from {}", path.display());
     validate_ort_dylib_version(&path)?;
@@ -69,6 +69,10 @@ fn init_ort(eps: &[ExecutionProviderDispatch]) -> anyhow::Result<()> {
 
     tracing::info!("ONNX Runtime initialised ({})", path.display());
     Ok(())
+}
+
+pub(crate) fn resolved_ort_dylib_path() -> anyhow::Result<PathBuf> {
+    resolve_ort_dylib()
 }
 
 type OrtGetApiBase = unsafe extern "C" fn() -> *const OrtApiBase;

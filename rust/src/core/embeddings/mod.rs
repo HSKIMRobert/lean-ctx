@@ -103,8 +103,15 @@ impl EmbeddingEngine {
         let eps = if deterministic {
             vec![ort::ep::CPU::default().build()]
         } else {
-            crate::core::ort_execution_providers::gpu_execution_providers()
+            crate::core::ort_execution_providers::execution_providers()
         };
+        // Surface a loud, actionable warning when the user expected the GPU but
+        // the CUDA runtime is unusable, so it doesn't silently crawl on CPU.
+        if !deterministic {
+            if let Some(msg) = crate::core::ort_execution_providers::gpu_fallback_warning() {
+                tracing::warn!("{msg}");
+            }
+        }
         let num_cpus = if deterministic {
             1
         } else {
@@ -277,17 +284,55 @@ impl EmbeddingEngine {
             .map(|t| tokenize(&self.tokenizer, t, self.max_seq_len))
             .collect();
 
-        // Process in mini-batches to cap peak memory
+        // Process in mini-batches to cap peak memory.
         // Override via LEAN_CTX_EMBEDDING_BATCH_SIZE env var (e.g. "128").
+        // Default is larger on GPU (256 vs. 64): each mini-batch is one
+        // sequential session.run() call (no fan-out across batches), so small
+        // batches under-utilize the GPU and pay kernel-launch / host↔device
+        // copy overhead per call that a bigger matmul would amortize better.
         let batch_size: usize = std::env::var("LEAN_CTX_EMBEDDING_BATCH_SIZE")
             .ok()
             .and_then(|v| v.parse().ok())
             .filter(|&v| v >= 1)
-            .unwrap_or(64);
-        let mut results = Vec::with_capacity(texts.len());
-        for chunk in tokenized.chunks(batch_size) {
+            .unwrap_or_else(|| {
+                if crate::core::ort_execution_providers::gpu_active() {
+                    256
+                } else {
+                    64
+                }
+            });
+
+        let total = tokenized.len();
+        let total_batches = total.div_ceil(batch_size);
+        let mut results = Vec::with_capacity(total);
+        let start = std::time::Instant::now();
+        for (batch_idx, chunk) in tokenized.chunks(batch_size).enumerate() {
+            // Cooperative cancellation checkpoint (between FFI calls, never
+            // inside `session.run()`): bail on user Ctrl-C or a memory-guard
+            // abort. Stopping here leaves the CUDA context intact so the driver
+            // can reclaim VRAM on the ensuing clean exit, instead of the process
+            // being killed mid-kernel and lingering as a zombie holding VRAM.
+            if crate::core::interrupt::is_cancelled()
+                || crate::core::memory_guard::abort_requested()
+            {
+                anyhow::bail!(
+                    "embedding cancelled after {done}/{total_batches} batches ({embedded}/{total} chunks)",
+                    done = batch_idx,
+                    embedded = results.len(),
+                );
+            }
+            let batch_start = std::time::Instant::now();
             let batch_out = self.run_inference_batch(chunk)?;
             results.extend(batch_out);
+            tracing::info!(
+                batch = batch_idx + 1,
+                total_batches,
+                embedded = results.len(),
+                total,
+                batch_ms = batch_start.elapsed().as_millis(),
+                elapsed_ms = start.elapsed().as_millis(),
+                "embedding progress"
+            );
         }
         Ok(results)
     }

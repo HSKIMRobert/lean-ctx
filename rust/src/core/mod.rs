@@ -62,6 +62,7 @@ pub mod compression {
 // Domain: Memory
 // ---------------------------------------------------------------------------
 pub mod episodic_memory;
+pub mod interrupt;
 pub mod memory_archive;
 pub mod memory_boundary;
 pub mod memory_capacity;

@@ -55,6 +55,10 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
         }
         Some("build-full") => {
+            // Cooperative Ctrl-C: the synchronous dense-embedding phase below
+            // spends its time in CUDA FFI; a plain SIGINT kill mid-kernel leaks
+            // VRAM and leaves a zombie. This lets embedding stop between batches.
+            crate::core::interrupt::install_ctrlc_handler();
             let bm25_path = crate::core::bm25_index::BM25Index::index_file_path(root);
             let _ = std::fs::remove_file(&bm25_path);
             // #696 C4: purge the property graph (graph.db + wal/shm + meta) and
@@ -148,6 +152,9 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
         }
         Some("build-semantic") => {
+            // Cooperative Ctrl-C for the synchronous CUDA embedding phase (see
+            // build-full): stop between batches instead of killing mid-kernel.
+            crate::core::interrupt::install_ctrlc_handler();
             // Build the dense embedding index on top of BM25.  If BM25 is not yet
             // built, build graph + BM25 first, then build semantic.
             let disk = crate::core::index_orchestrator::disk_status(&project_root);
