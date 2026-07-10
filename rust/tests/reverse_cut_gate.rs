@@ -16,7 +16,6 @@ fn repo_root() -> PathBuf {
 ///
 /// Allowed survivors (all are addon-name/slug references or fixtures, never the
 /// removed in-tree render ENGINE):
-///   - `rust/src/tools/registered/ctx_read.rs`      — raw .lmd.md read + opportunistic gateway delegation
 ///   - `rust/src/core/addons/registry.rs`            — flagship/search tests use "lmd"/"lean-md" as addon name/slug
 ///   - `rust/src/core/addons/manifest.rs`            — is_slug test uses "lmd" slug + manifest fixture uses "lean-md"
 ///   - `rust/src/core/addons/audit.rs`               — fixture uses "lean-md" as addon name in TOML
@@ -26,7 +25,9 @@ fn repo_root() -> PathBuf {
 ///   - `rust/src/core/context_package/verify.rs`     — package-verify fixtures use "lean-md" as example addon name
 ///
 /// The reverse-cut removed the in-tree lmd ENGINE (was entirely in src/lmd/, now deleted).
-/// Only addon-name/slug references remain, in exactly these eight survivor paths.
+/// Only addon-name/slug references remain, in exactly these seven survivor paths.
+/// `ctx_read.rs` is deliberately NOT among them: after the reverse-cut it carries
+/// no lmd knowledge at all, so the gate scans it like any other file.
 /// Any NEW lmd code line in any other file will be caught by this gate.
 ///
 /// Doc/line comments (`//`, `///`) and block-comment continuation lines (`*`) are
@@ -44,7 +45,6 @@ fn no_lmd_symbols_outside_docs_and_hook() {
             "lmd|lean[-_]md|LeanMd|CtxMd",
             "--",
             "rust/src",
-            ":!rust/src/tools/registered/ctx_read.rs",
             ":!rust/src/core/addons/registry.rs",
             ":!rust/src/core/addons/manifest.rs",
             ":!rust/src/core/addons/audit.rs",
