@@ -752,15 +752,17 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
         // shadow nudge rides the model-visible `additionalContext` side channel
         // instead, and the intercept is still recorded in shadow.log.
         //
-        // Redirect-suffix (post-#1019): when the model hasn't called any ctx_*
-        // tool recently, we append a single-line separator at the end. This is
-        // safe because edits write to the *original* path, not the temp file.
-        let mut final_output = output;
-        if let Ok(data_dir) = crate::core::data_dir::lean_ctx_data_dir()
-            && crate::server::bypass_hint::model_is_drifting(&data_dir)
-        {
-            final_output.extend_from_slice(crate::server::bypass_hint::REDIRECT_SUFFIX.as_bytes());
-        }
+        // #778/#marker-contamination: NEVER append REDIRECT_SUFFIX to the temp
+        // file content. The host reads this file as if it were the real source;
+        // if the agent then copies it back (StrReplace/Edit), the marker leaks
+        // into source code. The nudge now travels via additionalContext (gated
+        // by inject_context) or not at all — the drifting detection still feeds
+        // the radar log and ctx_knowledge for non-destructive recall.
+        let final_output = output;
+        let drifting = matches!(
+            crate::core::data_dir::lean_ctx_data_dir(),
+            Ok(ref d) if crate::server::bypass_hint::model_is_drifting(d)
+        );
         if !final_output.is_empty() && std::fs::write(&temp_path, &final_output).is_ok() {
             let temp_str = temp_path.to_str().unwrap_or("");
             debug_log::log_hook_decision(
@@ -770,13 +772,24 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
                 &path,
                 "redirected to ctx_read",
             );
-            let shadow_note = shadow.then(|| {
-                format!(
+            // #778: nudges only via additionalContext when inject_context is opted in
+            let note = if !inject_context_allowed() {
+                None
+            } else if shadow {
+                Some(format!(
                     "lean-ctx shadow mode: this Read was served by ctx_read(\"{path}\", \"full\"). Call ctx_read directly for better performance."
+                ))
+            } else if drifting {
+                Some(
+                    crate::server::bypass_hint::REDIRECT_SUFFIX
+                        .trim()
+                        .to_string(),
                 )
-            });
+            } else {
+                None
+            };
             log_shadow_intercept("Read", &path);
-            return build_redirect_output(tool_input, path_field, temp_str, shadow_note.as_deref());
+            return build_redirect_output(tool_input, path_field, temp_str, note.as_deref());
         }
     }
 
@@ -869,11 +882,16 @@ fn redirect_grep(tool_input: Option<&serde_json::Value>) -> String {
                 &format!("{pattern} in {search_path}"),
                 "redirected to ctx_search",
             );
-            let shadow_note = shadow.then(|| {
-                format!(
-                    "lean-ctx shadow mode: this Grep was served by ctx_search(\"{pattern}\", \"{search_path}\"). Call ctx_search directly for better performance."
-                )
-            });
+            // #778: shadow_note only when inject_context is opted in (cache-safe)
+            let shadow_note = shadow
+                .then(|| {
+                    inject_context_allowed().then(|| {
+                        format!(
+                            "lean-ctx shadow mode: this Grep was served by ctx_search(\"{pattern}\", \"{search_path}\"). Call ctx_search directly for better performance."
+                        )
+                    })
+                })
+                .flatten();
             log_shadow_intercept("Grep", &format!("{pattern} in {search_path}"));
             return build_redirect_output(tool_input, "path", temp_str, shadow_note.as_deref());
         }
@@ -1011,6 +1029,16 @@ fn redirect_temp_path(key: &str) -> std::path::PathBuf {
         let _ = std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o700));
     }
     temp_dir.join(format!("{hash:016x}.lctx"))
+}
+
+/// #778: Whether `additionalContext` injection is allowed.
+/// Default OFF — prevents prompt-cache invalidation on Anthropic models.
+/// Opt-in via `[code_health] inject_context = true` or `LEAN_CTX_INJECT_CONTEXT=1`.
+fn inject_context_allowed() -> bool {
+    std::env::var("LEAN_CTX_INJECT_CONTEXT").is_ok()
+        || crate::core::config::Config::load()
+            .code_health
+            .inject_context
 }
 
 fn build_redirect_output(

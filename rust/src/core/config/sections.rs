@@ -583,6 +583,13 @@ pub struct CodeHealthConfig {
     pub naming: bool,
     /// Compute module-coupling metrics.
     pub coupling: bool,
+    /// Inject `[CODE HEALTH]` notices as `additionalContext` in PostToolUse stdout.
+    /// Default: **false** — prevents prompt-cache invalidation on Anthropic models
+    /// (#778: each injection causes 440-520k tokens of cache re-bills when Claude
+    /// Code strips stale system-reminders retroactively).
+    /// When false, notices route to `ctx_knowledge` + dashboard instead.
+    #[serde(default)]
+    pub inject_context: bool,
 }
 
 impl Default for CodeHealthConfig {
@@ -593,6 +600,7 @@ impl Default for CodeHealthConfig {
             annotate_reads: true,
             naming: true,
             coupling: true,
+            inject_context: false,
         }
     }
 }

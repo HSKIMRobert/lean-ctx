@@ -367,6 +367,3 @@ case "${1:-}" in
     fi
     ;;
 esac
-
-
---- lean-ctx: ctx_compose bundles search+read+symbols in one call ---

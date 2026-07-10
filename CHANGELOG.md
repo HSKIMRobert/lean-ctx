@@ -3,7 +3,30 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.9.5] — 2026-07-10
+
+### Fixed
+- **Prompt-cache invalidation via `additionalContext` injection (GH #778).**
+  PostToolUse `[CODE HEALTH]` notices and PreToolUse shadow-mode nudges injected
+  text into `additionalContext` on every qualifying event. On Anthropic models
+  this retroactively mutates the cached prefix, causing 440–520k tokens of cache
+  re-bills per injection. Fix: default `inject_context = false` in `[code_health]`
+  config — notices now route to `ctx_knowledge` and the ContextBus (dashboard).
+  Opt-in via `[code_health] inject_context = true` or `LEAN_CTX_INJECT_CONTEXT=1`.
+- **Marker contamination in source files — root-cause fix.** The redirect-suffix
+  (`--- lean-ctx: ctx_compose ...`) was appended directly to `.lctx` temp files.
+  When agents copied temp-file content back into source, the marker leaked into
+  `.rs`/`.js`/`.sh` files, breaking builds. Fix: the suffix is never written to
+  file content; the nudge travels exclusively via `additionalContext` (gated by
+  `inject_context`) or is suppressed entirely.
+- **Release pipeline: rmcp crates.io compile bug.** `rmcp 2.2.0` on crates.io
+  calls `SseStream::from_bytes_stream` but `sse-stream 0.2.x` only provides
+  `from_byte_stream`. Restored `[patch.crates-io]` to upstream git rev `67a3085`
+  which has the fix; `cargo publish --no-verify` bypasses broken verification.
+- **Release pipeline: Homebrew SHA256 grep collision.** The grep pattern
+  `x86_64-unknown-linux-gnu` also matched the `-cuda` variant, producing
+  multiple SHA256 values and breaking the GitHub Actions output format. Fixed
+  with `.tar.gz` suffix anchoring.
 
 ## [3.9.4] — 2026-07-09
 
