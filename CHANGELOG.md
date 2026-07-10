@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [3.9.6] — 2026-07-10
 
+### Added
+- **`full-compact` read mode.**
+  New `ctx_read` mode: headerless, trailing-whitespace-stripped verbatim
+  content. Used by the Read redirect to produce temp files faithful to the
+  original line structure while giving ~5–10 % compression without breaking
+  the host's `offset`/`limit` windowed reads (fixes header-in-temp-file offset
+  bug from the original `full` mode, #1021 follow-up).
+- **Dashboard channel-breakdown API.**
+  New `/api/stats` field `channel_breakdown` classifies every recorded command
+  into `redirect` (hook-intercepted native tools), `rewrite` (shell commands
+  rewritten to lean-ctx), or `mcp` (direct ctx_* calls). Powers the Cockpit
+  Proof/Trends chart showing which delivery channel contributes what savings.
+
 ### Changed
 - **Default `memory_cleanup` switched from `aggressive` to `shared`.**
   Idle cache TTL rises from 5 minutes to **1 hour**, matching real-world agent
@@ -13,6 +26,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **Default `cache_max_tokens` raised from 500k to 2M.**
   Four times more headroom for the in-memory read cache — eliminates premature
   eviction in large codebases. Override via `LEAN_CTX_CACHE_MAX_TOKENS`.
+- **Read redirect switched from `full` to `full-compact` mode.**
+  Redirect hook now produces headerless, whitespace-trimmed temp files. Fixes
+  offset/limit correctness (#1021 follow-up) and saves ~5–10 % on every
+  redirected native Read.
+- **Grep redirect now host-aware (GH #398 follow-up).**
+  `grep_content_mode()` no longer requires an explicit `output_mode=content`
+  parameter — when the mode is absent, it detects the host IDE and allows the
+  redirect on Cursor (which defaults to `content`) while blocking it on Claude
+  Code (which defaults to `files_with_matches`).
 - **Rules enforcement strengthened across all IDEs (RULES_VERSION 8 → 9, CLAUDE.md v6 → v7).**
   All 28 supported IDEs now receive MUST/NEVER/SELF-CORRECT language with
   quantitative evidence (~1 % hook redirect vs 13–70 % direct ctx_* savings),
@@ -34,6 +56,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 - **`cap_to_raw()` inflation prevention tracked as metric.**
   Events where framed output would exceed raw content are now counted in
   `cache_telemetry` and shown in `ctx_cache status`.
+- **CLI `ls` tree-tracking fix.**
+  `cmd_ls` now passes the real `original` token count to `cli_track_tree`
+  instead of `0`, so tree-view savings appear correctly in CEP stats.
+- **agent_wrapper: `pwd -` and unquoted eval arg (GH #745 follow-up).**
+  Two additional Claude Code sandbox variants now handled: (1) trailing
+  `pwd -` (lone dash flag) not matched by `has_trailing_bare_pwd`; (2) unquoted
+  eval arguments (`eval pwd` vs `eval 'pwd'`).
 - **Doctor text corrected:** shared cleanup description updated from
   "30 min" to "1 hour" to match the new default TTL.
 
