@@ -229,6 +229,3 @@ main().catch((err) => {
   console.error("Install from source instead: cargo install lean-ctx");
   process.exit(1);
 });
-
-
---- lean-ctx: ctx_compose bundles search+read+symbols in one call ---
