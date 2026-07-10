@@ -3,6 +3,40 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.9.6] — 2026-07-10
+
+### Changed
+- **Default `memory_cleanup` switched from `aggressive` to `shared`.**
+  Idle cache TTL rises from 5 minutes to **1 hour**, matching real-world agent
+  session durations (think pauses, context switches). Low-memory devices can
+  opt back via `memory_cleanup = "aggressive"` or `LEAN_CTX_MEMORY_CLEANUP=aggressive`.
+- **Default `cache_max_tokens` raised from 500k to 2M.**
+  Four times more headroom for the in-memory read cache — eliminates premature
+  eviction in large codebases. Override via `LEAN_CTX_CACHE_MAX_TOKENS`.
+- **Rules enforcement strengthened across all IDEs (RULES_VERSION 8 → 9, CLAUDE.md v6 → v7).**
+  All 28 supported IDEs now receive MUST/NEVER/SELF-CORRECT language with
+  quantitative evidence (~1 % hook redirect vs 13–70 % direct ctx_* savings),
+  replacing the previous "prefer" wording that let agents fall back to native
+  tools silently.
+
+### Fixed
+- **Compressed-output cache hits now properly counted.**
+  `SessionCache::get_compressed()` increments `cache_hits` and `total_reads`,
+  so re-reads of auto/map/signatures outputs appear in CEP stats and dashboard.
+- **`read_dedup` savings tracked in CEP stats.**
+  The PostToolUse `read_dedup` hook now calls `stats::record("cli_read_dedup")`
+  + `stats::flush()`, surfacing dedup savings in the redirect channel on the
+  dashboard.
+- **Dashboard channel-breakdown empty state.**
+  `cockpit-remaining.js` now shows a helpful "No channel data yet" message
+  instead of silently rendering nothing (which previously caused a
+  `SyntaxError` on the Proof/Trends page).
+- **`cap_to_raw()` inflation prevention tracked as metric.**
+  Events where framed output would exceed raw content are now counted in
+  `cache_telemetry` and shown in `ctx_cache status`.
+- **Doctor text corrected:** shared cleanup description updated from
+  "30 min" to "1 hour" to match the new default TTL.
+
 ## [3.9.5] — 2026-07-10
 
 ### Fixed
@@ -27,6 +61,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   `x86_64-unknown-linux-gnu` also matched the `-cuda` variant, producing
   multiple SHA256 values and breaking the GitHub Actions output format. Fixed
   with `.tar.gz` suffix anchoring.
+- **agent_wrapper detection — `pwd -` and unquoted eval arg (GH #745 follow-up).**
+  Two additional Claude Code sandbox variants still hit the `eval` hard-block in
+  v3.9.3: (1) trailing `&& pwd -` (lone dash flag) was not matched by
+  `has_trailing_bare_pwd`; (2) unquoted eval arguments (`eval pwd` vs `eval 'pwd'`).
+  Fix: `has_trailing_bare_pwd` now accepts any `pwd` followed by flag-only tokens
+  (no redirect operator), covering `pwd`, `pwd -P`, `pwd -`, and future variants.
 
 ## [3.9.4] — 2026-07-09
 
