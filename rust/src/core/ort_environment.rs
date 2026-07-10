@@ -413,7 +413,9 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("lc-nix-trv-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
 
-        for bad in ["", "../etc", "foo/bar", "a\0b"] {
+        // NUL bytes cannot be set via std::env::set_var (OS rejects them),
+        // but the contains('\0') guard is defense-in-depth for direct callers.
+        for bad in ["", "../etc", "foo/bar"] {
             crate::test_env::set_var("USER", bad);
             assert!(
                 nix_per_user_lib(&tmp, "lib.so").is_none(),
