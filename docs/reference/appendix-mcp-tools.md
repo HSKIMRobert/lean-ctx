@@ -153,7 +153,7 @@ shows the smallest tool profile that exposes the tool (`M` minimal, `S` standard
 
 `.lmd.md` / `.lean-md` rendering is provided by the **external lean-md addon**
 (`dasTholo/lean-md`), not by lean-ctx itself. `ctx_md_render` / `ctx_md_check` are
-exposed by the addon's MCP server once installed (`lean-ctx addon add lean-md`); a
+exposed by the addon's MCP server once installed (`lean-ctx addon add @dasTholo/lean-md`); a
 `.lmd.md` passed to `ctx_read` is returned **raw** — lean-ctx never renders it
 (rendering is an explicit addon call). The `@directive` catalog and `@lean-md` header fields live in the
 addon repo.

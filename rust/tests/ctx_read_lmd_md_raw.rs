@@ -42,4 +42,11 @@ fn ctx_read_lmd_md_returns_raw_source() {
         text.contains("RAW_DELEGATION_MARKER"),
         "without an addon a .lmd.md read must return raw text (no error, no half-render): {text}"
     );
+    // The `@date` directive is what discriminates raw from rendered: any renderer
+    // consumes it and substitutes a date. Asserting on the plain marker alone would
+    // survive a re-introduced render pass, so this is the line that makes the gate bite.
+    assert!(
+        text.contains("@date"),
+        "a rendered .lmd.md would have consumed the @date directive; the read must be raw: {text}"
+    );
 }
