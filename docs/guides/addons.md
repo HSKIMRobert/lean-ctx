@@ -220,6 +220,15 @@ args = ["serve"]
 # transport = "http"
 # url = "https://my-addon.example.com/mcp"
 # headers = { Authorization = "Bearer ..." }
+
+# Context packages this addon needs at runtime (depth-1, installed first):
+[[dependencies]]
+name        = "@dasTholo/lean-md-skills"
+version_req = "^0.2"
+optional    = false
+
+[mcp.env]
+LEAN_MD_SKILLS_DIR = "{pack_dir:@dasTholo/lean-md-skills}"
 ```
 
 See the [contract](../contracts/addon-manifest-v1.md) for every field.
