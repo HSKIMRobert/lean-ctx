@@ -20,9 +20,13 @@ Engine, full directive catalog, and spec: **https://github.com/dasTholo/lean-md*
 ## 2. Installation
 
 ```bash
-lean-ctx addon add lean-md                 # from the bundled registry
-lean-ctx addon add ./lean-ctx-addon.toml   # local manifest (dev/test)
+lean-ctx addon add @dasTholo/lean-md        # hosted pack (ctxpkg.com)
+lean-ctx addon add ./lean-ctx-addon.toml    # local manifest (dev/test)
 ```
+
+`addon add` resolves a local manifest first, then a hosted `ns/slug` pack, then the
+bundled registry slug. The bundled `lean-md` entry is **listed** — it makes the addon
+discoverable through `lean-ctx addon search`, it is not an install path.
 
 After install, restart the MCP client so the gateway catalog is re-read. The addon
 is spawned as a stdio gateway child; its tools (`ctx_md_render`, `ctx_md_check`)
@@ -30,24 +34,27 @@ become reachable through the lean-ctx server.
 
 ## 3. Integration points in lean-ctx
 
-lean-ctx keeps exactly three lmd-aware touch points; everything else is the addon's.
+lean-ctx keeps its lmd surface deliberately small: `.lmd.md` is read **raw** (§3.1),
+the addon ships as a registry entry (§3.2), and the addon calls back through the
+stable `ctx_*` surface (§3.3). Everything else is the addon's.
 
-### 3.1 Auto-render delegation hook
+### 3.1 Raw `.lmd.md` read (no in-tree rendering)
 
-`ctx_read` recognizes a `.lmd.md` path and delegates rendering to the lean-md addon
-via the gateway when installed; without the addon it returns the **raw** bytes
-(never a half-rendered body). This is the only lmd knowledge remaining in
-`rust/src` and is opt-in (fires only on `.lmd.md`). It replaces the former in-tree
-`extension_registry::RenderTransform` coupling.
+`ctx_read` treats `.lmd.md` like any other file: it returns the **raw** bytes and
+never renders (a half-rendered body would be worse than none). Rendering is the
+addon's job, reached explicitly through its `ctx_md_render` / `ctx_md_check` tools
+once installed. lean-ctx carries **no** `.lmd.md` special-casing in `ctx_read`; the
+earlier auto-render delegation hook was reverse-cut before merge.
 
-Source: `rust/src/tools/registered/ctx_read.rs`.
+Source: `rust/src/tools/registered/ctx_read.rs` (no lmd branch),
+gate test `rust/tests/ctx_read_lmd_md_raw.rs`.
 
 ### 3.2 Addon registry entry
 
-`rust/data/addon_registry.json` carries the installable `lean-md` entry
-(`transport=stdio`, `command=lean-md`, `args=["mcp"]`, tier *community*). The
-validator (`core::addons::registry::validate_entries`) requires
-author/homepage/license/description and a finding-free wiring.
+`rust/data/addon_registry.json` carries the **listed** `lean-md` entry (no runnable
+`[mcp]` command, no `[install]` block), so `core::addons::manifest::is_installable`
+reports `false` and the entry serves discovery only. The validator
+(`core::addons::registry::validate_entries`) requires a homepage for a listed entry.
 
 ### 3.3 ctx_* outbound surface = addon contract
 
@@ -67,11 +74,11 @@ in lean-ctx are integration-only.
 
 | Class   | Change (vs. main)                                                       | Why                                                |
 |---------|-------------------------------------------------------------------------|--------------------------------------------------|
-| added   | auto-render delegation hook in `ctx_read.rs`                            | render `.lmd.md` via the addon, no in-tree engine  |
-| changed | `addon_registry.json`: `lmd` placeholder → installable `lean-md` entry  | installable via `lean-ctx addon add`               |
-| kept    | `extension_registry::RenderTransform` trait + `WasmRenderTransform`     | generic infra, not lmd-exclusive                   |
+| removed | `.lmd.md` auto-render delegation in `ctx_read.rs` → **raw read**         | no in-tree engine renders; the addon renders on request |
+| changed | `addon_registry.json`: `lmd` placeholder → **listed** `lean-md` entry    | discoverability; install goes through the hosted pack   |
+| added   | generic `extension_registry::RenderTransform` trait + registry           | infra for `@render type=<name>`, not lmd-exclusive      |
 | kept    | ctx_* outbound tool surface                                             | the addon calls them over the wire                 |
-| added   | gate tests `reverse_cut_gate.rs`, `auto_render_delegation.rs`           | enforce the cut invariant + raw-fallback           |
+| added   | gate tests `reverse_cut_gate.rs`, `ctx_read_lmd_md_raw.rs`              | enforce the cut invariant + raw read               |
 
 The engine, full `@directive` catalog, E-constructs, and spec now live in
 `dasTholo/lean-md` and are **not** mirrored here.
