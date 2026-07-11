@@ -50,18 +50,13 @@ fn should_allow(tool_name: &str, file_path: Option<&str>) -> bool {
 fn is_mcp_server_reachable() -> bool {
     let path = crate::daemon::daemon_pid_path();
     if !path.exists() {
-        // No PID file — could be Cursor-managed (inline MCP, no daemon.pid).
-        // Only treat as "down" if we have positive evidence of failure.
         return true;
     }
     if let Ok(pid_str) = std::fs::read_to_string(&path)
-        && let Ok(pid) = pid_str.trim().parse::<i32>()
+        && let Ok(pid) = pid_str.trim().parse::<u32>()
+        && !crate::ipc::process::is_alive(pid)
     {
-        // SAFETY: kill with signal 0 only checks if process exists, no side effects
-        if unsafe { libc::kill(pid, 0) } != 0 {
-            // Stale PID file — daemon crashed, MCP is truly down
-            return false;
-        }
+        return false;
     }
     true
 }
