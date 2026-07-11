@@ -19,15 +19,32 @@ fn apply_harden(level: &str) {
     println!("lean-ctx harden (level: {level})");
     println!();
 
+    if level == "hard" {
+        println!("  Hard mode = Replace mode: denying native Read/Grep/Glob/Bash across all IDEs.");
+        println!();
+        // Trigger a full Replace-mode setup for all detected agents
+        let opts = crate::setup::SetupOptions {
+            non_interactive: true,
+            yes: true,
+            fix: true,
+            ..Default::default()
+        };
+        if let Err(e) = crate::setup::run_setup_with_options(opts) {
+            eprintln!("  Setup error: {e}");
+        }
+        println!();
+        println!("Replace mode active. All native tools denied — use ctx_* MCP tools.");
+        println!("Undo with: lean-ctx harden --undo");
+        return;
+    }
+
     let mut applied = Vec::new();
 
     if set_env_in_mcp_configs() {
         applied.push("Set LEAN_CTX_HARDEN=1 in MCP configs");
     }
 
-    if level == "hard"
-        && let Some(msg) = apply_claude_permissions_deny()
-    {
+    if let Some(msg) = apply_claude_permissions_deny() {
         applied.push("Claude Code: added Bash to permissions.deny");
         println!("  {msg}");
     }

@@ -39,13 +39,11 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
     let resolver_ctx =
         import_resolver::ResolverContext::new(root_path, file_paths.clone(), content_cache);
 
-    // #934: the per-file deep analysis (a second tree-sitter parse) dominates the
-    // edge-build cost and is pure + thread-safe (thread_local parser, read-only
-    // resolver context). Fan it out, collecting in file order; the sequential
-    // branch keeps the memory-pressure early-break. Edges are sorted + deduped
-    // below, so per-file insertion order never affects the result.
-    let per_file: Vec<FileEdges> = if crate::core::memory_guard::is_under_pressure() {
-        let mut acc = Vec::with_capacity(file_paths.len());
+    // #934 + #790: fan out in 500-file batches with memory pressure checks
+    // between them. Under pressure, fall back to sequential with 1000-file checks.
+    const EDGE_BATCH_SIZE: usize = 500;
+    let mut per_file: Vec<FileEdges> = Vec::with_capacity(file_paths.len());
+    if crate::core::memory_guard::is_under_pressure() {
         for (i, rel_path) in file_paths.iter().enumerate() {
             if i.is_multiple_of(1000) && crate::core::memory_guard::is_under_pressure() {
                 tracing::warn!(
@@ -54,20 +52,30 @@ fn build_edges_with_cache(index: &mut ProjectIndex, content_cache: &HashMap<Stri
                 );
                 break;
             }
-            acc.push(resolve_file_edges(
+            per_file.push(resolve_file_edges(
                 rel_path,
                 content_cache,
                 &resolver_ctx,
                 root_path,
             ));
         }
-        acc
     } else {
-        file_paths
-            .par_iter()
-            .map(|rel_path| resolve_file_edges(rel_path, content_cache, &resolver_ctx, root_path))
-            .collect()
-    };
+        for (batch_no, batch) in file_paths.chunks(EDGE_BATCH_SIZE).enumerate() {
+            if batch_no > 0 && crate::core::memory_guard::abort_requested() {
+                tracing::warn!(
+                    "[graph_index: aborting edge-building at batch {batch_no} due to memory pressure]",
+                );
+                break;
+            }
+            let batch_results: Vec<FileEdges> = batch
+                .par_iter()
+                .map(|rel_path| {
+                    resolve_file_edges(rel_path, content_cache, &resolver_ctx, root_path)
+                })
+                .collect();
+            per_file.extend(batch_results);
+        }
+    }
 
     // Full analyses of C#/Java/Go/Kotlin files, kept to derive cross-file
     // type_ref edges after the import pass (GH #398). Those languages resolve

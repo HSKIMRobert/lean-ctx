@@ -774,6 +774,8 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
     let mut reused = 0usize;
     let mut entries_visited = 0usize;
     let mut content_cache: HashMap<String, String> = HashMap::new();
+    let mut content_cache_bytes: usize = 0;
+    const CONTENT_CACHE_MAX_BYTES: usize = 256 * 1024 * 1024; // #790: cap at 256MB
     let max_files = if cfg.graph_index_max_files == 0 {
         usize::MAX // unlimited
     } else {
@@ -926,7 +928,12 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
             for (key, sym) in r.symbols {
                 index.symbols.insert(key, sym);
             }
-            content_cache.insert(r.rel, r.content);
+            // #790: stop caching file contents once the budget is exceeded;
+            // the edge builder falls back to disk reads on cache misses.
+            if content_cache_bytes < CONTENT_CACHE_MAX_BYTES {
+                content_cache_bytes += r.content.len();
+                content_cache.insert(r.rel, r.content);
+            }
         }
     }
 

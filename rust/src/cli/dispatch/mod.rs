@@ -733,12 +733,13 @@ pub fn run() {
                 // inside the handler (#1035), so they must NOT also carry the
                 // force-exit watchdog (which would `exit(1)` with no decision and
                 // wedge the host). The remaining hooks keep the simple zombie-guard.
-                if !matches!(action, "rewrite" | "redirect") {
+                if !matches!(action, "rewrite" | "redirect" | "deny") {
                     hook_handlers::arm_watchdog(std::time::Duration::from_secs(5));
                 }
                 match action {
                     "rewrite" => hook_handlers::handle_rewrite(),
                     "redirect" => hook_handlers::handle_redirect(),
+                    "deny" => hook_handlers::handle_deny(),
                     "read-dedup" => hook_handlers::handle_read_dedup(),
                     "observe" => hook_handlers::handle_observe(),
                     "copilot" => hook_handlers::handle_copilot(),
@@ -747,7 +748,7 @@ pub fn run() {
                     "rewrite-inline" => hook_handlers::handle_rewrite_inline(),
                     _ => {
                         eprintln!(
-                            "Usage: lean-ctx hook <rewrite|redirect|read-dedup|observe|copilot|codex-pretooluse|codex-session-start|rewrite-inline>"
+                            "Usage: lean-ctx hook <rewrite|redirect|deny|read-dedup|observe|copilot|codex-pretooluse|codex-session-start|rewrite-inline>"
                         );
                         eprintln!(
                             "  Internal commands used by agent hooks (Claude, Cursor, Copilot, etc.)"

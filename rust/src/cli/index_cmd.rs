@@ -25,6 +25,14 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
         }
         Some("build") => {
+            // #790: activate memory guardian for CLI builds so graph/BM25 abort
+            // checks actually fire (previously only started in daemon mode).
+            crate::core::memory_guard::start_guard(std::sync::Arc::new(|level| {
+                tracing::warn!(
+                    "[index build] memory pressure: {level:?} — background tasks will throttle"
+                );
+                crate::core::memory_guard::force_purge();
+            }));
             crate::core::index_orchestrator::ensure_all_background(&project_root);
 
             let started = std::time::Instant::now();

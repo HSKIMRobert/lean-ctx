@@ -6,7 +6,7 @@ use super::super::{
 
 pub(crate) fn install_qoder_hook_with_mode(mode: HookMode) {
     match mode {
-        HookMode::Hybrid => {
+        HookMode::Hybrid | HookMode::Replace => {
             install_qoder_hook();
             install_qoder_hybrid_rules(mode);
         }
@@ -106,7 +106,7 @@ fn install_qoder_hybrid_rules(mode: HookMode) {
     let rules_path = rules_dir.join("lean-ctx.md");
 
     let content = match mode {
-        HookMode::Hybrid => hybrid_rules_content(),
+        HookMode::Hybrid | HookMode::Replace => hybrid_rules_content(),
         HookMode::Mcp => return,
     };
 
@@ -114,6 +114,7 @@ fn install_qoder_hybrid_rules(mode: HookMode) {
 
     let mode_name = match mode {
         HookMode::Hybrid => "hybrid",
+        HookMode::Replace => "replace",
         HookMode::Mcp => "mcp",
     };
     eprintln!(

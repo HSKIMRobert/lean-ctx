@@ -14,10 +14,12 @@ const HOOK_STDIN_TIMEOUT: Duration = Duration::from_secs(3);
 /// bounded here and FAILS OPEN instead of wedging the host's tool call (#1035).
 const HOOK_GATING_TIMEOUT: Duration = Duration::from_secs(15);
 mod dedup;
+mod deny;
 mod edit_health;
 mod observe;
 mod payload;
 mod read_dedup;
+pub use deny::handle_deny;
 pub use observe::*;
 pub use read_dedup::handle_read_dedup;
 #[cfg(test)]

@@ -689,23 +689,30 @@ fn rewrite_script_skips_multiline_commands() {
 }
 
 #[test]
-fn codex_is_hybrid() {
-    assert_eq!(recommend_hook_mode("codex"), HookMode::Hybrid);
+fn codex_is_replace() {
+    assert_eq!(recommend_hook_mode("codex"), HookMode::Replace);
 }
 
 #[test]
-fn cursor_is_hybrid() {
-    assert_eq!(recommend_hook_mode("cursor"), HookMode::Hybrid);
+fn cursor_is_replace() {
+    assert_eq!(recommend_hook_mode("cursor"), HookMode::Replace);
 }
 
 #[test]
-fn gemini_is_hybrid() {
-    assert_eq!(recommend_hook_mode("gemini"), HookMode::Hybrid);
+fn gemini_is_replace() {
+    assert_eq!(recommend_hook_mode("gemini"), HookMode::Replace);
 }
 
 #[test]
-fn claude_is_hybrid() {
-    assert_eq!(recommend_hook_mode("claude"), HookMode::Hybrid);
+fn claude_is_replace() {
+    assert_eq!(recommend_hook_mode("claude"), HookMode::Replace);
+}
+
+#[test]
+fn hybrid_fallback_agents() {
+    assert_eq!(recommend_hook_mode("crush"), HookMode::Hybrid);
+    assert_eq!(recommend_hook_mode("cline"), HookMode::Hybrid);
+    assert_eq!(recommend_hook_mode("kiro"), HookMode::Hybrid);
 }
 
 #[test]

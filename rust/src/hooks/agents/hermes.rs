@@ -44,7 +44,7 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
         .setup
         .should_update_mcp();
     match mode {
-        HookMode::Mcp | HookMode::Hybrid if update_mcp => {
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace if update_mcp => {
             match crate::core::editor_registry::write_config_with_options(
                 &target,
                 &binary,
