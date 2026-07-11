@@ -18,6 +18,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   tool call (auto-detected)" instead of "Restart your AI tool / IDE".
 
 ### Fixed
+- **`lean-ctx index build` memory explosion capped (GH #790).**
+  Six fixes that together prevent unbounded RAM growth during index builds:
+  1. **Memory Guardian activated for CLI builds** — `start_guard()` now runs
+     before `ensure_all_background()`, so pressure/abort checks in graph and
+     BM25 code actually fire (previously only started in daemon mode).
+  2. **`graph_index_max_files` default 0 → 15 000** — caps the graph scan;
+     override with `graph_index_max_files = 0` for unlimited.
+  3. **Graph `content_cache` capped at 256 MB** — stops caching file contents
+     once the budget is hit; the edge builder falls back to disk reads.
+  4. **Edge build batched (500 files/batch)** — `par_iter(ALL)` replaced with
+     chunked parallel batches and memory-pressure checks between them.
+  5. **BM25 chunk content truncated to 10-line snippets during build** — full
+     text is tokenised for scoring, then the stored body is snipped immediately
+     (no more holding every file's full content in the chunk vector).
+  6. **BM25 save streams through zstd** — `postcard::to_allocvec` replaced with
+     `postcard::to_io` → `zstd::Encoder` → temp file; eliminates the
+     intermediate uncompressed `Vec<u8>` allocation entirely.
 - **Cursor Read redirect removed — savings jump from 9.5 % to 73+ % (GH #1250).**
   Cursor's `StrReplace` internally triggers a native `Read` that the
   redirect hook intercepted, producing verbatim `cli_full` output with
