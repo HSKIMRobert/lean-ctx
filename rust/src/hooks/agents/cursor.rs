@@ -90,14 +90,19 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     };
 
     ensure_pretooluse_hook(pre_arr, &["Shell"], "Shell", rewrite_cmd);
-    // Cursor has no `Glob` tool — valid preToolUse matchers are
-    // Shell|Read|Write|Grep|Delete|Task|MCP:* (Cursor Docs). The legacy
-    // "…|Glob" arm (GL #890) never fired here, so install "Read|Grep" and keep
-    // the old strings in `matcher_variants` to migrate existing hooks in place.
+    // GH #1250: Read redirect is removed for Cursor. StrReplace internally
+    // triggers a Read that the redirect hook intercepted, producing ~0.5%
+    // savings on uncompressible verbatim content (cli_full). This dominated
+    // the stats (68% of all tokens!) and dragged the savings rate from 29%
+    // to 9.5%. With the redirect gone, Cursor's Read passes through natively
+    // (StrReplace works), and the agent uses ctx_read (MCP) for compressed
+    // reads — matching how Claude Code already works (read_redirect = auto).
+    // The Grep redirect remains: it rewrites grep through lean-ctx for
+    // compression.
     ensure_pretooluse_hook(
         pre_arr,
         &["Read|Grep|Glob", "Read|Grep", "Read", "Grep"],
-        "Read|Grep",
+        "Grep",
         redirect_cmd,
     );
 
@@ -344,16 +349,16 @@ mod tests {
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook rewrite")
         }));
         assert!(pre.iter().any(|e| {
-            e.get("matcher").and_then(|m| m.as_str()) == Some("Read|Grep")
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep")
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook redirect")
         }));
     }
 
     #[test]
-    fn cursor_redirect_matcher_migrates_legacy_glob_arm() {
-        // GL #1018: `Glob` is not a Cursor tool, so the legacy "Read|Grep|Glob"
-        // matcher (GL #890) must be rewritten in place to "Read|Grep" — never
-        // duplicated — when re-installing over an older hooks.json.
+    fn cursor_redirect_matcher_migrates_legacy_read_grep_arm() {
+        // GH #1250: the legacy "Read|Grep" or "Read|Grep|Glob" matcher must be
+        // rewritten in place to "Grep" only — Read is no longer redirected for
+        // Cursor (StrReplace internal reads dominated stats at ~0% savings).
         let mut v = serde_json::json!({
             "version": 1,
             "hooks": {
@@ -376,14 +381,8 @@ mod tests {
         assert_eq!(redirects.len(), 1, "must migrate in place, not duplicate");
         assert_eq!(
             redirects[0].get("matcher").and_then(|m| m.as_str()),
-            Some("Read|Grep")
-        );
-        assert!(
-            !pre.iter().any(|e| e
-                .get("matcher")
-                .and_then(|m| m.as_str())
-                .is_some_and(|m| m.contains("Glob"))),
-            "no Glob arm should remain for Cursor"
+            Some("Grep"),
+            "matcher must be Grep only (no Read, no Glob)"
         );
     }
 }
