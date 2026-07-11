@@ -411,6 +411,15 @@ fn run_build_worker(root: &str) {
         tracing::error!("[index_orchestrator: BM25 thread panicked: {e:?}]");
     }
 
+    // Post-build memory reclamation: the parallel build allocates large
+    // transient structures (file contents, token vectors, inverted postings).
+    // After merge+save these are freed, but jemalloc retains dirty pages in
+    // its arena — inflating RSS far past the logical working set. Purging
+    // immediately returns those pages to the OS, keeping the serve process
+    // close to the configured max_ram_percent target.
+    crate::core::content_cache::trim_oldest_percent(75);
+    crate::core::memory_guard::force_purge();
+
     let final_state = entry_for(root);
     let mut s = final_state
         .lock()
