@@ -131,6 +131,7 @@ fn run_wrap_for_agent(agent_key: &str) {
         match mode {
             HookMode::Mcp => "MCP",
             HookMode::Hybrid => "Hybrid",
+            HookMode::Replace => "Replace",
         }
     );
     hooks::install_agent_hook_with_mode(agent_key, true, mode);

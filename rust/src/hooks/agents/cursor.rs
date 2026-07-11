@@ -90,14 +90,19 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     };
 
     ensure_pretooluse_hook(pre_arr, &["Shell"], "Shell", rewrite_cmd);
-    // Cursor has no `Glob` tool — valid preToolUse matchers are
-    // Shell|Read|Write|Grep|Delete|Task|MCP:* (Cursor Docs). The legacy
-    // "…|Glob" arm (GL #890) never fired here, so install "Read|Grep" and keep
-    // the old strings in `matcher_variants` to migrate existing hooks in place.
+    // GH #1250: Read redirect is removed for Cursor. StrReplace internally
+    // triggers a Read that the redirect hook intercepted, producing ~0.5%
+    // savings on uncompressible verbatim content (cli_full). This dominated
+    // the stats (68% of all tokens!) and dragged the savings rate from 29%
+    // to 9.5%. With the redirect gone, Cursor's Read passes through natively
+    // (StrReplace works), and the agent uses ctx_read (MCP) for compressed
+    // reads — matching how Claude Code already works (read_redirect = auto).
+    // The Grep redirect remains: it rewrites grep through lean-ctx for
+    // compression.
     ensure_pretooluse_hook(
         pre_arr,
         &["Read|Grep|Glob", "Read|Grep", "Read", "Grep"],
-        "Read|Grep",
+        "Grep",
         redirect_cmd,
     );
 
@@ -186,6 +191,11 @@ pub(crate) fn install_cursor_hook_with_mode(global: bool, mode: HookMode) {
             install_cursor_hook(global);
             install_cursor_rules_for_mode(global, mode);
         }
+        HookMode::Replace => {
+            install_cursor_hook(global);
+            install_cursor_deny_hook(global);
+            install_cursor_rules_for_mode(global, mode);
+        }
     }
 }
 
@@ -197,6 +207,7 @@ fn install_cursor_rules_for_mode(global: bool, mode: HookMode) {
     let mode_name = match mode {
         HookMode::Hybrid => "hybrid",
         HookMode::Mcp => "mcp",
+        HookMode::Replace => "replace",
     };
 
     if global {
@@ -272,6 +283,78 @@ pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {
     make_executable(&redirect_native);
 }
 
+/// In Replace mode, swap the redirect hook for a deny hook that blocks
+/// native Read/Grep and instructs the agent to use ctx_read/ctx_search.
+fn install_cursor_deny_hook(_global: bool) {
+    let Some(home) = crate::core::home::resolve_home_dir() else {
+        return;
+    };
+    let binary = resolve_hook_command_binary();
+    let deny_cmd = format!("{binary} hook deny");
+
+    let hooks_json = home.join(".cursor").join("hooks.json");
+    let content = if hooks_json.exists() {
+        std::fs::read_to_string(&hooks_json).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let mut existing = if content.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        crate::core::jsonc::parse_jsonc(&content).unwrap_or_else(|_| serde_json::json!({}))
+    };
+
+    if !existing.is_object() {
+        existing = serde_json::json!({});
+    }
+
+    let root = existing.as_object_mut().unwrap();
+    root.insert("version".to_string(), serde_json::json!(1));
+
+    let hooks = root
+        .entry("hooks".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !hooks.is_object() {
+        *hooks = serde_json::json!({});
+    }
+    let hooks_obj = hooks.as_object_mut().unwrap();
+
+    let pre = hooks_obj
+        .entry("preToolUse".to_string())
+        .or_insert_with(|| serde_json::json!([]));
+    if !pre.is_array() {
+        *pre = serde_json::json!([]);
+    }
+    let pre_arr = pre.as_array_mut().unwrap();
+
+    // Read: redirect (compress through lean-ctx) — not deny, because
+    // Cursor internally calls Read during StrReplace/Write operations.
+    // Denying Read would break all file editing.
+    let redirect_cmd = format!("{binary} hook redirect");
+    ensure_pretooluse_hook(
+        pre_arr,
+        &["Read|Grep|Glob", "Read|Grep", "Read"],
+        "Read",
+        &redirect_cmd,
+    );
+
+    // Grep: deny (must use ctx_search instead)
+    ensure_pretooluse_hook(
+        pre_arr,
+        &["Read|Grep|Glob", "Read|Grep", "Grep"],
+        "Grep",
+        &deny_cmd,
+    );
+
+    let formatted = serde_json::to_string_pretty(&existing).unwrap_or_default();
+    write_file(&hooks_json, &formatted);
+
+    if !mcp_server_quiet_mode() {
+        eprintln!("  \x1b[32m✓\x1b[0m Cursor deny hook installed (Replace mode)");
+    }
+}
+
 pub(crate) fn install_cursor_hook_config(home: &std::path::Path) {
     let binary = resolve_hook_command_binary();
     let rewrite_cmd = format!("{binary} hook rewrite");
@@ -344,16 +427,16 @@ mod tests {
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook rewrite")
         }));
         assert!(pre.iter().any(|e| {
-            e.get("matcher").and_then(|m| m.as_str()) == Some("Read|Grep")
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep")
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook redirect")
         }));
     }
 
     #[test]
-    fn cursor_redirect_matcher_migrates_legacy_glob_arm() {
-        // GL #1018: `Glob` is not a Cursor tool, so the legacy "Read|Grep|Glob"
-        // matcher (GL #890) must be rewritten in place to "Read|Grep" — never
-        // duplicated — when re-installing over an older hooks.json.
+    fn cursor_redirect_matcher_migrates_legacy_read_grep_arm() {
+        // GH #1250: the legacy "Read|Grep" or "Read|Grep|Glob" matcher must be
+        // rewritten in place to "Grep" only — Read is no longer redirected for
+        // Cursor (StrReplace internal reads dominated stats at ~0% savings).
         let mut v = serde_json::json!({
             "version": 1,
             "hooks": {
@@ -376,14 +459,65 @@ mod tests {
         assert_eq!(redirects.len(), 1, "must migrate in place, not duplicate");
         assert_eq!(
             redirects[0].get("matcher").and_then(|m| m.as_str()),
-            Some("Read|Grep")
+            Some("Grep"),
+            "matcher must be Grep only (no Read, no Glob)"
         );
-        assert!(
-            !pre.iter().any(|e| e
-                .get("matcher")
+    }
+
+    #[test]
+    fn replace_mode_installs_split_hooks() {
+        let mut v = serde_json::json!({
+            "version": 1,
+            "hooks": {
+                "preToolUse": [
+                    { "matcher": "Shell", "command": "/bin/lean-ctx hook rewrite" },
+                    { "matcher": "Read|Grep", "command": "/bin/lean-ctx hook redirect" }
+                ]
+            }
+        });
+
+        let redirect_cmd = "/bin/lean-ctx hook redirect";
+        let deny_cmd = "/bin/lean-ctx hook deny";
+        let pre = v
+            .pointer_mut("/hooks/preToolUse")
+            .and_then(|x| x.as_array_mut())
+            .unwrap();
+
+        // Read: redirect (not deny — Cursor calls Read internally for StrReplace)
+        ensure_pretooluse_hook(
+            pre,
+            &["Read|Grep|Glob", "Read|Grep", "Read"],
+            "Read",
+            redirect_cmd,
+        );
+        // Grep: deny
+        ensure_pretooluse_hook(
+            pre,
+            &["Read|Grep|Glob", "Read|Grep", "Grep"],
+            "Grep",
+            deny_cmd,
+        );
+
+        let pre = v
+            .pointer("/hooks/preToolUse")
+            .and_then(|x| x.as_array())
+            .unwrap();
+
+        // Read should use redirect
+        assert!(pre.iter().any(|e| {
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Read")
+                && e.get("command").and_then(|c| c.as_str()) == Some("/bin/lean-ctx hook redirect")
+        }));
+        // Grep should use deny
+        assert!(pre.iter().any(|e| {
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep")
+                && e.get("command").and_then(|c| c.as_str()) == Some("/bin/lean-ctx hook deny")
+        }));
+        // Old combined Read|Grep should be gone
+        assert!(!pre.iter().any(|e| {
+            e.get("matcher")
                 .and_then(|m| m.as_str())
-                .is_some_and(|m| m.contains("Glob"))),
-            "no Glob arm should remain for Cursor"
-        );
+                .is_some_and(|m| m == "Read|Grep")
+        }));
     }
 }

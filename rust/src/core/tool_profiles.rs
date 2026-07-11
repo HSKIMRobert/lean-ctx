@@ -213,6 +213,7 @@ const STANDARD_TOOLS: &[&str] = &[
     "ctx_compose",
     "ctx_explore",
     "ctx_knowledge",
+    "ctx_session",
     "ctx_callgraph",
     "ctx_graph",
     "ctx_delta",
@@ -241,8 +242,8 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
         },
         ProfileInfo {
             name: "standard",
-            tool_count: "16",
-            description: "Balanced set — adds compose, explore, callgraph, patch, execute, more",
+            tool_count: "17",
+            description: "Balanced set — adds compose, knowledge, session, callgraph, patch, more",
         },
         ProfileInfo {
             name: "power",
@@ -377,6 +378,7 @@ mod tests {
         assert!(profile.is_tool_enabled("ctx_glob"));
         assert!(profile.is_tool_enabled("ctx_callgraph"));
         assert!(profile.is_tool_enabled("ctx_graph"));
+        assert!(profile.is_tool_enabled("ctx_session"));
         assert!(profile.is_tool_enabled("ctx_delta"));
         assert!(profile.is_tool_enabled("ctx_expand"));
         assert!(profile.is_tool_enabled("ctx_execute"));

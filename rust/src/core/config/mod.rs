@@ -434,6 +434,14 @@ pub struct Config {
     /// replacement" so agents use ctx_* without explicit opt-in.
     #[serde(default)]
     pub shadow_mode: bool,
+    /// Global hook mode override. When set, overrides the per-agent auto-detection.
+    /// - `replace`: Native Read/Grep/Glob/Shell denied, lean-ctx MCP is the only path
+    /// - `hybrid`: MCP + shell hooks for compression (legacy)
+    /// - `mcp`: MCP server only, no hooks
+    ///
+    /// Default: unset (auto-detect per agent via `recommend_hook_mode`)
+    #[serde(default)]
+    pub hook_mode: Option<String>,
     /// Opt-in (#520): write a human-readable debug log of intercepted MCP tool
     /// calls and hook routing decisions (lean-ctx vs native, with reasons) to
     /// `<state_dir>/logs/debug.log`. Override via the LEAN_CTX_DEBUG_LOG env var.
@@ -767,6 +775,7 @@ impl Default for Config {
             embedding: EmbeddingConfig::default(),
             shell_hook_disabled: false,
             shadow_mode: false,
+            hook_mode: None,
             debug_log: false,
             shell_activation: ShellActivation::default(),
             skip_agent_aliases: false,
@@ -845,8 +854,9 @@ fn record_parse_error(err: Option<String>) {
 ///
 /// Sensitive = anything that can widen lean-ctx's own boundaries or steer the
 /// agent: the shell allowlist, path-jail roots, proxy upstreams, command
-/// aliases, network passthrough, rules scope/injection, tool disabling and
-/// permission inheritance. Comfort/perf knobs are intentionally NOT listed.
+/// aliases, network passthrough, rules scope/injection, tool surface control
+/// (profile/enabled-list/categories, disabling) and permission inheritance.
+/// Comfort/perf knobs are intentionally NOT listed.
 fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str> {
     let mut withheld: Vec<&'static str> = Vec::new();
 
@@ -904,6 +914,18 @@ fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str> {
     if !local.disabled_tools.is_empty() {
         local.disabled_tools.clear();
         withheld.push("disabled_tools");
+    }
+    if local.tool_profile.is_some() {
+        local.tool_profile = None;
+        withheld.push("tool_profile");
+    }
+    if !local.tools_enabled.is_empty() {
+        local.tools_enabled.clear();
+        withheld.push("tools_enabled");
+    }
+    if !local.default_tool_categories.is_empty() {
+        local.default_tool_categories.clear();
+        withheld.push("default_tool_categories");
     }
 
     withheld
@@ -976,6 +998,16 @@ impl Config {
             "off" | "none" | "disabled" => RulesInjection::Off,
             _ => RulesInjection::Shared,
         }
+    }
+
+    /// Returns the user-configured hook mode override, or `None` for auto-detect.
+    /// Env var `LEAN_CTX_HOOK_MODE` takes priority over config.
+    #[must_use]
+    pub fn hook_mode_override(&self) -> Option<crate::hooks::HookMode> {
+        let raw = std::env::var("LEAN_CTX_HOOK_MODE")
+            .ok()
+            .or_else(|| self.hook_mode.clone())?;
+        crate::hooks::HookMode::from_str_loose(raw.trim())
     }
 
     /// Returns the effective permission-inheritance mode, preferring the

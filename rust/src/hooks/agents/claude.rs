@@ -17,8 +17,14 @@ pub(crate) fn install_claude_hook_with_mode(global: bool, mode: HookMode) {
     // #281: register the MCP server only when MCP updates are enabled. The hook
     // scripts/config above and the rules/skill below still install, so an
     // MCP-disabled setup keeps the CLI integration without an MCP entry.
-    if matches!(mode, HookMode::Hybrid | HookMode::Mcp) && super::super::should_register_mcp() {
+    if matches!(mode, HookMode::Hybrid | HookMode::Mcp | HookMode::Replace)
+        && super::super::should_register_mcp()
+    {
         install_claude_mcp_server(&home);
+    }
+
+    if mode == HookMode::Replace {
+        install_claude_permissions_deny_replace(&home);
     }
 
     let scope = crate::core::config::Config::load().rules_scope_effective();
@@ -79,6 +85,62 @@ fn install_claude_mcp_server(home: &std::path::Path) {
             if !super::super::mcp_server_quiet_mode() {
                 eprintln!("Added lean-ctx MCP server to {}", config_path.display());
             }
+        }
+    }
+}
+
+/// In Replace mode, add Read/Grep/Glob/Bash to Claude Code's `permissions.deny`
+/// so native tools are completely unavailable and the agent must use ctx_* MCP tools.
+fn install_claude_permissions_deny_replace(home: &std::path::Path) {
+    let settings_path = home.join(".claude").join("settings.json");
+
+    let mut json = if settings_path.exists() {
+        let content = std::fs::read_to_string(&settings_path).unwrap_or_default();
+        if content.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            crate::core::jsonc::parse_jsonc(&content).unwrap_or_else(|_| serde_json::json!({}))
+        }
+    } else {
+        let _ = std::fs::create_dir_all(home.join(".claude"));
+        serde_json::json!({})
+    };
+
+    let Some(obj) = json.as_object_mut() else {
+        return;
+    };
+
+    let permissions = obj
+        .entry("permissions")
+        .or_insert_with(|| serde_json::json!({}));
+    let Some(perm_obj) = permissions.as_object_mut() else {
+        return;
+    };
+    let deny = perm_obj
+        .entry("deny")
+        .or_insert_with(|| serde_json::json!([]));
+    let Some(arr) = deny.as_array_mut() else {
+        return;
+    };
+
+    let deny_tools = ["Read", "Grep", "Glob", "Bash"];
+    let mut changed = false;
+    for tool in deny_tools {
+        let val = serde_json::Value::String(tool.to_string());
+        if !arr.contains(&val) {
+            arr.push(val);
+            changed = true;
+        }
+    }
+
+    if changed {
+        if let Ok(out) = serde_json::to_string_pretty(&json) {
+            let _ = std::fs::write(&settings_path, out);
+        }
+        if !mcp_server_quiet_mode() {
+            eprintln!(
+                "  \x1b[32m✓\x1b[0m Claude Code: denied native Read/Grep/Glob/Bash (Replace mode)"
+            );
         }
     }
 }
@@ -154,10 +216,10 @@ fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMo
 
     let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
     let block = match mode {
-        HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_CONTENT_MCP,
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CLAUDE_MD_BLOCK_CONTENT_MCP,
     };
     let block_version = match mode {
-        HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_VERSION,
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CLAUDE_MD_BLOCK_VERSION,
     };
 
     // A single up-to-date block needs no rewrite. Otherwise — a stale version
@@ -915,8 +977,6 @@ mod tests {
 
     #[test]
     fn installer_heals_duplicate_claude_blocks() {
-        // GH #549: pre-fix installs accumulated duplicate blocks; a re-run must
-        // collapse them to exactly one while preserving the user's own content.
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
@@ -938,5 +998,56 @@ mod tests {
             "duplicates must collapse to one, got:\n{after}"
         );
         assert!(after.contains("# my notes"), "user content must survive");
+    }
+
+    #[test]
+    fn replace_mode_adds_permissions_deny() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+
+        // Start with existing settings
+        let settings = home.join(".claude").join("settings.json");
+        std::fs::write(&settings, r#"{"hooks": {}}"#).unwrap();
+
+        install_claude_permissions_deny_replace(home);
+
+        let content = std::fs::read_to_string(&settings).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let deny = json
+            .pointer("/permissions/deny")
+            .and_then(|d| d.as_array())
+            .unwrap();
+
+        assert!(deny.contains(&serde_json::json!("Read")));
+        assert!(deny.contains(&serde_json::json!("Grep")));
+        assert!(deny.contains(&serde_json::json!("Glob")));
+        assert!(deny.contains(&serde_json::json!("Bash")));
+        // Original content preserved
+        assert!(json.get("hooks").is_some());
+    }
+
+    #[test]
+    fn replace_mode_permissions_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+
+        let settings = home.join(".claude").join("settings.json");
+        std::fs::write(&settings, r"{}").unwrap();
+
+        install_claude_permissions_deny_replace(home);
+        install_claude_permissions_deny_replace(home);
+
+        let content = std::fs::read_to_string(&settings).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let deny = json
+            .pointer("/permissions/deny")
+            .and_then(|d| d.as_array())
+            .unwrap();
+
+        // Each tool should appear exactly once
+        let read_count = deny.iter().filter(|v| v.as_str() == Some("Read")).count();
+        assert_eq!(read_count, 1, "idempotent: Read must appear exactly once");
     }
 }

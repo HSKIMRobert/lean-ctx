@@ -14,7 +14,7 @@ pub(crate) fn install_codebuddy_hook_with_mode(global: bool, mode: HookMode) {
     install_codebuddy_hook_scripts(&home);
     install_codebuddy_hook_config(&home);
 
-    if matches!(mode, HookMode::Hybrid | HookMode::Mcp) {
+    if matches!(mode, HookMode::Hybrid | HookMode::Mcp | HookMode::Replace) {
         install_codebuddy_mcp_server(&home);
     }
 
@@ -136,10 +136,10 @@ fn install_codebuddy_global_codebuddy_md_for_mode(home: &std::path::Path, mode: 
 
     let existing = std::fs::read_to_string(&codebuddy_md_path).unwrap_or_default();
     let block = match mode {
-        HookMode::Mcp | HookMode::Hybrid => CODEBUDDY_MD_BLOCK_CONTENT_MCP,
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CODEBUDDY_MD_BLOCK_CONTENT_MCP,
     };
     let block_version = match mode {
-        HookMode::Mcp | HookMode::Hybrid => CODEBUDDY_MD_BLOCK_VERSION,
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CODEBUDDY_MD_BLOCK_VERSION,
     };
 
     // A single up-to-date block needs no rewrite. Otherwise — a stale version

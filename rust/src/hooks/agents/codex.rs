@@ -204,6 +204,59 @@ fn ensure_codex_hooks_enabled(config_content: &str) -> Option<String> {
     shared_ensure_codex_hooks_enabled(config_content)
 }
 
+/// Install deny hook for Codex in Replace mode.
+/// Adds a PreToolUse deny entry to `hooks.json` for Read/Grep/Glob.
+pub(crate) fn install_codex_deny_hook() {
+    let Some(codex_dir) = crate::core::home::resolve_codex_dir() else {
+        return;
+    };
+    let binary = resolve_hook_command_binary();
+    let deny_cmd = format!("{binary} hook deny");
+
+    let hooks_json_path = codex_dir.join("hooks.json");
+    let mut root = if hooks_json_path.exists() {
+        std::fs::read_to_string(&hooks_json_path)
+            .ok()
+            .and_then(|content| crate::core::jsonc::parse_jsonc(&content).ok())
+            .unwrap_or_else(|| serde_json::json!({ "hooks": {} }))
+    } else {
+        serde_json::json!({ "hooks": {} })
+    };
+
+    let hooks = root
+        .as_object_mut()
+        .unwrap()
+        .entry("hooks")
+        .or_insert_with(|| serde_json::json!({}));
+    let hooks_obj = hooks.as_object_mut().unwrap();
+
+    let pre = hooks_obj
+        .entry("PreToolUse")
+        .or_insert_with(|| serde_json::json!([]));
+    if let Some(arr) = pre.as_array_mut() {
+        let has_deny = arr.iter().any(|e| {
+            e.get("command")
+                .and_then(|c| c.as_str())
+                .is_some_and(|c| c.contains("hook deny"))
+        });
+        if !has_deny {
+            arr.push(serde_json::json!({
+                "matcher": "Read|Grep|Glob",
+                "command": deny_cmd
+            }));
+        }
+    }
+
+    write_file(
+        &hooks_json_path,
+        &serde_json::to_string_pretty(&root).unwrap_or_default(),
+    );
+
+    if !mcp_server_quiet_mode() {
+        eprintln!("  \x1b[32m✓\x1b[0m Codex deny hook installed (Replace mode)");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

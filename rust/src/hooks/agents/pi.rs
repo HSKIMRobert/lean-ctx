@@ -35,7 +35,7 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
     }
 
     match mode {
-        HookMode::Mcp | HookMode::Hybrid => remove_stale_pi_mcp_entry(),
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => remove_stale_pi_mcp_entry(),
     }
 
     let scope = crate::core::config::Config::load().rules_scope_effective();
@@ -66,7 +66,7 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
          only those are compressed; native read/bash/grep are not."
     );
     match mode {
-        HookMode::Mcp | HookMode::Hybrid => {
+        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => {
             println!(
                 "Embedded MCP bridge (session cache) is on by default. Use /lean-ctx in Pi to verify \
                  it reports 'connected'."
