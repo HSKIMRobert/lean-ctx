@@ -339,4 +339,3 @@ lean-ctx daemon start
 - [CLI Reference](https://leanctx.com/docs/cli-reference/)
 - [Cursor Documentation](https://docs.cursor.com/)
 - [MCP Protocol](https://modelcontextprotocol.io/)
-
