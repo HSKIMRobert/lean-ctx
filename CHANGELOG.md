@@ -3,6 +3,55 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.9.8] — 2026-07-12
+
+### Added
+- **Smart Read redirect for Cursor (auto mode).**
+  Native Read calls in Cursor are now transparently compressed via lean-ctx's
+  `auto` mode — selecting the optimal compression (signatures, map, etc.) per
+  file for 87-97% token savings. Windowed reads (offset/limit) remain verbatim
+  (`full-compact`) to preserve line indexing. Validated by edit-probe PoC:
+  StrReplace does NOT fire a Read PreToolUse, so the redirect is safe.
+- **Replace mode hardening for all agents.**
+  - Claude Code / CodeBuddy: content-aware CLAUDE.md block updates; Replace
+    mode block is now correctly installed even when block version matches.
+  - Codex: mode-aware pretooluse handler — denies Bash in Replace mode,
+    rewrites in Hybrid mode. Removed dead `install_codex_deny_hook`.
+  - Pi: propagates replace mode to extension config + dedicated
+    `PI_AGENTS_REPLACE.md` template.
+  - Qoder: deny hooks for Read|Grep|Glob in Replace mode + replace rules.
+  - Crush / Hermes: mode-aware rules installation via `replace_rules_content()`.
+  - CodeBuddy added to `REPLACE_AGENTS`.
+- **lean-md addon integration (PR #721).** External addon by @dasTholo —
+  directive-driven Markdown for agent plans. Reverse-cut: renderer lives in
+  `dasTholo/lean-md`, lean-ctx hosts only the thin surface (registry entry,
+  LSP formatter routing, `RenderTransform` trait, `.lmd.md` raw read).
+- **SessionStart nudge improvements.** Explicit ctx_read cache statistics
+  for shared-mode hosts (Cursor); fixed stale `ctx_semantic_search` reference.
+
+### Fixed
+- **Cursor Read redirect regression (GH #1250 follow-up).**
+  `install_cursor_deny_hook` was re-adding the Read redirect that
+  `merge_cursor_hooks` had removed, causing `cli_full` traffic with 0%
+  compression (1.4M tokens wasted). Now correctly separated: Read → redirect
+  (smart compression), Grep|Glob → deny.
+- **Cursor Glob deny.** Added Glob to the deny matcher alongside Grep —
+  forces use of `ctx_glob` instead of native Glob.
+- **Claude/CodeBuddy CLAUDE.md not updating in Replace mode.** Block
+  installer now checks content (not just version) to detect stale blocks.
+- **lean-md registry `integration: "mcp"` → `"none"`.** Invalid enum value
+  from PR #721 corrected; `IntegrationKind::parse("mcp")` silently returned
+  `None`.
+- **Codex integration test adjusted.** `agent_init_codex` test updated from
+  3 to 2 PreToolUse entries after removing the separate deny hook.
+
+### Changed
+- `redirect_read_args()` now returns `Vec<String>` with dynamic mode
+  selection instead of a fixed `[&str; 4]` array.
+- `refresh_agent_hooks()` is now fully mode-aware — determines the
+  recommended `HookMode` per agent and installs the correct artifacts.
+- Removed PoC `edit_probe` handler (served its diagnostic purpose).
+
 ## [3.9.7] — 2026-07-11
 
 ### Added
