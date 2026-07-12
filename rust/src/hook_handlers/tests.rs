@@ -1020,14 +1020,18 @@ fn classify_redirect_passes_through_shell_and_unknown() {
 }
 
 #[test]
-fn redirect_read_args_pin_full_compact_mode_never_auto() {
-    // #1021 follow-up: redirect uses `full-compact` — headerless, trailing-
-    // whitespace-stripped verbatim content. Preserves line structure so
-    // offset/limit work correctly; `auto` still forbidden (degrades to map).
-    let args = redirect_read_args("/repo/src/main.rs");
-    assert_eq!(args, ["read", "/repo/src/main.rs", "-m", "full-compact"]);
-    assert!(args.contains(&"full-compact"));
-    assert!(!args.contains(&"auto"));
+fn redirect_read_args_smart_mode_selection() {
+    // Windowed reads (offset/limit) use full-compact to preserve line structure.
+    let windowed = redirect_read_args("/repo/src/main.rs", true);
+    assert_eq!(
+        windowed,
+        ["read", "/repo/src/main.rs", "-m", "full-compact"]
+    );
+
+    // Full reads use auto for smart compression (87-97% savings).
+    // Safe on Cursor: StrReplace does NOT fire Read PreToolUse (edit-probe PoC).
+    let full = redirect_read_args("/repo/src/main.rs", false);
+    assert_eq!(full, ["read", "/repo/src/main.rs", "-m", "auto"]);
 }
 
 #[test]

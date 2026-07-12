@@ -26,21 +26,22 @@ pub(super) use antigravity::{install_antigravity_cli_hook, install_antigravity_h
 pub(crate) use claude::CLAUDE_MD_BLOCK_START;
 pub(super) use claude::{
     install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
-    install_claude_project_hooks,
+    install_claude_permissions_deny_replace, install_claude_project_hooks,
 };
 pub(super) use cline::install_cline_rules;
 pub(crate) use codebuddy::CODEBUDDY_MD_BLOCK_START;
 pub(super) use codebuddy::{
     install_codebuddy_hook_config, install_codebuddy_hook_scripts,
-    install_codebuddy_hook_with_mode, install_codebuddy_project_hooks,
+    install_codebuddy_hook_with_mode, install_codebuddy_permissions_deny_replace,
+    install_codebuddy_project_hooks,
 };
-pub(super) use codex::install_codex_deny_hook;
 pub use codex::install_codex_hook;
 pub(super) use copilot::install_copilot_hook;
 pub(super) use crush::install_crush_hook_with_mode;
 pub use cursor::install_cursor_hook;
 pub(super) use cursor::{
-    install_cursor_hook_config, install_cursor_hook_scripts, install_cursor_hook_with_mode,
+    install_cursor_deny_hook, install_cursor_hook_config, install_cursor_hook_scripts,
+    install_cursor_hook_with_mode,
 };
 pub(crate) use gemini::unregister_gemini_context_filename;
 pub(super) use gemini::{

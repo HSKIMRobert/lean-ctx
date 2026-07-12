@@ -165,7 +165,7 @@ registry validator, so upstream can't change under you silently.
 | `mem0` | listed | official MCP server (hosted) | `MEM0_API_KEY` |
 | `claude-context` | listed | `npx @zilliz/claude-context-mcp` | `OPENAI_API_KEY` + Milvus |
 | `rtk` | listed | shell-output hook; MCP via the `rtk-mcp` bridge | — |
-| `lmd` | listed | Markdown directive layer — no MCP endpoint | — |
+| `lean-md` | listed | Directive-driven Markdown for agent plans (`@dasTholo/lean-md`) | — |
 
 *Listed* tools either need secrets/a backend or don't ship a clean, pinned,
 out-of-the-box MCP server yet. Each flips to install-on-add with a one-line

@@ -183,7 +183,7 @@ pub(crate) fn install_gemini_hook_config(home: &std::path::Path) {
                     }]
                 },
                 {
-                    "matcher": "read_file|read_many_files|grep|search|list_dir",
+                    "matcher": "read_file|read_many_files|grep|search|list_dir|glob|list_files",
                     "hooks": [{
                         "type": "command",
                         "command": redirect_cmd
@@ -245,7 +245,7 @@ pub(crate) fn install_gemini_deny_hook(home: &std::path::Path) {
                     }]
                 },
                 {
-                    "matcher": "read_file|read_many_files|grep|search|list_dir",
+                    "matcher": "read_file|read_many_files|grep|search|list_dir|glob|list_files",
                     "hooks": [{
                         "type": "command",
                         "command": deny_cmd

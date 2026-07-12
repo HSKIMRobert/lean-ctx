@@ -672,13 +672,19 @@ fn produce_redirect_output(kind: RedirectKind, tool_args: Option<&serde_json::Va
 
 /// Argv for the `lean-ctx read` subprocess a redirected native Read runs.
 ///
-/// Uses `full-compact`: verbatim content with trailing whitespace stripped per
-/// line, no framing header. Preserves line structure so the host's
-/// `offset`/`limit` work correctly, while giving modest compression (~5-10%)
-/// and fixing the header-in-temp-file offset bug from the original `full`
-/// mode (#1021 follow-up).
-fn redirect_read_args(path: &str) -> [&str; 4] {
-    ["read", path, "-m", "full-compact"]
+/// Smart mode selection: windowed reads (offset/limit) use `full-compact` to
+/// preserve line structure for correct indexing. Full reads use `auto` which
+/// selects the optimal compression mode (signatures, map, etc.) — achieving
+/// 87-97% compression vs ~5% for full-compact. Safe on Cursor because
+/// StrReplace does NOT fire a Read PreToolUse (validated by edit-probe PoC).
+fn redirect_read_args(path: &str, is_windowed: bool) -> Vec<String> {
+    let mode = if is_windowed { "full-compact" } else { "auto" };
+    vec![
+        "read".to_string(),
+        path.to_string(),
+        "-m".to_string(),
+        mode.to_string(),
+    ]
 }
 
 /// Redirect Read through lean-ctx for compression + caching.
@@ -741,12 +747,12 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
 
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(&path);
+    let is_windowed =
+        tool_input.is_some_and(|v| v.get("offset").is_some() || v.get("limit").is_some());
+    let args = redirect_read_args(&path, is_windowed);
+    let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    if let Some(output) = run_with_timeout(
-        &binary,
-        &redirect_read_args(&path),
-        REDIRECT_SUBPROCESS_TIMEOUT,
-    ) {
+    if let Some(output) = run_with_timeout(&binary, &args_refs, REDIRECT_SUBPROCESS_TIMEOUT) {
         // #1019: never prepend a banner to `output` — it is written to the temp
         // file the host reads *as the file's content*, so an edit would round-trip
         // the banner back into the real file (it corrupted config.toml). The
@@ -1157,7 +1163,29 @@ pub fn handle_codex_pretooluse() {
 
     if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
         print!("{}", codex_rewrite_output(&rewritten));
+        return;
     }
+
+    // Replace mode: deny non-rewritable Bash calls (agent must use ctx_shell)
+    let mode = crate::hooks::recommend_hook_mode("codex");
+    if mode == crate::hooks::HookMode::Replace {
+        print!("{}", codex_deny_output(&cmd));
+    }
+}
+
+fn codex_deny_output(original_cmd: &str) -> String {
+    let msg = format!(
+        "Use ctx_shell instead — lean-ctx replace mode is active. \
+         Native Bash is denied for: {original_cmd:.80}",
+    );
+    serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "reason": msg
+        }
+    })
+    .to_string()
 }
 
 /// Emit SessionStart guidance through Codex's documented hidden-context channel.

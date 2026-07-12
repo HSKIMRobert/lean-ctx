@@ -91,7 +91,7 @@ fn install_claude_mcp_server(home: &std::path::Path) {
 
 /// In Replace mode, add Read/Grep/Glob/Bash to Claude Code's `permissions.deny`
 /// so native tools are completely unavailable and the agent must use ctx_* MCP tools.
-fn install_claude_permissions_deny_replace(home: &std::path::Path) {
+pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
     let settings_path = home.join(".claude").join("settings.json");
 
     let mut json = if settings_path.exists() {
@@ -195,6 +195,26 @@ Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), 
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 <!-- /lean-ctx -->";
 
+const CLAUDE_MD_BLOCK_CONTENT_REPLACE: &str = "\
+<!-- lean-ctx -->
+<!-- lean-ctx-claude-v6 -->
+## lean-ctx — Replace Mode (native tools denied)
+
+Native Read/Grep/Glob/Bash are denied by policy. Use ONLY `ctx_*` MCP tools:
+- `ctx_read` for ALL file reads (cached, 10 modes, re-reads ~13 tokens)
+- `ctx_shell` for ALL shell commands (95+ compression patterns)
+- `ctx_search` instead of Grep/rg (compact results)
+- `ctx_tree` instead of ls/find (compact directory maps)
+- `ctx_glob` instead of Glob (file pattern matching)
+- Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files).
+
+Write and Delete — use native tools normally.
+Do NOT attempt native Read, Grep, Glob, or Bash — they will be denied.
+
+Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
+Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
+<!-- /lean-ctx -->";
+
 fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMode) {
     let claude_dir = crate::core::editor_registry::claude_state_dir(home);
     if !ensure_state_dir(&claude_dir) {
@@ -216,17 +236,18 @@ fn install_claude_global_claude_md_for_mode(home: &std::path::Path, mode: HookMo
 
     let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
     let block = match mode {
-        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CLAUDE_MD_BLOCK_CONTENT_MCP,
+        HookMode::Replace => CLAUDE_MD_BLOCK_CONTENT_REPLACE,
+        HookMode::Mcp | HookMode::Hybrid => CLAUDE_MD_BLOCK_CONTENT_MCP,
     };
-    let block_version = match mode {
-        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => CLAUDE_MD_BLOCK_VERSION,
-    };
+    let block_version = CLAUDE_MD_BLOCK_VERSION;
 
-    // A single up-to-date block needs no rewrite. Otherwise — a stale version
-    // *or* duplicate blocks accumulated from the pre-#549 marker mismatch —
-    // collapse every lean-ctx block and write exactly one canonical copy back.
+    // A single up-to-date block needs no rewrite. Check both version tag AND
+    // mode-specific content — the Replace and MCP blocks share the version tag
+    // but have different instructions (GH #1250 follow-up).
     let block_count = existing.matches(CLAUDE_MD_BLOCK_START).count();
-    if block_count == 1 && existing.contains(block_version) {
+    let is_replace_block = existing.contains("denied by policy");
+    let mode_matches = matches!(mode, HookMode::Replace) == is_replace_block;
+    if block_count == 1 && existing.contains(block_version) && mode_matches {
         return;
     }
     let cleaned = remove_all_blocks(&existing, CLAUDE_MD_BLOCK_START, CLAUDE_MD_BLOCK_END);

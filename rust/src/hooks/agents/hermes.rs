@@ -99,9 +99,13 @@ pub(crate) fn install_hermes_hook_with_mode(global: bool, mode: HookMode) {
     }
 }
 
-fn install_hermes_rules(home: &std::path::Path, _mode: HookMode) {
+fn install_hermes_rules(home: &std::path::Path, mode: HookMode) {
     let rules_path = home.join(".hermes/HERMES.md");
-    let content = hermes_rules_content();
+    let content = if mode == HookMode::Replace {
+        hermes_replace_rules_content()
+    } else {
+        hermes_rules_content()
+    };
 
     if rules_path.exists() {
         let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
@@ -126,12 +130,36 @@ fn install_hermes_rules(home: &std::path::Path, _mode: HookMode) {
     }
 }
 
-fn install_project_hermes_rules(_mode: HookMode) {
+fn hermes_replace_rules_content() -> String {
+    let cfg = crate::core::config::Config::load();
+    let profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
+    let base = crate::core::rules_canonical::render(
+        cfg.shadow_mode,
+        crate::core::rules_canonical::Wrapper::Shared,
+        crate::core::config::CompressionLevel::Off,
+        &profile,
+    );
+    format!(
+        "{base}\n\
+         ## Replace Mode — native tools denied\n\
+         Native Read/Grep/Glob/Bash are denied. Use ONLY ctx_* MCP tools.\n\
+         Available tools: ctx_overview, ctx_preload, ctx_dedup, ctx_compress, \
+         ctx_session, ctx_knowledge, ctx_semantic_search.\n\
+         Multi-agent: ctx_agent(action=handoff|sync). \
+         Diary: ctx_agent(action=diary, category=discovery|decision|blocker|progress|insight).\n"
+    )
+}
+
+fn install_project_hermes_rules(mode: HookMode) {
     let Ok(cwd) = std::env::current_dir() else {
         return;
     };
     let rules_path = cwd.join(".hermes.md");
-    let content = hermes_rules_content();
+    let content = if mode == HookMode::Replace {
+        hermes_replace_rules_content()
+    } else {
+        hermes_rules_content()
+    };
     if rules_path.exists() {
         let existing = std::fs::read_to_string(&rules_path).unwrap_or_default();
         if existing.contains("lean-ctx") {

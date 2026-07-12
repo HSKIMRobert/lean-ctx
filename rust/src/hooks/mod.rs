@@ -56,11 +56,11 @@ pub const REPLACE_AGENTS: &[&str] = &[
     "cursor",
     "claude",
     "claude-code",
+    "codebuddy",
     "codex",
     "windsurf",
     "opencode",
     "gemini",
-    "copilot",
 ];
 
 /// Agents that get Hybrid mode (MCP + shell hooks) because they lack reliable
@@ -112,10 +112,11 @@ pub fn recommend_hook_mode(agent_key: &str) -> HookMode {
 use agents::{
     install_amp_hook, install_antigravity_cli_hook, install_antigravity_hook,
     install_claude_hook_config, install_claude_hook_scripts, install_claude_hook_with_mode,
-    install_claude_project_hooks, install_cline_rules, install_codebuddy_hook_config,
-    install_codebuddy_hook_scripts, install_codebuddy_hook_with_mode,
-    install_codebuddy_project_hooks, install_codex_deny_hook, install_codex_hook,
-    install_copilot_hook, install_crush_hook_with_mode, install_cursor_hook_config,
+    install_claude_permissions_deny_replace, install_claude_project_hooks, install_cline_rules,
+    install_codebuddy_hook_config, install_codebuddy_hook_scripts,
+    install_codebuddy_hook_with_mode, install_codebuddy_permissions_deny_replace,
+    install_codebuddy_project_hooks, install_codex_hook, install_copilot_hook,
+    install_crush_hook_with_mode, install_cursor_deny_hook, install_cursor_hook_config,
     install_cursor_hook_scripts, install_cursor_hook_with_mode, install_gemini_deny_hook,
     install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
     install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
@@ -230,26 +231,47 @@ fn hooks_installed_for(agent: &str, home: &std::path::Path) -> bool {
 
 /// Re-render the hook artifacts for an already-configured agent. Only calls
 /// narrow, subprocess-free, global installers (never the full agent setup).
+/// Mode-aware: preserves Replace-mode deny artifacts (permissions.deny, deny
+/// hooks) so an MCP server restart never downgrades Replace → Hybrid.
 fn refresh_agent_hooks(agent: &str, home: &std::path::Path) {
+    let mode = recommend_hook_mode(agent);
     match agent {
         "claude" => {
             install_claude_hook_scripts(home);
             install_claude_hook_config(home);
+            if mode == HookMode::Replace {
+                install_claude_permissions_deny_replace(home);
+            }
         }
         "codebuddy" => {
             install_codebuddy_hook_scripts(home);
             install_codebuddy_hook_config(home);
+            if mode == HookMode::Replace {
+                install_codebuddy_permissions_deny_replace(home);
+            }
         }
         "cursor" => {
             install_cursor_hook_scripts(home);
             install_cursor_hook_config(home);
+            if mode == HookMode::Replace {
+                install_cursor_deny_hook(true);
+            }
         }
         "gemini" => {
             install_gemini_hook_scripts(home);
             install_gemini_hook_config(home);
+            if mode == HookMode::Replace {
+                install_gemini_deny_hook(home);
+            }
         }
         "codex" => install_codex_hook(),
-        "windsurf" => install_windsurf_hooks(home),
+        "windsurf" => {
+            if mode == HookMode::Replace {
+                install_windsurf_hooks_replace(home);
+            } else {
+                install_windsurf_hooks(home);
+            }
+        }
         "copilot" => install_copilot_hook(true),
         "qoder" => install_qoder_hook(),
         _ => {}
@@ -509,6 +531,25 @@ pub fn hybrid_rules_content() -> String {
         version = rules_canonical::RULES_VERSION,
         bullets = rules_canonical::BULLETS,
         never = rules_canonical::NEVER,
+        end = rules_canonical::END_MARK,
+    )
+}
+
+pub fn replace_rules_content() -> String {
+    use crate::core::rules_canonical;
+    format!(
+        "{start}\n<!-- version: {version} -->\n\n\
+# lean-ctx \u{2014} Replace Mode (native tools denied)\n\n\
+Native Read/Grep/Glob/Bash are denied by policy. Use ONLY ctx_* MCP tools:\n\
+- ctx_read for ALL file reads (cached, 10 modes, re-reads ~13 tokens)\n\
+- ctx_shell for ALL shell commands (95+ compression patterns)\n\
+- ctx_search instead of Grep/rg (compact results)\n\
+- ctx_tree instead of ls/find (compact directory maps)\n\
+- ctx_glob instead of Glob (file pattern matching)\n\n\
+Do NOT attempt native Read, Grep, Glob, or Bash \u{2014} they will be denied.\n\n\
+{end}",
+        start = rules_canonical::START_MARK,
+        version = rules_canonical::RULES_VERSION,
         end = rules_canonical::END_MARK,
     )
 }
@@ -907,9 +948,6 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
         ),
         "codex" => {
             install_codex_hook();
-            if mode == HookMode::Replace {
-                install_codex_deny_hook();
-            }
         }
         "windsurf" => {
             install_windsurf_rules(global);

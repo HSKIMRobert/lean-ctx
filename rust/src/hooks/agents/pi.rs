@@ -38,6 +38,10 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
         HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => remove_stale_pi_mcp_entry(),
     }
 
+    if mode == HookMode::Replace {
+        propagate_pi_replace_mode();
+    }
+
     let scope = crate::core::config::Config::load().rules_scope_effective();
     let skip_project = global || scope == crate::core::config::RulesScope::Global;
 
@@ -47,12 +51,15 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
         );
     } else {
         let agents_md = PathBuf::from("AGENTS.md");
+        let content = match mode {
+            HookMode::Replace => include_str!("../../templates/PI_AGENTS_REPLACE.md"),
+            HookMode::Mcp | HookMode::Hybrid => include_str!("../../templates/PI_AGENTS.md"),
+        };
         if !agents_md.exists()
             || !std::fs::read_to_string(&agents_md)
                 .unwrap_or_default()
                 .contains("lean-ctx")
         {
-            let content = include_str!("../../templates/PI_AGENTS.md");
             write_file(&agents_md, content);
             println!("Created AGENTS.md in current project directory.");
         } else {
@@ -61,17 +68,66 @@ pub(crate) fn install_pi_hook_with_mode(global: bool, mode: HookMode) {
     }
 
     println!();
-    println!(
-        "Setup complete. Prefer the ctx_* tools (ctx_read/ctx_shell/ctx_search/ctx_glob/ctx_tree) — \
-         only those are compressed; native read/bash/grep are not."
-    );
     match mode {
-        HookMode::Mcp | HookMode::Hybrid | HookMode::Replace => {
+        HookMode::Replace => {
             println!(
-                "Embedded MCP bridge (session cache) is on by default. Use /lean-ctx in Pi to verify \
-                 it reports 'connected'."
+                "Setup complete (Replace mode). Native read/bash/grep/find/ls are suppressed — \
+                 only ctx_* tools are available."
             );
         }
+        _ => {
+            println!(
+                "Setup complete. Prefer the ctx_* tools (ctx_read/ctx_shell/ctx_search/ctx_glob/ctx_tree) — \
+                 only those are compressed; native read/bash/grep are not."
+            );
+        }
+    }
+    println!(
+        "Embedded MCP bridge (session cache) is on by default. Use /lean-ctx in Pi to verify \
+         it reports 'connected'."
+    );
+}
+
+/// Write the Pi extension config.json with `"mode": "replace"` so the embedded
+/// MCP bridge suppresses all native Pi builtins (read/bash/ls/find/grep) and
+/// only exposes ctx_* tools.
+fn propagate_pi_replace_mode() {
+    let Some(home) = crate::core::home::resolve_home_dir() else {
+        return;
+    };
+    let config_dir = home
+        .join(".pi")
+        .join("agent")
+        .join("extensions")
+        .join("pi-lean-ctx");
+    let _ = std::fs::create_dir_all(&config_dir);
+    let config_path = config_dir.join("config.json");
+
+    let mut json = if config_path.exists() {
+        std::fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .unwrap_or_else(|| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    let obj = json.as_object_mut().unwrap();
+    let current_mode = obj.get("mode").and_then(|v| v.as_str()).unwrap_or_default();
+    if current_mode == "replace" {
+        return;
+    }
+    obj.insert(
+        "mode".to_string(),
+        serde_json::Value::String("replace".to_string()),
+    );
+
+    if let Ok(out) = serde_json::to_string_pretty(&json) {
+        write_file(&config_path, &out);
+        println!(
+            "  \x1b[32m✓\x1b[0m Pi config: set mode=replace in {}",
+            config_path.display()
+        );
     }
 }
 

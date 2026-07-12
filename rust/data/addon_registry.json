@@ -399,7 +399,7 @@
           "plans",
           "workflow"
         ],
-        "integration": "mcp",
+        "integration": "none",
         "keywords": [
           "markdown",
           "plans",

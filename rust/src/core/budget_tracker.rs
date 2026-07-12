@@ -229,7 +229,7 @@ impl BudgetSnapshot {
 
     pub fn format_compact(&self) -> String {
         format!(
-            "Budget[{}]: tokens {}/{} ({}%) | shell {}/{} ({}%) | cost ${:.2}/${:.2} ({}%) → {}",
+            "Budget[role:{}]: tokens {}/{} ({}%) | shell {}/{} ({}%) | cost ${:.2}/${:.2} ({}%) → {}",
             self.role,
             self.tokens.used,
             self.tokens.limit,
@@ -384,7 +384,7 @@ mod tests {
             },
         };
         let out = s.format_compact();
-        assert!(out.contains("coder"));
+        assert!(out.contains("role:coder"));
         assert!(out.contains("tokens"));
         assert!(out.contains("shell"));
         assert!(out.contains("cost"));

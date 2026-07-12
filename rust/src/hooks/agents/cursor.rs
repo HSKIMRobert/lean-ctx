@@ -90,19 +90,15 @@ fn merge_cursor_hooks(existing: &mut serde_json::Value, rewrite_cmd: &str, redir
     };
 
     ensure_pretooluse_hook(pre_arr, &["Shell"], "Shell", rewrite_cmd);
-    // GH #1250: Read redirect is removed for Cursor. StrReplace internally
-    // triggers a Read that the redirect hook intercepted, producing ~0.5%
-    // savings on uncompressible verbatim content (cli_full). This dominated
-    // the stats (68% of all tokens!) and dragged the savings rate from 29%
-    // to 9.5%. With the redirect gone, Cursor's Read passes through natively
-    // (StrReplace works), and the agent uses ctx_read (MCP) for compressed
-    // reads — matching how Claude Code already works (read_redirect = auto).
-    // The Grep redirect remains: it rewrites grep through lean-ctx for
-    // compression.
+    // Smart Read redirect re-enabled: edit-probe PoC (2026-07) proved that
+    // StrReplace does NOT fire a Read PreToolUse — only "Write" — so Read
+    // redirect is safe. Uses `auto` mode for full reads (87-97% compression)
+    // and `full-compact` for windowed reads (offset/limit).
+    // GH #1250 was caused by an older Cursor version or misattribution.
     ensure_pretooluse_hook(
         pre_arr,
-        &["Read|Grep|Glob", "Read|Grep", "Read", "Grep"],
-        "Grep",
+        &["Read|Grep|Glob", "Read|Grep", "Grep|Glob", "Grep", "Read"],
+        "Read|Grep|Glob",
         redirect_cmd,
     );
 
@@ -285,7 +281,7 @@ pub(crate) fn install_cursor_hook_scripts(home: &std::path::Path) {
 
 /// In Replace mode, swap the redirect hook for a deny hook that blocks
 /// native Read/Grep and instructs the agent to use ctx_read/ctx_search.
-fn install_cursor_deny_hook(_global: bool) {
+pub(crate) fn install_cursor_deny_hook(_global: bool) {
     let Some(home) = crate::core::home::resolve_home_dir() else {
         return;
     };
@@ -328,22 +324,16 @@ fn install_cursor_deny_hook(_global: bool) {
     }
     let pre_arr = pre.as_array_mut().unwrap();
 
-    // Read: redirect (compress through lean-ctx) — not deny, because
-    // Cursor internally calls Read during StrReplace/Write operations.
-    // Denying Read would break all file editing.
-    let redirect_cmd = format!("{binary} hook redirect");
-    ensure_pretooluse_hook(
-        pre_arr,
-        &["Read|Grep|Glob", "Read|Grep", "Read"],
-        "Read",
-        &redirect_cmd,
-    );
+    // Read: redirect with smart compression (auto mode). Safe because
+    // StrReplace does NOT fire Read PreToolUse (edit-probe PoC 2026-07).
+    let redirect_cmd = deny_cmd.replace("hook deny", "hook redirect");
+    ensure_pretooluse_hook(pre_arr, &["Read"], "Read", &redirect_cmd);
 
-    // Grep: deny (must use ctx_search instead)
+    // Grep + Glob: deny (must use ctx_search / ctx_glob instead).
     ensure_pretooluse_hook(
         pre_arr,
-        &["Read|Grep|Glob", "Read|Grep", "Grep"],
-        "Grep",
+        &["Read|Grep|Glob", "Read|Grep", "Grep", "Grep|Glob"],
+        "Grep|Glob",
         &deny_cmd,
     );
 
@@ -427,21 +417,20 @@ mod tests {
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook rewrite")
         }));
         assert!(pre.iter().any(|e| {
-            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep")
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Read|Grep|Glob")
                 && e.get("command").and_then(|c| c.as_str()) == Some("/new/bin hook redirect")
         }));
     }
 
     #[test]
-    fn cursor_redirect_matcher_migrates_legacy_read_grep_arm() {
-        // GH #1250: the legacy "Read|Grep" or "Read|Grep|Glob" matcher must be
-        // rewritten in place to "Grep" only — Read is no longer redirected for
-        // Cursor (StrReplace internal reads dominated stats at ~0% savings).
+    fn cursor_redirect_matcher_migrates_legacy_to_read_grep_glob() {
+        // Smart Read redirect re-enabled: legacy "Read|Grep" or "Grep" matcher
+        // is upgraded to "Read|Grep|Glob" with smart auto-mode compression.
         let mut v = serde_json::json!({
             "version": 1,
             "hooks": {
                 "preToolUse": [
-                    { "matcher": "Read|Grep|Glob", "command": "/old/bin hook redirect" }
+                    { "matcher": "Grep", "command": "/old/bin hook redirect" }
                 ]
             }
         });
@@ -459,13 +448,13 @@ mod tests {
         assert_eq!(redirects.len(), 1, "must migrate in place, not duplicate");
         assert_eq!(
             redirects[0].get("matcher").and_then(|m| m.as_str()),
-            Some("Grep"),
-            "matcher must be Grep only (no Read, no Glob)"
+            Some("Read|Grep|Glob"),
+            "matcher must be Read|Grep|Glob (smart redirect for all)"
         );
     }
 
     #[test]
-    fn replace_mode_installs_split_hooks() {
+    fn replace_mode_redirects_read_and_denies_grep_glob() {
         let mut v = serde_json::json!({
             "version": 1,
             "hooks": {
@@ -476,25 +465,20 @@ mod tests {
             }
         });
 
-        let redirect_cmd = "/bin/lean-ctx hook redirect";
         let deny_cmd = "/bin/lean-ctx hook deny";
+        let redirect_cmd = "/bin/lean-ctx hook redirect";
         let pre = v
             .pointer_mut("/hooks/preToolUse")
             .and_then(|x| x.as_array_mut())
             .unwrap();
 
-        // Read: redirect (not deny — Cursor calls Read internally for StrReplace)
+        // Read: redirect with smart compression (StrReplace doesn't fire Read PreToolUse)
+        ensure_pretooluse_hook(pre, &["Read"], "Read", redirect_cmd);
+        // Grep|Glob: deny
         ensure_pretooluse_hook(
             pre,
-            &["Read|Grep|Glob", "Read|Grep", "Read"],
-            "Read",
-            redirect_cmd,
-        );
-        // Grep: deny
-        ensure_pretooluse_hook(
-            pre,
-            &["Read|Grep|Glob", "Read|Grep", "Grep"],
-            "Grep",
+            &["Read|Grep|Glob", "Read|Grep", "Grep", "Grep|Glob"],
+            "Grep|Glob",
             deny_cmd,
         );
 
@@ -503,14 +487,16 @@ mod tests {
             .and_then(|x| x.as_array())
             .unwrap();
 
-        // Read should use redirect
+        // Read should be redirected (smart compression via auto mode)
         assert!(pre.iter().any(|e| {
             e.get("matcher").and_then(|m| m.as_str()) == Some("Read")
-                && e.get("command").and_then(|c| c.as_str()) == Some("/bin/lean-ctx hook redirect")
+                && e.get("command")
+                    .and_then(|c| c.as_str())
+                    .is_some_and(|c| c.contains("redirect"))
         }));
-        // Grep should use deny
+        // Grep|Glob should use deny
         assert!(pre.iter().any(|e| {
-            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep")
+            e.get("matcher").and_then(|m| m.as_str()) == Some("Grep|Glob")
                 && e.get("command").and_then(|c| c.as_str()) == Some("/bin/lean-ctx hook deny")
         }));
         // Old combined Read|Grep should be gone
