@@ -31,6 +31,9 @@ pub(crate) fn cmd_index(args: &[String]) {
                 tracing::warn!(
                     "[index build] memory pressure: {level:?} — background tasks will throttle"
                 );
+                if level >= crate::core::memory_guard::PressureLevel::Hard {
+                    crate::core::content_cache::clear();
+                }
                 crate::core::memory_guard::force_purge();
             }));
             crate::core::index_orchestrator::ensure_all_background(&project_root);

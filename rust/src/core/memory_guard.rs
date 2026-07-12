@@ -231,6 +231,16 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
             const IDLE_POLL_SECS: u64 = 15;
             let mut poll_secs = 3u64;
             let mut calm_ticks = 0u64;
+
+            // #790: immediate first sample — close the 3s blind window so
+            // builders that start right after start_guard() see real pressure.
+            if let Some(snap) = MemorySnapshot::capture() {
+                CURRENT_PRESSURE.store(snap.pressure_level as u8, Ordering::Relaxed);
+                if snap.pressure_level >= PressureLevel::Soft {
+                    eviction_callback(snap.pressure_level);
+                }
+            }
+
             loop {
                 std::thread::sleep(std::time::Duration::from_secs(poll_secs));
                 let Some(snap) = MemorySnapshot::capture() else {

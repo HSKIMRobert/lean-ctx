@@ -91,11 +91,25 @@ fn parallel_build_must_stop(what: &str, files_done: usize) -> bool {
 /// Pure, thread-safe per-chunk preparation: enrich → tokenize → lowercase.
 /// Mirrors the first half of [`BM25Index::add_chunk`] so the cheap sequential
 /// merge only has to update the shared maps.
-fn prepare_chunk(chunk: CodeChunk) -> PreparedChunk {
+fn prepare_chunk(mut chunk: CodeChunk) -> PreparedChunk {
     let enriched = enrich_for_bm25(&chunk);
     let tokens = tokenize(&enriched);
     let lowered: Vec<String> = tokens.iter().map(|t| t.to_lowercase()).collect();
     let token_count = tokens.len();
+
+    // #790: truncate content AFTER tokenization (full text used for BM25 scoring
+    // above). Must mirror add_chunk's SNIPPET_LINES to keep parallel ≡ sequential.
+    const SNIPPET_LINES: usize = 10;
+    if chunk.content.lines().nth(SNIPPET_LINES).is_some() {
+        chunk.content = chunk
+            .content
+            .lines()
+            .take(SNIPPET_LINES)
+            .collect::<Vec<_>>()
+            .join("\n");
+        chunk.content.shrink_to_fit();
+    }
+
     PreparedChunk {
         chunk: CodeChunk {
             token_count,

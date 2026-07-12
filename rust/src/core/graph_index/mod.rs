@@ -893,13 +893,16 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
         targets.push((file_path, rel, ext));
     }
 
-    // Memory pressure is the only reason to stay single-threaded here; otherwise
-    // fan out. The merge order is the `targets` (walk) order in both cases.
-    // #685: process in batches with a guardian check between them, so a huge
-    // corpus can no longer fan out 100% of its per-file work (and hold every
-    // `ScanFileResult` simultaneously) with no chance to stop. `chunks()`
-    // preserves the walk order, so the merged result is unchanged.
-    let parallel = !crate::core::memory_guard::is_under_pressure();
+    // #790: admission control — check if parallel fan-out fits memory headroom.
+    // Degrades to sequential (with per-file pressure breaks) on huge corpora,
+    // mirroring BM25's admission gate.
+    let target_rels: Vec<String> = targets.iter().map(|(_, r, _)| r.clone()).collect();
+    let admission = crate::core::index_admission::admit_files(
+        crate::core::index_admission::BuildKind::GraphScan,
+        std::path::Path::new(&project_root),
+        &target_rels,
+    );
+    let parallel = admission.parallel_ok && !crate::core::memory_guard::is_under_pressure();
     for (batch_no, batch) in targets.chunks(SCAN_BATCH_FILES).enumerate() {
         if batch_no > 0 {
             if crate::core::memory_guard::abort_requested() {

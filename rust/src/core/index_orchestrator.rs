@@ -311,104 +311,114 @@ fn run_build_worker(root: &str) {
     // deduped internally) so the first ctx_search hits the fast path.
     crate::core::search_index::ensure_background(root, true, false);
 
-    // ---- Parallel Phase: Graph + BM25 (for this one root) ----
+    // ---- Graph + BM25 build phase ----
+    // #790: under memory pressure, run graph → purge → BM25 sequentially so
+    // their peak allocations don't compound. Normal: parallel (faster).
+    let sequential = crate::core::memory_guard::is_under_pressure();
+    if sequential {
+        tracing::info!(
+            "[index_orchestrator: memory pressure detected — running graph → BM25 sequentially]"
+        );
+    }
+
     let graph_state = entry_for(root);
     let graph_root = root.to_string();
-    let graph_handle = std::thread::Builder::new()
-        .name("leanctx-graph".to_string())
-        .stack_size(INDEXER_STACK_BYTES)
-        .spawn(move || {
-            {
-                let mut s = graph_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                start_component(&mut s.graph);
+    let build_graph = move || {
+        {
+            let mut s = graph_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            start_component(&mut s.graph);
+        }
+        let graph_result = std::panic::catch_unwind(|| {
+            let (idx, _cache) = graph_index::scan_with_content_cache(&graph_root);
+            if let Err(e) = idx.save() {
+                tracing::warn!("[index_orchestrator: graph save failed: {e}]");
             }
-            let graph_result = std::panic::catch_unwind(|| {
-                let (idx, _cache) = graph_index::scan_with_content_cache(&graph_root);
-                // #696 C4: the property graph is the sole store. `save()` mirrors
-                // the freshly scanned index into PG (stamping `graph.meta.json`) in
-                // this same reliable worker, so PG inherits the scan's build reliability.
-                if let Err(e) = idx.save() {
-                    tracing::warn!("[index_orchestrator: graph save failed: {e}]");
-                }
-                // Code Health: refresh the persisted NavigabilityScore from the
-                // same freshly-indexed state (gated by a source fingerprint, so a
-                // no-op when nothing changed). Off the hot path; never panics.
-                crate::core::code_health::persist::refresh_if_stale(&graph_root, &idx);
-            });
-            if let Ok(()) = graph_result {
-                let mut s = graph_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                finish_ok(&mut s.graph);
-            } else {
-                let mut s = graph_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                finish_err(&mut s.graph, "graph index build panicked".to_string());
-            }
-        })
-        .expect("spawning graph index thread");
+            crate::core::code_health::persist::refresh_if_stale(&graph_root, &idx);
+        });
+        if let Ok(()) = graph_result {
+            let mut s = graph_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            finish_ok(&mut s.graph);
+        } else {
+            let mut s = graph_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            finish_err(&mut s.graph, "graph index build panicked".to_string());
+        }
+    };
 
     let bm25_state = entry_for(root);
     let bm25_root = root.to_string();
-    let bm25_handle = std::thread::Builder::new()
-        .name("leanctx-bm25".to_string())
-        .stack_size(INDEXER_STACK_BYTES)
-        .spawn(move || {
-            {
-                let mut s = bm25_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                start_component(&mut s.bm25);
-            }
-            let bm = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let root_pb = Path::new(&bm25_root);
-                // Cross-instance build coordination: serialize the (expensive) BM25
-                // build per repo, mirroring the `graph-idx` lock in graph_index.
-                let lock_name = bm25_index_lock_name(root_pb);
-                let _lock = crate::core::startup_guard::try_acquire_lock(
-                    &lock_name,
-                    std::time::Duration::from_millis(800),
-                    std::time::Duration::from_mins(3),
+    let build_bm25 = move || {
+        {
+            let mut s = bm25_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            start_component(&mut s.bm25);
+        }
+        let bm = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let root_pb = Path::new(&bm25_root);
+            let lock_name = bm25_index_lock_name(root_pb);
+            let _lock = crate::core::startup_guard::try_acquire_lock(
+                &lock_name,
+                std::time::Duration::from_millis(800),
+                std::time::Duration::from_mins(3),
+            );
+            if _lock.is_none() {
+                tracing::info!(
+                    "[bm25: another process is building {bm25_root} — loading the shared index]"
                 );
-                if _lock.is_none() {
-                    tracing::info!(
-                        "[bm25: another process is building {bm25_root} — loading the shared index]"
-                    );
-                    let idx = BM25Index::load(root_pb).unwrap_or_default();
-                    return (idx.doc_count, None);
-                }
-                let idx = BM25Index::load_or_build(root_pb);
-                let outcome = idx.save(root_pb);
-                (idx.doc_count, Some(outcome))
-            }));
-            if let Ok((doc_count, save_res)) = bm {
-                let mut s = bm25_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                finish_ok(&mut s.bm25);
-                s.bm25.note = Some(match save_res {
-                    Some(outcome) => bm25_build_note(doc_count, &outcome),
-                    None => format!(
-                        "loaded shared BM25 index ({doc_count} chunks) — build in progress in another process"
-                    ),
-                });
-            } else {
-                let mut s = bm25_state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                finish_err(&mut s.bm25, "bm25 build panicked".to_string());
+                let idx = BM25Index::load(root_pb).unwrap_or_default();
+                return (idx.doc_count, None);
             }
-        })
-        .expect("spawning BM25 index thread");
+            let idx = BM25Index::load_or_build(root_pb);
+            let outcome = idx.save(root_pb);
+            (idx.doc_count, Some(outcome))
+        }));
+        if let Ok((doc_count, save_res)) = bm {
+            let mut s = bm25_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            finish_ok(&mut s.bm25);
+            s.bm25.note = Some(match save_res {
+                Some(outcome) => bm25_build_note(doc_count, &outcome),
+                None => format!(
+                    "loaded shared BM25 index ({doc_count} chunks) — build in progress in another process"
+                ),
+            });
+        } else {
+            let mut s = bm25_state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            finish_err(&mut s.bm25, "bm25 build panicked".to_string());
+        }
+    };
 
-    if let Err(e) = graph_handle.join() {
-        tracing::error!("[index_orchestrator: graph thread panicked: {e:?}]");
-    }
-    if let Err(e) = bm25_handle.join() {
-        tracing::error!("[index_orchestrator: BM25 thread panicked: {e:?}]");
+    if sequential {
+        build_graph();
+        crate::core::content_cache::clear();
+        crate::core::memory_guard::force_purge();
+        build_bm25();
+    } else {
+        let graph_handle = std::thread::Builder::new()
+            .name("leanctx-graph".to_string())
+            .stack_size(INDEXER_STACK_BYTES)
+            .spawn(build_graph)
+            .expect("spawning graph index thread");
+        let bm25_handle = std::thread::Builder::new()
+            .name("leanctx-bm25".to_string())
+            .stack_size(INDEXER_STACK_BYTES)
+            .spawn(build_bm25)
+            .expect("spawning BM25 index thread");
+        if let Err(e) = graph_handle.join() {
+            tracing::error!("[index_orchestrator: graph thread panicked: {e:?}]");
+        }
+        if let Err(e) = bm25_handle.join() {
+            tracing::error!("[index_orchestrator: BM25 thread panicked: {e:?}]");
+        }
     }
 
     // Post-build memory reclamation: the parallel build allocates large
