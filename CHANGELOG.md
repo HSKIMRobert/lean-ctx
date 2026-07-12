@@ -35,6 +35,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   6. **BM25 save streams through zstd** — `postcard::to_allocvec` replaced with
      `postcard::to_io` → `zstd::Encoder` → temp file; eliminates the
      intermediate uncompressed `Vec<u8>` allocation entirely.
+  7. **BM25 parallel path (`prepare_chunk`) now truncates** — the parallel build
+     path (`add_prepared`) previously bypassed the 10-line snippet truncation,
+     holding full file bodies for all chunks simultaneously.
+  8. **Memory Guardian: immediate first RSS sample** — closes the 3-second blind
+     window where builders allocated freely with stale Normal pressure flags.
+  9. **CLI build evicts content_cache on Hard+ pressure** — previously only
+     called `jemalloc_purge`; now clears the 128 MB shared content cache.
+  10. **Graph + BM25 run sequentially under memory pressure** — prevents peak
+      allocations from compounding when the system is already low on RAM.
+  11. **Graph scan admission control** — uses `index_admission` (same as BM25)
+      before parallel fan-out; oversized corpora degrade to sequential.
 - **Cursor Read redirect removed — savings jump from 9.5 % to 73+ % (GH #1250).**
   Cursor's `StrReplace` internally triggers a native `Read` that the
   redirect hook intercepted, producing verbatim `cli_full` output with
