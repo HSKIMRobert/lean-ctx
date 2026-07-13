@@ -73,6 +73,16 @@ impl LeanCtxServer {
             return Ok(blocked);
         }
 
+        // #794: cost cap guard — block tool calls when session cost exceeds the
+        // configured limit. ctx_session is exempt so the agent can inspect
+        // budget status and override the cap.
+        if name != "ctx_session"
+            && let Some(cap_msg) =
+                crate::core::budget_tracker::BudgetTracker::global().cost_cap_message()
+        {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(cap_msg)]));
+        }
+
         // #990: determine machine-readability *before* the once-per-session
         // decorations below. A machine-readable invocation (e.g. ctx_outline
         // format=json) must reach the client byte-exact and parseable, so every

@@ -66,6 +66,30 @@ impl BudgetTracker {
         self.cost_millicents.load(Ordering::Relaxed) as f64 / 100_000.0
     }
 
+    /// Returns `Some(message)` when the session cost cap is exceeded (#794).
+    /// Returns `None` when no cap is configured, the cap isn't reached, or
+    /// `LEAN_CTX_COST_CAP_OVERRIDE=1` is set.
+    pub fn cost_cap_message(&self) -> Option<String> {
+        let cfg = crate::core::config::Config::load();
+        let cap = cfg.cost.max_session_cost_usd;
+        if cap <= 0.0 {
+            return None;
+        }
+        if std::env::var("LEAN_CTX_COST_CAP_OVERRIDE")
+            .ok()
+            .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        {
+            return None;
+        }
+        let used = self.cost_usd();
+        if used < cap {
+            return None;
+        }
+        Some(format!(
+            "[COST CAP] Session cost ${used:.2} reached ${cap:.2} limit. Use ctx_session(action=budget, override=true) or LEAN_CTX_COST_CAP_OVERRIDE=1 to continue."
+        ))
+    }
+
     pub fn reset(&self) {
         self.context_tokens.store(0, Ordering::Relaxed);
         self.shell_invocations.store(0, Ordering::Relaxed);
@@ -339,6 +363,15 @@ mod tests {
         let limits = RoleLimits::default();
         let s = DimensionStatus::evaluate(1, 0, &limits);
         assert_eq!(s.level, BudgetLevel::Warning);
+    }
+
+    #[test]
+    fn cost_cap_no_limit_returns_none() {
+        let t = BudgetTracker::new();
+        t.record_cost_usd(100.0);
+        // Without a configured cap (default 0), no message is returned.
+        // We test the pure logic; the config defaults to 0.
+        assert!(t.cost_cap_message().is_none());
     }
 
     #[test]
