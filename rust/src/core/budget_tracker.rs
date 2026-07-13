@@ -375,6 +375,24 @@ mod tests {
     }
 
     #[test]
+    fn cost_cap_blocks_when_exceeded() {
+        let t = BudgetTracker::new();
+        t.record_cost_usd(6.0);
+        // SAFETY: single-threaded test — no concurrent env access.
+        unsafe {
+            std::env::set_var("LEAN_CTX_COST_CAP_OVERRIDE", "1");
+        }
+        assert!(
+            t.cost_cap_message().is_none(),
+            "override=1 must bypass cost cap"
+        );
+        // SAFETY: single-threaded test — no concurrent env access.
+        unsafe {
+            std::env::remove_var("LEAN_CTX_COST_CAP_OVERRIDE");
+        }
+    }
+
+    #[test]
     fn cost_status_warning() {
         let limits = RoleLimits::default();
         let s = CostStatus::evaluate(4.5, 5.0, &limits);
