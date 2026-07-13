@@ -553,19 +553,41 @@ fn delimiter_balance_force_keep(
 ) {
     let tok_for =
         |idx: usize| -> usize { scored.iter().find(|(i, _, _)| *i == idx).map_or(1, |s| s.2) };
-    let mut balance: i32 = 0;
+
+    // Phase 1: identify multi-line delimiter spans (opener_line, closer_line).
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut open_stack: Vec<usize> = Vec::new();
     for (i, line) in lines.iter().enumerate() {
-        if keep[i] || balance > 0 {
-            if !keep[i] {
-                keep[i] = true;
-                *used += tok_for(i);
-                *kept_count += 1;
+        for ch in line.chars() {
+            match ch {
+                '(' | '[' => open_stack.push(i),
+                ')' | ']' => {
+                    if let Some(opener) = open_stack.pop()
+                        && opener != i
+                    {
+                        spans.push((opener, i));
+                    }
+                }
+                _ => {}
             }
-            for ch in line.chars() {
-                match ch {
-                    '(' | '[' => balance += 1,
-                    ')' | ']' => balance = (balance - 1).max(0),
-                    _ => {}
+        }
+    }
+
+    // Phase 2: if ANY line in a span is kept, force-keep all lines in it.
+    // This handles both directions: opener->continuation and continuation->opener.
+    for &(start, end) in &spans {
+        let any_kept = (start..=end).any(|i| keep[i]);
+        if any_kept {
+            for (i, kept) in keep
+                .iter_mut()
+                .enumerate()
+                .skip(start)
+                .take(end - start + 1)
+            {
+                if !*kept {
+                    *kept = true;
+                    *used += tok_for(i);
+                    *kept_count += 1;
                 }
             }
         }
@@ -1101,6 +1123,55 @@ mod tests {
             assert!(
                 r.output.contains("batch_idx"),
                 "delimiter guard must keep continuation args: {}",
+                r.output
+            );
+        }
+    }
+
+    #[test]
+    fn density_delimiter_backward_propagation() {
+        // #798 regression: when a high-entropy continuation line inside a
+        // multi-line call is kept by the entropy scorer, the opener line
+        // must also be force-kept (backward propagation through the span).
+        //
+        // Uses many low-entropy padding lines to force the budget to drop the
+        // opener while the high-entropy format string survives on its own merit.
+        let mut lines: Vec<&str> = Vec::new();
+        lines.push("import logging");
+        lines.push("logger = logging.getLogger(__name__)");
+        lines.push("");
+        // Low-entropy padding to push density budget down
+        lines.extend(std::iter::repeat_n("    x = 1", 20));
+        lines.push("    logger.info(");
+        lines.push("        \"Processed item %s status=%s result=%s region=%s\",");
+        lines.push("        item.id,");
+        lines.push("        item.status,");
+        lines.push("        result.summary,");
+        lines.push("        region_name");
+        lines.push("    )");
+        // More padding
+        lines.extend(std::iter::repeat_n("    y = 2", 10));
+        let content = lines.join("\n");
+        let r = entropy_compress_to_density(&content, 0.3);
+        // The format string has high entropy and will be kept.
+        // The span guard must then force-keep the opener + closer.
+        if r.output.contains("Processed item") {
+            assert!(
+                r.output.contains("logger.info("),
+                "backward propagation: opener must be kept when format string is kept.\nGot: {}",
+                r.output
+            );
+            assert!(
+                r.output.contains(')'),
+                "backward propagation: closer must also be kept.\nGot: {}",
+                r.output
+            );
+        }
+        // Also verify: if logger.info( is kept, all args through ) are kept
+        if r.output.contains("logger.info(") {
+            assert!(
+                r.output.contains("item.id"),
+                "forward propagation: args must be kept when opener is kept.\nGot: {}",
                 r.output
             );
         }
