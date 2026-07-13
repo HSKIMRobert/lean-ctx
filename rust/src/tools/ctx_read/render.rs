@@ -315,8 +315,11 @@ pub(crate) fn process_mode_tuned(
                 .map(|a| AggressivenessProfile::from_level(a).density_target);
             let target: f64 = mode[8..].parse().ok().or(aggr_target).unwrap_or(0.5);
             let result = entropy::entropy_compress_to_density(content, target);
+            // #798: Quality gate — reject density output that breaks AST/symbols.
+            let (guarded_output, _q) = crate::core::quality::guard(content, &result.output, ext);
+            let guarded_tokens = count_tokens(&guarded_output);
             let actual = if result.original_tokens > 0 {
-                result.compressed_tokens as f64 / result.original_tokens as f64
+                guarded_tokens as f64 / result.original_tokens as f64
             } else {
                 0.0
             };
@@ -331,7 +334,7 @@ pub(crate) fn process_mode_tuned(
                     "{short} {line_count}L density target={target_clamped:.2} actual={actual:.2}{techs}"
                 )
             };
-            let output = format!("{header}\n{}", result.output);
+            let output = format!("{header}\n{guarded_output}");
             let sent = count_tokens(&output);
             let savings = protocol::format_savings(original_tokens, sent);
             (
