@@ -537,6 +537,41 @@ fn entropy_compress_with_thresholds(
     )
 }
 
+/// #798: Walk kept lines in source order; when a kept line has unclosed
+/// call/index delimiters `()` `[]`, force-keep subsequent lines until
+/// balance is restored. Prevents partial call expressions like
+/// `logger.info(` surviving without their arguments.
+///
+/// Intentionally ignores `{}` — block braces wrap large code bodies and
+/// force-keeping entire function blocks would defeat the density target.
+fn delimiter_balance_force_keep(
+    lines: &[&str],
+    scored: &[(usize, f64, usize)],
+    keep: &mut [bool],
+    used: &mut usize,
+    kept_count: &mut usize,
+) {
+    let tok_for =
+        |idx: usize| -> usize { scored.iter().find(|(i, _, _)| *i == idx).map_or(1, |s| s.2) };
+    let mut balance: i32 = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if keep[i] || balance > 0 {
+            if !keep[i] {
+                keep[i] = true;
+                *used += tok_for(i);
+                *kept_count += 1;
+            }
+            for ch in line.chars() {
+                match ch {
+                    '(' | '[' => balance += 1,
+                    ')' | ']' => balance = (balance - 1).max(0),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
 /// Budget-based compression to a target density (SDE principle: aim for a
 /// *target* information density instead of maximum compression).
 ///
@@ -590,13 +625,18 @@ pub fn entropy_compress_to_density(content: &str, target: f64) -> EntropyResult 
     }
     for &(idx, _h, toks) in scored.iter().skip(1) {
         if used + toks > budget {
-            // Greedy knapsack: skip lines that overshoot, smaller ones may fit.
             continue;
         }
         keep[idx] = true;
         used += toks;
         kept_count += 1;
     }
+
+    // #798 Delimiter Balance Guard: when a kept line opens unclosed
+    // delimiters ( [ {, force-keep subsequent lines until the balance
+    // is restored. This prevents `logger.info(` from being kept while
+    // its arguments are dropped, leaving syntactically broken output.
+    delimiter_balance_force_keep(&lines, &scored, &mut keep, &mut used, &mut kept_count);
 
     let mut out_lines: Vec<&str> = Vec::with_capacity(kept_count);
     for (i, line) in lines.iter().enumerate() {
@@ -993,8 +1033,10 @@ mod tests {
         for target in [0.3, 0.5, 0.7] {
             let r = entropy_compress_to_density(&content, target);
             let actual = r.compressed_tokens as f64 / orig as f64;
+            // Tolerance of 0.15: the delimiter balance guard (#798) may
+            // force-keep call/index continuation lines beyond the budget.
             assert!(
-                actual <= target + 0.10,
+                actual <= target + 0.15,
                 "target {target}: actual density {actual:.2} exceeds budget"
             );
             assert!(!r.output.is_empty());
@@ -1031,6 +1073,37 @@ mod tests {
         let r = entropy_compress_to_density("", 0.5);
         assert_eq!(r.compressed_tokens, 0);
         assert!(r.output.is_empty());
+    }
+
+    #[test]
+    fn density_delimiter_balance_guard() {
+        // #798: when `logger.info(` is kept, its continuation lines must
+        // also survive so the output is syntactically valid.
+        let content = [
+            "import logging",
+            "logger = logging.getLogger(__name__)",
+            "logger.info(",
+            "    'Processing batch %d of %d',",
+            "    batch_idx,",
+            "    total_batches,",
+            ")",
+            "result = process(data)",
+        ]
+        .join("\n");
+        let r = entropy_compress_to_density(&content, 0.5);
+        // If `logger.info(` is kept, all lines through `)` must be too.
+        if r.output.contains("logger.info(") {
+            assert!(
+                r.output.contains(')'),
+                "delimiter guard must keep closing paren: {}",
+                r.output
+            );
+            assert!(
+                r.output.contains("batch_idx"),
+                "delimiter guard must keep continuation args: {}",
+                r.output
+            );
+        }
     }
 
     #[test]
