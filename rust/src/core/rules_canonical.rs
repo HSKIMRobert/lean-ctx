@@ -271,6 +271,18 @@ OUTPUT STYLE: expert-terse
 - Zero narration, zero filler
 - BUDGET: ≤100 tokens per non-code response";
 
+/// Raw compression — densest possible output. Bullet points only, zero prose,
+/// diff-style facts, no intro/outro. Tighter than Max (#795).
+pub const RAW_PROMPT: &str = "\
+OUTPUT STYLE: raw-dense
+- Bullet points ONLY, zero prose, no intro, no outro, no greetings
+- Diff-style facts: +added, -removed, ~changed, !breaking
+- One fact per line, max 60 chars
+- Symbolic: → ∵ ∴ ⊕ ⊖ Δ ≈ ≠ ∈ ∅ ✓ ✗ (same as expert-terse)
+- Code blocks: untouched
+- BUDGET: ≤50 tokens per non-code response
+- NEVER explain what you did — show only the result";
+
 /// Return the compression prompt text for a given level (empty string for Off).
 pub fn compression_text(level: CompressionLevel) -> &'static str {
     match level {
@@ -278,6 +290,7 @@ pub fn compression_text(level: CompressionLevel) -> &'static str {
         CompressionLevel::Lite => LITE_PROMPT,
         CompressionLevel::Standard => STANDARD_PROMPT,
         CompressionLevel::Max => MAX_PROMPT,
+        CompressionLevel::Raw => RAW_PROMPT,
     }
 }
 

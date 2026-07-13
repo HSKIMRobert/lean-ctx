@@ -212,7 +212,7 @@ fn compression_canon(level: &CompressionLevel) -> &'static str {
         CompressionLevel::Off => "off",
         CompressionLevel::Lite => "lite",
         CompressionLevel::Standard => "standard",
-        CompressionLevel::Max => "max",
+        CompressionLevel::Max | CompressionLevel::Raw => "max",
     }
 }
 
