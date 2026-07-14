@@ -1145,23 +1145,44 @@ fn codex_rewrite_output(rewritten: &str) -> String {
 
 pub fn handle_codex_pretooluse() {
     if is_disabled() {
+        print!("{}", codex_allow_output());
         return;
     }
     let binary = resolve_binary();
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
+        // #809: always emit valid JSON — empty stdout is invalid for Codex CLI.
+        print!("{}", codex_allow_output());
         return;
     };
 
-    let tool = extract_json_field(&input, "tool_name");
-    if !matches!(tool.as_deref(), Some("Bash" | "bash")) {
+    // #809: use serde_json instead of ad-hoc extract_json_field.
+    // The old find('"field":') scanner could mis-parse deeply nested
+    // or heavily escaped payloads. serde_json handles all edge cases.
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&input) else {
+        print!("{}", codex_allow_output());
+        return;
+    };
+
+    let tool = parsed
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if !matches!(tool, "Bash" | "bash") {
+        print!("{}", codex_allow_output());
         return;
     }
 
-    let Some(cmd) = extract_json_field(&input, "command") else {
+    // Codex sends command at top level or inside tool_input.
+    let cmd = parsed
+        .get("command")
+        .or_else(|| parsed.get("tool_input").and_then(|ti| ti.get("command")))
+        .and_then(|v| v.as_str());
+    let Some(cmd) = cmd else {
+        print!("{}", codex_allow_output());
         return;
     };
 
-    if let Some(rewritten) = rewrite_candidate(&cmd, &binary) {
+    if let Some(rewritten) = rewrite_candidate(cmd, &binary) {
         print!("{}", codex_rewrite_output(&rewritten));
         return;
     }
@@ -1169,7 +1190,10 @@ pub fn handle_codex_pretooluse() {
     // Replace mode: deny non-rewritable Bash calls (agent must use ctx_shell)
     let mode = crate::hooks::recommend_hook_mode("codex");
     if mode == crate::hooks::HookMode::Replace {
-        print!("{}", codex_deny_output(&cmd));
+        print!("{}", codex_deny_output(cmd));
+    } else {
+        // #809: always emit valid JSON — Codex CLI requires it.
+        print!("{}", codex_allow_output());
     }
 }
 
@@ -1183,6 +1207,19 @@ fn codex_deny_output(original_cmd: &str) -> String {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "reason": msg
+        }
+    })
+    .to_string()
+}
+
+/// Allow-passthrough output for the Codex PreToolUse hook (#809).
+/// Every code path must emit valid JSON — Codex CLI parses stdout as JSON
+/// and reports "invalid pre-tool-use JSON output" on empty/malformed output.
+fn codex_allow_output() -> String {
+    serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow"
         }
     })
     .to_string()
@@ -1332,6 +1369,7 @@ fn resolve_binary() -> String {
     crate::core::portable_binary::resolve_portable_binary()
 }
 
+#[cfg(test)]
 fn extract_json_field(input: &str, field: &str) -> Option<String> {
     let key = format!("\"{field}\":");
     let key_pos = input.find(&key)?;
@@ -1365,6 +1403,7 @@ fn extract_json_field(input: &str, field: &str) -> Option<String> {
 /// Handles \\, \", \n, \t, \r, \/ — the standard JSON escape sequences
 /// that agents actually emit in hook payloads. \uXXXX is passed through
 /// unchanged (extremely rare in shell commands, not worth the complexity).
+#[cfg(test)]
 fn unescape_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();

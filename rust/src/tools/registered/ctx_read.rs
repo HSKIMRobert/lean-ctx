@@ -489,79 +489,374 @@ impl CtxReadTool {
                         return;
                     }
 
-                    // Phase 2b: brief cache write-lock — compute + store.
-                    let mut cache = {
+                    // ── Phase 2b: Three-sub-phase read (#807) ──────────
+                    //
+                    // Previously held the global cache write-lock for the
+                    // entire computation (tree-sitter, entropy compression).
+                    // For large files this caused 30+ second lock holds and
+                    // cascading timeouts for all concurrent tool calls.
+                    //
+                    // New: prepare (brief lock) → compute (no lock) → store (brief lock).
+
+                    let task_ref = task_owned.as_deref();
+                    let tuning =
+                        crate::tools::ctx_read::ReadTuning::resolve(aggressiveness, &protect_owned);
+
+                    // Helper: acquire write lock with deadline.
+                    macro_rules! acquire_write {
+                        ($deadline_secs:expr, $label:expr) => {{
+                            let deadline = std::time::Instant::now()
+                                + std::time::Duration::from_secs($deadline_secs);
+                            loop {
+                                if cancel_flag.load(Ordering::Relaxed) {
+                                    return;
+                                }
+                                if let Ok(guard) = cache_lock.try_write() {
+                                    break guard;
+                                }
+                                if std::time::Instant::now() >= deadline {
+                                    tracing::error!(
+                                        "ctx_read: cache write-lock timeout ({}) for {path_owned}",
+                                        $label,
+                                    );
+                                    let _ = tx.send((
+                                        format!(
+                                            "cache lock contention for {path_owned} — retry in a moment"
+                                        ),
+                                        "error".into(),
+                                        0,
+                                        false,
+                                        None,
+                                        (0, 0),
+                                    ));
+                                    return;
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            }
+                        }};
+                    }
+
+                    // 2b-i: Brief write lock — prepare cache state, resolve
+                    // mode, check for hits. Sub-millisecond: HashMap lookups,
+                    // staleness checks, raw-content storage for new files.
+                    #[allow(clippy::large_enum_variant)]
+                    enum PrepareOutcome {
+                        Hit(String, String, usize, bool, Option<String>, (u64, u64)),
+                        Compute {
+                            file_ref: String,
+                            resolved_mode: String,
+                            content: String,
+                            original_tokens: usize,
+                        },
+                    }
+
+                    let outcome = {
+                        let mut cache = acquire_write!(10, "prepare 10s");
+
+                        if crate::core::plugins::PluginManager::has_listener("pre_read") {
+                            crate::core::plugins::PluginManager::fire_hook_background(
+                                crate::core::plugins::executor::HookPoint::PreRead {
+                                    path: path_owned.clone(),
+                                },
+                            );
+                        }
+                        if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+                            bt.next_seq();
+                        }
+
+                        let file_ref = cache.get_file_ref(&path_owned);
+
+                        let effective_fresh = fresh
+                            || crate::tools::ctx_read::force_fresh_env()
+                            || (crate::tools::ctx_read::is_subagent_context()
+                                && !crate::core::conversation::scope_enabled());
+
+                        let mode_eff = if mode != "raw"
+                            && !mode.starts_with("lines:")
+                            && crate::core::config::Config::load()
+                                .proxy
+                                .is_path_compress_protected(&path_owned)
+                        {
+                            "full".to_string()
+                        } else {
+                            mode.clone()
+                        };
+
+                        if effective_fresh {
+                            cache.invalidate(&path_owned);
+                        }
+
+                        if !effective_fresh {
+                            let stale = cache.get(&path_owned).is_some_and(|e| {
+                                crate::core::cache::is_cache_entry_stale_verified(
+                                    &path_owned,
+                                    e.stored_mtime,
+                                    &e.hash,
+                                )
+                            });
+                            if stale {
+                                cache.invalidate(&path_owned);
+                            }
+                        }
+
+                        let snap = cache
+                            .get(&path_owned)
+                            .map(|e| (e.original_tokens, e.content()));
+
+                        if let Some((orig_tok, content_opt)) = snap {
+                            let resolved = if mode_eff == "auto" {
+                                tuning.auto_density_mode().unwrap_or_else(|| {
+                                    crate::tools::ctx_read::resolve_auto_mode(
+                                        Some(&cache),
+                                        &path_owned,
+                                        orig_tok,
+                                        task_ref,
+                                    )
+                                })
+                            } else {
+                                mode_eff
+                            };
+
+                            if (resolved == "full" || resolved == "full-compact")
+                                && let Some(out) = crate::tools::ctx_read::try_stub_hit_readonly(
+                                    &cache,
+                                    &path_owned,
+                                )
+                            {
+                                let orig = cache.get(&path_owned).map_or(0, |e| e.original_tokens);
+                                let fref = cache.file_ref_map().get(path_owned.as_str()).cloned();
+                                let s = cache.get_stats();
+                                PrepareOutcome::Hit(
+                                    out.content,
+                                    out.resolved_mode,
+                                    orig,
+                                    true,
+                                    fref,
+                                    (s.total_reads(), s.cache_hits()),
+                                )
+                            } else if crate::tools::ctx_read::is_cacheable_mode(&resolved) {
+                                let ck = crate::tools::ctx_read::compressed_cache_key(
+                                    &resolved,
+                                    crp_mode,
+                                    task_ref,
+                                    tuning.aggressiveness,
+                                    tuning.protect,
+                                );
+                                if let Some(hit) = cache.get_compressed(&path_owned, &ck).cloned() {
+                                    let hit = crate::core::redaction::redact_text_if_enabled(&hit);
+                                    let orig =
+                                        cache.get(&path_owned).map_or(0, |e| e.original_tokens);
+                                    let fref =
+                                        cache.file_ref_map().get(path_owned.as_str()).cloned();
+                                    let s = cache.get_stats();
+                                    PrepareOutcome::Hit(
+                                        hit,
+                                        resolved,
+                                        orig,
+                                        true,
+                                        fref,
+                                        (s.total_reads(), s.cache_hits()),
+                                    )
+                                } else {
+                                    let c = content_opt
+                                        .or_else(|| preread.as_deref().map(String::from));
+                                    PrepareOutcome::Compute {
+                                        file_ref,
+                                        resolved_mode: resolved,
+                                        content: c.unwrap_or_default(),
+                                        original_tokens: orig_tok,
+                                    }
+                                }
+                            } else {
+                                let c =
+                                    content_opt.or_else(|| preread.as_deref().map(String::from));
+                                PrepareOutcome::Compute {
+                                    file_ref,
+                                    resolved_mode: resolved,
+                                    content: c.unwrap_or_default(),
+                                    original_tokens: orig_tok,
+                                }
+                            }
+                        } else {
+                            let raw = preread.unwrap_or_else(|| {
+                                crate::tools::ctx_read::read_file_lossy(&path_owned)
+                                    .unwrap_or_default()
+                            });
+                            let sr = cache.store(&path_owned, &raw);
+                            let resolved = if mode_eff == "auto" {
+                                tuning.auto_density_mode().unwrap_or_else(|| {
+                                    crate::tools::ctx_read::resolve_auto_mode(
+                                        None,
+                                        &path_owned,
+                                        sr.original_tokens,
+                                        task_ref,
+                                    )
+                                })
+                            } else {
+                                mode_eff
+                            };
+                            PrepareOutcome::Compute {
+                                file_ref,
+                                resolved_mode: resolved,
+                                content: raw,
+                                original_tokens: sr.original_tokens,
+                            }
+                        }
+                    }; // write lock released
+
+                    if let PrepareOutcome::Hit(c, rm, orig, hit, fref, ss) = outcome {
+                        let _ = tx.send((c, rm, orig, hit, fref, ss));
+                        return;
+                    }
+                    let PrepareOutcome::Compute {
+                        file_ref,
+                        resolved_mode,
+                        content: compute_content,
+                        original_tokens,
+                    } = outcome
+                    else {
+                        unreachable!()
+                    };
+
+                    if cancel_flag.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    // 2b-ii: Heavy computation WITHOUT cache lock.
+                    // Tree-sitter, entropy compression, mode rendering all
+                    // run under the per-file mutex only (serializes same-file
+                    // reads, but does not block other files or tool calls).
+                    let short = crate::core::protocol::shorten_path(&path_owned);
+                    let ext_s = std::path::Path::new(&*path_owned)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+
+                    let (mut computed, rmode) = if resolved_mode == "full"
+                        || resolved_mode == "full-compact"
+                    {
+                        if resolved_mode == "full-compact" {
+                            let (out, _) = crate::tools::ctx_read::format_full_compact_output(
+                                &compute_content,
+                            );
+                            (out, "full-compact".to_string())
+                        } else {
+                            let lc = compute_content.lines().count();
+                            let (out, _) = crate::tools::ctx_read::format_full_output(
+                                &file_ref,
+                                &short,
+                                ext_s,
+                                &compute_content,
+                                original_tokens,
+                                lc,
+                                task_ref,
+                            );
+                            let ft = crate::core::tokens::count_tokens(&out);
+                            let out = crate::tools::ctx_read::cap_to_raw(
+                                out,
+                                ft,
+                                &compute_content,
+                                original_tokens,
+                            );
+                            (out, "full".to_string())
+                        }
+                    } else {
+                        let (out, _) = crate::tools::ctx_read::process_mode_tuned(
+                            &compute_content,
+                            &resolved_mode,
+                            &file_ref,
+                            &short,
+                            ext_s,
+                            original_tokens,
+                            crp_mode,
+                            &path_owned,
+                            task_ref,
+                            tuning,
+                        );
+                        let out = if crate::tools::ctx_read::mode_allows_raw_cap(&resolved_mode) {
+                            let ft = crate::core::tokens::count_tokens(&out);
+                            crate::tools::ctx_read::cap_to_raw(
+                                out,
+                                ft,
+                                &compute_content,
+                                original_tokens,
+                            )
+                        } else {
+                            out
+                        };
+                        (out, resolved_mode)
+                    };
+
+                    computed = crate::core::redaction::redact_text_if_enabled(&computed);
+
+                    if cancel_flag.load(Ordering::Relaxed) {
+                        return;
+                    }
+
+                    // 2b-iii: Brief write lock — store result + metadata.
+                    // Sub-millisecond: HashMap insert + stats snapshot.
+                    // Graceful degradation: if the lock cannot be acquired
+                    // within 5s, return the result without caching it.
+                    {
                         let deadline =
-                            std::time::Instant::now() + std::time::Duration::from_secs(25);
-                        loop {
+                            std::time::Instant::now() + std::time::Duration::from_secs(5);
+                        let cache_guard = loop {
                             if cancel_flag.load(Ordering::Relaxed) {
                                 return;
                             }
-                            if let Ok(guard) = cache_lock.try_write() {
-                                break guard;
+                            if let Ok(g) = cache_lock.try_write() {
+                                break Some(g);
                             }
                             if std::time::Instant::now() >= deadline {
-                                tracing::error!(
-                                    "ctx_read: cache write-lock timeout after 25s for {path_owned}"
+                                tracing::warn!(
+                                    "ctx_read: store-lock timeout (5s) for {path_owned},                                      returning without caching"
                                 );
-                                let _ = tx.send((
-                                    format!(
-                                        "cache lock contention for {path_owned} — retry in a moment"
-                                    ),
-                                    "error".to_string(),
-                                    0,
-                                    false,
-                                    None,
-                                    (0, 0),
-                                ));
-                                return;
+                                break None;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(50));
-                        }
-                    };
+                        };
 
-                    let task_ref = task_owned.as_deref();
-                    let read_output = if let Some(content) = preread {
-                        crate::tools::ctx_read::handle_with_preread(
-                            &mut cache,
-                            &path_owned,
-                            &mode,
-                            fresh,
-                            crp_mode,
-                            task_ref,
-                            aggressiveness,
-                            &protect_owned,
-                            content,
-                        )
-                    } else if fresh {
-                        crate::tools::ctx_read::handle_fresh_with_task_resolved_tuned(
-                            &mut cache,
-                            &path_owned,
-                            &mode,
-                            crp_mode,
-                            task_ref,
-                            aggressiveness,
-                            &protect_owned,
-                        )
-                    } else {
-                        crate::tools::ctx_read::handle_with_task_resolved_tuned(
-                            &mut cache,
-                            &path_owned,
-                            &mode,
-                            crp_mode,
-                            task_ref,
-                            aggressiveness,
-                            &protect_owned,
-                        )
-                    };
-                    let content = read_output.content;
-                    let rmode = read_output.resolved_mode;
-                    let orig = cache.get(&path_owned).map_or(0, |e| e.original_tokens);
-                    let hit = content.contains(" cached ");
-                    let fref = cache.file_ref_map().get(path_owned.as_str()).cloned();
-                    let stats = cache.get_stats();
-                    let stats_snapshot = (stats.total_reads(), stats.cache_hits());
-                    let _ = tx.send((content, rmode, orig, hit, fref, stats_snapshot));
+                        if let Some(mut cache) = cache_guard {
+                            if crate::tools::ctx_read::is_cacheable_mode(&rmode) {
+                                let ck = crate::tools::ctx_read::compressed_cache_key(
+                                    &rmode,
+                                    crp_mode,
+                                    task_ref,
+                                    tuning.aggressiveness,
+                                    tuning.protect,
+                                );
+                                cache.set_compressed(&path_owned, &ck, computed.clone());
+                            }
+                            if rmode == "full" || rmode == "full-compact" {
+                                cache.mark_full_delivered(&path_owned);
+                            }
+                            if let Some(entry) = cache.get_mut(&path_owned) {
+                                entry.last_mode.clone_from(&rmode);
+                            }
+                            if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
+                                bt.record_read(
+                                    &path_owned,
+                                    &rmode,
+                                    crate::core::tokens::count_tokens(&computed),
+                                    original_tokens,
+                                );
+                            }
+                            let orig = cache.get(&path_owned).map_or(0, |e| e.original_tokens);
+                            let fref = cache.file_ref_map().get(path_owned.as_str()).cloned();
+                            let s = cache.get_stats();
+                            let _ = tx.send((
+                                computed,
+                                rmode,
+                                orig,
+                                false,
+                                fref,
+                                (s.total_reads(), s.cache_hits()),
+                            ));
+                        } else {
+                            let _ =
+                                tx.send((computed, rmode, original_tokens, false, None, (0, 0)));
+                        }
+                    }
                 });
                 if let Ok(result) = rx.recv_timeout(read_timeout) {
                     result

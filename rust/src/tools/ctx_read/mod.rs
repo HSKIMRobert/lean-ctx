@@ -34,7 +34,7 @@ pub struct ReadOutput {
 /// SSOT via [`ReadMode`] (#528): the `map`/`signatures` summaries whose rendered
 /// body is stored per-file in `compressed_outputs`. Unknown modes are not
 /// cacheable, matching the prior `["map","signatures"].contains(mode)`.
-fn is_cacheable_mode(mode: &str) -> bool {
+pub(crate) fn is_cacheable_mode(mode: &str) -> bool {
     mode.parse::<ReadMode>()
         .is_ok_and(|m| m.is_compressed_cacheable())
 }
@@ -48,14 +48,14 @@ fn is_cacheable_mode(mode: &str) -> bool {
 /// view-specific semantics — `lines:` returns a window, `reference` a pointer,
 /// `diff` a delta, `raw` the bytes — so replacing them with the whole file would
 /// be wrong, not cheaper, and they are never capped.
-fn mode_allows_raw_cap(mode: &str) -> bool {
+pub(crate) fn mode_allows_raw_cap(mode: &str) -> bool {
     // SSOT via [`ReadMode`] (#528). Unknown modes keep the prior default of
     // `true` (only `lines:`/`reference`/`diff`/`raw` opt out of the #361 cap).
     mode.parse::<ReadMode>()
         .map_or(true, |m| m.allows_raw_cap())
 }
 
-fn compressed_cache_key(
+pub(crate) fn compressed_cache_key(
     mode: &str,
     crp_mode: CrpMode,
     task: Option<&str>,
@@ -383,7 +383,7 @@ fn handle_with_options(
 
 /// `LEAN_CTX_FORCE_FRESH=1` — an explicit operator override that always forces a
 /// cold full read, independent of conversation scoping.
-fn force_fresh_env() -> bool {
+pub(crate) fn force_fresh_env() -> bool {
     static FORCE_FRESH: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FORCE_FRESH.get_or_init(|| {
         std::env::var("LEAN_CTX_FORCE_FRESH").is_ok_and(|v| v == "1" || v == "true")
@@ -399,7 +399,7 @@ fn force_fresh_env() -> bool {
 /// withholds cross-agent stubs precisely while restoring the subagent's *own*
 /// cheap re-reads. The blanket force-fresh is therefore kept only as the fallback
 /// when scoping is disabled (#956).
-fn is_subagent_context() -> bool {
+pub(crate) fn is_subagent_context() -> bool {
     static IS_SUBAGENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *IS_SUBAGENT.get_or_init(|| std::env::var("CURSOR_TASK_ID").is_ok_and(|v| !v.is_empty()))
 }
@@ -1115,7 +1115,7 @@ pub fn is_instruction_file(path: &str) -> bool {
 /// is roughly token-neutral and applied to whichever string wins), so the
 /// comparison is apples-to-apples with `original_tokens`. Empty files
 /// (`raw_tokens == 0`) keep their framing so the reader still gets a signal.
-fn cap_to_raw(
+pub(crate) fn cap_to_raw(
     framed: String,
     framed_tokens: usize,
     raw_content: &str,
@@ -1138,7 +1138,7 @@ fn cap_to_raw(
 /// caller can collapse the re-read to the cheap `[unchanged]` stub instead of
 /// re-delivering the whole body. Pass `None` only where no session cache exists
 /// (the CLI cold path), which forces a stateless cold resolution.
-fn resolve_auto_mode(
+pub(crate) fn resolve_auto_mode(
     cache: Option<&SessionCache>,
     file_path: &str,
     original_tokens: usize,

@@ -570,6 +570,30 @@ fn append_radar_event(event: &ObserveEvent) {
     {
         let _ = writeln!(f, "{line}");
     }
+
+    // #808: write an atomic marker file so the MCP server can detect
+    // compactions reliably even when large events bury the radar entry.
+    if event.event_type == "compaction" {
+        write_compaction_marker(&data_dir, event.ts);
+    }
+}
+
+/// Atomically write `last_compaction.json` via temp-file + rename.
+/// The marker is a few bytes; no other event can displace it.
+fn write_compaction_marker(data_dir: &std::path::Path, ts: u64) {
+    use std::io::Write;
+    let marker_path = data_dir.join("last_compaction.json");
+    let tmp_path = data_dir.join("last_compaction.json.tmp");
+    let payload = format!(r#"{{"ts":{ts}}}"#);
+    let Ok(mut f) = std::fs::File::create(&tmp_path) else {
+        return;
+    };
+    if f.write_all(payload.as_bytes()).is_err() || f.sync_all().is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+        return;
+    }
+    drop(f);
+    let _ = std::fs::rename(&tmp_path, &marker_path);
 }
 
 /// Count the IDE-hook observe events recorded in `context_radar.jsonl`.

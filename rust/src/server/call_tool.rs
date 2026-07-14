@@ -563,12 +563,25 @@ impl LeanCtxServer {
                 let name_owned = name.to_string();
                 tokio::spawn(async move {
                     let result = std::panic::AssertUnwindSafe(async {
-                        let mut cache = cache_clone.write().await;
-                        crate::tools::autonomy::maybe_auto_dedup(
-                            &autonomy_clone,
-                            &mut cache,
-                            &name_owned,
-                        );
+                        // #807: bounded lock — the old unbounded `.write().await`
+                        // could queue behind a long computation and then hold the
+                        // lock during dedup, cascading the stall.
+                        let cache_timeout = tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            cache_clone.write(),
+                        )
+                        .await;
+                        if let Ok(mut cache) = cache_timeout {
+                            crate::tools::autonomy::maybe_auto_dedup(
+                                &autonomy_clone,
+                                &mut cache,
+                                &name_owned,
+                            );
+                        } else {
+                            tracing::debug!(
+                                "background auto_dedup: cache lock timeout (5s), skipping"
+                            );
+                        }
                     })
                     .catch_unwind()
                     .await;

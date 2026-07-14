@@ -428,9 +428,10 @@ pub fn jail_path_with_roots(
             let mut hint = if crate::core::protocol::meta_visible() {
                 let dir = candidate.parent().unwrap_or(candidate).display();
                 format!(
-                    ". Hint: set LEAN_CTX_READ_ONLY_ROOTS={dir} for read-only access, \
-                     or LEAN_CTX_ALLOW_PATH={dir} for read-write access, \
-                     or add entries to read_only_roots/allow_paths in ~/.config/lean-ctx/config.toml"
+                    ". Hint: set LEAN_CTX_ALLOW_PATH={dir} for read-write access \
+                     (colon-separated for multiple: /path/a:/path/b), \
+                     LEAN_CTX_READ_ONLY_ROOTS={dir} for read-only, \
+                     or add entries to allow_paths = [\"{dir}\"] in ~/.config/lean-ctx/config.toml"
                 )
             } else {
                 String::new()

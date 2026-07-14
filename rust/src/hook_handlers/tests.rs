@@ -463,6 +463,35 @@ fn codex_rewrite_output_uses_native_updated_input_contract() {
     );
 }
 
+/// #809: codex_allow_output produces valid JSON with allow decision.
+#[test]
+fn codex_allow_output_is_valid_json() {
+    let output = codex_allow_output();
+    let parsed: serde_json::Value =
+        serde_json::from_str(&output).expect("codex_allow_output must be valid JSON");
+    assert_eq!(parsed["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(parsed["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+/// #809: codex_deny_output with heavily escaped content is valid JSON.
+#[test]
+fn codex_deny_output_with_nested_quotes_is_valid_json() {
+    let complex_cmd = r#"lean-ctx raw 'cat file; printf "
+---
+"; sed -n "55,145p" file2'"#;
+    let output = codex_deny_output(complex_cmd);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&output).expect("codex_deny_output must be valid JSON");
+    assert_eq!(parsed["hookSpecificOutput"]["permissionDecision"], "deny");
+    let reason = parsed["hookSpecificOutput"]["reason"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        reason.contains("lean-ctx raw"),
+        "deny reason must contain the command: {reason}"
+    );
+}
+
 #[test]
 fn dual_rewrite_output_carries_claude_cursor_and_copilot_fields() {
     // #551: one JSON object must satisfy Claude (hookSpecificOutput.updatedInput),
