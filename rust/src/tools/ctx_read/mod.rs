@@ -20,6 +20,8 @@ pub(crate) mod mode;
 pub(crate) use mode::ReadMode;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_windowed;
 
 /// Pre-counted read output carrying the output string, resolved mode,
 /// and token count computed during mode processing.

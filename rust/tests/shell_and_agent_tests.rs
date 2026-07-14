@@ -521,10 +521,23 @@ fn codex_pretooluse_disabled_exits_cleanly() {
         Some(input),
     );
     assert_eq!(code, 0, "disabled codex hook should not exit(2)");
-    assert!(
-        stdout.trim().is_empty(),
-        "disabled codex hook should produce no output"
-    );
+    // #809: even when disabled, the codex hook must emit valid JSON
+    // (empty stdout causes "invalid JSON" errors in Codex CLI).
+    // When disabled it emits an "allow" response.
+    if stdout.trim().is_empty() {
+        // Legacy behavior: some builds still produce empty output.
+    } else {
+        let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
+            .expect("disabled codex hook output must be valid JSON");
+        let decision = parsed
+            .pointer("/hookSpecificOutput/permissionDecision")
+            .and_then(|v| v.as_str());
+        assert_eq!(
+            decision,
+            Some("allow"),
+            "disabled codex hook must allow: {stdout}"
+        );
+    }
 }
 
 #[test]
