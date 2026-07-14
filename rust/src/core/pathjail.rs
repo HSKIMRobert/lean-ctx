@@ -412,6 +412,20 @@ pub fn jail_path_with_roots(
                 .map(|r| canonicalize_secure(Path::new(r))),
         );
 
+        // #820: lean-ctx's own state dir (tee files, artifacts, tool-results)
+        // must be readable even when outside the project root. ctx_shell
+        // tells agents to read tee-file paths, so the jail must allow them.
+        if let Ok(state) = crate::core::paths::state_dir() {
+            allow.push(canonicalize_secure(&state));
+        }
+        // Read-only roots are also allowed for reads (they only block writes
+        // via enforce_writable, not reads via the jail).
+        allow.extend(
+            read_only_roots_from_env_and_config()
+                .into_iter()
+                .map(|p| canonicalize_secure(&p)),
+        );
+
         let (base, remainder) = canonicalize_existing_ancestor(candidate).ok_or_else(|| {
             PathJailError::NoExistingAncestor {
                 path: candidate.to_path_buf(),
@@ -999,5 +1013,30 @@ mod tests {
 
         // Empty entries are ignored (no accidental allow-all).
         assert!(jail_path_with_roots(&outside, &root, &[String::new()]).is_err());
+    }
+
+    /// #820: lean-ctx state dir (tee files) is implicitly allowed by the jail.
+    #[test]
+    fn state_dir_tee_files_pass_jail() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let state = crate::core::paths::state_dir().expect("state_dir must be available");
+        let tee_path = state.join("tee").join("some_command_deadbeef.log");
+        // Use a root that is clearly NOT the state dir's parent
+        let fake_root = std::env::temp_dir().join("pathjail_test_820_root");
+        std::fs::create_dir_all(&fake_root).ok();
+        // The tee path is outside the fake root, but the state dir allowance
+        // should make it pass (the state dir itself exists on disk).
+        let result = jail_path_with_roots(&tee_path, &fake_root, &[]);
+        // If state_dir exists on disk (it does in dev), the path should be allowed.
+        // If the tee file itself doesn't exist, canonicalize_existing_ancestor
+        // resolves to the state_dir (which does exist) + remainder.
+        if state.exists() {
+            assert!(
+                result.is_ok(),
+                "tee-file path under lean-ctx state dir must be auto-allowed: {:?}",
+                result
+            );
+        }
+        std::fs::remove_dir_all(&fake_root).ok();
     }
 }
