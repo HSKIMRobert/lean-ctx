@@ -320,7 +320,9 @@ impl CtxReadTool {
             {
                 let msg = format!(
                     "File too large ({} bytes, limit {} bytes via LCTX_MAX_READ_BYTES). \
-                         Use mode=\"lines:1-100\" for partial reads or increase the limit.",
+                     Use mode=\"lines:1-100\" or start_line+limit for partial reads, \
+                     mode=\"anchored\" with start_line+limit for edit-ready windows, \
+                     or increase the limit.",
                     meta.len(),
                     cap
                 );
