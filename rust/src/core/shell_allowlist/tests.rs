@@ -1316,3 +1316,50 @@ fn single_command_block_omits_pipeline_advisory() {
         "single command must not show pipeline info: {err}"
     );
 }
+
+/// #813: `is_project_root_binary` returns false for non-path tokens.
+#[test]
+fn project_root_binary_rejects_bare_name() {
+    assert!(
+        !super::is_project_root_binary("cbc_old"),
+        "bare name without path separator must not be auto-allowed"
+    );
+}
+
+/// #813: `is_project_root_binary` returns false for non-existent files.
+#[test]
+fn project_root_binary_rejects_nonexistent_path() {
+    assert!(
+        !super::is_project_root_binary("./nonexistent_binary_813"),
+        "non-existent file must not be auto-allowed"
+    );
+}
+
+/// #813: `is_project_root_binary` returns true for an existing file under
+/// the project root (the test binary `cargo test` itself qualifies).
+#[test]
+fn project_root_binary_accepts_existing_project_file() {
+    // Use Cargo.toml as a known file in the project root — it's not executable,
+    // but is_project_root_binary only checks path + existence + project-root,
+    // not execute permission (that's the OS's job at runtime).
+    assert!(
+        super::is_project_root_binary("./Cargo.toml"),
+        "existing file under project root must be auto-allowed"
+    );
+}
+
+/// #813: auto-allow integrates into enforce_shell_allowlist for paths.
+#[test]
+fn enforce_allows_project_root_binary_path() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+    // ./Cargo.toml is under the project root — would be blocked as "Cargo.toml"
+    // is not in the allowlist, but the path check auto-allows it.
+    let result = super::enforce_shell_allowlist("./Cargo.toml --version");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        result.is_ok(),
+        "project-root binary path must be auto-allowed: {:?}",
+        result
+    );
+}

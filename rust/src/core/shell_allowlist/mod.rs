@@ -799,6 +799,45 @@ fn contains_double_semicolon(command: &str) -> bool {
     false
 }
 
+/// #813: check whether a command token resolves to an existing file under the
+/// project root. Called as a fallback when the base command name isn't in the
+/// allowlist — agents frequently build project-local binaries (`go build -o
+/// cbc_old`, `cargo build`, `gcc -o bench`) that shouldn't require a manual
+/// `lean-ctx allow` round-trip.
+///
+/// Only auto-allows when ALL of:
+/// 1. The token is a path (contains `/` or starts with `./`)
+/// 2. The resolved path is an existing file
+/// 3. The resolved path is under the project root
+fn is_project_root_binary(token: &str) -> bool {
+    if !token.contains('/') {
+        return false;
+    }
+    let path = std::path::Path::new(token);
+    let resolved = if path.is_relative() {
+        match std::env::current_dir() {
+            Ok(cwd) => cwd.join(path),
+            Err(_) => return false,
+        }
+    } else {
+        path.to_path_buf()
+    };
+    let Ok(canonical) = resolved.canonicalize() else {
+        return false;
+    };
+    if !canonical.is_file() {
+        return false;
+    }
+    let Some(root) = crate::server::derive_project_root_from_cwd() else {
+        return false;
+    };
+    let root_path = std::path::Path::new(&root);
+    let canonical_root = root_path
+        .canonicalize()
+        .unwrap_or_else(|_| root_path.to_path_buf());
+    canonical.starts_with(&canonical_root)
+}
+
 fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellError> {
     if allowlist.is_empty() {
         return Ok(());
@@ -838,6 +877,20 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellEr
         check_interpreter_abuse(seg, allowlist)?;
         check_dangerous_flags(seg)?;
         if !allowlist.iter().any(|a| a == &base) {
+            // #813: auto-allow binaries that resolve to existing files under
+            // the project root. The first token (before rsplit) carries the
+            // path context (e.g. "./cbc_old", "../bin/bench").
+            let first_token = shell_tokenize(skip_env_assignments(seg.trim()))
+                .into_iter()
+                .next()
+                .unwrap_or_default();
+            if is_project_root_binary(&first_token) {
+                tracing::info!(
+                    "[shell_allowlist] auto-allowing project-root binary: {first_token}"
+                );
+                continue;
+            }
+
             // #815: for compound commands, tell the user which segment was
             // blocked and that nothing ran (the pipeline is rejected as a
             // whole before execution, so no prefix commands executed).
