@@ -1283,3 +1283,36 @@ fn gh760_pipeline_with_non_allowed_sink_fails() {
         "pipeline with non-allowlisted sink must fail (hook leaves raw)"
     );
 }
+
+/// #815: compound command block message includes segment position
+/// and "no part of the pipeline ran" advisory.
+#[test]
+fn compound_block_includes_segment_position() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "cp,git,go");
+    let result = super::enforce_shell_allowlist("cp a b && git stash && go build && ./cbc_old");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("segment 4/4"),
+        "must show which segment was blocked: {err}"
+    );
+    assert!(
+        err.contains("no part of the pipeline ran"),
+        "must say nothing ran: {err}"
+    );
+}
+
+/// #815: single-command block does NOT show pipeline advisory.
+#[test]
+fn single_command_block_omits_pipeline_advisory() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+    let result = super::enforce_shell_allowlist("./cbc_old --help");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        !err.contains("segment"),
+        "single command must not show pipeline info: {err}"
+    );
+}

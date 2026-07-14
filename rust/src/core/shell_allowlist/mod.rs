@@ -819,7 +819,8 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellEr
         return Err("[BLOCKED — DO NOT RETRY] Empty command".into());
     }
 
-    for seg in &segments {
+    let total = segments.len();
+    for (idx, seg) in segments.iter().enumerate() {
         check_inline_env_block(seg)?;
         let base = extract_base_from_segment(seg);
         if base.is_empty() {
@@ -837,7 +838,19 @@ fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellEr
         check_interpreter_abuse(seg, allowlist)?;
         check_dangerous_flags(seg)?;
         if !allowlist.iter().any(|a| a == &base) {
-            return Err(allowlist_block_message(&base).into());
+            // #815: for compound commands, tell the user which segment was
+            // blocked and that nothing ran (the pipeline is rejected as a
+            // whole before execution, so no prefix commands executed).
+            let mut msg = allowlist_block_message(&base);
+            if total > 1 {
+                msg.push_str(&format!(
+                    "\n\n[pipeline: segment {}/{total} blocked — \
+                     the entire command was rejected before execution, \
+                     no part of the pipeline ran]",
+                    idx + 1,
+                ));
+            }
+            return Err(msg.into());
         }
     }
     Ok(())
