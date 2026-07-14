@@ -1172,7 +1172,7 @@ fn lines_mode(start: i64, limit: Option<i64>) -> String {
 fn apply_line_window(
     mode: &mut String,
     fresh: &mut bool,
-    explicit_mode: bool,
+    _explicit_mode: bool,
     start_line: Option<i64>,
     offset: Option<i64>,
     limit: Option<i64>,
@@ -1184,9 +1184,15 @@ fn apply_line_window(
         return;
     }
     *fresh = true;
-    if !explicit_mode || mode.starts_with("lines") {
-        *mode = lines_mode(start, limit);
-    }
+    // #811: always switch to `lines:N-M` when a line window is requested,
+    // even with an explicit mode like "anchored". The old guard
+    // `!explicit_mode || mode.starts_with("lines")` caused anchored/full/map
+    // reads with start_line/limit to ignore the window and materialize the
+    // entire file — overflowing the token budget on large files.
+    // The line range is the caller's primary intent; the display format is
+    // secondary. A bare `ctx_read(mode="anchored")` without start_line still
+    // returns the full anchored view.
+    *mode = lines_mode(start, limit);
 }
 
 /// #513: resolve the `raw=true` convenience flag into the effective explicit
@@ -1444,24 +1450,34 @@ mod tests {
     }
 
     #[test]
-    fn start_line_gt1_does_not_override_explicit_map() {
-        // GitHub #259: mode=map + start_line=50 → mode stays map
+    fn start_line_gt1_overrides_explicit_map_to_lines() {
+        // #811: start_line always wins — prevents full-file materialization
+        // on large files. If only the map is needed, omit start_line.
         let mut mode = "map".to_string();
         let mut fresh = false;
         apply_start_line(&mut mode, &mut fresh, true, Some(50));
-        assert_eq!(
-            mode, "map",
-            "explicit mode=map must not be clobbered by start_line"
-        );
-        assert!(fresh, "start_line>1 should still force fresh");
+        assert_eq!(mode, "lines:50-999999");
+        assert!(fresh);
     }
 
     #[test]
-    fn start_line_gt1_does_not_override_explicit_signatures() {
+    fn start_line_gt1_overrides_explicit_signatures_to_lines() {
+        // #811: start_line always wins
         let mut mode = "signatures".to_string();
         let mut fresh = false;
         apply_start_line(&mut mode, &mut fresh, true, Some(100));
-        assert_eq!(mode, "signatures");
+        assert_eq!(mode, "lines:100-999999");
+        assert!(fresh);
+    }
+
+    /// #811: anchored + start_line + limit must switch to bounded lines
+    /// to prevent full-file materialization on large files.
+    #[test]
+    fn anchored_with_start_line_and_limit_becomes_bounded_lines() {
+        let mut mode = "anchored".to_string();
+        let mut fresh = false;
+        super::apply_line_window(&mut mode, &mut fresh, true, Some(715), None, Some(3));
+        assert_eq!(mode, "lines:715-717");
         assert!(fresh);
     }
 
@@ -1552,12 +1568,12 @@ mod tests {
     }
 
     #[test]
-    fn explicit_map_not_clobbered_by_offset_limit() {
-        // #259 must also hold for the new aliases.
+    fn offset_limit_overrides_explicit_map_to_lines() {
+        // #811: line window always wins to prevent full-file materialization
         let mut mode = "map".to_string();
         let mut fresh = false;
         super::apply_line_window(&mut mode, &mut fresh, true, None, Some(40), Some(20));
-        assert_eq!(mode, "map", "explicit mode wins over offset/limit");
+        assert_eq!(mode, "lines:40-59");
         assert!(fresh);
     }
 
