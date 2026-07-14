@@ -1363,3 +1363,46 @@ fn enforce_allows_project_root_binary_path() {
         result
     );
 }
+
+/// #814: python3 -c is blocked by default.
+#[test]
+fn python3_inline_blocked_by_default() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "python3");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS");
+    let result = super::enforce_shell_allowlist("python3 -c \"print(42)\"");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(result.is_err(), "python3 -c must be blocked by default");
+}
+
+/// #814: python3 -c is allowed when opt-in is enabled.
+#[test]
+fn python3_inline_allowed_with_opt_in() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "python3");
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS", "1");
+    let result = super::enforce_shell_allowlist("python3 -c \"print(42)\"");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        result.is_ok(),
+        "python3 -c must be allowed with opt-in: {:?}",
+        result
+    );
+}
+
+/// #814: node -e is also gated by the same opt-in.
+#[test]
+fn node_eval_allowed_with_opt_in() {
+    let _lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "node");
+    crate::test_env::set_var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS", "1");
+    let result = super::enforce_shell_allowlist("node -e \"console.log(42)\"");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS");
+    crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+    assert!(
+        result.is_ok(),
+        "node -e must be allowed with opt-in: {:?}",
+        result
+    );
+}

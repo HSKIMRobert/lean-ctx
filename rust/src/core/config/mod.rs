@@ -693,6 +693,12 @@ pub struct Config {
     #[serde(default)]
     pub shell_allow_writes: bool,
 
+    /// #814: opt-in to allow `python3 -c`, `node -e`, etc. in ctx_shell.
+    /// Default `false` — inline code is blocked because it leaves no auditable
+    /// artifact. Override via `LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS=1`.
+    #[serde(default)]
+    pub shell_allow_inline_scripts: bool,
+
     /// Setup behavior: controls what gets injected during setup and updates.
     #[serde(default)]
     pub setup: SetupConfig,
@@ -820,6 +826,7 @@ impl Default for Config {
             shell_timeout_secs: None,
             shell_heavy_timeout_secs: None,
             shell_allow_writes: false,
+            shell_allow_inline_scripts: false,
             setup: SetupConfig::default(),
         }
     }
@@ -1213,6 +1220,20 @@ impl Config {
                 "1" | "true" | "yes" | "on"
             ),
             Err(_) => self.shell_allow_writes,
+        }
+    }
+
+    /// #814: returns `true` if `ctx_shell` may accept inline interpreter scripts
+    /// (`python3 -c "..."`, `node -e "..."`, etc.).
+    /// `LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS` (`1`/`true`/`yes`/`on`) overrides
+    /// `config.toml`. The real command gating (allowlist) still applies.
+    pub fn shell_allow_inline_scripts_effective(&self) -> bool {
+        match std::env::var("LEAN_CTX_SHELL_ALLOW_INLINE_SCRIPTS") {
+            Ok(raw) => matches!(
+                raw.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.shell_allow_inline_scripts,
         }
     }
 

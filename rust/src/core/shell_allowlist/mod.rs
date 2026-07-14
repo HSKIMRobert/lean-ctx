@@ -289,6 +289,10 @@ fn quote_aware_token_end(input: &str) -> usize {
 /// but still follows delegation wrappers so `xargs bash -c …` / `timeout 5 sh -c …`
 /// cannot smuggle inline code past the check (GH #391).
 fn check_interpreter_eval_only(segment: &str) -> Result<(), ShellError> {
+    // #814: opt-in config skips the inline-code block entirely.
+    if crate::core::config::Config::load().shell_allow_inline_scripts_effective() {
+        return Ok(());
+    }
     check_interpreter_eval_only_inner(segment, 0)
 }
 
@@ -403,13 +407,17 @@ fn delegated_command_tokens(tokens: &[String]) -> Vec<&str> {
 /// Check if a segment uses an interpreter with an eval flag, or a delegation command
 /// whose target is not in the allowlist.
 fn check_interpreter_abuse(segment: &str, allowlist: &[String]) -> Result<(), ShellError> {
-    check_interpreter_abuse_inner(segment, allowlist, 0)
+    // #814: when inline scripts are opt-in allowed, skip the eval-flag subset
+    // of interpreter abuse checks. Delegation checks (xargs→unlisted) still apply.
+    let inline_ok = crate::core::config::Config::load().shell_allow_inline_scripts_effective();
+    check_interpreter_abuse_inner(segment, allowlist, 0, inline_ok)
 }
 
 fn check_interpreter_abuse_inner(
     segment: &str,
     allowlist: &[String],
     depth: usize,
+    inline_ok: bool,
 ) -> Result<(), ShellError> {
     if depth > 3 {
         return Ok(());
@@ -426,7 +434,7 @@ fn check_interpreter_abuse_inner(
         .unwrap_or(&tokens[0])
         .to_string();
 
-    if INTERPRETER_COMMANDS.contains(&base.as_str()) {
+    if INTERPRETER_COMMANDS.contains(&base.as_str()) && !inline_ok {
         for tok in &tokens[1..] {
             if EVAL_FLAGS.contains(&tok.as_str()) {
                 return Err(format!(
@@ -462,7 +470,7 @@ fn check_interpreter_abuse_inner(
                 .into());
             }
             let rest_str = rest_tokens.join(" ");
-            check_interpreter_abuse_inner(&rest_str, allowlist, depth + 1)?;
+            check_interpreter_abuse_inner(&rest_str, allowlist, depth + 1, inline_ok)?;
         }
     }
 
