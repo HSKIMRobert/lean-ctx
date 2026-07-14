@@ -1955,7 +1955,10 @@ fn read_line_window_clamps_end_to_eof() {
 
     let window = read_line_window(&p, 2, 999_999).expect("streamed read must succeed");
     assert_eq!(window.total_lines, 3);
-    assert_eq!(window.end, 3, "end must clamp to the real EOF, not the sentinel");
+    assert_eq!(
+        window.end, 3,
+        "end must clamp to the real EOF, not the sentinel"
+    );
     assert_eq!(window.body, "b\nc");
 }
 
@@ -2004,8 +2007,7 @@ fn disk_windowed_anchored_read_serves_file_over_the_size_cap() {
 
     assert_eq!(out.resolved_mode, "anchored:5-7");
     assert!(
-        out.content.contains("function_number_5")
-            && out.content.contains("function_number_7"),
+        out.content.contains("function_number_5") && out.content.contains("function_number_7"),
         "must contain the requested window: {}",
         out.content
     );

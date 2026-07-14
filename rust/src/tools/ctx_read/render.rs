@@ -151,9 +151,7 @@ pub(crate) fn format_anchored_output_window(
             "{file_ref}={short} {line_count}L{range_suffix} [anchored: N:hh|line → edit via ctx_patch]"
         )
     } else {
-        format!(
-            "{short} {line_count}L{range_suffix} [anchored: N:hh|line → edit via ctx_patch]"
-        )
+        format!("{short} {line_count}L{range_suffix} [anchored: N:hh|line → edit via ctx_patch]")
     };
     let annotated = crate::core::anchor::annotate(body, start_line);
     let output = format!("{header}\n{annotated}");

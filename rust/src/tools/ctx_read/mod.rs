@@ -881,7 +881,9 @@ fn handle_with_options_inner(
     // #811: a fresh, explicitly windowed `anchored:N-M` read never needs the
     // cache (fresh always bypasses it) or the whole file in memory — try the
     // disk-streaming short-circuit first.
-    if let Some(out) = try_disk_anchored_window(path, mode, fresh, preread.is_none(), &file_ref, &short) {
+    if let Some(out) =
+        try_disk_anchored_window(path, mode, fresh, preread.is_none(), &file_ref, &short)
+    {
         return out;
     }
 

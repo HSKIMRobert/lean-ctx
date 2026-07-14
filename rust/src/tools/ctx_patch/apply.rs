@@ -229,7 +229,11 @@ pub(crate) fn resolve_ops(
                 let resolved_line = match hash {
                     None => Some(*line),
                     Some(_) if *line == 0 => Some(*line),
-                    Some(h) if lines.get(*line - 1).is_some_and(|cur| anchor::hash_matches(cur, h)) => {
+                    Some(h)
+                        if lines
+                            .get(*line - 1)
+                            .is_some_and(|cur| anchor::hash_matches(cur, h)) =>
+                    {
                         Some(*line)
                     }
                     Some(h) => find_unique_shifted_line(lines, h).map(|idx| idx + 1),
@@ -602,11 +606,7 @@ mod tests {
         // Two lines share the anchored content — redirecting would be a guess,
         // so this must still report a stale-anchor conflict rather than pick
         // one silently.
-        let lines = vec![
-            "same".to_string(),
-            "filler".to_string(),
-            "same".to_string(),
-        ];
+        let lines = vec!["same".to_string(), "filler".to_string(), "same".to_string()];
         let ops = vec![AnchorOp::SetLine {
             line: 1,
             hash: "ffff".to_string(), // wrong for line 1 as it stands today
