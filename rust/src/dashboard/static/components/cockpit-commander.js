@@ -447,9 +447,8 @@ class CockpitCommander extends HTMLElement {
 
       // Expandable trail row (power mode)
       if (this._powerMode && r.source_trail && r.source_trail.length > 0) {
-        const trailKey = r.path;
-        const expanded = this._expandedTrails.has(trailKey);
-        h += '<tr class="cmdr-trail-toggle" data-trail-path="' + encodeURIComponent(trailKey) + '">';
+        const expanded = this._expandedTrails.has(r.path);
+        h += '<tr class="cmdr-trail-toggle" data-trail-path="' + pd + '">';
         h += '<td colspan="' + (this._powerMode ? 12 : 6) + '" style="padding:2px 12px;font-size:10px;cursor:pointer;color:var(--muted)">';
         h += (expanded ? '\u25bc' : '\u25b6') + ' Why in context? (' + r.source_trail.length + ')';
         h += '</td></tr>';
