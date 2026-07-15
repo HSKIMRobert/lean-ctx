@@ -891,6 +891,32 @@ mod extra_roots_tests {
         assert_eq!(base.extra_roots, vec!["/etc"]);
     }
 
+    /// GH #833: untrusted workspace must not disable gitignore-respecting indexing.
+    #[test]
+    fn merge_local_untrusted_withholds_respect_gitignore_833() {
+        let mut base = Config::default();
+        assert!(
+            base.index.respect_gitignore,
+            "default must respect gitignore"
+        );
+        base.merge_local("[index]\nrespect_gitignore = false\n", false);
+        assert!(
+            base.index.respect_gitignore,
+            "untrusted workspace must not disable gitignore respect"
+        );
+    }
+
+    /// GH #833: trusted workspace CAN disable gitignore respect.
+    #[test]
+    fn merge_local_trusted_allows_respect_gitignore_833() {
+        let mut base = Config::default();
+        base.merge_local("[index]\nrespect_gitignore = false\n", true);
+        assert!(
+            !base.index.respect_gitignore,
+            "trusted workspace must be able to disable gitignore respect"
+        );
+    }
+
     #[test]
     fn merge_local_untrusted_withholds_tool_surface_overrides() {
         // Regression: an untrusted repo's .lean-ctx.toml could silently widen

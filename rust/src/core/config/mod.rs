@@ -934,6 +934,10 @@ fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str> {
         local.default_tool_categories.clear();
         withheld.push("default_tool_categories");
     }
+    if !local.index.respect_gitignore {
+        local.index.respect_gitignore = true;
+        withheld.push("index.respect_gitignore");
+    }
 
     withheld
 }
