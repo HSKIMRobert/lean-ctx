@@ -96,13 +96,29 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
             hash: req_str(obj, "hash")?,
             new_text: req_new_text(obj)?,
         }),
-        "replace_lines" => Ok(AnchorOp::ReplaceLines {
-            start_line: req_line(obj, "start_line")?,
-            start_hash: req_str(obj, "start_hash")?,
-            end_line: req_line(obj, "end_line")?,
-            end_hash: req_str(obj, "end_hash")?,
-            new_text: req_new_text(obj)?,
-        }),
+        "replace_lines" => {
+            let mut missing = Vec::new();
+            let start_line = req_line(obj, "start_line")
+                .map_err(|e| missing.push(e))
+                .ok();
+            let start_hash = req_str(obj, "start_hash").map_err(|e| missing.push(e)).ok();
+            let end_line = req_line(obj, "end_line").map_err(|e| missing.push(e)).ok();
+            let end_hash = req_str(obj, "end_hash").map_err(|e| missing.push(e)).ok();
+            let new_text = req_new_text(obj).map_err(|e| missing.push(e)).ok();
+            if !missing.is_empty() {
+                return Err(format!(
+                    "replace_lines requires start_line, start_hash, end_line, end_hash, new_text — {}",
+                    missing.join("; ")
+                ));
+            }
+            Ok(AnchorOp::ReplaceLines {
+                start_line: start_line.unwrap(),
+                start_hash: start_hash.unwrap(),
+                end_line: end_line.unwrap(),
+                end_hash: end_hash.unwrap(),
+                new_text: new_text.unwrap(),
+            })
+        }
         "insert_after" => {
             // Line 0 means "insert at the top"; it has no preceding line to hash.
             let line = req_line_allow_zero(obj, "line")?;
@@ -120,12 +136,27 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
         "delete" => {
             // Single-line delete ({line,hash}) or a range ({start,end}).
             if obj.contains_key("start_line") || obj.contains_key("end_line") {
-                Ok(AnchorOp::Delete {
-                    start_line: req_line(obj, "start_line")?,
-                    start_hash: req_str(obj, "start_hash")?,
-                    end_line: req_line(obj, "end_line")?,
-                    end_hash: req_str(obj, "end_hash")?,
-                })
+                {
+                    let mut missing = Vec::new();
+                    let sl = req_line(obj, "start_line")
+                        .map_err(|e| missing.push(e))
+                        .ok();
+                    let sh = req_str(obj, "start_hash").map_err(|e| missing.push(e)).ok();
+                    let el = req_line(obj, "end_line").map_err(|e| missing.push(e)).ok();
+                    let eh = req_str(obj, "end_hash").map_err(|e| missing.push(e)).ok();
+                    if !missing.is_empty() {
+                        return Err(format!(
+                            "delete (range) requires start_line, start_hash, end_line, end_hash — {}",
+                            missing.join("; ")
+                        ));
+                    }
+                    Ok(AnchorOp::Delete {
+                        start_line: sl.unwrap(),
+                        start_hash: sh.unwrap(),
+                        end_line: el.unwrap(),
+                        end_hash: eh.unwrap(),
+                    })
+                }
             } else {
                 let line = req_line(obj, "line")?;
                 let hash = req_str(obj, "hash")?;
@@ -146,7 +177,7 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
                 .to_string(),
         ),
         other => Err(format!(
-            "unknown op '{other}' (one of: set_line, replace_lines, insert_after, delete, create, replace_symbol)"
+            "unknown op '{other}' (one of: set_line, replace_lines, insert_after, delete, create, replace_symbol, replace_all)"
         )),
     }
 }
@@ -344,5 +375,23 @@ mod tests {
     fn missing_op_is_rejected() {
         let err = parse_ops(&obj(json!({"line": 1, "hash": "aa", "new_text": "x"}))).unwrap_err();
         assert!(err.contains("missing 'op'"), "got: {err}");
+    }
+
+    #[test]
+    fn replace_lines_reports_all_missing_fields_at_once() {
+        let err = parse_ops(&obj(json!({"op": "replace_lines"}))).unwrap_err();
+        assert!(err.contains("start_line"), "must mention start_line: {err}");
+        assert!(err.contains("start_hash"), "must mention start_hash: {err}");
+        assert!(err.contains("end_line"), "must mention end_line: {err}");
+        assert!(err.contains("end_hash"), "must mention end_hash: {err}");
+        assert!(err.contains("new_text"), "must mention new_text: {err}");
+    }
+
+    #[test]
+    fn delete_range_reports_all_missing_fields_at_once() {
+        let err = parse_ops(&obj(json!({"op": "delete", "start_line": 1}))).unwrap_err();
+        assert!(err.contains("start_hash"), "must mention start_hash: {err}");
+        assert!(err.contains("end_line"), "must mention end_line: {err}");
+        assert!(err.contains("end_hash"), "must mention end_hash: {err}");
     }
 }

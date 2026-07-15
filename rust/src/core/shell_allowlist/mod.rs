@@ -289,14 +289,20 @@ fn quote_aware_token_end(input: &str) -> usize {
 /// but still follows delegation wrappers so `xargs bash -c …` / `timeout 5 sh -c …`
 /// cannot smuggle inline code past the check (GH #391).
 fn check_interpreter_eval_only(segment: &str) -> Result<(), ShellError> {
-    // #814: opt-in config skips the inline-code block entirely.
-    if crate::core::config::Config::load().shell_allow_inline_scripts_effective() {
-        return Ok(());
-    }
-    check_interpreter_eval_only_inner(segment, 0)
+    let inline_ok = crate::core::config::Config::load().shell_allow_inline_scripts_effective();
+    check_interpreter_inner(segment, None, 0, inline_ok)
 }
 
-fn check_interpreter_eval_only_inner(segment: &str, depth: usize) -> Result<(), ShellError> {
+/// #823: unified interpreter-abuse walk. Both eval-only (empty allowlist) and
+/// restricted (non-empty allowlist) modes share this single recursive check.
+/// `allowlist`: None = blocklist-only mode, Some = restricted mode with delegation gating.
+/// `inline_ok`: if true, skip eval-flag/heredoc checks (#814 opt-in).
+fn check_interpreter_inner(
+    segment: &str,
+    allowlist: Option<&[String]>,
+    depth: usize,
+    inline_ok: bool,
+) -> Result<(), ShellError> {
     if depth > 3 {
         return Ok(());
     }
@@ -311,38 +317,51 @@ fn check_interpreter_eval_only_inner(segment: &str, depth: usize) -> Result<(), 
         .unwrap_or(&tokens[0])
         .to_string();
 
-    if DELEGATION_COMMANDS.contains(&base.as_str()) {
-        let rest_tokens = delegated_command_tokens(&tokens[1..]);
-        if !rest_tokens.is_empty() {
-            return check_interpreter_eval_only_inner(&rest_tokens.join(" "), depth + 1);
+    // Eval-flag / heredoc checks on interpreters (unless opted out via #814).
+    if INTERPRETER_COMMANDS.contains(&base.as_str()) && !inline_ok {
+        for tok in &tokens[1..] {
+            if EVAL_FLAGS.contains(&tok.as_str()) {
+                return Err(format!(
+                    "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with inline code execution \
+                     flag '{tok}' is blocked. Use a script file instead.\n\
+                     This is a permanent security restriction."
+                )
+                .into());
+            }
+            if has_eval_flag_prefix(tok) {
+                return Err(format!(
+                    "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
+                     containing eval flag is blocked.\n\
+                     This is a permanent security restriction."
+                )
+                .into());
+            }
         }
-        return Ok(());
+        if tokens[1..].iter().any(|t| t.contains("<<")) {
+            return Err(heredoc_blocked_message(&base).into());
+        }
     }
 
-    if !INTERPRETER_COMMANDS.contains(&base.as_str()) {
-        return Ok(());
-    }
-    for tok in &tokens[1..] {
-        if EVAL_FLAGS.contains(&tok.as_str()) {
-            return Err(format!(
-                "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with inline code execution \
-                 flag '{tok}' is blocked. Use a script file instead.\n\
-                 This is a permanent security restriction."
-            )
-            .into());
-        }
-        if has_eval_flag_prefix(tok) {
-            return Err(format!(
-                "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
-                 containing eval flag is blocked.\n\
-                 This is a permanent security restriction."
-            )
-            .into());
+    // Delegation-command walk (recursive).
+    if DELEGATION_COMMANDS.contains(&base.as_str()) {
+        let rest_tokens = delegated_command_tokens(&tokens[1..]);
+        if let Some(&delegated_tok) = rest_tokens.first() {
+            // In restricted mode, the delegated command must be in the allowlist.
+            if let Some(al) = allowlist {
+                let delegated = delegated_tok.rsplit('/').next().unwrap_or(delegated_tok);
+                if !delegated.is_empty() && !al.iter().any(|a| a == delegated) {
+                    return Err(format!(
+                        "[BLOCKED — DO NOT RETRY] '{base}' delegates to '{delegated}' which is not \
+                         in the shell allowlist. This is a permanent restriction."
+                    )
+                    .into());
+                }
+            }
+            let rest_str = rest_tokens.join(" ");
+            return check_interpreter_inner(&rest_str, allowlist, depth + 1, inline_ok);
         }
     }
-    if tokens[1..].iter().any(|t| t.contains("<<")) {
-        return Err(heredoc_blocked_message(&base).into());
-    }
+
     Ok(())
 }
 
@@ -407,74 +426,8 @@ fn delegated_command_tokens(tokens: &[String]) -> Vec<&str> {
 /// Check if a segment uses an interpreter with an eval flag, or a delegation command
 /// whose target is not in the allowlist.
 fn check_interpreter_abuse(segment: &str, allowlist: &[String]) -> Result<(), ShellError> {
-    // #814: when inline scripts are opt-in allowed, skip the eval-flag subset
-    // of interpreter abuse checks. Delegation checks (xargs→unlisted) still apply.
     let inline_ok = crate::core::config::Config::load().shell_allow_inline_scripts_effective();
-    check_interpreter_abuse_inner(segment, allowlist, 0, inline_ok)
-}
-
-fn check_interpreter_abuse_inner(
-    segment: &str,
-    allowlist: &[String],
-    depth: usize,
-    inline_ok: bool,
-) -> Result<(), ShellError> {
-    if depth > 3 {
-        return Ok(());
-    }
-    let trimmed = skip_env_assignments(segment.trim());
-    let tokens = shell_tokenize(trimmed);
-    if tokens.is_empty() {
-        return Ok(());
-    }
-
-    let base = tokens[0]
-        .rsplit('/')
-        .next()
-        .unwrap_or(&tokens[0])
-        .to_string();
-
-    if INTERPRETER_COMMANDS.contains(&base.as_str()) && !inline_ok {
-        for tok in &tokens[1..] {
-            if EVAL_FLAGS.contains(&tok.as_str()) {
-                return Err(format!(
-                    "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with inline code execution \
-                     flag '{tok}' is blocked. Use a script file instead.\n\
-                     This is a permanent security restriction."
-                )
-                .into());
-            }
-            if has_eval_flag_prefix(tok) {
-                return Err(format!(
-                    "[BLOCKED — DO NOT RETRY] Interpreter '{base}' with combined flag '{tok}' \
-                     containing eval flag is blocked.\n\
-                     This is a permanent security restriction."
-                )
-                .into());
-            }
-        }
-        if tokens[1..].iter().any(|t| t.contains("<<")) {
-            return Err(heredoc_blocked_message(&base).into());
-        }
-    }
-
-    if DELEGATION_COMMANDS.contains(&base.as_str()) {
-        let rest_tokens = delegated_command_tokens(&tokens[1..]);
-        if let Some(&delegated_tok) = rest_tokens.first() {
-            let delegated = delegated_tok.rsplit('/').next().unwrap_or(delegated_tok);
-            if !delegated.is_empty() && !allowlist.iter().any(|a| a == delegated) {
-                return Err(format!(
-                    "[BLOCKED — DO NOT RETRY] '{base}' delegates to '{delegated}' which is not \
-                     in the shell allowlist. This is a permanent restriction."
-                )
-                .into());
-            }
-            let rest_str = rest_tokens.join(" ");
-            check_interpreter_abuse_inner(&rest_str, allowlist, depth + 1, inline_ok)?;
-        }
-    }
-
-    Ok(())
+    check_interpreter_inner(segment, Some(allowlist), 0, inline_ok)
 }
 
 /// Check for combined flags like -pe, -ne, -ce that contain eval characters.

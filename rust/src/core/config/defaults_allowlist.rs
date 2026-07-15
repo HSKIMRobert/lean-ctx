@@ -144,6 +144,9 @@ pub(crate) fn default_shell_allowlist() -> Vec<String> {
         "timeout",
         "nice",
         "ionice",
+        "xargs",
+        "env",
+        "nohup",
         // Testing frameworks
         "pytest",
         "py.test",

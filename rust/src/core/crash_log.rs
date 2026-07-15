@@ -96,6 +96,21 @@ pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         use std::io::Write;
 
+        // #826: stderr BrokenPipe panics are harmless — they happen when
+        // the MCP client (Codex CLI) closes the pipe while tracing/eprintln!
+        // is still writing. Don't log these as crashes.
+        let is_broken_pipe = info
+            .payload()
+            .downcast_ref::<String>()
+            .is_some_and(|m| m.contains("Broken pipe"))
+            || info
+                .payload()
+                .downcast_ref::<&str>()
+                .is_some_and(|m| m.contains("Broken pipe"));
+        if is_broken_pipe {
+            return;
+        }
+
         let log_path =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write_crash_entry(info)))
                 .unwrap_or_default();

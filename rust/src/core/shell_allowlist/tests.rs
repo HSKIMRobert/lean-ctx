@@ -362,6 +362,17 @@ fn playwright_in_default_allowlist() {
 }
 
 #[test]
+fn delegation_commands_in_default_allowlist() {
+    let defaults = crate::core::config::default_shell_allowlist();
+    for cmd in ["xargs", "env", "nohup"] {
+        assert!(
+            defaults.contains(&cmd.to_string()),
+            "{cmd} (DELEGATION_COMMANDS member) must be in default allowlist"
+        );
+    }
+}
+
+#[test]
 fn pre_commit_run_allowed() {
     let list = allow(&["pre-commit"]);
     assert!(check_all_segments("pre-commit run --all-files", &list).is_ok());

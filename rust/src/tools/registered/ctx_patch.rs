@@ -22,17 +22,16 @@ impl McpTool for CtxPatchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_patch",
-            "Hash-anchored edit — patch by (line, hash) anchor; never reproduce old text byte-for-byte.\n\
-             Anchors N:hh| come from ctx_read(mode=\"anchored\") or ctx_search(anchored=true).\n\
-             op=set_line one line; replace_lines start_*..end_* range; insert_after (line 0 = top); delete; \
-             replace_symbol (name + new_body); create writes a NEW file from new_text.\n\
-             new_text=\"\" deletes. Batch via ops:[{op,line,hash,new_text},…] — one preimage, applied all-or-nothing.\n\
-             Stale anchor → CONFLICT with fresh anchors to retry (no partial writes).",
+            "Hash-anchored edit — patch by (line,hash) anchor from ctx_read(anchored)/ctx_search(anchored=true).\n\
+             Ops: set_line(line,hash,new_text) | replace_lines(start_line/hash,end_line/hash,new_text) |\n\
+             insert_after(line,hash,new_text) | delete(line,hash or start/end range) |\n\
+             replace_symbol(name,new_body) | create(new_text) | replace_all(find,replace,dry_run).\n\
+             Batch: ops:[{…}]. Stale anchor → CONFLICT with fresh anchors.",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
-                    "op": { "type": "string", "enum": ["set_line", "replace_lines", "insert_after", "delete", "replace_symbol", "create"] },
+                    "op": { "type": "string", "enum": ["set_line", "replace_lines", "insert_after", "delete", "replace_symbol", "create", "replace_all"] },
                     "line": { "type": "integer" },
                     "hash": { "type": "string" },
                     "start_line": { "type": "integer" },
@@ -42,6 +41,9 @@ impl McpTool for CtxPatchTool {
                     "new_text": { "type": "string" },
                     "name": { "type": "string" },
                     "new_body": { "type": "string" },
+                    "find": { "type": "string", "description": "Literal text to find (replace_all)" },
+                    "replace": { "type": "string", "description": "Replacement text (replace_all)" },
+                    "dry_run": { "type": "boolean", "description": "Preview only, do not write (replace_all)" },
                     "ops": { "type": "array", "items": { "type": "object" } }
                 },
                 "required": ["path"]
@@ -58,6 +60,11 @@ impl McpTool for CtxPatchTool {
         // ctx_refactor so there is one symbol-edit implementation (epic #1008).
         if crate::tools::ctx_patch::is_replace_symbol(args) {
             return delegate_replace_symbol(args, ctx);
+        }
+
+        // #825: replace_all short-circuits before anchor parsing.
+        if get_str(args, "op").as_deref() == Some("replace_all") {
+            return handle_replace_all(args, ctx);
         }
 
         let path = require_resolved_path(ctx, args, "path")?;
@@ -207,4 +214,56 @@ fn delegate_replace_symbol(
         changed,
         shell_outcome: None,
     })
+}
+
+/// #825: Bulk literal find-and-replace — no anchors needed.
+fn handle_replace_all(
+    args: &Map<String, Value>,
+    ctx: &ToolContext,
+) -> Result<ToolOutput, ErrorData> {
+    let path = require_resolved_path(ctx, args, "path")?;
+    let find = get_str(args, "find")
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ErrorData::invalid_params("replace_all requires non-empty 'find'", None))?;
+    let replace = get_str(args, "replace").unwrap_or_default();
+    let dry_run = get_bool(args, "dry_run").unwrap_or(false);
+
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| ErrorData::internal_error(format!("cannot read {path}: {e}"), None))?;
+
+    let count = content.matches(find.as_str()).count();
+    if count == 0 {
+        return Ok(ToolOutput::simple(format!(
+            "No matches for {find:?} in {path}"
+        )));
+    }
+
+    if dry_run {
+        return Ok(ToolOutput::simple(format!(
+            "DRY RUN: {count} occurrence(s) of {find:?} would be replaced with {replace:?} in {path}"
+        )));
+    }
+
+    let file_lock = crate::core::path_locks::per_file_lock(&path);
+    let _guard = file_lock
+        .lock()
+        .map_err(|_| ErrorData::internal_error(format!("lock contention for {path}"), None))?;
+
+    let new_content = content.replace(find.as_str(), &replace);
+    crate::config_io::write_atomic(std::path::Path::new(&path), &new_content)
+        .map_err(|e| ErrorData::internal_error(format!("write failed: {e}"), None))?;
+
+    if let Some(cache) = ctx.cache.as_ref() {
+        let rt = tokio::runtime::Handle::current();
+        if let Ok(mut c) = rt.block_on(tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            cache.write(),
+        )) {
+            c.invalidate(&path);
+        }
+    }
+
+    Ok(ToolOutput::simple(format!(
+        "Replaced {count} occurrence(s) of {find:?} with {replace:?} in {path}"
+    )))
 }

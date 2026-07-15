@@ -431,13 +431,13 @@ Parameters: `action`, `description`, `path`
 
 ## `ctx_patch`
 
-Hash-anchored edit — patch by (line, hash) anchor; never reproduce old text byte-for-byte.
-Anchors N:hh| come from ctx_read(mode="anchored") or ctx_search(anchored=true).
-op=set_line one line; replace_lines start_*..end_* range; insert_after (line 0 = top); delete; replace_symbol (name + new_body); create writes a NEW file from new_text.
-new_text="" deletes. Batch via ops:[{op,line,hash,new_text},…] — one preimage, applied all-or-nothing.
-Stale anchor → CONFLICT with fresh anchors to retry (no partial writes).
+Hash-anchored edit — patch by (line,hash) anchor from ctx_read(anchored)/ctx_search(anchored=true).
+Ops: set_line(line,hash,new_text) | replace_lines(start_line/hash,end_line/hash,new_text) |
+insert_after(line,hash,new_text) | delete(line,hash or start/end range) |
+replace_symbol(name,new_body) | create(new_text) | replace_all(find,replace,dry_run).
+Batch: ops:[{…}]. Stale anchor → CONFLICT with fresh anchors.
 
-Parameters: `end_hash`, `end_line`, `hash`, `line`, `name`, `new_body`, `new_text`, `op`, `ops`, `path`*, `start_hash`, `start_line`
+Parameters: `dry_run`, `end_hash`, `end_line`, `find`, `hash`, `line`, `name`, `new_body`, `new_text`, `op`, `ops`, `path`*, `replace`, `start_hash`, `start_line`
 
 ## `ctx_plan`
 
