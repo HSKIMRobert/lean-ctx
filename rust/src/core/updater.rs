@@ -512,6 +512,59 @@ fn hex_lower(bytes: &[u8]) -> String {
     out
 }
 
+/// #828: One-time migration — enable `shadow_mode` for users who never
+/// explicitly set it. Without shadow mode, most harnesses silently prefer
+/// native tools, negating lean-ctx's token savings. Idempotent: a state-dir
+/// marker prevents repeated flips if the user disables it after migration.
+fn migrate_shadow_mode_default() {
+    let Ok(state) = crate::core::paths::state_dir() else {
+        return;
+    };
+    let marker = state.join("shadow_mode_migrated");
+    if marker.exists() {
+        return;
+    }
+
+    // Read raw TOML to distinguish "explicitly set to false" from "never set".
+    let global = crate::core::config::Config::load_global();
+    let raw_toml = crate::core::config::Config::path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .unwrap_or_default();
+
+    let explicitly_set = raw_toml.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("shadow_mode") && trimmed.contains('=')
+    });
+
+    if !explicitly_set && !global.shadow_mode {
+        // User never touched shadow_mode — the old default was false.
+        // Set it to true in the global config so it persists.
+        match crate::core::config::Config::update_global(|c| c.shadow_mode = true) {
+            Ok(_) => {
+                eprintln!("  \u{2139} shadow_mode enabled (recommended default since v3.9.9).");
+                eprintln!("    Disable: lean-ctx config set shadow_mode false");
+            }
+            Err(e) => tracing::warn!("could not enable shadow_mode during update: {e}"),
+        }
+    } else if explicitly_set && !global.shadow_mode {
+        eprintln!("  \u{2139} shadow_mode is false in your config. Since v3.9.9, true is the");
+        eprintln!("    recommended default (60%+ more token savings). Enable:");
+        eprintln!("    lean-ctx config set shadow_mode true");
+    }
+
+    // Write marker so this migration runs only once.
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&marker, "migrated");
+}
+
+/// Public entry point for the shadow_mode migration, callable from
+/// `cmd_dev_install` and other lifecycle commands.
+pub fn migrate_shadow_mode_default_public() {
+    migrate_shadow_mode_default();
+}
+
 fn post_update_rewire(skip_rules: bool) {
     // #356: regenerate installed LaunchAgent plists so they adopt the new
     // deny-~/Documents seatbelt wrapper. A plist is only (re)written on install,
@@ -537,6 +590,10 @@ fn post_update_rewire(skip_rules: bool) {
             Err(e) => tracing::warn!("could not persist proxy_enabled during update: {e}"),
         }
     }
+
+    // #828: shadow_mode default changed to true. Migrate existing configs
+    // that never explicitly set it (still at old default false).
+    migrate_shadow_mode_default();
 
     // Runtime decisions use the effective (global + project-local) config.
     let cfg = crate::core::config::Config::load();
