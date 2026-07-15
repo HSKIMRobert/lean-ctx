@@ -152,6 +152,17 @@ fn action_for(status: ToolStatus, calls: u64, schema_tokens: usize) -> String {
     }
 }
 
+/// Maps alias tool names to their delegate target for usage lookup.
+/// Alias tools (e.g. `shell`) delegate to a canonical tool (e.g. `ctx_shell`)
+/// and stats are recorded under the canonical name. Without this mapping,
+/// `tools health` reports the alias as "never called".
+fn resolve_alias(name: &str) -> Option<&'static str> {
+    match name {
+        "shell" => Some("ctx_shell"),
+        _ => None,
+    }
+}
+
 /// Pure report builder — every input is supplied, so it is fully deterministic
 /// and unit-testable without touching disk or the clock.
 #[must_use]
@@ -175,6 +186,7 @@ pub fn build_report(
             let (calls, last_used) = usage
                 .tools
                 .get(&name)
+                .or_else(|| resolve_alias(&name).and_then(|a| usage.tools.get(a)))
                 .map_or((0, None), |c| (c.total_calls, c.last_used.clone()));
             let status = classify(has_usage_data, calls, schema_tokens, total_recorded_calls);
             let action = action_for(status, calls, schema_tokens);
@@ -579,5 +591,35 @@ mod tests {
         assert_eq!(report.advertised_tools, expected);
         assert!(report.tool_schema_tokens > 0);
         assert!(report.fixed_total_tokens >= report.tool_schema_tokens);
+    }
+
+    /// GH #838: `shell` alias inherits usage from `ctx_shell`.
+    #[test]
+    fn shell_alias_inherits_ctx_shell_usage_838() {
+        let shell_tool = tool("shell");
+        let mut usage = CostStore::default();
+        let mut tc = ToolCost::default();
+        tc.total_calls = 42;
+        tc.last_used = Some("2026-07-15".to_string());
+        usage.tools.insert("ctx_shell".to_string(), tc);
+        let report = build_report(
+            &[shell_tool],
+            &usage,
+            &[],
+            Vec::new(),
+            0,
+            "lean".to_string(),
+            KnowledgeHealth::default(),
+        );
+        assert_eq!(report.tools[0].name, "shell");
+        assert_eq!(
+            report.tools[0].calls, 42,
+            "shell must inherit ctx_shell calls"
+        );
+        assert_ne!(
+            report.tools[0].status,
+            ToolStatus::Unused,
+            "shell must not be flagged unused"
+        );
     }
 }
