@@ -139,7 +139,9 @@ fn is_heredoc_file_write(command: &str) -> bool {
 }
 
 /// Detects shell redirect operators (`>` or `>>`) that write to files.
-/// Ignores `>` inside quotes, `2>` (stderr), `/dev/null`, and comparison operators.
+/// Ignores `>` inside quotes, after a backslash escape (`\"` must not toggle
+/// quote state, `\>` is a literal), `2>` (stderr), `/dev/null`, and
+/// comparison operators.
 /// #848: temp directory targets are read-back, not persistent writes.
 pub fn is_temp_redirect_target(target: &str) -> bool {
     let t = target.trim_start_matches(['>', '&']);
@@ -161,6 +163,15 @@ fn has_file_write_redirect(command: &str) -> bool {
 
     while i < len {
         let c = bytes[i];
+        if c == b'\\' && !in_single_quote {
+            // A backslash escapes the next byte (POSIX: outside quotes and
+            // inside double quotes; inside single quotes it is literal).
+            // Without this, an escaped quote like `\"` toggled the quote
+            // state and literal `>` in quoted prose (e.g. `(root: <root>)`
+            // in a gh --body string) read as a redirect (#903).
+            i += 2;
+            continue;
+        }
         if c == b'\'' && !in_double_quote {
             in_single_quote = !in_single_quote;
         } else if c == b'"' && !in_single_quote {
@@ -383,6 +394,30 @@ mod tests {
     #[test]
     fn validate_allows_cat_without_redirect() {
         assert!(validate_command("cat file.txt").is_none());
+    }
+
+    // --- GH #903: literal `>` in quoted prose is not a redirect ---
+
+    #[test]
+    fn validate_allows_escaped_quotes_with_angle_brackets() {
+        // `\"` inside a double-quoted string must not toggle quote state;
+        // the `>` in `<root>` is quoted data, not a redirect.
+        assert!(
+            validate_command(
+                "gh issue comment 1 --body \"$(printf 'says \\\"root: <root>\\\" only')\""
+            )
+            .is_none()
+        );
+        assert!(validate_command("echo \"say \\\">hi<\\\" ok\"").is_none());
+        // escaped `>` outside quotes is a literal, not a redirect
+        assert!(validate_command("echo a \\> b").is_none());
+    }
+
+    #[test]
+    fn validate_still_blocks_redirect_after_escapes() {
+        // the escape handling must not hide a real redirect later on
+        assert!(validate_command("echo \"a \\\"b\\\"\" > out.txt").is_some());
+        assert!(validate_command("echo \\\\ > out.txt").is_some());
     }
 
     // --- GH #391: download tools writing files without shell redirects ---
