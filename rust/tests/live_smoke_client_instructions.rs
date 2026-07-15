@@ -23,8 +23,11 @@ use std::time::Duration;
 /// Kept as a distinctive prefix (not the full constant) so cosmetic rewording
 /// doesn't break the smoke while the contract (anchor vs full skeleton) holds.
 const ANCHOR_PREFIX: &str = "lean-ctx active —";
-/// A line only the FULL canonical skeleton carries.
-const SKELETON_MARKER: &str = "MANDATORY MAPPING";
+/// A line only the FULL canonical skeleton carries. Shadow mode uses
+/// "auto-route" instead of "MANDATORY MAPPING", so we check for either.
+fn has_skeleton(text: &str) -> bool {
+    text.contains("MANDATORY MAPPING") || text.contains("auto-route")
+}
 
 struct TestEnv {
     _tmp: tempfile::TempDir,
@@ -227,7 +230,7 @@ fn cursor_covered_client_gets_anchor_and_lazy_core() {
         "cursor is covered by its mdc → instructions must carry the anchor.\n{instructions}"
     );
     assert!(
-        !instructions.contains(SKELETON_MARKER),
+        !has_skeleton(&instructions),
         "cursor instructions must NOT repeat the full skeleton.\n{instructions}"
     );
     assert_lazy_core_surface(&tools, "cursor");
@@ -252,7 +255,7 @@ fn claude_uncovered_client_gets_full_skeleton() {
     let (instructions, tools) = mcp_handshake(bin, &env, "claude-code");
 
     assert!(
-        instructions.contains(SKELETON_MARKER),
+        has_skeleton(&instructions),
         "claude is NOT rules-file covered → instructions must carry the full skeleton.\n{instructions}"
     );
     assert!(
@@ -290,7 +293,7 @@ fn codex_covered_client_gets_anchor() {
         "codex is covered by instructions.md → anchor expected.\n{instructions}"
     );
     assert!(
-        !instructions.contains(SKELETON_MARKER),
+        !has_skeleton(&instructions),
         "codex instructions must NOT repeat the full skeleton.\n{instructions}"
     );
     assert_lazy_core_surface(&tools, "codex");

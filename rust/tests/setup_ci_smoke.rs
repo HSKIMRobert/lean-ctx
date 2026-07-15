@@ -352,7 +352,8 @@ fn init_agent_preserves_agents_md_and_is_idempotent() {
     let lean_ctx_content = std::fs::read_to_string(&lean_ctx_md).expect("LEAN-CTX.md exists");
     assert!(
         lean_ctx_content.contains("<!-- lean-ctx-rules -->")
-            && lean_ctx_content.contains("Tool selection by intent"),
+            && (lean_ctx_content.contains("Tool selection by intent")
+                || lean_ctx_content.contains("auto-route")),
         "LEAN-CTX.md must contain the canonical lean-ctx ruleset"
     );
 }
