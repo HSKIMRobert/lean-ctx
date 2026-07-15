@@ -221,7 +221,11 @@ async fn gateway_spawns_real_stdio_server_and_reuses_one_pooled_session() {
 
     pool::clear();
     let transport = fixture_transport();
-    let timeout = Duration::from_secs(15);
+    let timeout = if cfg!(windows) {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(15)
+    };
 
     // Real spawn → initialize → tools/list.
     let tools = client::fetch_tools(&transport, timeout)
@@ -264,7 +268,11 @@ async fn gateway_pool_evicts_a_dead_session_and_reopens_on_next_call() {
 
     pool::clear();
     let transport = fixture_transport();
-    let timeout = Duration::from_secs(15);
+    let timeout = if cfg!(windows) {
+        Duration::from_secs(30)
+    } else {
+        Duration::from_secs(15)
+    };
 
     // Warm one pooled session.
     let _ = client::fetch_tools(&transport, timeout)
