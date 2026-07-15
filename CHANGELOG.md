@@ -3,6 +3,50 @@
 All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.9.10] — 2026-07-15
+
+### Fixed
+- **CRITICAL: Untrusted workspace could disable gitignore-respecting indexing (#833).**
+  `respect_gitignore = false` in an untrusted `.lean-ctx.toml` now stripped by
+  `strip_sensitive_overrides`; only trusted workspaces may widen the index.
+- **ctx_refactor symbol edits now have a tree-sitter syntax gate (#836).**
+  `replace_symbol_body` / `insert_before/after_symbol` previously wrote without
+  validating syntax. A clean→broken regression is now rejected before any write,
+  matching `ctx_patch` behavior. Also added brace-balance status to diff previews.
+- **addon registry resolver hangs indefinitely on dead IPv6 (#829).**
+  Added connect (10s), resolve (5s), and response (30–60s) timeouts to all
+  registry HTTP calls. A dead AAAA route now fails over to IPv4 within seconds.
+- **Dashboard `/api/stats` shows 0 while `lean-ctx gain` reports real totals (#830).**
+  Replaced `stats::load()` with aggregating `load_for_display()` across 11
+  user-facing surfaces (dashboard, TUI, wrapped card, gain views, ctx_discover).
+- **`shell` tool shown as "never called" in health check (#838).**
+  `tools health` now resolves alias tools (e.g. `shell` → `ctx_shell`) for
+  usage lookup, preventing false "unused" reports.
+- **Dashboard source trail expansion follows row index after sort/filter (#834).**
+  `_expandedTrails` keyed by stable file path instead of transient row index.
+- **`gain --deep` tables have no column headers (#837).**
+  RECENT DAYS and TOP COMMANDS sections now show labeled header rows.
+- **`enable-gpu` shows false "Update available" on same version (#839).**
+  Now shows "Installing GPU binary for vX.Y.Z…" when versions match.
+- **Secret redaction false positives for numbers and env refs (#827).**
+  Numeric values (e.g. `1.4e-06`) and env references (e.g. `os.environ/KEY`)
+  are no longer incorrectly redacted.
+
+### Changed
+- **`shadow_mode` default changed to `true` (#828).**
+  One-time migration on `lean-ctx update` enables shadow_mode for users who
+  never explicitly set it. Disable with `lean-ctx config set shadow_mode false`.
+
+### Added
+- **`ctx_patch op=replace_all` (#825).** Bulk literal find-and-replace without anchors.
+- **`ctx_shell` compound-command block clarity (#815).** Blocked segment position
+  and "no part ran" message. Timeout exit code 124 now labeled.
+- **`shell_allow_inline_scripts` config option (#814).** Opt-in for `python3 -c`
+  / `node -e` inline scripts.
+- **Project-root binary auto-allow (#813).** `./my_binary` paths under project
+  root are auto-allowed by the shell allowlist.
+- **`xargs`, `env`, `nohup` in default allowlist (#822).**
+
 ## [3.9.9] — 2026-07-14
 
 ### Changed
