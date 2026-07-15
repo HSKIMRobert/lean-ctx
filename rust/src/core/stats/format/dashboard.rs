@@ -476,6 +476,11 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
     // -- TOP COMMANDS section --
     if !store.commands.is_empty() {
         out.push(format!("  {}", t.box_top_labeled(w, "TOP COMMANDS")));
+        out.push(sec_line(&format!(
+            "  {dim}{}{rst}",
+            "Command          Runs  Compression               Saved  Rate",
+            dim = t.muted.fg()
+        )));
 
         let mut sorted: Vec<_> = store
             .commands
@@ -530,6 +535,11 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
     if store.daily.len() >= 2 {
         out.push(String::new());
         out.push(format!("  {}", t.box_top_labeled(w, "RECENT DAYS")));
+        out.push(sec_line(&format!(
+            "  {dim}{}{rst}",
+            "Date     Cmds  Volume      Saved     Rate    Trend     Version",
+            dim = t.muted.fg()
+        )));
 
         let max_day_saved = store
             .daily
