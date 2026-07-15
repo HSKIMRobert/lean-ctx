@@ -208,6 +208,8 @@ fn run_with_mode(args: &[String], mode: UpdateMode) {
             println!(
                 "  Switching: v{CURRENT_VERSION} → \x1b[1;36mv{target_tag}\x1b[0m  \x1b[2m(data & logs preserved)\x1b[0m"
             );
+        } else if target_tag == CURRENT_VERSION {
+            println!("  Installing GPU binary for v{CURRENT_VERSION}…");
         } else {
             println!("  Update available: v{CURRENT_VERSION} → \x1b[1;32mv{target_tag}\x1b[0m");
         }
