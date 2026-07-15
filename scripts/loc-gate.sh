@@ -17,6 +17,8 @@ ALLOWLIST=(
   rust/src/shell/compress/tests.rs
   rust/src/http_server/mod.rs
   rust/src/http_server/team/mod.rs
+  rust/src/core/shell_allowlist/mod.rs
+  rust/src/core/shell_allowlist/tests.rs
 )
 
 cd "$(dirname "$0")/.."

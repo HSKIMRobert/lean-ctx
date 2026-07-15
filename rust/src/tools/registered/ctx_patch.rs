@@ -248,50 +248,6 @@ fn resolve_find_replace(args: &Map<String, Value>) -> Result<(String, String), S
     Ok((find, replace))
 }
 
-#[cfg(test)]
-mod replace_all_tests {
-    use super::*;
-    use serde_json::json;
-
-    fn obj(v: Value) -> Map<String, Value> {
-        match v {
-            Value::Object(m) => m,
-            _ => panic!("expected object"),
-        }
-    }
-
-    #[test]
-    fn resolves_find_and_replace() {
-        let (f, r) = resolve_find_replace(&obj(json!({"find": "a", "replace": "b"}))).unwrap();
-        assert_eq!((f.as_str(), r.as_str()), ("a", "b"));
-    }
-
-    #[test]
-    fn explicit_empty_replace_is_a_deletion() {
-        let (_f, r) = resolve_find_replace(&obj(json!({"find": "a", "replace": ""}))).unwrap();
-        assert_eq!(r, "");
-    }
-
-    #[test]
-    fn missing_replace_is_rejected_not_silent_delete() {
-        let err = resolve_find_replace(&obj(json!({"find": "a"}))).unwrap_err();
-        assert!(err.contains("requires 'replace'"), "got: {err}");
-    }
-
-    #[test]
-    fn foreign_replacement_key_is_rejected() {
-        for key in ["new_string", "new_text", "old_string", "new_body"] {
-            let err = resolve_find_replace(&obj(json!({"find": "a", key: "b"}))).unwrap_err();
-            assert!(err.contains(key), "must name the offending key {key}: {err}");
-        }
-    }
-
-    #[test]
-    fn empty_find_is_rejected() {
-        let err = resolve_find_replace(&obj(json!({"find": "", "replace": "b"}))).unwrap_err();
-        assert!(err.contains("find"), "got: {err}");
-    }
-}
 /// #825: Bulk literal find-and-replace — no anchors needed.
 fn handle_replace_all(
     args: &Map<String, Value>,
@@ -340,4 +296,52 @@ fn handle_replace_all(
     Ok(ToolOutput::simple(format!(
         "Replaced {count} occurrence(s) of {find:?} with {replace:?} in {path}"
     )))
+}
+
+#[cfg(test)]
+mod replace_all_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn obj(v: Value) -> Map<String, Value> {
+        match v {
+            Value::Object(m) => m,
+            _ => panic!("expected object"),
+        }
+    }
+
+    #[test]
+    fn resolves_find_and_replace() {
+        let (f, r) = resolve_find_replace(&obj(json!({"find": "a", "replace": "b"}))).unwrap();
+        assert_eq!((f.as_str(), r.as_str()), ("a", "b"));
+    }
+
+    #[test]
+    fn explicit_empty_replace_is_a_deletion() {
+        let (_f, r) = resolve_find_replace(&obj(json!({"find": "a", "replace": ""}))).unwrap();
+        assert_eq!(r, "");
+    }
+
+    #[test]
+    fn missing_replace_is_rejected_not_silent_delete() {
+        let err = resolve_find_replace(&obj(json!({"find": "a"}))).unwrap_err();
+        assert!(err.contains("requires 'replace'"), "got: {err}");
+    }
+
+    #[test]
+    fn foreign_replacement_key_is_rejected() {
+        for key in ["new_string", "new_text", "old_string", "new_body"] {
+            let err = resolve_find_replace(&obj(json!({"find": "a", key: "b"}))).unwrap_err();
+            assert!(
+                err.contains(key),
+                "must name the offending key {key}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_find_is_rejected() {
+        let err = resolve_find_replace(&obj(json!({"find": "", "replace": "b"}))).unwrap_err();
+        assert!(err.contains("find"), "got: {err}");
+    }
 }

