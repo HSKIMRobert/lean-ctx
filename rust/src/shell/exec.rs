@@ -100,11 +100,7 @@ fn wait_with_limits(
         stdout_buf.extend_from_slice(notice.as_bytes());
     }
 
-    let status = child.wait().unwrap_or_else(|_| {
-        std::process::Command::new("false")
-            .status()
-            .expect("cannot run `false`")
-    });
+    let status = child.wait().unwrap_or_else(|_| synthetic_failure_status());
 
     Output {
         status,
@@ -128,6 +124,28 @@ fn kill_child(child: &mut Child, kill_group: bool) {
     #[cfg(not(unix))]
     let _ = kill_group;
     let _ = child.kill();
+}
+
+/// A synthetic failed `ExitStatus`, used only when `Child::wait()` itself
+/// errors (e.g. the process was already reaped by another waiter) and there
+/// is no real status to report. The previous fallback shelled out to
+/// `Command::new("false").status()` to manufacture one, which panicked via
+/// `.expect()` wherever no `false` binary exists on `PATH` — Windows, and
+/// minimal/scratch containers. `ExitStatusExt::from_raw` builds the status
+/// value directly, with no subprocess involved, so it can't fail.
+#[cfg(unix)]
+fn synthetic_failure_status() -> std::process::ExitStatus {
+    use std::os::unix::process::ExitStatusExt;
+    // Raw wait(2) status encoding: low 7 bits 0 signals a normal exit
+    // (`WIFEXITED`), the next byte up is the exit code (`WEXITSTATUS`) — so
+    // `1 << 8` decodes as "exited normally with code 1".
+    std::process::ExitStatus::from_raw(1 << 8)
+}
+
+#[cfg(not(unix))]
+fn synthetic_failure_status() -> std::process::ExitStatus {
+    use std::os::windows::process::ExitStatusExt;
+    std::process::ExitStatus::from_raw(1)
 }
 
 #[cfg(test)]
@@ -1106,6 +1124,23 @@ mod exec_tests {
             stdout.len(),
             &stdout[stdout.len().saturating_sub(80)..]
         );
+    }
+
+    #[test]
+    fn synthetic_failure_status_is_a_failure_without_spawning_anything() {
+        // GH #944: the old fallback shelled out to `Command::new("false")`
+        // to build this, which panicked via `.expect()` on platforms with no
+        // `false` binary on PATH (Windows, minimal containers). The
+        // replacement must produce a non-success status without spawning a
+        // process at all.
+        let status = super::synthetic_failure_status();
+        assert!(!status.success());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(status.code(), Some(1));
+            assert_eq!(status.signal(), None);
+        }
     }
 
     #[test]
