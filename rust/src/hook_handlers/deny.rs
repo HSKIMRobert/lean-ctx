@@ -204,10 +204,10 @@ fn print_deny(tool_name: &str) {
             "Use ctx_read instead — lean-ctx replace mode is active. Native Read is disabled."
         }
         "Grep" | "grep" | "Search" => {
-            "Use ctx_search instead — lean-ctx replace mode is active. Native Grep is disabled."
+            "Use ctx_search instead — lean-ctx replace mode is active. Native Grep is disabled. ctx_search supports: regex, include/exclude globs, action=symbol for definitions, action=semantic for meaning."
         }
         "Glob" | "glob" => {
-            "Use ctx_glob instead — lean-ctx replace mode is active. Native Glob is disabled."
+            "Use ctx_glob or ctx_tree instead — lean-ctx replace mode is active. Native Glob is disabled."
         }
         "Shell" | "Bash" | "bash" => {
             "Use ctx_shell instead — lean-ctx replace mode is active. Native Shell is disabled."
