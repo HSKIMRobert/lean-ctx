@@ -747,6 +747,27 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
 
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(&path);
+
+    // Re-read passthrough (#938): when a PID-independent marker exists for
+    // this path, the model has already seen the compressed view. This Read
+    // is likely Cursor's internal pre-StrReplace Read — pass through so
+    // StrReplace gets real file content. First Read → compressed (95%
+    // savings). Second Read → native (edit-safe). The marker uses only the
+    // path hash (no PID) so it persists across hook subprocess invocations.
+    let marker = redirect_read_marker(&path);
+    if marker.exists() {
+        debug_log::log_hook_decision(
+            "redirect",
+            "Read",
+            Route::Native,
+            &path,
+            "re-read passthrough (marker exists) — edit-safe #938",
+        );
+        // Remove the marker so the NEXT read compresses again (the agent
+        // may want to re-explore after editing).
+        let _ = std::fs::remove_file(&marker);
+        return build_dual_allow_output();
+    }
     let is_windowed =
         tool_input.is_some_and(|v| v.get("offset").is_some() || v.get("limit").is_some());
     let args = redirect_read_args(&path, is_windowed);
@@ -801,6 +822,8 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
                 None
             };
             log_shadow_intercept("Read", &path);
+            // Write PID-independent marker so re-reads pass through (#938)
+            let _ = std::fs::write(&marker, b"");
             return build_redirect_output(tool_input, path_field, temp_str, note.as_deref());
         }
     }
@@ -1030,6 +1053,21 @@ fn run_with_timeout(binary: &str, args: &[&str], timeout: Duration) -> Option<Ve
     }
 }
 
+/// PID-independent marker for re-read detection (#938).
+/// Unlike [`redirect_temp_path`] this omits `process::id()` so the marker
+/// persists across hook subprocess invocations within the same session.
+fn redirect_read_marker(path: &str) -> std::path::PathBuf {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let temp_dir = std::env::temp_dir().join("lean-ctx-hook");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    temp_dir.join(format!("{hash:016x}.read-marker"))
+}
 fn redirect_temp_path(key: &str) -> std::path::PathBuf {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -1364,50 +1402,30 @@ pub fn handle_rewrite_inline() {
     print!("{cmd}");
 }
 
-/// Fire-and-forget background cache warming via the daemon's UDS.
+/// Fire-and-forget background cache warming via a detached subprocess.
 ///
-/// Sends a ctx_read(mode=auto) request to the running daemon so that its
-/// BM25 index and session cache are warm when the agent calls ctx_read
-/// (e.g. mode=full) before editing. The redirect gives the compressed
-/// exploration view; the daemon cache ensures the follow-up full read is
-/// instant instead of cold.
+/// Spawns `lean-ctx read <path> -m auto` in the background so the daemon's
+/// BM25 index and SessionCache are warm when the agent subsequently calls
+/// `ctx_read(mode=full)` before editing.  The redirect itself gives the
+/// compressed exploration view; this warming ensures the follow-up full
+/// read is instant instead of cold.
 ///
-/// Tolerates all failures silently — the daemon may not be running, or the
-/// socket may be stale. 50ms write timeout prevents blocking the hook.
-#[cfg(unix)]
+/// Uses the CLI subprocess (not direct UDS) because the daemon's HTTP
+/// endpoint requires project context for PathJail.  The subprocess inherits
+/// `LEAN_CTX_HOOK_CHILD=1` which prevents daemon auto-start and uses the
+/// fast local-only path.  Completely fire-and-forget: stdout/stderr go to
+/// /dev/null, the child is not awaited, and all failures are silent.
 fn warm_daemon_cache(path: &str) {
-    use std::io::Write;
-    use std::os::unix::net::UnixStream;
+    use std::process::{Command, Stdio};
 
-    let addr = crate::ipc::DaemonAddr::default_for_current_os();
-    if !addr.is_listening() {
-        return;
-    }
-    let socket = match addr {
-        crate::ipc::DaemonAddr::Unix(ref p) => p.clone(),
-    };
-
-    let body = serde_json::json!({
-        "name": "ctx_read",
-        "arguments": { "path": path, "mode": "auto" }
-    })
-    .to_string();
-    let request = format!(
-        "POST /v1/tools/call HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-
-    let Ok(mut stream) = UnixStream::connect(&socket) else {
-        return;
-    };
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(50)));
-    let _ = stream.write_all(request.as_bytes());
-    let _ = stream.shutdown(std::net::Shutdown::Write);
+    let binary = resolve_binary();
+    let _ = Command::new(&binary)
+        .args(["read", path, "-m", "auto"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
 }
-
-#[cfg(not(unix))]
-fn warm_daemon_cache(_path: &str) {}
 
 /// Resolve the lean-ctx executable path for hook command emission and
 /// subprocess spawning. Always the **native** OS path: the MSYS/Git-Bash
