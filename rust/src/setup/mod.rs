@@ -272,7 +272,9 @@ pub fn run_setup() {
         }
         r
     } else {
-        terminal_ui::print_status_skip("Skipped (run `lean-ctx setup --inject-rules` to enable)");
+        terminal_ui::print_status_skip(
+            "Skipped (run `lean-ctx setup` or set auto_inject_rules = true in config)",
+        );
         crate::rules_inject::InjectResult::default()
     };
 
@@ -1053,7 +1055,7 @@ pub fn run_setup_with_options(opts: SetupOptions) -> Result<SetupReport, String>
         let reason = if opts.skip_rules {
             "--skip-rules flag set"
         } else {
-            "auto_inject_rules not enabled (run `lean-ctx setup --inject-rules`)"
+            "auto_inject_rules not enabled (run `lean-ctx setup` or set auto_inject_rules = true)"
         };
         rules_step.items.push(SetupItem {
             name: "agent_rules".to_string(),
