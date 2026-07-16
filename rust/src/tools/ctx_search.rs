@@ -374,6 +374,24 @@ pub fn handle_filtered(
         }
     }
 
+    // #883: sort matches by file match-density — files with more hits surface
+    // first, which is a proxy for relevance when the pattern contains common tokens.
+    if matches.len() > 1 {
+        use std::collections::HashMap;
+        let mut file_counts: HashMap<String, usize> = HashMap::new();
+        for m in &matches {
+            let file = extract_file_from_match(m).to_string();
+            *file_counts.entry(file).or_default() += 1;
+        }
+        matches.sort_by(|a, b| {
+            let fa = extract_file_from_match(a);
+            let fb = extract_file_from_match(b);
+            let ca = file_counts.get(fa).copied().unwrap_or(0);
+            let cb = file_counts.get(fb).copied().unwrap_or(0);
+            cb.cmp(&ca).then_with(|| fa.cmp(fb))
+        });
+    }
+
     if matches.is_empty() {
         let mut msg = format!("0 matches for '{pattern}' in {files_searched} files");
         if files_skipped_size > 0 {
