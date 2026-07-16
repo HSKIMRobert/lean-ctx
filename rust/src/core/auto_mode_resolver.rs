@@ -836,8 +836,8 @@ mod tests {
         };
         let a = resolve(&ctx);
         let b = resolve(&ctx);
-        assert_eq!(a.mode, "full");
-        assert_eq!(a.source, "heuristic");
+        assert_eq!(a.mode, "map");
+        assert_eq!(a.source, "structure_first");
         assert_eq!((a.mode, a.source), (b.mode, b.source));
 
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");

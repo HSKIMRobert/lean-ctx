@@ -55,7 +55,7 @@ pub(crate) fn compress_for_outcome(command: &str, output: &str, exit_code: i32) 
     if exit_code != 0 && !output.trim().is_empty() && !crate::core::protect::has_markers(output) {
         return truncate_verbatim(output, count_tokens(output));
     }
-    compress_if_beneficial(command, output)
+    compress_if_beneficial_with_exit(command, output, exit_code)
 }
 
 /// Opt-in (#936) lossless crush of a *verbatim* data command's JSON. Returns a
@@ -229,6 +229,10 @@ pub(crate) fn verbatim_yaml_crush_lossy(
 }
 
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
+    compress_if_beneficial_with_exit(command, output, -1)
+}
+
+fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32) -> String {
     if output.trim().is_empty() {
         return String::new();
     }
@@ -262,20 +266,25 @@ pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     if is_error_output_from_build_tool(command, output) {
         let base =
             maybe_fold_progress(output, count_tokens(output)).unwrap_or_else(|| output.to_string());
-        // #848: MSBuild parallel builds print each diagnostic twice (per-node +
-        // summary). Dedup identical diagnostic lines before the verbatim cap.
         let base = dedup_build_diagnostics(&base);
         return truncate_verbatim(&base, count_tokens(&base));
     }
 
-    // CRITICAL: Test-runner output is kept verbatim (only head/tail truncated
-    // when huge, and even then middle test-result/failure lines are preserved).
-    // This holds for fully-passing runs too, so pass/fail summaries can never be
-    // semantically compressed or deduplicated away — on any OS or client.
-    // Same composition as above: progress folding first, cap always (#655).
+    // Test-runner output: structurally compress successful runs through the
+    // dedicated test-pattern compressors (cargo test, pytest, jest, etc.).
+    // Failed runs (exit_code != 0) stay verbatim to preserve failure diagnostics.
     if is_test_runner_command(command) {
         let base =
             maybe_fold_progress(output, count_tokens(output)).unwrap_or_else(|| output.to_string());
+        if exit_code == 0
+            && let Some(compressed) = patterns::test::compress(&base)
+        {
+            let original_tokens = count_tokens(output);
+            let compressed_tokens = count_tokens(&compressed);
+            if compressed_tokens < original_tokens {
+                return shell_savings_footer(&compressed, original_tokens, compressed_tokens);
+            }
+        }
         return truncate_verbatim(&base, count_tokens(&base));
     }
 
@@ -814,6 +823,7 @@ fn fold_repetitive_progress(output: &str) -> Option<String> {
 enum ProgressKind {
     CargoCompile,
     CargoFresh,
+    CargoTestOk,
     PytestPassed,
     NpmProgress,
 }
@@ -828,6 +838,9 @@ fn classify_foldable_progress(line: &str) -> Option<ProgressKind> {
         || trimmed.starts_with("Downloading ")
     {
         return Some(ProgressKind::CargoFresh);
+    }
+    if trimmed.starts_with("test ") && trimmed.ends_with("... ok") {
+        return Some(ProgressKind::CargoTestOk);
     }
     if line.contains(" PASSED [") {
         return Some(ProgressKind::PytestPassed);
@@ -853,8 +866,8 @@ fn flush_progress_run(out: &mut Vec<String>, kind: Option<ProgressKind>, lines: 
         return;
     }
     let threshold = match kind {
-        ProgressKind::CargoCompile | ProgressKind::PytestPassed => 8,
-        ProgressKind::CargoFresh | ProgressKind::NpmProgress => 12,
+        ProgressKind::CargoCompile | ProgressKind::PytestPassed | ProgressKind::CargoTestOk => 3,
+        ProgressKind::CargoFresh | ProgressKind::NpmProgress => 5,
     };
     if lines.len() < threshold {
         out.extend(lines.iter().map(|line| (*line).to_string()));
@@ -867,25 +880,17 @@ fn flush_progress_run(out: &mut Vec<String>, kind: Option<ProgressKind>, lines: 
         match kind {
             ProgressKind::CargoCompile => "cargo compile/check",
             ProgressKind::CargoFresh => "cargo download/fresh",
+            ProgressKind::CargoTestOk => "cargo test ok",
             ProgressKind::PytestPassed => "pytest PASSED",
             ProgressKind::NpmProgress => "package-manager progress",
         }
     ));
-    for line in lines.iter().take(3) {
-        out.push((*line).to_string());
-    }
-    if lines.len() > 5 {
+    out.push(lines.first().unwrap_or(&"").to_string());
+    if lines.len() > 2 {
         out.push("…".to_string());
     }
-    for line in lines
-        .iter()
-        .rev()
-        .take(2)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-    {
-        out.push((*line).to_string());
+    if lines.len() > 1 {
+        out.push(lines.last().unwrap_or(&"").to_string());
     }
 }
 

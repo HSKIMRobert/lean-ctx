@@ -1,4 +1,7 @@
 pub fn compress(output: &str) -> Option<String> {
+    if let Some(r) = try_cargo_test(output) {
+        return Some(r);
+    }
     if let Some(r) = try_pytest(output) {
         return Some(r);
     }
@@ -18,6 +21,93 @@ pub fn compress(output: &str) -> Option<String> {
         return Some(r);
     }
     None
+}
+
+fn try_cargo_test(output: &str) -> Option<String> {
+    if !output.contains("test result:") && !output.contains("running ") {
+        return None;
+    }
+    if !output.contains(" passed") {
+        return None;
+    }
+
+    let mut total_passed = 0u32;
+    let mut total_failed = 0u32;
+    let mut total_ignored = 0u32;
+    let mut total_filtered = 0u32;
+    let mut time = String::new();
+    let mut failures: Vec<String> = Vec::new();
+    let mut suites = 0u32;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("test result:") {
+            suites += 1;
+            for part in trimmed.split(';') {
+                let part = part.trim();
+                if let Some(n) = extract_cargo_counter(part, "passed") {
+                    total_passed += n;
+                } else if let Some(n) = extract_cargo_counter(part, "failed") {
+                    total_failed += n;
+                } else if let Some(n) = extract_cargo_counter(part, "ignored") {
+                    total_ignored += n;
+                } else if let Some(n) = extract_cargo_counter(part, "filtered out") {
+                    total_filtered += n;
+                }
+            }
+            if let Some(pos) = trimmed.find("finished in ") {
+                time = trimmed[pos + 12..].trim().to_string();
+            }
+        }
+        if (trimmed.starts_with("test ") && trimmed.ends_with("... FAILED"))
+            || trimmed.starts_with("---- ")
+                && trimmed.ends_with(" ----")
+                && !trimmed.contains("output")
+        {
+            let name = if let Some(rest) = trimmed.strip_prefix("test ") {
+                rest.strip_suffix(" ... FAILED").unwrap_or(rest)
+            } else {
+                trimmed.trim_start_matches('-').trim_end_matches('-').trim()
+            };
+            if !name.is_empty() && !failures.iter().any(|f| f == name) {
+                failures.push(name.to_string());
+            }
+        }
+    }
+
+    if total_passed == 0 && total_failed == 0 {
+        return None;
+    }
+
+    let mut result = format!("cargo test: {total_passed} passed");
+    if total_failed > 0 {
+        result.push_str(&format!(", {total_failed} failed"));
+    }
+    if total_ignored > 0 {
+        result.push_str(&format!(", {total_ignored} ignored"));
+    }
+    if total_filtered > 0 {
+        result.push_str(&format!(", {total_filtered} filtered"));
+    }
+    if suites > 1 {
+        result.push_str(&format!(" ({suites} suites)"));
+    }
+    if !time.is_empty() {
+        result.push_str(&format!(" [{time}]"));
+    }
+
+    for f in failures.iter().take(10) {
+        result.push_str(&format!("\n  FAIL: {f}"));
+    }
+
+    Some(result)
+}
+
+fn extract_cargo_counter(segment: &str, keyword: &str) -> Option<u32> {
+    let pos = segment.find(keyword)?;
+    let before = segment[..pos].trim();
+    let num_str = before.split_whitespace().last()?;
+    num_str.parse::<u32>().ok()
 }
 
 fn try_pytest(output: &str) -> Option<String> {
@@ -392,5 +482,68 @@ mod mocha_tests {
         assert!(result.contains("2 passed"));
         assert!(result.contains("1 failed"));
         assert!(result.contains("FAIL:"));
+    }
+}
+
+#[cfg(test)]
+mod cargo_tests {
+    use super::*;
+
+    #[test]
+    fn cargo_test_all_passing() {
+        let output = "\
+   Compiling lean-ctx v3.9.11 (/Users/test/rust)
+     Running unittests src/lib.rs (target/debug/deps/lean_ctx-abc123)
+
+running 245 tests
+test core::tokens::tests::count_empty ... ok
+test core::tokens::tests::count_hello ... ok
+test core::config::tests::default_config ... ok
+test result: ok. 245 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 4.23s
+
+     Running tests/integration.rs (target/debug/deps/integration-def456)
+
+running 12 tests
+test api_read ... ok
+test api_search ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s";
+
+        let result = try_cargo_test(output).expect("should match");
+        assert!(result.contains("257 passed"));
+        assert!(result.contains("3 ignored"));
+        assert!(result.contains("2 suites"));
+        assert!(!result.contains("FAIL"));
+    }
+
+    #[test]
+    fn cargo_test_with_failures() {
+        let output = "\
+running 50 tests
+test core::foo ... ok
+test core::bar ... FAILED
+test result: ok. 49 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.0s";
+
+        let result = try_cargo_test(output).expect("should match");
+        assert!(result.contains("49 passed"));
+        assert!(result.contains("1 failed"));
+        assert!(result.contains("FAIL: core::bar"));
+    }
+
+    #[test]
+    fn cargo_test_single_suite() {
+        let output = "\
+running 10 tests
+test a ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.5s";
+
+        let result = try_cargo_test(output).expect("should match");
+        assert!(result.contains("10 passed"));
+        assert!(!result.contains("suites"));
+    }
+
+    #[test]
+    fn non_cargo_output_rejected() {
+        let output = "hello world\nfoo bar";
+        assert!(try_cargo_test(output).is_none());
     }
 }

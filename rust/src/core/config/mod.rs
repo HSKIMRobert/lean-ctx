@@ -765,7 +765,7 @@ impl Default for Config {
             content_defined_chunking: false,
             minimal_overhead: true,
             symbol_map_auto: false,
-            structure_first: false,
+            structure_first: true,
             auto_mode_learning: false,
             team_url: None,
             team_token: None,

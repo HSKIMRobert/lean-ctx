@@ -748,25 +748,57 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(&path);
 
-    // Re-read passthrough (#938): when a PID-independent marker exists for
-    // this path, the model has already seen the compressed view. This Read
-    // is likely Cursor's internal pre-StrReplace Read — pass through so
-    // StrReplace gets real file content. First Read → compressed (95%
-    // savings). Second Read → native (edit-safe). The marker uses only the
-    // path hash (no PID) so it persists across hook subprocess invocations.
+    // Re-read passthrough (#938): Marker tracks (mtime, read_count).
+    // - read_count == 1 (StrReplace internal Read): native passthrough.
+    // - read_count >= 2 + mtime unchanged: [unchanged] stub (zero tokens).
+    // - read_count >= 2 + mtime changed: file was edited, re-compress.
     let marker = redirect_read_marker(&path);
     if marker.exists() {
-        debug_log::log_hook_decision(
-            "redirect",
-            "Read",
-            Route::Native,
-            &path,
-            "re-read passthrough (marker exists) — edit-safe #938",
-        );
-        // Remove the marker so the NEXT read compresses again (the agent
-        // may want to re-explore after editing).
-        let _ = std::fs::remove_file(&marker);
-        return build_dual_allow_output();
+        if let Ok(marker_data) = std::fs::read_to_string(&marker) {
+            let parts: Vec<&str> = marker_data.splitn(2, '\n').collect();
+            let stored_mtime = parts.first().unwrap_or(&"");
+            let read_count: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+            let current_mtime = file_mtime_str(&path);
+
+            if read_count >= 2 && current_mtime.as_str() == *stored_mtime {
+                let line_count = std::fs::read_to_string(&path).map_or(0, |c| c.lines().count());
+                let stub = format!("{path} [unchanged, {line_count}L]");
+                let stub_temp = redirect_temp_path(&path);
+                if std::fs::write(&stub_temp, &stub).is_ok() {
+                    let stub_str = stub_temp.to_str().unwrap_or("");
+                    debug_log::log_hook_decision(
+                        "redirect",
+                        "Read",
+                        Route::LeanCtx,
+                        &path,
+                        "re-read stub (file unchanged since first read)",
+                    );
+                    let _ = std::fs::write(&marker, format!("{stored_mtime}\n{}", read_count + 1));
+                    return build_redirect_output(tool_input, path_field, stub_str, None);
+                }
+            } else if current_mtime.as_str() != *stored_mtime {
+                debug_log::log_hook_decision(
+                    "redirect",
+                    "Read",
+                    Route::LeanCtx,
+                    &path,
+                    "file changed since first read — re-compress",
+                );
+                let _ = std::fs::remove_file(&marker);
+            } else {
+                debug_log::log_hook_decision(
+                    "redirect",
+                    "Read",
+                    Route::Native,
+                    &path,
+                    "re-read passthrough (edit-safe #938)",
+                );
+                let _ = std::fs::write(&marker, format!("{stored_mtime}\n{}", read_count + 1));
+                return build_dual_allow_output();
+            }
+        } else {
+            let _ = std::fs::remove_file(&marker);
+        }
     }
     let is_windowed =
         tool_input.is_some_and(|v| v.get("offset").is_some() || v.get("limit").is_some());
@@ -822,8 +854,7 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
                 None
             };
             log_shadow_intercept("Read", &path);
-            // Write PID-independent marker so re-reads pass through (#938)
-            let _ = std::fs::write(&marker, b"");
+            let _ = std::fs::write(&marker, format!("{}\n1", file_mtime_str(&path)));
             return build_redirect_output(tool_input, path_field, temp_str, note.as_deref());
         }
     }
@@ -1056,6 +1087,15 @@ fn run_with_timeout(binary: &str, args: &[&str], timeout: Duration) -> Option<Ve
 /// PID-independent marker for re-read detection (#938).
 /// Unlike [`redirect_temp_path`] this omits `process::id()` so the marker
 /// persists across hook subprocess invocations within the same session.
+fn file_mtime_str(path: &str) -> String {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos().to_string())
+        .unwrap_or_default()
+}
+
 fn redirect_read_marker(path: &str) -> std::path::PathBuf {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
