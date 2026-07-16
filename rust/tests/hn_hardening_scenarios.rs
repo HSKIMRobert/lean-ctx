@@ -163,11 +163,12 @@ mod double_compression_guard {
     #[test]
     fn scenario_dispatch_returns_saved_tokens() {
         // Verify the dispatch_tool return type includes saved_tokens (the
-        // third element carries the shell outcome for MCP isError, GH #389).
+        // third element carries the shell outcome for MCP isError, GH #389)
+        // and content_blocks (fourth element for image/binary MCP output).
         let src = include_str!("../src/server/dispatch/mod.rs");
         assert!(
-            src.contains("Result<(String, usize, Option<ShellOutcome>), ErrorData>"),
-            "dispatch_tool must return (String, saved_tokens, shell_outcome)"
+            src.contains("Option<Vec<ContentBlock>>"),
+            "dispatch_tool must return (String, saved_tokens, shell_outcome, content_blocks)"
         );
     }
 
@@ -187,11 +188,11 @@ mod double_compression_guard {
         );
 
         // The double-counting guard for already-saving tools moved to the
-        // post-terse stats correction: savings are only recomputed when the tool
-        // had already saved tokens (`tool_saved_tokens > 0`).
+        // post-terse stats correction: savings are only recomputed when terse
+        // actually changed the text and output tokens were recorded.
         assert!(
-            src.contains("tool_saved_tokens > 0"),
-            "dispatch must guard already-compressed output via `tool_saved_tokens > 0`"
+            src.contains("result_text.len() != pre_terse_len && output_tokens > 0"),
+            "post-terse stats correction must guard on terse length delta and output_tokens"
         );
     }
 
@@ -739,9 +740,11 @@ mod integration {
         // Structural test: verify the pipeline
         let src = crate::server_dispatch_src();
 
-        // 1. dispatch threads saved_tokens (+ shell outcome, GH #389) out of
-        // the tool call
-        assert!(src.contains("let (mut result_text, tool_saved_tokens, shell_outcome)"));
+        // 1. dispatch threads saved_tokens (+ shell outcome, GH #389,
+        // content_blocks) out of the tool call
+        assert!(
+            src.contains("let (mut result_text, tool_saved_tokens, shell_outcome, content_blocks)")
+        );
 
         // 2. Terse compression is gated by skip_terse()
         assert!(
@@ -749,11 +752,11 @@ mod integration {
             "terse compression must be gated by an early skip_terse() return"
         );
 
-        // 3. The post-terse stats correction is guarded by saved tokens so a
-        // tool that already compressed (saved_tokens > 0) never double-counts.
+        // 3. The post-terse stats correction runs only when terse changed the
+        // text and output tokens were recorded, avoiding double-counting.
         assert!(
-            src.contains("tool_saved_tokens > 0"),
-            "post-terse stats correction must be guarded by tool_saved_tokens"
+            src.contains("result_text.len() != pre_terse_len && output_tokens > 0"),
+            "post-terse stats correction must guard on terse length delta and output_tokens"
         );
     }
 }

@@ -10,10 +10,11 @@ use crate::tools::LeanCtxServer;
 use rmcp::model::ContentBlock;
 
 impl LeanCtxServer {
-    /// Returns (output_text, saved_tokens, shell_outcome). saved_tokens > 0
-    /// indicates the tool already applied internal compression (shell engine,
-    /// cache deltas, etc.). shell_outcome is `Some` for shell-executing tools
-    /// so the caller can populate MCP error metadata (#389).
+    /// Returns (output_text, saved_tokens, shell_outcome, content_blocks).
+    /// saved_tokens > 0 indicates the tool already applied internal compression
+    /// (shell engine, cache deltas, etc.). shell_outcome is `Some` for
+    /// shell-executing tools so the caller can populate MCP error metadata
+    /// (#389). content_blocks carries image/binary MCP blocks when present.
     pub(super) async fn dispatch_tool(
         &self,
         name: &str,

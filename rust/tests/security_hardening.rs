@@ -385,9 +385,9 @@ fn raw_shell_skips_all_postprocessing() {
     );
     assert!(
         src.contains("is_raw_shell")
-            && src.contains("tool_saved_tokens > 0")
+            && src.contains("result_text.len() != pre_terse_len && output_tokens > 0")
             && src.contains("skip_terse"),
-        "skip_terse must include is_raw_shell and double-compression guard"
+        "skip_terse must include is_raw_shell; post-terse stats must guard on terse delta"
     );
     // The verify_output guard may AND extra predicates after !is_raw_shell
     // (e.g. !firewalled, verify_footer()), so accept both the bare guard and
