@@ -141,7 +141,7 @@ pub fn build_or_update(root: &Path, bm25: &super::bm25_index::BM25Index) -> Embe
         let engine = match crate::core::embeddings::shared_engine_result() {
             Ok(engine) => engine,
             Err(e) => {
-                let reason = format!("embedding model files found but engine failed to load: {e}");
+                let reason = format!("embedding model files found but engine failed to load: {e}. Fix: run `lean-ctx embeddings provision` to install the managed ONNX Runtime");
                 tracing::warn!("[embedding_index] build_or_update failed: {reason}");
                 return EmbeddingBuildOutcome::ModelNotAvailable(reason);
             }
