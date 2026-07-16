@@ -69,7 +69,7 @@ impl DriftReport {
 fn collect_nodes(graph: &CodeGraph) -> anyhow::Result<Vec<SnapNode>> {
     let conn = graph.connection();
     let mut stmt =
-        conn.prepare("SELECT kind, file_path, name, line_start, line_end, metadata FROM nodes")?;
+        conn.prepare("SELECT n.kind, p.path, n.name, n.line_start, n.line_end, n.metadata FROM nodes n JOIN paths p ON p.id = n.file_id")?;
     let mut nodes: Vec<SnapNode> = stmt
         .query_map([], |row| {
             Ok(SnapNode {
@@ -90,11 +90,13 @@ fn collect_edges(graph: &CodeGraph) -> anyhow::Result<Vec<SnapEdge>> {
     let conn = graph.connection();
     let mut stmt = conn.prepare(
         "SELECT e.kind, e.metadata,
-                s.kind, s.file_path, s.name,
-                t.kind, t.file_path, t.name
+                s.kind, sp.path, s.name,
+                t.kind, tp.path, t.name
          FROM edges e
          JOIN nodes s ON s.id = e.source_id
-         JOIN nodes t ON t.id = e.target_id",
+         JOIN nodes t ON t.id = e.target_id
+         JOIN paths sp ON sp.id = s.file_id
+         JOIN paths tp ON tp.id = t.file_id",
     )?;
     let mut edges: Vec<SnapEdge> = stmt
         .query_map([], |row| {
@@ -202,7 +204,8 @@ fn resolve_endpoint(
     let conn = graph.connection();
     let found: Option<i64> = conn
         .query_row(
-            "SELECT id FROM nodes WHERE kind = ?1 AND file_path = ?2 AND name = ?3",
+            "SELECT n.id FROM nodes n JOIN paths p ON p.id = n.file_id
+             WHERE n.kind = ?1 AND p.path = ?2 AND n.name = ?3",
             params![identity.0, identity.1, identity.2],
             |row| row.get(0),
         )
