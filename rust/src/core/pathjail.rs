@@ -1259,8 +1259,14 @@ mod tests {
 
         // Register the detected root; the second call is a no-op.
         let (_, root) = detect_language_cache_root(&file).expect("cache match");
-        assert!(register_session_read_only_root(&root), "first register is new");
-        assert!(!register_session_read_only_root(&root), "re-register is a no-op");
+        assert!(
+            register_session_read_only_root(&root),
+            "first register is new"
+        );
+        assert!(
+            !register_session_read_only_root(&root),
+            "re-register is a no-op"
+        );
 
         // After: the read resolves, but writes are denied (read-only tier).
         assert!(
