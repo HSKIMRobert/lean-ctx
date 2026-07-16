@@ -60,10 +60,8 @@ impl McpTool for CtxSearchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_search",
-            "Search code; `action` picks the engine (default regex). \
-             regex(pattern) | semantic(query, by meaning) | symbol(name, AST-exact; \
-             or handle=path#name@Lline) | reindex | find_related(file_path,line). \
-             anchored=true tags hits for ctx_patch. Run ctx_compose FIRST.",
+            "Search code. action: regex|semantic|symbol|reindex|find_related. \
+             anchored=true → ctx_patch. queries:[{pattern}] for batch. ctx_compose FIRST.",
             json!({
                 "type": "object",
                 "properties": {
@@ -87,7 +85,12 @@ impl McpTool for CtxSearchTool {
                     "file": { "type": "string" },
                     "kind": { "type": "string", "description": "fn|struct|class|trait|enum" },
                     "file_path": { "type": "string" },
-                    "line": { "type": "integer" }
+                    "line": { "type": "integer" },
+                    "queries": {
+                        "type": "array",
+                        "items": { "type": "object" },
+                        "description": "[{pattern,include?,exclude?}] batch"
+                    }
                 }
             }),
         )
@@ -139,6 +142,11 @@ const KNOWN_KEYS: &[&str] = &[
 
 /// `action=regex` (default) — exact-pattern search over one or more roots.
 fn handle_regex(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutput, ErrorData> {
+    // #871: batch mode — `queries: [{pattern, include?, exclude?}]` runs multiple
+    // searches in one round-trip with grouped output.
+    if let Some(Value::Array(queries)) = args.get("queries") {
+        return handle_batch_queries(queries, args, ctx);
+    }
     // Lenient fallback: if `pattern` is missing, accept the first unrecognized
     // string value as the pattern. Handles weak models that use keys like
     // "search_term", "text", "regex", etc. instead of the documented "pattern".
@@ -496,6 +504,129 @@ fn search_single(
 /// separators, so it still matches at any depth, preserving the old behaviour).
 /// A value that already looks like a glob/path (`*`, `{`, `?`, `/`) is passed
 /// through untouched so any power user who put a pattern in `ext` keeps working.
+/// #871: batch multi-query — runs each query independently and groups output.
+fn handle_batch_queries(
+    queries: &[Value],
+    args: &Map<String, Value>,
+    ctx: &ToolContext,
+) -> Result<ToolOutput, ErrorData> {
+    if queries.is_empty() {
+        return Err(ErrorData::invalid_params(
+            "queries array must not be empty",
+            None,
+        ));
+    }
+    if queries.len() > 10 {
+        return Err(ErrorData::invalid_params(
+            "queries array limited to 10 entries",
+            None,
+        ));
+    }
+
+    let resolved = crate::server::multi_path::resolve_tool_paths(args, ctx)
+        .map_err(|e| ErrorData::invalid_params(format!("ERROR: {e}"), None))?;
+    let no_gitignore = get_bool(args, "ignore_gitignore").unwrap_or(false);
+    let anchored = get_bool(args, "anchored").unwrap_or(false);
+    let crp = ctx.crp_mode;
+    let respect = !no_gitignore;
+    let allow_secret_paths = crate::core::roles::active_role().io.allow_secret_paths;
+    let root = &resolved.roots[0];
+    let global_max = (get_int(args, "max_results").unwrap_or(20) as usize).min(500);
+    let per_query_max = (global_max / queries.len()).max(5);
+
+    let _mode_guard = crate::core::savings_footer::ModeGuard::new("search");
+    let mut combined = String::new();
+    let mut total_observed: usize = 0;
+    let mut total_sent: usize = 0;
+
+    for (idx, q) in queries.iter().enumerate() {
+        let Some(obj) = q.as_object() else {
+            combined.push_str(&format!(
+                "── query {} ──\nERROR: expected object\n\n",
+                idx + 1
+            ));
+            continue;
+        };
+        let Some(pattern) = get_str(obj, "pattern") else {
+            combined.push_str(&format!(
+                "── query {} ──\nERROR: pattern required\n\n",
+                idx + 1
+            ));
+            continue;
+        };
+        let include =
+            get_str(obj, "include").or_else(|| get_str(obj, "ext").map(|e| ext_to_include(&e)));
+        let exclude = get_str(obj, "exclude");
+        let exclude_pattern = get_str(obj, "exclude_pattern");
+
+        let search_result = tokio::task::block_in_place(|| {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::tools::ctx_search::handle_filtered(
+                    &pattern,
+                    root,
+                    include.as_deref(),
+                    per_query_max,
+                    crp,
+                    respect,
+                    allow_secret_paths,
+                    anchored,
+                    exclude.as_deref(),
+                    exclude_pattern.as_deref(),
+                )
+            }))
+            .ok()
+        });
+
+        let label = if queries.len() > 1 {
+            format!(
+                "── query {}: '{}' ──\n",
+                idx + 1,
+                truncate_query(&pattern, 40)
+            )
+        } else {
+            String::new()
+        };
+
+        let Some(outcome) = search_result else {
+            combined.push_str(&format!("{label}ERROR: search panicked\n\n"));
+            continue;
+        };
+
+        if !outcome.text.trim().is_empty() {
+            combined.push_str(&format!("{label}{}\n\n", outcome.text));
+            total_observed += outcome.observed_tokens;
+            total_sent += crate::core::tokens::count_tokens(&outcome.text);
+        }
+    }
+
+    if combined.is_empty() {
+        combined = "No matches found for any query.".to_string();
+    }
+
+    let final_out = crate::core::protocol::append_savings(&combined, total_observed, total_sent);
+    let saved = total_observed.saturating_sub(total_sent);
+    crate::core::savings_ledger::record_tool_event("ctx_search", total_observed, total_sent);
+
+    Ok(ToolOutput {
+        text: final_out,
+        original_tokens: total_observed,
+        saved_tokens: saved,
+        mode: None,
+        path: None,
+        changed: false,
+        shell_outcome: None,
+    })
+}
+
+/// Truncate a query string for display (used in batch labels).
+fn truncate_query(q: &str, max: usize) -> String {
+    if q.len() <= max {
+        q.to_string()
+    } else {
+        format!("{}...", &q[..q.floor_char_boundary(max)])
+    }
+}
+
 fn ext_to_include(ext: &str) -> String {
     if ext.contains(['*', '{', '?', '/']) {
         return ext.to_string();

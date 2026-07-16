@@ -505,11 +505,7 @@ pub(crate) fn boost_with_splade(
 /// Symbols with higher cognitive complexity (handle, dispatch, orchestration
 /// functions) are more likely edit targets than small leaf helpers sharing
 /// vocabulary with the query.
-pub(crate) fn boost_with_complexity(
-    results: &mut [HybridResult],
-    project_root: &str,
-    weight: f64,
-) {
+pub(crate) fn boost_with_complexity(results: &mut [HybridResult], project_root: &str, weight: f64) {
     if weight <= 0.0 || results.is_empty() {
         return;
     }
