@@ -787,6 +787,11 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
         );
         if !final_output.is_empty() && std::fs::write(&temp_path, &final_output).is_ok() {
             let temp_str = temp_path.to_str().unwrap_or("");
+
+            // Warm daemon cache: subsequent ctx_read(mode=full) hits warm
+            // BM25/session cache → instant edit-safe content. The redirect
+            // gives compressed exploration view; ctx_read gives full content.
+            warm_daemon_cache(&path);
             debug_log::log_hook_decision(
                 "redirect",
                 "Read",
@@ -1412,6 +1417,51 @@ pub fn handle_rewrite_inline() {
 
     print!("{cmd}");
 }
+
+/// Fire-and-forget background cache warming via the daemon's UDS.
+///
+/// Sends a ctx_read(mode=auto) request to the running daemon so that its
+/// BM25 index and session cache are warm when the agent calls ctx_read
+/// (e.g. mode=full) before editing. The redirect gives the compressed
+/// exploration view; the daemon cache ensures the follow-up full read is
+/// instant instead of cold.
+///
+/// Tolerates all failures silently — the daemon may not be running, or the
+/// socket may be stale. 50ms write timeout prevents blocking the hook.
+#[cfg(unix)]
+fn warm_daemon_cache(path: &str) {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+
+    let addr = crate::ipc::DaemonAddr::default_for_current_os();
+    if !addr.is_listening() {
+        return;
+    }
+    let socket = match addr {
+        crate::ipc::DaemonAddr::Unix(ref p) => p.clone(),
+    };
+
+    let body = serde_json::json!({
+        "name": "ctx_read",
+        "arguments": { "path": path, "mode": "auto" }
+    })
+    .to_string();
+    let request = format!(
+        "POST /v1/tools/call HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    );
+
+    let Ok(mut stream) = UnixStream::connect(&socket) else {
+        return;
+    };
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(50)));
+    let _ = stream.write_all(request.as_bytes());
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+}
+
+#[cfg(not(unix))]
+fn warm_daemon_cache(_path: &str) {}
 
 /// Resolve the lean-ctx executable path for hook command emission and
 /// subprocess spawning. Always the **native** OS path: the MSYS/Git-Bash

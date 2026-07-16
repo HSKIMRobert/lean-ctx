@@ -1494,3 +1494,11 @@ fn rg_i_falls_through() {
 
 #[path = "tests_rewrite_extras.rs"]
 mod rewrite_extras;
+
+#[test]
+fn warm_daemon_cache_tolerates_missing_socket() {
+    // warm_daemon_cache must never panic, even when no daemon is running.
+    // The function checks is_listening() first, so with no socket file on
+    // disk it returns immediately.
+    warm_daemon_cache("/nonexistent/file.rs");
+}
