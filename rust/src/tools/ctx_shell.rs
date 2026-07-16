@@ -191,7 +191,7 @@ fn has_file_write_redirect(command: &str) -> bool {
                 .chars()
                 .take_while(|c| !c.is_whitespace())
                 .collect();
-            if target == "/dev/null" {
+            if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
                 i += 1;
                 continue;
             }
@@ -418,6 +418,28 @@ mod tests {
         // the escape handling must not hide a real redirect later on
         assert!(validate_command("echo \"a \\\"b\\\"\" > out.txt").is_some());
         assert!(validate_command("echo \\\\ > out.txt").is_some());
+    }
+
+    // --- GH #897: heredoc-to-stdin and /dev/null redirects are not file writes ---
+
+    #[test]
+    fn heredoc_stdin_without_redirect_is_allowed() {
+        assert!(validate_command("git commit -F - <<'EOF'\nfix: something\nEOF").is_none());
+        assert!(validate_command("kubectl apply -f - <<EOF\napiVersion: v1\nEOF").is_none());
+        assert!(validate_command("git apply <<'PATCH'\n--- a/f\n+++ b/f\nPATCH").is_none());
+    }
+
+    #[test]
+    fn dev_null_redirect_is_allowed() {
+        assert!(validate_command("cat > /dev/null").is_none());
+        assert!(validate_command("cmd > /dev/null 2>&1").is_none());
+        assert!(validate_command("cmd 2>/dev/null").is_none());
+    }
+
+    #[test]
+    fn dev_stdout_and_stderr_redirects_are_allowed() {
+        assert!(validate_command("cmd > /dev/stdout").is_none());
+        assert!(validate_command("cmd > /dev/stderr").is_none());
     }
 
     // --- GH #391: download tools writing files without shell redirects ---
