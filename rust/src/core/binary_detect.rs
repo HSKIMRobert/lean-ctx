@@ -121,6 +121,13 @@ const BINARY_EXTENSIONS: &[&str] = &[
     "qcow2",
 ];
 
+/// Image formats that LLMs can process visually via multimodal input.
+/// Only formats supported by all major providers (Anthropic, OpenAI, Google).
+const LLM_VIEWABLE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
+
+/// Maximum file size for image passthrough (20 MB).
+pub const IMAGE_MAX_BYTES: u64 = 20 * 1024 * 1024;
+
 /// Fast extension-based binary detection (zero I/O).
 fn has_binary_extension(path: &str) -> bool {
     Path::new(path)
@@ -152,6 +159,30 @@ pub fn is_binary_file(path: &str) -> bool {
         return true;
     }
     has_binary_content(path)
+}
+
+/// Returns `true` if the file is an image format that LLMs can view visually.
+pub fn is_llm_viewable_image(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|ext| LLM_VIEWABLE_EXTENSIONS.contains(&ext.as_str()))
+}
+
+/// Returns the MIME type for an LLM-viewable image, or None if not viewable.
+pub fn image_mime_type(path: &str) -> Option<&'static str> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())?
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
 }
 
 /// Returns a human-readable file type label for common binary extensions.
@@ -240,5 +271,38 @@ mod tests {
         assert!(!has_binary_content(txt_path.to_str().unwrap()));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn llm_viewable_detects_supported_formats() {
+        assert!(is_llm_viewable_image("photo.png"));
+        assert!(is_llm_viewable_image("photo.PNG"));
+        assert!(is_llm_viewable_image("image.jpg"));
+        assert!(is_llm_viewable_image("image.jpeg"));
+        assert!(is_llm_viewable_image("anim.gif"));
+        assert!(is_llm_viewable_image("modern.webp"));
+        assert!(is_llm_viewable_image("/path/to/file.JPEG"));
+    }
+
+    #[test]
+    fn llm_viewable_rejects_unsupported() {
+        assert!(!is_llm_viewable_image("icon.svg"));
+        assert!(!is_llm_viewable_image("photo.heic"));
+        assert!(!is_llm_viewable_image("image.tiff"));
+        assert!(!is_llm_viewable_image("design.psd"));
+        assert!(!is_llm_viewable_image("photo.avif"));
+        assert!(!is_llm_viewable_image("code.rs"));
+        assert!(!is_llm_viewable_image("data.bin"));
+    }
+
+    #[test]
+    fn mime_type_correct() {
+        assert_eq!(image_mime_type("x.png"), Some("image/png"));
+        assert_eq!(image_mime_type("x.jpg"), Some("image/jpeg"));
+        assert_eq!(image_mime_type("x.jpeg"), Some("image/jpeg"));
+        assert_eq!(image_mime_type("x.gif"), Some("image/gif"));
+        assert_eq!(image_mime_type("x.webp"), Some("image/webp"));
+        assert_eq!(image_mime_type("x.svg"), None);
+        assert_eq!(image_mime_type("x.rs"), None);
     }
 }

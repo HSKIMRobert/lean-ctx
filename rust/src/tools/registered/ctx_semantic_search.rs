@@ -169,6 +169,7 @@ impl McpTool for CtxSemanticSearchTool {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

@@ -109,6 +109,7 @@ impl McpTool for CtxExecuteTool {
             path: None,
             changed: false,
             shell_outcome: Some(outcome),
+            content_blocks: None,
         })
     }
 }

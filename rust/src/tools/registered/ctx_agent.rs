@@ -137,6 +137,7 @@ impl McpTool for CtxAgentTool {
                 path: None,
                 changed: false,
                 shell_outcome: None,
+                content_blocks: None,
             });
         }
 
@@ -148,6 +149,7 @@ impl McpTool for CtxAgentTool {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

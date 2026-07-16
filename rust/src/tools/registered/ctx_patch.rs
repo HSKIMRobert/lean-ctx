@@ -175,6 +175,7 @@ impl McpTool for CtxPatchTool {
                 path: Some(path),
                 changed: false,
                 shell_outcome: None,
+                content_blocks: None,
             })
         })
     }
@@ -213,6 +214,7 @@ fn delegate_replace_symbol(
         path: get_str(args, "path"),
         changed,
         shell_outcome: None,
+        content_blocks: None,
     })
 }
 

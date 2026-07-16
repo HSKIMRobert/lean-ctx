@@ -108,6 +108,7 @@ impl McpTool for CtxGlobTool {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }
@@ -152,5 +153,6 @@ fn handle_single(
         path: Some(path.to_string()),
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     })
 }

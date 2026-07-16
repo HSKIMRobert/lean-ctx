@@ -75,6 +75,7 @@ impl McpTool for CtxExploreTool {
             path: Some(path),
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

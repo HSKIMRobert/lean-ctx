@@ -122,6 +122,7 @@ impl McpTool for CtxGitReadTool {
                     path: Some(rendered.label),
                     changed: false,
                     shell_outcome: None,
+                    content_blocks: None,
                 })
             }
             Err(e) => Err(ErrorData::invalid_params(

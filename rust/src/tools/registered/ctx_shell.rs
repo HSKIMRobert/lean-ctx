@@ -55,6 +55,7 @@ impl McpTool for CtxShellTool {
             // (guards, retry logic) can detect it programmatically (#389).
             return Ok(ToolOutput {
                 shell_outcome: Some(ShellOutcome::Blocked),
+                content_blocks: None,
                 ..ToolOutput::simple(rejection)
             });
         }
@@ -62,6 +63,7 @@ impl McpTool for CtxShellTool {
         if let Err(msg) = crate::core::shell_allowlist::check_shell_allowlist(&command) {
             return Ok(ToolOutput {
                 shell_outcome: Some(ShellOutcome::Blocked),
+                content_blocks: None,
                 ..ToolOutput::simple(msg.to_string())
             });
         }
@@ -96,6 +98,7 @@ impl McpTool for CtxShellTool {
                 path: Some(read_path),
                 changed: false,
                 shell_outcome: Some(ShellOutcome::Exit(0)),
+                content_blocks: None,
             });
         }
 
@@ -155,6 +158,7 @@ impl McpTool for CtxShellTool {
                     };
                     return Ok(ToolOutput {
                         shell_outcome: Some(ShellOutcome::Exit(exit_code)),
+                        content_blocks: None,
                         ..ToolOutput::simple(format!("{output}{exit_suffix}"))
                     });
                 };
@@ -293,6 +297,7 @@ impl McpTool for CtxShellTool {
                 path: None,
                 changed: false,
                 shell_outcome: Some(ShellOutcome::Exit(exit_code)),
+                content_blocks: None,
             })
         })
     }

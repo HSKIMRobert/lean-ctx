@@ -102,6 +102,7 @@ ANTIPATTERN: Never touches the user's repository — completely isolated shadow 
                     Some("snapshot" | "restore")
                 ),
                 shell_outcome: None,
+                content_blocks: None,
             }),
             Err(e) => Err(ErrorData::invalid_params(
                 format!("ctx_checkpoint failed: {e}"),
