@@ -737,6 +737,20 @@ fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
         return build_dual_allow_output();
     }
 
+    // #938: Cursor subagents (Task tool) need native Read for Write/Edit to work.
+    // The redirect rewrites Read to a temp file, breaking the path-identity check
+    // that Write/Edit performs internally. Pass through natively in subagents.
+    if std::env::var_os("CURSOR_TASK_ID").is_some_and(|v| !v.is_empty()) {
+        debug_log::log_hook_decision(
+            "redirect",
+            "Read",
+            Route::Native,
+            &path,
+            "Cursor subagent (CURSOR_TASK_ID) — Write/Edit needs native Read",
+        );
+        return build_dual_allow_output();
+    }
+
     let shadow = is_shadow_mode_active();
     if is_harden_active() || shadow {
         tracing::info!(
