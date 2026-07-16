@@ -22,9 +22,9 @@ use crate::tools::CrpMode;
 /// Wall-time budget for the semantic-ranking stage. The exact-match and symbol
 /// stages are index-backed and cheap; only semantic ranking can hit a cold
 /// `O(corpus)` BM25 build. We never let that block the agent loop: past the
-/// budget we return what we have and let the detached worker finish warming the
+/// budget (4s, tuned for cold-start coverage #902) we return what we have and let the detached worker finish warming the
 /// resident cache for the next call. Override via `LEAN_CTX_COMPOSE_BUDGET_MS`.
-const DEFAULT_SEMANTIC_BUDGET_MS: u64 = 2500;
+const DEFAULT_SEMANTIC_BUDGET_MS: u64 = 4000;
 
 fn semantic_budget() -> Duration {
     let ms = std::env::var("LEAN_CTX_COMPOSE_BUDGET_MS")
