@@ -1593,3 +1593,25 @@ fn break_continue_return_and_bracket_test_are_default_allowed() {
         );
     }
 }
+
+// --- GH #898/#904: go list / gh run watch after VAR=$(...) ---
+
+#[test]
+fn go_list_and_go_env_are_allowed() {
+    let list = allow(&["go"]);
+    assert!(check_all_segments("go list -m -f '{{.Dir}}' github.com/some/pkg", &list).is_ok());
+    assert!(check_all_segments("go env GOPATH", &list).is_ok());
+    assert!(check_all_segments("go version", &list).is_ok());
+    assert!(check_all_segments("go mod tidy", &list).is_ok());
+}
+
+#[test]
+fn gh_run_after_var_assignment_substitution() {
+    let list = allow(&["gh"]);
+    let cmd = r#"RID=$(gh run list -R owner/repo --branch b --limit 1 --json databaseId -q '.[0].databaseId') && gh run watch -R owner/repo "$RID" --exit-status"#;
+    assert!(
+        check_all_segments(cmd, &list).is_ok(),
+        "gh run watch after VAR=$(gh run list ...) must pass: {}",
+        check_all_segments(cmd, &list).unwrap_err()
+    );
+}
