@@ -209,6 +209,7 @@ Parameters: `create`, `new_string`*, `old_string`, `path`*, `replace_all`
 
 Run code in sandbox (11 languages) — use when conditionals, multi-line or cross-language transforms.
 ANTIPATTERN: for simple one-liners, prefer ctx_shell (lower overhead, auto-compressed).
+language=shell bypasses the shell allowlist — use for multi-line scripts, pipelines, or commands that ctx_shell blocks.
 action=code (default) for one-shot; action=batch for parallel multi-language;
 action=file to process a project file (extension auto-detects).
 Pass intent to focus large output and save tokens. Languages: javascript,
