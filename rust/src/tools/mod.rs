@@ -232,7 +232,10 @@ mod resolve_path_tests {
             .resolve_path(&file.to_string_lossy())
             .await
             .unwrap_or_else(|e| panic!("retry must resolve, got: {e}"));
-        assert!(ok.ends_with("/lib.go"), "retry resolves the cache file: {ok}");
+        assert!(
+            ok.ends_with("/lib.go"),
+            "retry resolves the cache file: {ok}"
+        );
     }
 
     #[cfg(not(feature = "no-jail"))]
