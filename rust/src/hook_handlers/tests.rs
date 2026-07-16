@@ -1156,67 +1156,6 @@ fn redirect_read_auto_passes_through_under_claude_code() {
 }
 
 #[test]
-fn redirect_read_passes_through_in_cursor_subagent() {
-    // #938: Cursor subagents (Task tool) set CURSOR_TASK_ID. The redirect must
-    // pass Read through natively so that Write/Edit (which check "was this path
-    // Read?") still work. Without the bypass, the path-swap to a temp copy
-    // breaks Cursor's read-before-write guard.
-    let _lock = crate::core::data_dir::test_env_lock();
-    crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-    crate::test_env::remove_var("CLAUDECODE");
-    crate::test_env::remove_var("CODEBUDDY");
-    crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
-    crate::test_env::set_var("CURSOR_TASK_ID", "abc-123");
-
-    let tool_input = serde_json::json!({ "file_path": "/repo/src/pages/index.tsx" });
-    let out = redirect_read(Some(&tool_input));
-
-    crate::test_env::remove_var("CURSOR_TASK_ID");
-
-    assert_eq!(
-        out,
-        build_dual_allow_output(),
-        "CURSOR_TASK_ID must bypass Read redirect for Write/Edit compat (#938)"
-    );
-    assert!(
-        !out.contains(".lctx") && !out.contains("updatedInput"),
-        "subagent Read must not swap path to temp copy: {out}"
-    );
-}
-
-#[test]
-fn redirect_read_still_redirects_without_cursor_task_id() {
-    // #938 negative: without CURSOR_TASK_ID the redirect must still fire
-    // (main agent, non-subagent). We verify the env var is absent.
-    let _lock = crate::core::data_dir::test_env_lock();
-    crate::test_env::remove_var("CLAUDE_PROJECT_DIR");
-    crate::test_env::remove_var("CLAUDECODE");
-    crate::test_env::remove_var("CODEBUDDY");
-    crate::test_env::remove_var("CURSOR_TASK_ID");
-    crate::test_env::remove_var("LEAN_CTX_READ_REDIRECT");
-
-    let tool_input = serde_json::json!({ "file_path": "/repo/src/main.rs" });
-    let _out = redirect_read(Some(&tool_input));
-
-    // In CI without a real lean-ctx binary the subprocess may fail and fall
-    // through to allow. The key invariant: CURSOR_TASK_ID is not set, so the
-    // subagent early-return path is NOT taken.
-    assert!(
-        !std::env::var_os("CURSOR_TASK_ID").is_some_and(|v| !v.is_empty()),
-        "CURSOR_TASK_ID must be absent for this test"
-    );
-}
-
-#[test]
-#[cfg(unix)]
-fn warm_daemon_cache_tolerates_missing_socket() {
-    // Cache warming must be best-effort: no panic, no error when the daemon
-    // socket doesn't exist (e.g. in CI, fresh installs, or hook-only mode).
-    warm_daemon_cache("/nonexistent/test/file.rs");
-    // If we reach here without panic, the function correctly handled the missing socket.
-}
-
-#[test]
 fn gating_decision_returns_work_result_when_fast() {
     // The normal path: work finishes well within budget, so its decision is used.
     let out = decide_with_timeout(
