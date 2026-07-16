@@ -219,6 +219,7 @@ impl McpTool for CtxLedgerTool {
             path: None,
             changed,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

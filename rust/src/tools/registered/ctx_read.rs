@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rmcp::ErrorData;
-use rmcp::model::Tool;
+use rmcp::model::{ContentBlock, Tool};
 use serde_json::{Map, Value, json};
 
 use crate::server::tool_trait::{
@@ -316,6 +316,9 @@ impl CtxReadTool {
             fresh = true;
         }
 
+        if crate::core::binary_detect::is_llm_viewable_image(path) {
+            return read_image_file(path);
+        }
         if crate::core::binary_detect::is_binary_file(path) {
             let msg = crate::core::binary_detect::binary_file_message(path);
             return Err(ErrorData::invalid_params(msg, None));
@@ -1145,6 +1148,7 @@ impl CtxReadTool {
             path: Some(path.to_string()),
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }
@@ -1305,6 +1309,52 @@ mod tests;
 
 // #660 LOC gate: repo-param tests split out to keep this file under the line
 // cap — see `ctx_read_repo_param_tests.rs`.
+
+/// Read an image file and return it as MCP ContentBlock::Image for visual LLM processing.
+fn read_image_file(path: &str) -> Result<ToolOutput, ErrorData> {
+    use crate::core::binary_detect::{IMAGE_MAX_BYTES, image_mime_type};
+    use base64::Engine;
+
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| ErrorData::invalid_params(format!("Cannot read image: {e}"), None))?;
+
+    if metadata.len() > IMAGE_MAX_BYTES {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "Image too large ({:.1} MB, limit {:.0} MB). Resize or use a smaller image.",
+                metadata.len() as f64 / 1024.0 / 1024.0,
+                IMAGE_MAX_BYTES as f64 / 1024.0 / 1024.0,
+            ),
+            None,
+        ));
+    }
+
+    let mime_type = image_mime_type(path)
+        .ok_or_else(|| ErrorData::invalid_params("Unsupported image format".to_string(), None))?;
+
+    let bytes = std::fs::read(path)
+        .map_err(|e| ErrorData::invalid_params(format!("Cannot read image: {e}"), None))?;
+
+    let base64_data = base64::prelude::BASE64_STANDARD.encode(&bytes);
+    let short_name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(path);
+
+    let text_block = ContentBlock::text(format!(
+        "[Image: {} ({} KB, {})]",
+        short_name,
+        bytes.len() / 1024,
+        mime_type
+    ));
+    let image_block = ContentBlock::image(base64_data, mime_type);
+
+    Ok(ToolOutput::image(
+        vec![text_block, image_block],
+        path.to_string(),
+    ))
+}
+
 #[cfg(test)]
 #[path = "ctx_read_repo_param_tests.rs"]
 mod repo_param_tests;

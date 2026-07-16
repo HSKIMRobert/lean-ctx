@@ -272,6 +272,7 @@ fn handle_regex(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutp
         path: None,
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     })
 }
 
@@ -340,6 +341,7 @@ fn handle_symbol(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOut
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         });
     }
 
@@ -364,6 +366,7 @@ fn handle_symbol(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOut
         path: file,
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     })
 }
 
@@ -424,6 +427,7 @@ fn semantic_output(text: String) -> ToolOutput {
         path: None,
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     }
 }
 
@@ -496,6 +500,7 @@ fn search_single(
         path: Some(path.to_string()),
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     })
 }
 
@@ -617,6 +622,7 @@ fn handle_batch_queries(
         path: None,
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     })
 }
 

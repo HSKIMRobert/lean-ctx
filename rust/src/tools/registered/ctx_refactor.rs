@@ -104,6 +104,7 @@ impl McpTool for CtxRefactorTool {
                     | "reformat"
             ),
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

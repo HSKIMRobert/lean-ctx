@@ -7,6 +7,7 @@ use serde_json::Value;
 use crate::server::helpers::get_str;
 use crate::server::tool_trait::{McpTool, ShellOutcome, ToolContext, ToolOutput};
 use crate::tools::LeanCtxServer;
+use rmcp::model::ContentBlock;
 
 impl LeanCtxServer {
     /// Returns (output_text, saved_tokens, shell_outcome). saved_tokens > 0
@@ -18,7 +19,15 @@ impl LeanCtxServer {
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<(String, usize, Option<ShellOutcome>), ErrorData> {
+    ) -> Result<
+        (
+            String,
+            usize,
+            Option<ShellOutcome>,
+            Option<Vec<ContentBlock>>,
+        ),
+        ErrorData,
+    > {
         fn format_rate_limited(
             tool: &str,
             agent_id: &str,
@@ -52,6 +61,7 @@ impl LeanCtxServer {
                 return Ok((
                     format_rate_limited(name, &agent_id, retry_after_ms, args),
                     0,
+                    None,
                     None,
                 ));
             }
@@ -115,6 +125,7 @@ impl LeanCtxServer {
                         format_rate_limited(&inner, &agent_id, retry_after_ms, arg_map.as_ref()),
                         0,
                         None,
+                        None,
                     ));
                 }
 
@@ -127,7 +138,7 @@ impl LeanCtxServer {
                         .first()
                         .and_then(|c| c.as_text())
                         .map_or_else(|| "Blocked by role policy".to_string(), |t| t.text.clone());
-                    return Ok((msg, 0, None));
+                    return Ok((msg, 0, None, None));
                 }
 
                 if !super::WORKFLOW_PASSTHROUGH_TOOLS.contains(&inner.as_str()) {
@@ -154,6 +165,7 @@ impl LeanCtxServer {
                                     ),
                                     0,
                                     None,
+                                    None,
                                 ));
                             }
                         }
@@ -177,7 +189,15 @@ impl LeanCtxServer {
         name: &str,
         args: Option<&serde_json::Map<String, Value>>,
         minimal: bool,
-    ) -> Result<(String, usize, Option<ShellOutcome>), ErrorData> {
+    ) -> Result<
+        (
+            String,
+            usize,
+            Option<ShellOutcome>,
+            Option<Vec<ContentBlock>>,
+        ),
+        ErrorData,
+    > {
         // #454: when the user prefers their host's native editor, lean-ctx edit
         // operations are fully disabled — refused here so neither a direct call
         // nor `ctx_call` can reach them (list_tools already hides them).
@@ -188,6 +208,7 @@ impl LeanCtxServer {
                      built-in edit tool. Re-enable with `lean-ctx config set prefer_native_editor false`."
                 ),
                 0,
+                None,
                 None,
             ));
         }
@@ -295,6 +316,30 @@ impl LeanCtxServer {
             let handler_started = std::time::Instant::now();
             let output = self.run_tool_handler(name, tool, args_map, ctx).await?;
             let handler_ms = handler_started.elapsed().as_millis() as u64;
+
+            // Image/binary content blocks bypass all text processing.
+            if output.content_blocks.is_some() {
+                if let Some(ref path) = output.path {
+                    self.record_call_with_path(
+                        name,
+                        0,
+                        0,
+                        Some("image".to_string()),
+                        Some(path),
+                        handler_ms,
+                    )
+                    .await;
+                } else {
+                    self.record_call_with_timing(name, 0, 0, Some("image".to_string()), handler_ms)
+                        .await;
+                }
+                return Ok((
+                    String::new(),
+                    0,
+                    output.shell_outcome,
+                    output.content_blocks,
+                ));
+            }
 
             let config_changed =
                 super::tools_config_watch::has_changed(&self.last_tools_config_hash);
@@ -431,10 +476,10 @@ impl LeanCtxServer {
                 // The outcome must survive the reference-store substitution —
                 // a failed shell command stays a failure even when its output
                 // is delivered out-of-band (#389).
-                return Ok((summary, saved, output.shell_outcome));
+                return Ok((summary, saved, output.shell_outcome, None));
             }
 
-            return Ok((final_text, saved, output.shell_outcome));
+            return Ok((final_text, saved, output.shell_outcome, None));
         }
 
         // Unknown tool (#712): suggest the closest registered name so a typo

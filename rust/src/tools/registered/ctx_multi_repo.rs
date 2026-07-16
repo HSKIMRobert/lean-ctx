@@ -106,6 +106,7 @@ impl McpTool for CtxMultiRepoTool {
             path,
             changed: action == "add_root" || action == "remove_root",
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

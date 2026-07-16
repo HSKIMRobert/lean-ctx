@@ -127,6 +127,7 @@ impl McpTool for CtxFeedbackTool {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

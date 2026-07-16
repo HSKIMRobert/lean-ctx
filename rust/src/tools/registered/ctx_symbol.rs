@@ -57,6 +57,7 @@ impl McpTool for CtxSymbolTool {
             path: file,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

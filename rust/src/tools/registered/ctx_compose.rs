@@ -68,6 +68,7 @@ impl McpTool for CtxComposeTool {
             path: Some(path),
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

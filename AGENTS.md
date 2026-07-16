@@ -7,7 +7,7 @@ lean-ctx optimizes LLM context by compressing file reads, shell output, and sear
 Native Read/Grep/Glob/Shell are **denied by policy**. lean-ctx MCP tools are the
 only path for reading files and running commands:
 
-- **Reads/Search** → `ctx_read`, `ctx_search`, `ctx_compose` (cached, 10 modes)
+- **Reads/Search** → `ctx_read`, `ctx_search`, `ctx_compose` (cached, 10 modes, images via ContentBlock)
 - **Shell commands** → `ctx_shell` (95+ compression patterns)
 - **File editing** → native Edit/StrReplace (lean-ctx only handles READ operations)
 - **File finding** → `ctx_glob`, `ctx_tree`

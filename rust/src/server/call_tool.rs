@@ -247,9 +247,9 @@ impl LeanCtxServer {
         }
 
         let tool_start = std::time::Instant::now();
-        let (mut result_text, tool_saved_tokens, shell_outcome) =
+        let (mut result_text, tool_saved_tokens, shell_outcome, content_blocks) =
             match self.dispatch_tool(name, args, minimal).await {
-                Ok(triple) => triple,
+                Ok(tuple) => tuple,
                 Err(e) => {
                     if let Ok(mut detector) = tokio::time::timeout(
                         std::time::Duration::from_secs(1),
@@ -263,6 +263,17 @@ impl LeanCtxServer {
                     return Err(e);
                 }
             };
+
+        // Image/binary content blocks: skip all post-processing, return directly.
+        if let Some(blocks) = content_blocks {
+            let mut result = CallToolResult::success(blocks);
+            if let Some(outcome) = shell_outcome
+                && outcome.is_error()
+            {
+                result.is_error = Some(true);
+            }
+            return Ok(result);
+        }
 
         let is_raw_shell = name == "ctx_shell" && {
             let arg_raw = helpers::get_bool(args, "raw").unwrap_or(false);

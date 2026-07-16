@@ -1,5 +1,5 @@
 use rmcp::ErrorData;
-use rmcp::model::Tool;
+use rmcp::model::{ContentBlock, Tool};
 use serde_json::{Map, Value};
 
 /// Outcome of a shell execution, carried alongside the rendered text so the
@@ -52,6 +52,9 @@ pub struct ToolOutput {
     /// `structuredContent` on the MCP result (GitHub #389). `None` for tools
     /// that don't run shell commands.
     pub shell_outcome: Option<ShellOutcome>,
+    /// Override content blocks for non-text responses (e.g. images).
+    /// When set, dispatch uses these instead of wrapping `text` in TextContent.
+    pub content_blocks: Option<Vec<ContentBlock>>,
 }
 
 impl ToolOutput {
@@ -64,6 +67,7 @@ impl ToolOutput {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         }
     }
 
@@ -89,6 +93,22 @@ impl ToolOutput {
             path: None,
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
+        }
+    }
+
+    /// Construct a ToolOutput for image/binary content blocks.
+    /// Bypasses all text processing in the dispatch pipeline.
+    pub fn image(blocks: Vec<ContentBlock>, path: String) -> Self {
+        Self {
+            text: String::new(),
+            original_tokens: 0,
+            saved_tokens: 0,
+            mode: Some("image".to_string()),
+            path: Some(path),
+            changed: false,
+            shell_outcome: None,
+            content_blocks: Some(blocks),
         }
     }
 }

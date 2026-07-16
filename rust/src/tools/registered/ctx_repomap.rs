@@ -77,6 +77,7 @@ impl McpTool for CtxRepomapTool {
             path: Some(project_root),
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

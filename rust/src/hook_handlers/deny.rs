@@ -35,7 +35,7 @@ pub fn handle_deny() {
     if should_allow(&tool_name, file_path.as_deref()) {
         print_allow();
     } else {
-        print_deny(&tool_name);
+        print_smart_deny(&tool_name, &stdin_payload);
     }
 }
 
@@ -90,13 +90,13 @@ fn is_binary_file(path: &str) -> bool {
 
 fn extract_tool_name(payload: &str) -> String {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
-        if let Some(name) = json.get("tool_name").and_then(|v| v.as_str()) {
+        if let Some(name) = json.get("tool_name").and_then(serde_json::Value::as_str) {
             return name.to_string();
         }
         if let Some(name) = json
             .get("hookSpecificInput")
             .and_then(|h| h.get("toolName"))
-            .and_then(|v| v.as_str())
+            .and_then(serde_json::Value::as_str)
         {
             return name.to_string();
         }
@@ -113,7 +113,7 @@ fn extract_file_path(payload: &str) -> Option<String> {
 
     if let Some(input) = input {
         for key in ["file_path", "path", "filePath"] {
-            if let Some(path) = input.get(key).and_then(|v| v.as_str()) {
+            if let Some(path) = input.get(key).and_then(serde_json::Value::as_str) {
                 return Some(path.to_string());
             }
         }
@@ -160,7 +160,7 @@ fn extract_write_content(payload: &str) -> Option<String> {
         "new_string",
         "new_text",
     ] {
-        if let Some(text) = input.get(key).and_then(|v| v.as_str()) {
+        if let Some(text) = input.get(key).and_then(serde_json::Value::as_str) {
             return Some(text.to_string());
         }
     }
@@ -168,10 +168,10 @@ fn extract_write_content(payload: &str) -> Option<String> {
     if let Some(edits) = input.get("edits").and_then(|v| v.as_array()) {
         let mut combined = String::new();
         for edit in edits {
-            if let Some(t) = edit.get("new_text").and_then(|v| v.as_str()) {
+            if let Some(t) = edit.get("new_text").and_then(serde_json::Value::as_str) {
                 combined.push_str(t);
             }
-            if let Some(t) = edit.get("newText").and_then(|v| v.as_str()) {
+            if let Some(t) = edit.get("newText").and_then(serde_json::Value::as_str) {
                 combined.push_str(t);
             }
         }
@@ -198,23 +198,128 @@ fn print_deny_compression_markers(tool_name: &str) {
     std::process::exit(2);
 }
 
-fn print_deny(tool_name: &str) {
-    let msg = match tool_name {
-        "Read" | "read" | "ReadFile" => {
-            "Use ctx_read instead — lean-ctx replace mode is active. Native Read is disabled."
-        }
-        "Grep" | "grep" | "Search" => {
-            "Use ctx_search instead — lean-ctx replace mode is active. Native Grep is disabled. ctx_search supports: regex, include/exclude globs, action=symbol for definitions, action=semantic for meaning."
-        }
-        "Glob" | "glob" => {
-            "Use ctx_glob or ctx_tree instead — lean-ctx replace mode is active. Native Glob is disabled."
-        }
-        "Shell" | "Bash" | "bash" => {
-            "Use ctx_shell instead — lean-ctx replace mode is active. Native Shell is disabled."
-        }
-        _ => "Use the equivalent ctx_* tool — lean-ctx replace mode is active.",
-    };
+/// Build a smart deny message that includes the exact ctx_* call with mapped arguments.
+/// This reduces cognitive load for the LLM and prevents instruction drift.
+fn smart_deny_message(tool_name: &str, payload: &str) -> String {
+    let args = extract_tool_args(payload);
+    match tool_name {
+        "Read" | "read" | "ReadFile" => build_ctx_read_hint(&args),
+        "Grep" | "grep" | "Search" => build_ctx_search_hint(&args),
+        "Glob" | "glob" => build_ctx_glob_hint(&args),
+        "Shell" | "Bash" | "bash" => build_ctx_shell_hint(&args),
+        _ => "Use the equivalent ctx_* tool — lean-ctx replace mode is active.".to_string(),
+    }
+}
 
+fn extract_tool_args(payload: &str) -> serde_json::Map<String, serde_json::Value> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
+        return serde_json::Map::new();
+    };
+    json.get("input")
+        .or_else(|| json.get("hookSpecificInput").and_then(|h| h.get("input")))
+        .and_then(|v| v.as_object())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn build_ctx_read_hint(args: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut parts = Vec::new();
+    if let Some(path) = args
+        .get("path")
+        .or_else(|| args.get("file_path"))
+        .and_then(serde_json::Value::as_str)
+    {
+        parts.push(format!("path=\"{path}\""));
+    }
+    if let Some(start) = args
+        .get("offset")
+        .or_else(|| args.get("start_line"))
+        .and_then(serde_json::Value::as_i64)
+    {
+        parts.push(format!("start_line={start}"));
+    }
+    if let Some(limit) = args
+        .get("limit")
+        .or_else(|| args.get("end_line"))
+        .and_then(serde_json::Value::as_i64)
+    {
+        parts.push(format!("limit={limit}"));
+    }
+    let call = if parts.is_empty() {
+        "ctx_read(path=\"<file>\")".to_string()
+    } else {
+        format!("ctx_read({})", parts.join(", "))
+    };
+    format!("[DENIED] Native Read blocked. Use: {call} — lean-ctx replace mode is active.")
+}
+
+fn build_ctx_search_hint(args: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut parts = Vec::new();
+    if let Some(pat) = args
+        .get("pattern")
+        .or_else(|| args.get("regex"))
+        .and_then(serde_json::Value::as_str)
+    {
+        parts.push(format!("pattern=\"{pat}\""));
+    }
+    if let Some(path) = args
+        .get("path")
+        .or_else(|| args.get("include"))
+        .and_then(serde_json::Value::as_str)
+    {
+        parts.push(format!("path=\"{path}\""));
+    }
+    if let Some(glob) = args.get("glob").and_then(serde_json::Value::as_str) {
+        parts.push(format!("include=\"{glob}\""));
+    }
+    let call = if parts.is_empty() {
+        "ctx_search(pattern=\"<pattern>\")".to_string()
+    } else {
+        format!("ctx_search({})", parts.join(", "))
+    };
+    format!(
+        "[DENIED] Native Grep blocked. Use: {call} — ctx_search also supports action=symbol, action=semantic."
+    )
+}
+
+fn build_ctx_glob_hint(args: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut parts = Vec::new();
+    if let Some(pat) = args
+        .get("pattern")
+        .or_else(|| args.get("glob_pattern"))
+        .and_then(serde_json::Value::as_str)
+    {
+        parts.push(format!("pattern=\"{pat}\""));
+    }
+    if let Some(path) = args
+        .get("path")
+        .or_else(|| args.get("target_directory"))
+        .and_then(serde_json::Value::as_str)
+    {
+        parts.push(format!("path=\"{path}\""));
+    }
+    let call = if parts.is_empty() {
+        "ctx_glob(pattern=\"<glob>\")".to_string()
+    } else {
+        format!("ctx_glob({})", parts.join(", "))
+    };
+    format!("[DENIED] Native Glob blocked. Use: {call} — or ctx_tree for directory overview.")
+}
+
+fn build_ctx_shell_hint(args: &serde_json::Map<String, serde_json::Value>) -> String {
+    let cmd = args
+        .get("command")
+        .or_else(|| args.get("cmd"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<command>");
+    let short_cmd = if cmd.len() > 80 { &cmd[..80] } else { cmd };
+    format!(
+        "[DENIED] Native Shell blocked. Use: ctx_shell(command=\"{short_cmd}\") — lean-ctx replace mode is active."
+    )
+}
+
+fn print_smart_deny(tool_name: &str, payload: &str) {
+    let msg = smart_deny_message(tool_name, payload);
     let output = serde_json::json!({
         "permission": "deny",
         "user_message": msg

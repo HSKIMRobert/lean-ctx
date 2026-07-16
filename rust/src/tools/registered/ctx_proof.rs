@@ -105,6 +105,7 @@ impl McpTool for CtxProofTool {
             path: Some(root),
             changed: false,
             shell_outcome: None,
+            content_blocks: None,
         })
     }
 }

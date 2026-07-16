@@ -165,6 +165,7 @@ impl McpTool for CtxEditTool {
                 path: Some(path),
                 changed: false,
                 shell_outcome: None,
+                content_blocks: None,
             })
         })
     }

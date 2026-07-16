@@ -234,5 +234,6 @@ fn text_output(action: &str, text: String) -> ToolOutput {
         path: None,
         changed: false,
         shell_outcome: None,
+        content_blocks: None,
     }
 }
