@@ -280,8 +280,10 @@ impl McpTool for CtxShellTool {
                 124 => "\n[exit:124 — command timed out]".to_string(),
                 _ => format!("\n[exit:{exit_code}]"),
             };
-            let final_out =
-                format!("{result_out}{tee_hint}{shell_mismatch}{cwd_jail_hint}{exit_suffix}");
+            let nudge = if raw { "" } else { search_tool_nudge(&command) };
+            let final_out = format!(
+                "{result_out}{tee_hint}{shell_mismatch}{cwd_jail_hint}{nudge}{exit_suffix}"
+            );
 
             Ok(ToolOutput {
                 text: final_out,
@@ -306,6 +308,26 @@ fn resolve_shell_raw_flags(
     let bypass = arg_bypass || env_raw;
     let raw = arg_raw || bypass || env_disabled;
     (raw, bypass)
+}
+
+fn search_tool_nudge(command: &str) -> &'static str {
+    let cmd = command.trim();
+    let first_word = cmd.split_whitespace().next().unwrap_or("");
+    if !cmd.contains('|') {
+        match first_word {
+            "grep" | "rg" | "egrep" | "fgrep" | "ag" => {
+                return "\n[hint: use ctx_search for structured, cached results with symbol/semantic modes]";
+            }
+            "find" => {
+                return "\n[hint: use ctx_glob or ctx_tree for structured file discovery]";
+            }
+            "ls" | "exa" | "eza" => {
+                return "\n[hint: use ctx_tree for structured directory listing]";
+            }
+            _ => {}
+        }
+    }
+    ""
 }
 
 fn shell_mismatch_hint(command: &str, output: &str) -> String {
