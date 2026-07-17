@@ -245,11 +245,13 @@ impl McpTool for CtxShellTool {
                             if matches!(cfg.tee_mode, crate::core::config::TeeMode::HighCompression)
                             {
                                 let pct = crate::shell::tee_policy::savings_pct(original, sent);
+                                // Recovery grammar is path-first: agents without ctx_expand
+                                // can still read the saved artifact directly (#936).
                                 format!(
-                                    "\n[compressed {pct:.0}%: full output archived — ctx_expand(id=\"{p}\", search=\"…\"|head=N|json_path=\"…\") for a slice]"
+                                    "\n[compressed {pct:.0}%: full output at {p} — read it directly (no MCP), or ctx_expand(id=\"{p}\", search=\"…\"|head=N|json_path=\"…\") for a slice]"
                                 )
                             } else {
-                                format!("\n[full output archived — ctx_expand(id=\"{p}\")]")
+                                format!("\n[full output: {p} — read it directly (no MCP), or ctx_expand(id=\"{p}\")]")
                             }
                         })
                         .unwrap_or_default()
