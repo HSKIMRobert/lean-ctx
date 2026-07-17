@@ -231,10 +231,11 @@ impl McpTool for CtxShellTool {
                 let cfg = crate::core::config::Config::load();
                 // Shared tee policy (#811): identical decision to the CLI path —
                 // `Failures` keys off the real exit code, not a substring match.
+                let timeout_notice_only = is_timeout_notice_only(&output, exit_code);
                 let tee_hint = if crate::shell::tee_policy::should_tee(
                     &cfg.tee_mode,
                     exit_code,
-                    output.trim().is_empty(),
+                    output.trim().is_empty() || timeout_notice_only,
                     crate::shell::tee_policy::output_was_elided(&output, &result),
                     original,
                     sent,
@@ -311,6 +312,19 @@ fn resolve_shell_raw_flags(
     let bypass = arg_bypass || env_raw;
     let raw = arg_raw || bypass || env_disabled;
     (raw, bypass)
+}
+
+/// A timeout notice is framework metadata, not recoverable command output. Do
+/// not archive it as a tee artifact: expanding it cannot recover any bytes (#995).
+fn is_timeout_notice_only(output: &str, exit_code: i32) -> bool {
+    exit_code == 124
+        && output
+            .trim()
+            .strip_prefix("ERROR: command timed out after ")
+            .is_some_and(|rest| {
+                rest.strip_suffix("ms")
+                    .is_some_and(|n| n.trim().parse::<u128>().is_ok())
+            })
 }
 
 fn search_tool_nudge(command: &str) -> &'static str {
@@ -505,4 +519,29 @@ fn detect_bare_cat_file(command: &str) -> Option<String> {
         return None;
     }
     Some(file_path.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_timeout_notice_only;
+
+    #[test]
+    fn timeout_notice_without_child_output_is_not_recoverable() {
+        assert!(is_timeout_notice_only(
+            "ERROR: command timed out after 200ms",
+            124
+        ));
+        assert!(is_timeout_notice_only(
+            "  ERROR: command timed out after 200ms\n",
+            124
+        ));
+        assert!(!is_timeout_notice_only(
+            "useful output\nERROR: command timed out after 200ms",
+            124
+        ));
+        assert!(!is_timeout_notice_only(
+            "ERROR: command timed out after 200ms",
+            1
+        ));
+    }
 }
