@@ -437,34 +437,56 @@ fn is_word_boundary(b: u8) -> bool {
     !b.is_ascii_alphanumeric() && b != b'-' && b != b'_' && b != b'\'' && b != b'"'
 }
 
+/// #973: true when `[match_start..match_end)` sits inside a file-path token —
+/// the surrounding whitespace-delimited word contains `/` or `\`.  Dictionary
+/// substitutions inside paths emit non-existent paths (`environment.rs` →
+/// `env.rs`).
+fn is_inside_path(text: &[u8], match_start: usize, match_end: usize) -> bool {
+    let token_start = text[..match_start]
+        .iter()
+        .rposition(u8::is_ascii_whitespace)
+        .map_or(0, |i| i + 1);
+    let token_end = text[match_end..]
+        .iter()
+        .position(u8::is_ascii_whitespace)
+        .map_or(text.len(), |i| match_end + i);
+    let token = &text[token_start..token_end];
+    token.contains(&b'/') || token.contains(&b'\\')
+}
+
+/// Whole-word replacement — **case-sensitive**, path-aware, non-ASCII safe.
+///
+/// #981 fix: matching was case-insensitive, collapsing `context.Context` into
+/// `ctx.ctx`.  Now matches the exact case of the pattern only.  All byte
+/// offsets come from a single string (the original text), eliminating the
+/// lowercased-copy divergence that panicked on non-ASCII input (ß→ss changes
+/// byte length).
+///
+/// #973 fix: matches inside file-path tokens (containing `/` or `\`) are
+/// skipped so `src/environment.rs` is never rewritten to `src/env.rs`.
 pub(crate) fn replace_whole_word(text: &str, pattern: &str, replacement: &str) -> String {
-    if pattern.is_empty() {
+    if pattern.is_empty() || !text.contains(pattern) {
         return text.to_string();
     }
 
-    let pattern_lower = pattern.to_lowercase();
-    let text_lower = text.to_lowercase();
-
-    if !text_lower.contains(&pattern_lower) {
-        return text.to_string();
-    }
-
+    let bytes = text.as_bytes();
+    let pat_len = pattern.len();
     let mut result = String::with_capacity(text.len());
     let mut start = 0;
 
-    while let Some(pos) = text_lower[start..].find(&pattern_lower) {
+    while let Some(pos) = text[start..].find(pattern) {
         let abs_pos = start + pos;
-        let end_pos = abs_pos + pattern.len();
+        let end_pos = abs_pos + pat_len;
 
-        let before_ok = abs_pos == 0 || is_word_boundary(text.as_bytes()[abs_pos - 1]);
-        let after_ok = end_pos >= text.len() || is_word_boundary(text.as_bytes()[end_pos]);
+        let before_ok = abs_pos == 0 || is_word_boundary(bytes[abs_pos - 1]);
+        let after_ok = end_pos >= bytes.len() || is_word_boundary(bytes[end_pos]);
 
         result.push_str(&text[start..abs_pos]);
 
-        if before_ok && after_ok {
+        if before_ok && after_ok && !is_inside_path(bytes, abs_pos, end_pos) {
             result.push_str(replacement);
         } else {
-            result.push_str(&text[start + pos..end_pos]);
+            result.push_str(&text[abs_pos..end_pos]);
         }
         start = end_pos;
     }
@@ -504,6 +526,60 @@ mod tests {
     fn whole_word_with_punctuation() {
         let r = replace_whole_word("function(arg)", "function", "fn");
         assert_eq!(r, "fn(arg)");
+    }
+
+    // #981: case-sensitive matching — `Context` ≠ `context`.
+    #[test]
+    fn case_sensitive_preserves_different_casing() {
+        assert_eq!(
+            replace_whole_word("context.Context", "context", "ctx"),
+            "ctx.Context",
+            "only lowercase `context` should be replaced (#981)"
+        );
+    }
+
+    // #981: non-ASCII must not panic.
+    #[test]
+    fn non_ascii_input_does_not_panic() {
+        let r = replace_whole_word("die Größe der function", "function", "fn");
+        assert_eq!(r, "die Größe der fn");
+    }
+
+    #[test]
+    fn non_ascii_with_no_match_returns_unchanged() {
+        let r = replace_whole_word("Ströme und Flüsse", "function", "fn");
+        assert_eq!(r, "Ströme und Flüsse");
+    }
+
+    // #973: file paths must never be rewritten.
+    #[test]
+    fn path_words_are_never_abbreviated() {
+        assert_eq!(
+            replace_whole_word("src/environment.rs changed", "environment", "env"),
+            "src/environment.rs changed",
+            "words inside paths must be preserved (#973)"
+        );
+    }
+
+    #[test]
+    fn path_with_backslash_protected() {
+        assert_eq!(
+            replace_whole_word("src\\configuration\\mod.rs", "configuration", "cfg"),
+            "src\\configuration\\mod.rs"
+        );
+    }
+
+    #[test]
+    fn standalone_word_still_replaced_next_to_path() {
+        assert_eq!(
+            replace_whole_word(
+                "the environment in src/environment.rs",
+                "environment",
+                "env"
+            ),
+            "the env in src/environment.rs",
+            "standalone word replaced, path-embedded word preserved"
+        );
     }
 
     #[test]
@@ -571,6 +647,17 @@ mod tests {
         assert!(
             result.contains("branch"),
             "word 'branch' must not be abbreviated in output: {result}"
+        );
+    }
+
+    // #973: paths in realistic shell output survive dictionary application.
+    #[test]
+    fn dict_preserves_file_paths_in_shell_output() {
+        let text = "warning: unused variable in src/configuration/environment.rs:42";
+        let result = apply_dictionaries(text, DictLevel::Full);
+        assert!(
+            result.contains("src/configuration/environment.rs:42"),
+            "file path must survive dictionary: {result}"
         );
     }
 }

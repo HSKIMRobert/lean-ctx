@@ -1129,9 +1129,11 @@ impl CtxReadTool {
             warnings.push(w.as_str());
         }
         let graph_suffix = graph_hint.map(|h| format!("\n{h}")).unwrap_or_default();
+        // #977: notices (mode override, budget, degradation, delta) go BEFORE the
+        // payload so client-side truncation of large outputs cannot hide them.
         let final_output = if !warnings.is_empty() {
             format!(
-                "{output}{hints_suffix}{graph_suffix}\n\n{}",
+                "{}\n\n{output}{hints_suffix}{graph_suffix}",
                 warnings.join("\n")
             )
         } else if hints_suffix.is_empty() && graph_suffix.is_empty() {

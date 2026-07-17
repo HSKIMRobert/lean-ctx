@@ -81,7 +81,9 @@ pub fn has_structural_output(command: &str) -> bool {
 /// These must never have their content transformed — only size-limited if huge.
 /// Checks both the full command AND the last pipe segment for comprehensive coverage.
 pub fn is_verbatim_output(command: &str) -> bool {
-    is_verbatim_single(command) || is_verbatim_pipe_tail(command)
+    is_verbatim_single(command)
+        || is_verbatim_pipe_tail(command)
+        || is_verbatim_compound_tail(command)
 }
 
 fn is_verbatim_single(command: &str) -> bool {
@@ -199,6 +201,24 @@ fn is_verbatim_pipe_tail(command: &str) -> bool {
     is_verbatim_single(last_segment)
 }
 
+/// #980: `cd /repo && cat file` — classification only inspected the first token
+/// (`cd`), missing that the *last* compound segment is a file viewer.  Analogous
+/// to [`is_verbatim_pipe_tail`] but for `&&` / `||` / `;` operators.
+fn is_verbatim_compound_tail(command: &str) -> bool {
+    // Only split on compound operators, not pipes (handled by pipe_tail).
+    let last = command
+        .rsplit("&&")
+        .next()
+        .and_then(|s| s.rsplit("||").next())
+        .and_then(|s| s.rsplit(';').next())
+        .unwrap_or("")
+        .trim();
+    if last.is_empty() || last == command.trim() {
+        return false;
+    }
+    is_verbatim_single(last)
+}
+
 fn is_http_client(command: &str) -> bool {
     let first = first_binary(command);
     matches!(
@@ -210,7 +230,9 @@ fn is_http_client(command: &str) -> bool {
 fn is_file_viewer(command: &str) -> bool {
     let first = first_binary(command);
     match first {
-        "cat" | "bat" | "batcat" | "pygmentize" | "highlight" => true,
+        // #980: grep-family output is source code / structured search results.
+        "cat" | "bat" | "batcat" | "pygmentize" | "highlight" | "grep" | "rg" | "ag" | "ack"
+        | "sift" => true,
         "head" | "tail" => !command.contains("-f") && !command.contains("--follow"),
         // sed/awk are commonly used as range/pattern file viewers
         // (`sed -n '10,50p' file`, `awk '{print}' file`, GH #688). Their stdout
@@ -891,5 +913,52 @@ mod toon_tests {
     #[test]
     fn rejects_single_line() {
         assert!(!looks_like_toon("users[2]{id,name}:"));
+    }
+}
+
+#[cfg(test)]
+mod verbatim_classification_tests {
+    use super::*;
+
+    // #980: grep-family must be classified as verbatim.
+    #[test]
+    fn grep_is_verbatim() {
+        assert!(is_verbatim_output("grep -rn 'fn main' src/"));
+        assert!(is_verbatim_output("rg 'TODO' --type rust"));
+        assert!(is_verbatim_output("ag 'pattern' src/"));
+    }
+
+    // #980: `cd /repo && cat file` — last compound segment is a file viewer.
+    #[test]
+    fn compound_cd_then_cat_is_verbatim() {
+        assert!(
+            is_verbatim_output("cd /repo && cat file.yaml"),
+            "cd && cat must be verbatim (#980)"
+        );
+    }
+
+    #[test]
+    fn compound_cd_then_grep_is_verbatim() {
+        assert!(is_verbatim_output("cd /repo && grep -n 'error' log.txt"));
+    }
+
+    #[test]
+    fn compound_with_semicolon_last_is_viewer() {
+        assert!(is_verbatim_output("echo start; cat config.toml"));
+    }
+
+    #[test]
+    fn compound_or_last_is_viewer() {
+        assert!(is_verbatim_output("test -f x || cat fallback.txt"));
+    }
+
+    #[test]
+    fn simple_cat_still_verbatim() {
+        assert!(is_verbatim_output("cat src/main.rs"));
+    }
+
+    #[test]
+    fn non_viewer_compound_not_verbatim() {
+        assert!(!is_verbatim_output("cd /repo && cargo build"));
     }
 }
