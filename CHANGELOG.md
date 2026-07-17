@@ -4,6 +4,50 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.12] — 2026-07-17
+
+### Fixed
+- **SSE keepalive injection prevents Codex stream disconnects** — when upstream
+  (e.g. chatgpt.com `gpt-5.6-terra` extended thinking) goes idle for >15s, Codex
+  Desktop's internal read-idle timer fires and aborts with "stream disconnected
+  before completion". The proxy now injects SSE comment lines (`: keepalive\n\n`)
+  every 15s during idle gaps, resetting the client's timer without affecting the
+  payload stream. Configurable via `LEAN_CTX_PROXY_SSE_KEEPALIVE_SECS`. Also
+  prevents the "Broken pipe" panics seen in v3.9.7/v3.9.8 crash.log.
+- **ctx_shell redirect/tee false positives** — piped `tee` (e.g. `cmd | tee file`)
+  is now allowed for output capture; only bare `tee file` (file authoring) is
+  blocked. Environment variable redirects (`$SCRATCH/file`) recognized as
+  non-persistent writes (#989).
+- **Shadow-mode instruction gating** — the "native calls auto-route" shadow
+  instruction is now only emitted when the client actually has hook coverage,
+  preventing misleading guidance in replace-mode clients (#987).
+- **Density quality gate** — `mode=density` compression no longer falls back to
+  full output due to intentional line reduction; a new `guard_density` function
+  uses structure-only composite scoring (60% AST, 40% identifiers) (#940).
+- **ctx_patch description** rewritten for clarity — workflow-oriented, explicitly
+  documents required fields (line, hash), anchor format example, and anti-pattern
+  of patching by line number alone (#942).
+- **Memory lifecycle errors** — `reclaim_store` now returns `Result` and preserves
+  items unchanged when persistence fails; `run_memory_lifecycle` and `consolidate`
+  propagate errors instead of panicking (#990).
+- **Proxy startup race** — fixed race condition in proxy initialization (#999).
+- **Shell timeout capture and diagnostics** improved.
+- **Logical session contract classification** fixed.
+- **Tee recovery hint grammar** corrected.
+
+### Added
+- **Hash/checksum utilities in shell allowlist** — `md5`, `md5sum`, `sha1sum`,
+  `sha256sum`, `sha384sum`, `sha512sum`, `shasum`, `cksum`, `b2sum`, `xxhsum`
+  are now allowed as read-only commands (#986).
+- **CI overhead budget** raised from 2600→2700 tokens to accommodate legitimate
+  schema growth from new public API elements.
+
+### Changed
+- **GENERAL terse dictionary removed** — produced 0 token savings and caused
+  corruption; `grep`-family commands now route to structural compression (#988, #985).
+- **Hook re-compression** — unchanged file re-reads on Cursor are re-compressed
+  through lean-ctx, leveraging CLI cache for token savings (#1048).
+
 ## [3.9.11] — 2026-07-16
 
 ### Fixed
