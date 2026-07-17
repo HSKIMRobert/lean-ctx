@@ -330,7 +330,15 @@ fn build_full_instructions(
             format!("{anchor}\n{compression}")
         }
     } else {
-        rc::render(shadow, Wrapper::Bare, level, &tool_profile)
+        // #987: shadow claim must match reality. `shadow_mode=true` (the
+        // config default) only means the *config* prefers shadow — it does NOT
+        // prove interception hooks are actually installed for this client.
+        // Emitting "native calls auto-route" when the install denies native
+        // tools (replace mode) wastes a round-trip when the agent trusts it.
+        // Gate on hook coverage: only clients with installed hooks get the
+        // shadow instruction.
+        let effective_shadow = shadow && client_is_hook_covered(client_name);
+        rc::render(effective_shadow, Wrapper::Bare, level, &tool_profile)
     };
 
     // Pointer to the full rule file (honours CLAUDE_CONFIG_DIR): agents load the
@@ -585,10 +593,17 @@ mod tests {
             !covered.contains("OUTPUT STYLE:"),
             "covered client must not re-pay the compression prompt:\n{covered}"
         );
+        // #987: uncovered client without hooks no longer gets shadow instruction.
+        // `effective_shadow` = false when no hooks installed, so it falls back
+        // to the non-shadow (MANDATORY MAPPING) skeleton regardless of config.
         if shadow {
             assert!(
-                uncovered.contains("auto-route"),
-                "uncovered shadow client gets the shadow nudge:\n{uncovered}"
+                !uncovered.contains("auto-route"),
+                "#987: uncovered client WITHOUT hooks must NOT get shadow nudge:\n{uncovered}"
+            );
+            assert!(
+                uncovered.contains("MANDATORY MAPPING") || uncovered.contains("ctx_"),
+                "uncovered client without hooks gets explicit tool mapping:\n{uncovered}"
             );
         } else {
             assert!(

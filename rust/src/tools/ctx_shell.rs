@@ -28,13 +28,18 @@ pub fn validate_command(command: &str) -> Option<String> {
         );
     }
 
-    let cmd_lower = command.to_lowercase();
-
-    if cmd_lower.starts_with("tee ") || cmd_lower.contains("| tee ") {
+    // #989: tee detection must run on heredoc-stripped text to avoid false
+    // positives when the word "tee" appears in heredoc/quoted payloads.
+    // `cmd | tee file` (piped) is output capture, not file authoring — the
+    // primary output still goes to stdout for the agent. Only bare `tee file`
+    // (not piped) is blocked as it is equivalent to `cat > file`.
+    let cmd_no_heredoc_lower = cmd_no_heredoc.to_lowercase();
+    if cmd_no_heredoc_lower.starts_with("tee ") && !cmd_no_heredoc_lower.contains("| tee ") {
         return Some(
-            "ERROR: ctx_shell detected a file-write command (tee). \
+            "ERROR: ctx_shell detected a file-write command (tee without pipe). \
              Use the native Write tool to create/modify files. \
-             ctx_shell is ONLY for reading command output."
+             ctx_shell is ONLY for reading command output. \
+             Piped tee (cmd | tee file) is allowed for output capture."
                 .to_string(),
         );
     }
@@ -147,6 +152,10 @@ fn is_heredoc_file_write(command: &str) -> bool {
 /// quote state, `\>` is a literal), `2>` (stderr), `/dev/null`, and
 /// comparison operators.
 /// #848: temp directory targets are read-back, not persistent writes.
+/// #848/#989: targets that are NOT persistent project-file writes.
+/// Redirecting to temp dirs, /dev/* devices, or paths containing shell
+/// variables (which we cannot resolve at parse time) is output capture,
+/// not file authoring.
 pub fn is_temp_redirect_target(target: &str) -> bool {
     let t = target.trim_start_matches(['>', '&']);
     let lower = t.to_lowercase();
@@ -156,8 +165,9 @@ pub fn is_temp_redirect_target(target: &str) -> bool {
         || lower.contains("\\tmp\\")
         || lower.starts_with("$tmpdir/")
         || lower.starts_with("${tmpdir}")
+        || t.starts_with('$')
+        || t.starts_with("${")
 }
-
 fn has_file_write_redirect(command: &str) -> bool {
     let bytes = command.as_bytes();
     let len = bytes.len();
