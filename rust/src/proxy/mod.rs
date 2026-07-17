@@ -56,6 +56,7 @@ pub mod providers;
 pub mod routing;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
+pub mod sse_keepalive;
 #[cfg(test)]
 mod stats_tests;
 pub mod sticky_tools;

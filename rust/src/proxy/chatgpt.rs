@@ -117,7 +117,9 @@ pub async fn backend_api_handler(
 
     if is_stream {
         return out
-            .body(Body::from_stream(response.bytes_stream()))
+            .body(Body::from_stream(super::sse_keepalive::keepalive_stream(
+                Box::pin(response.bytes_stream()),
+            )))
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
     }
 

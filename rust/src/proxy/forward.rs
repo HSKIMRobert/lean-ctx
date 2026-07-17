@@ -822,7 +822,8 @@ async fn build_response(
             .with_header_cost(header_cost);
         let inner = Box::pin(response.bytes_stream());
         let teed = Box::pin(super::usage::tee_stream(inner, scanner));
-        let body = xlat_stream_body(teed, xlat);
+        let kept_alive = super::sse_keepalive::keepalive_stream(teed);
+        let body = xlat_stream_body(kept_alive, xlat);
         let mut resp = Response::builder().status(status);
         for (k, v) in &resp_headers {
             let ks = k.as_str().to_lowercase();
