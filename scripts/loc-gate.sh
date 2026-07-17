@@ -19,7 +19,6 @@ ALLOWLIST=(
   rust/src/http_server/team/mod.rs
   rust/src/core/shell_allowlist/mod.rs
   rust/src/core/shell_allowlist/tests.rs
-  rust/src/hook_handlers/mod.rs
   rust/src/shell/exec.rs
 )
 
