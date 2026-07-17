@@ -344,7 +344,10 @@ pub(crate) fn process_mode_tuned(
             let target: f64 = mode[8..].parse().ok().or(aggr_target).unwrap_or(0.5);
             let result = entropy::entropy_compress_to_density(content, target);
             // #798: Quality gate — reject density output that breaks AST/symbols.
-            let (guarded_output, _q) = crate::core::quality::guard(content, &result.output, ext);
+            // #940: use density-specific guard that only checks AST/identifiers,
+            // not line count — density mode *intentionally* reduces lines.
+            let (guarded_output, _q) =
+                crate::core::quality::guard_density(content, &result.output, ext, target);
             let guarded_tokens = count_tokens(&guarded_output);
             let actual = if result.original_tokens > 0 {
                 guarded_tokens as f64 / result.original_tokens as f64

@@ -99,6 +99,54 @@ pub fn guard(original: &str, compressed: &str, ext: &str) -> (String, QualitySco
     }
 }
 
+/// #940: density-specific guard that does NOT penalise line reduction.
+///
+/// The standard `score()` composite weights `line_score` at 20% and the
+/// adaptive threshold rises as `line_score` drops — so a density target of
+/// 0.4 (which *intentionally* discards ~60% of lines) always fails by
+/// construction. Density mode needs a structure-only gate: AST + identifiers.
+pub fn guard_density(
+    original: &str,
+    compressed: &str,
+    ext: &str,
+    target: f64,
+) -> (String, QualityScore) {
+    let pres = preservation::measure(original, compressed, ext);
+    let ast_score = pres.overall();
+    let identifier_score = measure_identifier_preservation(original, compressed);
+    let line_score = measure_line_preservation(original, compressed);
+    let density = information_density(original, compressed, ext);
+
+    // Structure-only composite: ignore line_score for density mode.
+    let structure_composite = ast_score * 0.6 + identifier_score * 0.4;
+
+    // Fixed threshold: only reject when real structure is damaged, not when
+    // we kept fewer lines (which is the *point* of density mode).
+    let structure_threshold = 0.85;
+    let passed = structure_composite >= structure_threshold && density >= MIN_DENSITY;
+
+    let q = QualityScore {
+        ast_score,
+        identifier_score,
+        line_score,
+        density,
+        composite: structure_composite,
+        passed,
+    };
+
+    if passed {
+        (compressed.to_string(), q)
+    } else {
+        tracing::debug!(
+            target = target,
+            composite = structure_composite,
+            threshold = structure_threshold,
+            "density quality gate rejected → full fallback"
+        );
+        (original.to_string(), q)
+    }
+}
+
 fn measure_identifier_preservation(original: &str, compressed: &str) -> f64 {
     let ident_re = static_regex!(r"\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b");
 
