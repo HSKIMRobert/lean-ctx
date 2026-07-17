@@ -5,13 +5,13 @@ use crate::core::memory_policy::MemoryPolicy;
 impl ProjectKnowledge {
     /// Record one consolidated insight, then losslessly reclaim history to its
     /// capacity headroom. Returns the number of older insights archived (0 when
-    /// under cap). Was a hard `drain` that dropped old history permanently (#995).
+    /// under cap).
     pub fn consolidate(
         &mut self,
         summary: &str,
         session_ids: Vec<String>,
         policy: &MemoryPolicy,
-    ) -> usize {
+    ) -> Result<usize, String> {
         self.history.push(ConsolidatedInsight {
             summary: summary.to_string(),
             from_sessions: session_ids,
@@ -30,9 +30,9 @@ impl ProjectKnowledge {
                     .cmp(&a.timestamp)
                     .then_with(|| b.summary.cmp(&a.summary))
             },
-        );
+        )?;
         self.updated_at = chrono::Utc::now();
-        archived.len()
+        Ok(archived.len())
     }
 
     pub fn format_summary(&self) -> String {

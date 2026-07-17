@@ -146,11 +146,11 @@ fn run_consolidation_locked(
             s.id, task_desc, imported.findings, imported.decisions
         );
         // `consolidate` records the insight and losslessly reclaims history.
-        history_compacted += knowledge.consolidate(&summary, vec![s.id.clone()], policy);
+        history_compacted += knowledge.consolidate(&summary, vec![s.id.clone()], policy)?;
     }
 
     let lifecycle = if opts.run_lifecycle {
-        knowledge.run_memory_lifecycle(policy)
+        knowledge.run_memory_lifecycle(policy)?
     } else {
         LifecycleReport::default()
     };
@@ -160,8 +160,8 @@ fn run_consolidation_locked(
     // also compacts a pre-existing over-cap history when no session was imported.
     let mut patterns_compacted = 0usize;
     if opts.reclaim_stores {
-        patterns_compacted = reclaim_patterns(knowledge, policy);
-        history_compacted += reclaim_history(knowledge, policy);
+        patterns_compacted = reclaim_patterns(knowledge, policy)?;
+        history_compacted += reclaim_history(knowledge, policy)?;
     }
     let (procedures, procedure_capacity_target, procedures_compacted) = if opts.reclaim_stores {
         reclaim_procedures(&knowledge.project_hash, policy)?
@@ -307,7 +307,10 @@ fn has_new_session_items(session: &SessionState, watermark: Option<DateTime<Utc>
 }
 
 /// Lossless history capacity reclaim. Returns the number of insights archived.
-fn reclaim_history(knowledge: &mut ProjectKnowledge, policy: &MemoryPolicy) -> usize {
+fn reclaim_history(
+    knowledge: &mut ProjectKnowledge,
+    policy: &MemoryPolicy,
+) -> Result<usize, String> {
     reclaim_store(
         MemoryStore::History,
         Some(&knowledge.project_hash),
@@ -321,11 +324,14 @@ fn reclaim_history(knowledge: &mut ProjectKnowledge, policy: &MemoryPolicy) -> u
                 .then_with(|| b.summary.cmp(&a.summary))
         },
     )
-    .len()
+    .map(|archived| archived.len())
 }
 
 /// Lossless pattern capacity reclaim (newest kept). Returns the archived count.
-fn reclaim_patterns(knowledge: &mut ProjectKnowledge, policy: &MemoryPolicy) -> usize {
+fn reclaim_patterns(
+    knowledge: &mut ProjectKnowledge,
+    policy: &MemoryPolicy,
+) -> Result<usize, String> {
     reclaim_store(
         MemoryStore::Patterns,
         Some(&knowledge.project_hash),
@@ -340,7 +346,7 @@ fn reclaim_patterns(knowledge: &mut ProjectKnowledge, policy: &MemoryPolicy) -> 
                 .then_with(|| a.description.cmp(&b.description))
         },
     )
-    .len()
+    .map(|archived| archived.len())
 }
 
 /// Lossless procedure capacity reclaim. Returns `(remaining, target, archived)`.
@@ -364,6 +370,7 @@ fn reclaim_procedures(
         policy.lifecycle.reclaim_enabled,
         retention_cmp,
     );
+    let archived = archived?;
     let compacted = archived.len();
     if compacted > 0 {
         store

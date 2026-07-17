@@ -120,8 +120,9 @@ pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopRep
         }
 
         if max_steps >= 8 {
-            let lifecycle = knowledge.run_memory_lifecycle(&policy);
-            report.facts_archived = lifecycle.archived_count as u32;
+            if let Ok(lifecycle) = knowledge.run_memory_lifecycle(&policy) {
+                report.facts_archived = lifecycle.archived_count as u32;
+            }
             // Step 8b (#3): complementary-learning-systems consolidation lifts the
             // confidence of related, frequently-retrieved facts.
             report.facts_consolidated = step_replay_consolidation(knowledge);
