@@ -462,7 +462,8 @@ mod tests {
             "Migrated from REST to GraphQL",
             vec!["s1".into(), "s2".into()],
             &policy,
-        );
+        )
+        .expect("consolidation succeeds");
         assert_eq!(k.history.len(), 1);
         assert_eq!(k.history[0].from_sessions.len(), 2);
     }

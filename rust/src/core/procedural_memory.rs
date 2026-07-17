@@ -131,7 +131,7 @@ impl ProceduralStore {
         // always lossless (procedure eviction was already unconditional — it just
         // used to lose the dropped procedures). Same `retention_cmp` as the
         // consolidation capacity pass, so ranking is identical everywhere.
-        crate::core::memory_capacity::reclaim_store(
+        if let Err(error) = crate::core::memory_capacity::reclaim_store(
             crate::core::memory_archive::MemoryStore::Procedures,
             Some(&self.project_hash),
             &mut self.procedures,
@@ -139,7 +139,9 @@ impl ProceduralStore {
             crate::core::memory_lifecycle::DEFAULT_RECLAIM_HEADROOM_PCT,
             true,
             retention_cmp,
-        );
+        ) {
+            tracing::warn!(%error, "procedure capacity reclaim failed");
+        }
     }
 
     pub fn detect_patterns(&mut self, episodes: &[Episode], policy: &ProceduralPolicy) {

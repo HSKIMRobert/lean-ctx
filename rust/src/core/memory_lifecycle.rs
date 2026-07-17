@@ -559,7 +559,10 @@ fn truncate_chars(s: &str, max: usize) -> String {
     out
 }
 
-pub fn run_lifecycle(facts: &mut Vec<KnowledgeFact>, config: &LifecycleConfig) -> LifecycleReport {
+pub fn run_lifecycle(
+    facts: &mut Vec<KnowledgeFact>,
+    config: &LifecycleConfig,
+) -> Result<LifecycleReport, String> {
     let decayed = apply_confidence_decay(facts, config);
     let consolidated = consolidate_similar(facts, config.consolidation_similarity);
     let (compacted, archived) = compact(facts, config);
@@ -583,17 +586,17 @@ pub fn run_lifecycle(facts: &mut Vec<KnowledgeFact>, config: &LifecycleConfig) -
                 .cmp(&a.is_current())
                 .then_with(|| sort_fact_for_output(a, b))
         },
-    )
+    )?
     .len();
 
-    LifecycleReport {
+    Ok(LifecycleReport {
         decayed_count: decayed,
         consolidated_count: consolidated,
         archived_count: archived.len() + capacity_archived,
         compacted_count: compacted + capacity_archived,
         capacity_archived,
         remaining_facts: facts.len(),
-    }
+    })
 }
 
 /// Archive evicted facts (lossless). Facts keep the legacy global archive root
@@ -937,7 +940,7 @@ mod tests {
                 .map(|i| make_fact("finding", &format!("k{i}"), &format!("value {i}"), 0.8))
                 .collect();
 
-            let report = run_lifecycle(&mut facts, &config);
+            let report = run_lifecycle(&mut facts, &config).expect("lifecycle succeeds");
 
             // Hysteresis: at cap (8) → settle to headroom target (6), archive 2.
             assert_eq!(report.capacity_archived, 2);
@@ -961,7 +964,7 @@ mod tests {
             let low = make_fact("misc", "drop-low", "low salience", 0.6);
             let mut facts = vec![old, low, finding, decision];
 
-            let report = run_lifecycle(&mut facts, &config);
+            let report = run_lifecycle(&mut facts, &config).expect("lifecycle succeeds");
             let keys: Vec<&str> = facts.iter().map(|f| f.key.as_str()).collect();
 
             // 4 at cap → settle to 3; the expired fact sorts last (not current) and
@@ -1044,7 +1047,7 @@ mod tests {
             make_fact("ops", "deploy", "docker compose", 0.7),
         ];
 
-        let report = run_lifecycle(&mut facts, &config);
+        let report = run_lifecycle(&mut facts, &config).expect("lifecycle succeeds");
         assert!(report.remaining_facts <= config.max_facts);
         assert!(report.decayed_count > 0 || report.compacted_count > 0);
     }

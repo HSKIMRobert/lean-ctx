@@ -46,7 +46,8 @@ pub fn reclaim_preview(len: usize, max: usize, headroom_pct: f32, enabled: bool)
 /// archive + drop the tail down to [`reclaim_target`]. The dropped items are
 /// archived under `store`/`scope` *before* removal, so the reclaim is lossless
 /// and restorable. Returns the archived items. No-op when disabled, under cap,
-/// or `max == 0`.
+/// or `max == 0`. If persistence fails, returns the error and leaves `items`
+/// unchanged.
 pub fn reclaim_store<T, F>(
     store: MemoryStore,
     scope: Option<&str>,
@@ -55,40 +56,41 @@ pub fn reclaim_store<T, F>(
     headroom_pct: f32,
     enabled: bool,
     mut retention_cmp: F,
-) -> Vec<T>
+) -> Result<Vec<T>, String>
 where
     T: Serialize,
     F: FnMut(&T, &T) -> Ordering,
 {
     if !should_reclaim(items.len(), max, enabled) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let target = reclaim_target(max, headroom_pct);
     let drop_count = items.len().saturating_sub(target);
     if drop_count == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     // Rank a copy of the indices by retention (best-kept first); the worst
-    // `drop_count` are evicted. Order-preserving: only the chosen indices are
-    // removed, so the kept items keep their original relative order and a reclaim
-    // never reshuffles the live store as a side effect. `sort_by` is stable, so
-    // ties resolve to original order for deterministic eviction.
+    // `drop_count` are evicted. `sort_by` is stable, so ties resolve to original
+    // order for deterministic eviction.
     let mut ranked: Vec<usize> = (0..items.len()).collect();
     ranked.sort_by(|&a, &b| retention_cmp(&items[a], &items[b]));
     let mut evict: Vec<usize> = ranked[target..].to_vec();
     evict.sort_unstable();
 
+    // Persist borrowed candidates before mutating the live store. Serializing
+    // references avoids requiring `T: Clone` while preserving archive order.
+    let candidates: Vec<&T> = evict.iter().map(|&idx| &items[idx]).collect();
+    archive_items(store, scope, &candidates, &ArchiveConfig::from_env())?;
+
+    // Order-preserving: only chosen indices are removed, so retained items keep
+    // their original relative order. Reverse removal avoids index shifts.
     let mut archived: Vec<T> = Vec::with_capacity(evict.len());
     for &idx in evict.iter().rev() {
         archived.push(items.remove(idx));
     }
-    archived.reverse(); // restore original order for the archived payload
-
-    if !archived.is_empty() {
-        let _ = archive_items(store, scope, &archived, &ArchiveConfig::from_env());
-    }
-    archived
+    archived.reverse();
+    Ok(archived)
 }
 
 #[cfg(test)]
@@ -164,7 +166,8 @@ mod tests {
                 0.25,
                 true,
                 |a, b| a.rank.cmp(&b.rank),
-            );
+            )
+            .expect("reclaim succeeds");
             // 8 -> keep 6, archive 2.
             assert_eq!(items.len(), 6);
             assert_eq!(archived.len(), 2);
@@ -192,7 +195,8 @@ mod tests {
                 0.25,
                 true,
                 |a, b| a.rank.cmp(&b.rank),
-            );
+            )
+            .expect("reclaim succeeds");
             assert!(archived.is_empty());
             assert_eq!(items.len(), 3);
         });
@@ -210,7 +214,8 @@ mod tests {
                 0.25,
                 false,
                 |a, b| a.rank.cmp(&b.rank),
-            );
+            )
+            .expect("reclaim succeeds");
             assert!(archived.is_empty());
             assert_eq!(
                 items.len(),
@@ -218,5 +223,34 @@ mod tests {
                 "disabled reclaim leaves the store untouched"
             );
         });
+    }
+
+    #[test]
+    fn reclaim_store_preserves_items_when_archive_persistence_fails() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let path = std::env::temp_dir().join(format!(
+            "lctx-capacity-file-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::write(&path, b"not a directory").expect("create blocking file");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", path.to_str().unwrap());
+
+        let mut items: Vec<Item> = (0..8).map(|rank| Item { rank }).collect();
+        let original = items.clone();
+        let result = reclaim_store(
+            MemoryStore::Patterns,
+            Some("p"),
+            &mut items,
+            8,
+            0.25,
+            true,
+            |a, b| a.rank.cmp(&b.rank),
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_file(path);
+        assert!(result.is_err(), "archive persistence must fail");
+        assert_eq!(items, original, "failed reclaim must not mutate live items");
     }
 }

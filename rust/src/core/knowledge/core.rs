@@ -12,7 +12,7 @@ impl ProjectKnowledge {
     pub fn run_memory_lifecycle(
         &mut self,
         policy: &MemoryPolicy,
-    ) -> crate::core::memory_lifecycle::LifecycleReport {
+    ) -> Result<crate::core::memory_lifecycle::LifecycleReport, String> {
         let cfg = crate::core::memory_lifecycle::LifecycleConfig::from_policy(policy);
         crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
     }
@@ -353,7 +353,7 @@ impl ProjectKnowledge {
         // Lossless capacity reclaim (#995): keep the newest patterns and archive
         // the rest. The previous `truncate` kept the *oldest* patterns (it dropped
         // the just-pushed one once at the cap) and lost them permanently.
-        crate::core::memory_capacity::reclaim_store(
+        if let Err(error) = crate::core::memory_capacity::reclaim_store(
             crate::core::memory_archive::MemoryStore::Patterns,
             Some(&self.project_hash),
             &mut self.patterns,
@@ -366,7 +366,9 @@ impl ProjectKnowledge {
                     .then_with(|| a.pattern_type.cmp(&b.pattern_type))
                     .then_with(|| a.description.cmp(&b.description))
             },
-        );
+        ) {
+            tracing::warn!(%error, "pattern capacity reclaim failed");
+        }
         self.updated_at = Utc::now();
     }
 
