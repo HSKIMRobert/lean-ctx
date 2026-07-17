@@ -230,9 +230,13 @@ fn is_http_client(command: &str) -> bool {
 fn is_file_viewer(command: &str) -> bool {
     let first = first_binary(command);
     match first {
+        "cat" | "bat" | "batcat" | "pygmentize" | "highlight" => true,
         // #980: grep-family output is source code / structured search results.
-        "cat" | "bat" | "batcat" | "pygmentize" | "highlight" | "grep" | "rg" | "ag" | "ack"
-        | "sift" => true,
+        // Guard: a bare `"grep"` (no arguments) arrives from the proxy's
+        // `infer_command` for tool names like `search_files` — these proxy
+        // payloads benefit from structural compression, so only match when the
+        // command carries at least one argument (a real shell invocation).
+        "grep" | "rg" | "ag" | "ack" | "sift" => command.split_whitespace().count() > 1,
         "head" | "tail" => !command.contains("-f") && !command.contains("--follow"),
         // sed/awk are commonly used as range/pattern file viewers
         // (`sed -n '10,50p' file`, `awk '{print}' file`, GH #688). Their stdout
