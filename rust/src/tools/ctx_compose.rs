@@ -244,12 +244,67 @@ fn extract_keywords(task: &str, max: usize) -> Vec<String> {
     out
 }
 
-fn exact_match_keyword(keywords: &[String]) -> Option<&str> {
-    keywords
-        .iter()
-        .filter(|keyword| keyword.contains('_') || keyword.chars().skip(1).any(char::is_uppercase))
-        .max_by_key(|keyword| keyword.len())
-        .map(String::as_str)
+/// Order `keywords` from most to least specific using the resident BM25 index's
+/// per-token document frequency (how many chunks contain the token). Rarer =
+/// more specific = better as the "exact matches" seed. A token absent from the
+/// corpus (df 0) sinks to the end — grepping it yields nothing useful.
+///
+/// Non-blocking and best-effort: if the resident index isn't warm yet we return
+/// the keywords in their original first-seen order (the previous behaviour), so
+/// this can only improve the seed, never stall the call to build an index.
+fn order_by_specificity(keywords: &[String], project_root: &str) -> Vec<String> {
+    let Some(index) = resident_index(project_root) else {
+        return keywords.to_vec();
+    };
+    rank_by_doc_freq(keywords, &index.doc_freqs)
+}
+
+/// Pure ranking core: choose the exact-match seed keyword.
+///
+/// The seed feeds a case-sensitive regex grep, so raw rarity is the wrong sort:
+/// the rarest task token is often a lowercase prose word (`measurand`) that the
+/// index counts case-insensitively but the grep then misses against `Measurand`
+/// — 0 hits, worse than before. Instead prefer *code identifiers* (camelCase or
+/// snake_case: `GetMaxCurrent`, `CurrentGetter`), which grep straight to code,
+/// over acronyms (`OCPP`) and prose (`current`) that also match READMEs. Within
+/// each class, rarer (lower document frequency) wins; absent tokens (df 0) sink.
+/// Keys are lowercased in `doc_freqs`; a stable sort keeps first-seen order on
+/// ties, so a task with no identifiers degrades to the previous rarity order.
+fn rank_by_doc_freq(
+    keywords: &[String],
+    doc_freqs: &std::collections::HashMap<String, usize>,
+) -> Vec<String> {
+    let df = |kw: &String| match doc_freqs.get(&kw.to_ascii_lowercase()) {
+        Some(&n) if n > 0 => n,
+        _ => usize::MAX,
+    };
+    // Class 0 = code identifier (grep-friendly), class 1 = acronym/prose.
+    let rank_key = |kw: &String| (u8::from(!is_code_identifier(kw)), df(kw));
+    let mut ranked = keywords.to_vec();
+    ranked.sort_by_key(rank_key);
+    ranked
+}
+
+/// True for tokens that read as code identifiers — snake_case (`get_max_current`)
+/// or camelCase/PascalCase with an internal capital (`GetMaxCurrent`). A leading
+/// capital alone (`Current`) or an all-caps acronym (`OCPP`) does not qualify:
+/// those match prose and file boilerplate as readily as code.
+fn is_code_identifier(kw: &str) -> bool {
+    if kw.contains('_') {
+        return true;
+    }
+    let has_lower = kw.chars().any(|c| c.is_ascii_lowercase());
+    let internal_upper = kw.chars().skip(1).any(|c| c.is_ascii_uppercase());
+    has_lower && internal_upper
+}
+
+/// Fetch the already-resident BM25 index for `project_root` without triggering a
+/// build. Returns `None` when nothing is cached yet (cold start).
+fn resident_index(
+    project_root: &str,
+) -> Option<std::sync::Arc<crate::core::bm25_index::BM25Index>> {
+    let cache = crate::tools::ctx_semantic_search::get_thread_cache()?;
+    crate::core::bm25_cache::get_or_background(&cache, std::path::Path::new(project_root))
 }
 
 /// Run the semantic ranking stage under a wall-time budget. Returns the ranked
@@ -363,10 +418,14 @@ pub fn handle(task: &str, project_root: &str, crp_mode: CrpMode) -> (String, usi
     out.push_str(&ranked_files_budgeted(task, project_root, crp_mode));
     out.push('\n');
 
-    // 2. Exact matches only for identifier-shaped terms. Broad prose words and
-    // acronyms create repository-wide README/Dockerfile noise and can exhaust
-    // the search budget before reaching source.
-    if let Some(primary) = exact_match_keyword(&keywords) {
+    // 2. Exact match locations for the most specific identifier-shaped keyword.
+    // Broad prose words and acronyms create repository-wide README/Dockerfile
+    // noise. Within identifiers, the resident index ranks the rarest one first.
+    let ranked_keywords = order_by_specificity(&keywords, project_root);
+    if let Some(primary) = ranked_keywords
+        .iter()
+        .find(|keyword| is_code_identifier(keyword))
+    {
         let grep = crate::tools::ctx_search::handle(
             primary,
             project_root,
@@ -443,6 +502,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rank_by_doc_freq_puts_rare_identifier_first() {
+        // The evcc/#993 shape: an "OCPP … GetMaxCurrent" task. `Current` and
+        // `OCPP` are common tokens; `GetMaxCurrent` is rare. The rare one must
+        // seed the exact-match grep so it lands on code, not README/Dockerfile.
+        let keywords = vec![
+            "OCPP".to_string(),
+            "GetMaxCurrent".to_string(),
+            "Current".to_string(),
+        ];
+        let doc_freqs = std::collections::HashMap::from([
+            ("ocpp".to_string(), 120),
+            ("current".to_string(), 400),
+            ("getmaxcurrent".to_string(), 3),
+        ]);
+        let ranked = rank_by_doc_freq(&keywords, &doc_freqs);
+        assert_eq!(ranked.first().unwrap(), "GetMaxCurrent");
+        assert_eq!(ranked.last().unwrap(), "Current");
+    }
+
+    #[test]
+    fn rank_by_doc_freq_sinks_absent_tokens_and_is_stable() {
+        // A token absent from the corpus (df 0) is useless as a grep seed and
+        // must sort last; equal-df tokens keep their original order.
+        let keywords = vec![
+            "absent".to_string(),
+            "alpha".to_string(),
+            "beta".to_string(),
+        ];
+        let doc_freqs =
+            std::collections::HashMap::from([("alpha".to_string(), 5), ("beta".to_string(), 5)]);
+        let ranked = rank_by_doc_freq(&keywords, &doc_freqs);
+        assert_eq!(ranked, vec!["alpha", "beta", "absent"]);
+    }
+
+    #[test]
+    fn rank_prefers_code_identifier_over_rarer_prose_word() {
+        // The regression the case-sensitive grep exposed: a rarer lowercase prose
+        // token (`measurand`, df 4) must NOT beat a camelCase identifier
+        // (`GetMaxCurrent`, df 30) as the seed — the identifier greps to code,
+        // the prose word whiffs against `Measurand`.
+        let keywords = vec!["measurand".to_string(), "GetMaxCurrent".to_string()];
+        let doc_freqs = std::collections::HashMap::from([
+            ("measurand".to_string(), 4),
+            ("getmaxcurrent".to_string(), 30),
+        ]);
+        let ranked = rank_by_doc_freq(&keywords, &doc_freqs);
+        assert_eq!(ranked.first().unwrap(), "GetMaxCurrent");
+    }
+
+    #[test]
+    fn is_code_identifier_classifies_camel_snake_vs_prose_and_acronym() {
+        assert!(is_code_identifier("GetMaxCurrent"));
+        assert!(is_code_identifier("CurrentGetter"));
+        assert!(is_code_identifier("get_max_current"));
+        // Leading-cap word and all-caps acronym are not code identifiers.
+        assert!(!is_code_identifier("Current"));
+        assert!(!is_code_identifier("OCPP"));
+        assert!(!is_code_identifier("charger"));
+    }
+
+    #[test]
     fn extract_keywords_drops_stopwords_and_short_tokens() {
         let kw = extract_keywords("How does the BM25Index cache work for ctx_search?", 6);
         assert!(kw.contains(&"BM25Index".to_string()));
@@ -464,10 +584,12 @@ mod tests {
             "OCPP charger GetMaxCurrent Current.Offered measurand CurrentGetter",
             6,
         );
-        assert_eq!(exact_match_keyword(&keywords), Some("GetMaxCurrent"));
+        assert!(keywords.iter().any(|keyword| keyword == "GetMaxCurrent"));
+        assert!(keywords.iter().any(|keyword| is_code_identifier(keyword)));
+        assert!(!is_code_identifier("OCPP"));
 
         let prose = extract_keywords("Fix semantic ranking exact matches", 6);
-        assert_eq!(exact_match_keyword(&prose), None);
+        assert!(prose.iter().all(|keyword| !is_code_identifier(keyword)));
     }
 
     #[test]

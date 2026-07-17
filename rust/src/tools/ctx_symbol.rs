@@ -66,20 +66,33 @@ pub fn best_symbol_snippet_for_task(
 ) -> Option<(String, usize)> {
     let open = graph_provider::open_or_build(project_root)?;
     let gp = &open.provider;
-    let sym = gp
-        .find_symbols(name, None, None)
-        .into_iter()
-        .max_by(|left, right| {
-            symbol_task_score(left, task)
-                .cmp(&symbol_task_score(right, task))
-                .then_with(|| right.file.cmp(&left.file))
-                .then_with(|| right.start_line.cmp(&left.start_line))
-        })?;
-    Some(render_single(&sym, gp, project_root))
+    let candidates = gp.find_symbols(name, None, None);
+    let scores: Vec<usize> = candidates
+        .iter()
+        .map(|candidate| symbol_task_score(candidate, task))
+        .collect();
+    let index = first_highest_score(&scores)?;
+    let (rendered, _full_file_tokens) = render_single(&candidates[index], gp, project_root);
+    let emitted_tokens = count_tokens(&rendered);
+    Some((rendered, emitted_tokens))
 }
 
 pub fn best_symbol_snippet(name: &str, project_root: &str) -> Option<(String, usize)> {
     best_symbol_snippet_for_task(name, name, project_root)
+}
+
+/// Return the first index with the highest score so an uninformative task
+/// preserves `find_symbols(...).next()` behaviour instead of selecting the
+/// last equal candidate.
+fn first_highest_score(scores: &[usize]) -> Option<usize> {
+    let (mut best_index, mut best_score) = (0, *scores.first()?);
+    for (index, &score) in scores.iter().enumerate().skip(1) {
+        if score > best_score {
+            best_index = index;
+            best_score = score;
+        }
+    }
+    Some(best_index)
 }
 
 fn symbol_task_score(symbol: &SymbolInfo, task: &str) -> usize {
@@ -392,5 +405,12 @@ mod tests {
         let task = "OCPP charger GetMaxCurrent Current.Offered measurand";
 
         assert!(symbol_task_score(&ocpp, task) > symbol_task_score(&api, task));
+    }
+
+    #[test]
+    fn equal_scores_preserve_first_symbol_match() {
+        assert_eq!(first_highest_score(&[0, 0, 0]), Some(0));
+        assert_eq!(first_highest_score(&[2, 7, 7]), Some(1));
+        assert_eq!(first_highest_score(&[]), None);
     }
 }
