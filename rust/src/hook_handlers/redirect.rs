@@ -166,20 +166,21 @@ pub(super) fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
     let binary = resolve_binary();
     let temp_path = redirect_temp_path(&path);
 
-    // Re-read passthrough (#938): when a marker exists for this path, the
-    // model already saw the compressed view. Pass through natively so any
-    // subsequent Write/Edit gets the real file content — regardless of IDE.
+    // Re-read handling (#938, #1048): when a marker exists, the model already
+    // saw the compressed view. The strategy depends on the host:
     //
-    // The hook redirect path intentionally does NOT send [unchanged] stubs
-    // (#938 follow-up): we cannot know whether a host's Edit tool fires an
-    // internal Read that also triggers this hook (Gemini CLI, and potentially
-    // others without a read_before_write_guard). If it does, a stub would be
-    // served as "file content" and break the edit. The [unchanged] stub lives
-    // safely on the PostToolUse read_dedup and MCP ctx_read (session cache)
-    // paths where it never touches the Edit flow.
+    // **Cursor** (no read-before-write guard): re-redirect through lean-ctx to
+    // produce the *same* compressed output. The file is unchanged so the result
+    // is byte-identical to the first read (prompt-cache optimal). The marker
+    // stays alive so read 3, 4, ... also get compressed. This eliminates the
+    // every-other-read 0% savings gap (#1048).
     //
-    // Marker format: "{mtime}\n{read_count}" — mtime detects file changes,
-    // read_count is reserved for future per-host tuning.
+    // **Guard hosts** (Claude Code, CodeBuddy): native passthrough. These hosts
+    // fire an internal Read before Write that also triggers this hook; a
+    // compressed response would break the edit. The PostToolUse `read_dedup`
+    // handler owns dedup on these hosts instead.
+    //
+    // Marker format: "{mtime}\n{read_count}" -- mtime detects file changes.
     let marker = redirect_read_marker(&path);
     if marker.exists() {
         if let Ok(marker_data) = std::fs::read_to_string(&marker) {
@@ -188,24 +189,39 @@ pub(super) fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
             let current_mtime = file_mtime_str(&path);
 
             if current_mtime.as_str() == *stored_mtime {
+                if crate::core::config::read_redirect::hook_host_is_cursor() {
+                    // Cursor: re-compress unchanged file (safe, no guard).
+                    // Keep marker alive so subsequent reads also compress.
+                    debug_log::log_hook_decision(
+                        "redirect",
+                        "Read",
+                        Route::LeanCtx,
+                        &path,
+                        "re-read re-compress (Cursor, no guard)",
+                    );
+                    // Fall through to lean-ctx redirect below.
+                } else {
+                    // Guard host: native passthrough (read_dedup owns dedup).
+                    debug_log::log_hook_decision(
+                        "redirect",
+                        "Read",
+                        Route::Native,
+                        &path,
+                        "re-read passthrough (guard host, edit-safe)",
+                    );
+                    let _ = std::fs::remove_file(&marker);
+                    return build_dual_allow_output();
+                }
+            } else {
                 debug_log::log_hook_decision(
                     "redirect",
                     "Read",
-                    Route::Native,
+                    Route::LeanCtx,
                     &path,
-                    "re-read passthrough (edit-safe, all IDEs)",
+                    "file changed since first read, re-compress",
                 );
                 let _ = std::fs::remove_file(&marker);
-                return build_dual_allow_output();
             }
-            debug_log::log_hook_decision(
-                "redirect",
-                "Read",
-                Route::LeanCtx,
-                &path,
-                "file changed since first read — re-compress",
-            );
-            let _ = std::fs::remove_file(&marker);
         } else {
             let _ = std::fs::remove_file(&marker);
         }
