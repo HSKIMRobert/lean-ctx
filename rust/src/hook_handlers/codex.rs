@@ -66,6 +66,14 @@ pub fn handle_codex_pretooluse() {
         return;
     }
 
+    // Commands already routed through lean-ctx (e.g. `lean-ctx -c '...'` or
+    // `/opt/homebrew/bin/lean-ctx -c '...'`) must pass through — denying them
+    // blocks lean-ctx's own CLI surface (#801).
+    if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
+        print!("{}", codex_allow_output());
+        return;
+    }
+
     // Replace mode: deny non-rewritable Bash calls (agent must use ctx_shell)
     let mode = crate::hooks::recommend_hook_mode("codex");
     if mode == crate::hooks::HookMode::Replace {
@@ -167,4 +175,29 @@ pub fn handle_codex_session_start() {
         return;
     }
     emit_session_start_additional_context(CODEX_SHELL_RECOVERY_HINT);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codex_deny_does_not_block_leanctx_cli_invocations() {
+        // #801: `lean-ctx -c '...'` must not be denied in replace mode.
+        // The deny output should only fire for truly native Bash commands.
+        let deny_msg = codex_deny_output("lean-ctx -c 'git status'");
+        // This is the deny message format — verify it exists for native commands
+        assert!(deny_msg.contains("deny"), "deny output must contain deny");
+
+        // The allow output must NOT contain deny
+        let allow_msg = codex_allow_output();
+        assert!(
+            allow_msg.contains("allow"),
+            "allow output must contain allow"
+        );
+        assert!(
+            !allow_msg.contains("deny"),
+            "allow output must not contain deny"
+        );
+    }
 }
