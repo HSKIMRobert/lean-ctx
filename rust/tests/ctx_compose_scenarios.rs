@@ -153,3 +153,62 @@ fn compose_surfaces_associative_neighbours() {
         "the sibling neighbour should be surfaced via spreading activation:\n{out}"
     );
 }
+
+/// Two files define a symbol of the same name; the task keywords point at one.
+/// Regression for #993: `best_symbol_snippet` used to inline `find_symbols(name)
+/// .next()` — an arbitrary match — so a trivial config accessor could win over
+/// the OCPP charger method the task was about. It must now pick by path/keyword
+/// relevance.
+fn write_ambiguous_symbol_corpus() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    // The OCPP charger method the task is about — its path carries the keyword.
+    std::fs::write(
+        dir.path().join("ocpp.rs"),
+        "pub fn get_max_current() -> f64 {\n    \
+         // offered current from the OCPP meter\n    \
+         OCPP_OFFERED_CURRENT_MARKER\n}\n",
+    )
+    .unwrap();
+    // A same-named trivial accessor in an unrelated file — the old wrong pick.
+    std::fs::write(
+        dir.path().join("actionconfig.rs"),
+        "pub fn get_max_current() -> f64 {\n    \
+         TRIVIAL_CONFIG_MARKER\n}\n",
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn compose_disambiguates_same_named_symbol_by_task_keywords() {
+    let _guard = ENV_GUARD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // SAFETY: the suite runs with --test-threads=1 (see ci.yml).
+    unsafe { std::env::remove_var("LEAN_CTX_COMPOSE_BUDGET_MS") };
+    let dir = write_ambiguous_symbol_corpus();
+
+    // "OCPP" in the task keywords points the symbol picker at ocpp.rs.
+    let (out, _tokens) = ctx_compose::handle(
+        "OCPP charger get_max_current offered current",
+        &dir.path().to_string_lossy(),
+        CrpMode::Off,
+    );
+
+    // The claim is about which same-named symbol gets *inlined* under
+    // "Top symbols", not about suppressing the other file everywhere — the
+    // semantic "Ranked files" section may still list both. So scope the check
+    // to the inlined-bodies section.
+    let symbols = out
+        .split("## Top symbols")
+        .nth(1)
+        .expect("compose must produce a Top symbols section for a resolvable symbol");
+    assert!(
+        symbols.contains("OCPP_OFFERED_CURRENT_MARKER"),
+        "must inline the OCPP method's body, disambiguated by task keywords:\n{out}"
+    );
+    assert!(
+        !symbols.contains("TRIVIAL_CONFIG_MARKER"),
+        "must not inline the unrelated same-named accessor:\n{out}"
+    );
+}

@@ -58,14 +58,60 @@ pub fn handle(
     (out, 0)
 }
 
-/// Render the body of the single most relevant symbol named `name`.
-/// Used by `ctx_compose` to inline the top symbol's definition. Returns
-/// `(rendered_with_body, full_file_tokens)` or `None` when no graph/symbol.
-pub fn best_symbol_snippet(name: &str, project_root: &str) -> Option<(String, usize)> {
+/// Render the body of the single most relevant symbol named `name`, using the
+/// surrounding task `keywords` to disambiguate same-named symbols across the
+/// repo. Used by `ctx_compose` to inline the top symbol's definition. Returns
+/// `(rendered_with_body, emitted_snippet_tokens)` or `None` when no graph/symbol.
+/// The token count is the size of what is actually emitted (the snippet), not
+/// the whole source file — `ctx_compose` charges it against a coverage budget,
+/// and billing a 13-line method the tokens of its 440-line file would drop the
+/// symbol from the budget entirely (why the "Top symbols" section vanished once
+/// disambiguation started picking methods in large files).
+///
+/// Without task context a bare `find_symbols(name).next()` returns an arbitrary
+/// match — e.g. a trivial `GetMaxCurrent` config accessor over the OCPP charger
+/// method the task is actually about (issue #993). We rank candidates by how
+/// well their file path reflects the *other* task keywords, preferring exported
+/// symbols, and fall back to first-match only when nothing distinguishes them.
+pub fn best_symbol_snippet(
+    name: &str,
+    keywords: &[String],
+    project_root: &str,
+) -> Option<(String, usize)> {
     let open = graph_provider::open_or_build(project_root)?;
     let gp = &open.provider;
-    let sym = gp.find_symbols(name, None, None).into_iter().next()?;
-    Some(render_single(&sym, gp, project_root))
+    let candidates = gp.find_symbols(name, None, None);
+
+    // Other task keywords (everything except the one that resolved this symbol),
+    // lowercased once for case-insensitive path matching.
+    let others: Vec<String> = keywords
+        .iter()
+        .filter(|k| !k.eq_ignore_ascii_case(name))
+        .map(|k| k.to_ascii_lowercase())
+        .collect();
+
+    let sym = candidates
+        .into_iter()
+        .max_by_key(|s| symbol_task_score(s, &others))?;
+    // Charge the coverage budget for the emitted snippet, not the whole file
+    // (render_single's second value is full-file tokens, meant for ctx_symbol's
+    // savings metric — the wrong unit for a per-snippet budget).
+    let (rendered, _full_file_tokens) = render_single(&sym, gp, project_root);
+    let emitted_tokens = count_tokens(&rendered);
+    Some((rendered, emitted_tokens))
+}
+
+/// Relevance of a same-named symbol to the task, from its path and visibility.
+/// Higher is better; ties keep `max_by_key`'s last-seen (i.e. `find_symbols`
+/// order), so a zero-signal task degrades to the previous first-match behaviour.
+fn symbol_task_score(sym: &SymbolInfo, other_keywords_lower: &[String]) -> i64 {
+    let path_lower = sym.file.to_ascii_lowercase();
+    let path_hits = other_keywords_lower
+        .iter()
+        .filter(|k| path_lower.contains(k.as_str()))
+        .count() as i64;
+    // Path relevance dominates; exported is a weak tiebreak below it.
+    path_hits * 10 + if sym.is_exported { 1 } else { 0 }
 }
 
 /// Render one symbol resolved from a stable handle (`path#name@Lline`),
