@@ -22,11 +22,12 @@ impl McpTool for CtxPatchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_patch",
-            "Hash-anchored edit — patch by (line,hash) anchor from ctx_read(anchored)/ctx_search(anchored=true).\n\
-             Ops: set_line(line,hash,new_text) | replace_lines(start_line/hash,end_line/hash,new_text) |\n\
-             insert_after(line,hash,new_text) | delete(line,hash or start/end range) |\n\
-             replace_symbol(name,new_body) | create(new_text) | replace_all(find,replace,dry_run).\n\
-             Batch: ops:[{…}] (not replace_symbol/replace_all). Stale → CONFLICT.",
+            "Hash-anchored edit. ALWAYS ctx_read(mode=\"anchored\") first → lines like 42:a1b2|code (line=42, hash=a1b2).\n\
+             replace_lines(path, start_line, start_hash, end_line, end_hash, new_text) — ALL fields required.\n\
+             set_line(path, line, hash, new_text) | insert_after(path, line, hash, new_text) | delete(path, line, hash).\n\
+             replace_symbol(path, name, new_body) | create(path, new_text) | replace_all(path, find, replace, dry_run?).\n\
+             Batch: ops:[{op, path, ...}] — not replace_symbol/replace_all.\n\
+             CONFLICT = stale anchors, re-read. NEVER patch by line number alone (no hash → error).",
             json!({
                 "type": "object",
                 "properties": {
