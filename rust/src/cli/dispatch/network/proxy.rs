@@ -422,7 +422,9 @@ pub(crate) fn cmd_proxy(rest: &[String]) {
                     .unwrap_or_else(crate::proxy_setup::default_port);
                 let autostart = rest.iter().any(|a| a == "--autostart");
                 if autostart {
-                    crate::proxy_autostart::install(port, false);
+                    if !crate::proxy_autostart::install(port, false) {
+                        std::process::exit(1);
+                    }
                     return;
                 }
                 let detach = rest.iter().any(|a| a == "--detach" || a == "-d");
@@ -458,9 +460,15 @@ pub(crate) fn cmd_proxy(rest: &[String]) {
                     // single source of truth for the long-lived proxy (#449).
                     crate::proxy_autostart::stop();
                     std::thread::sleep(std::time::Duration::from_millis(700));
-                    crate::proxy_autostart::start();
-                    println!("\x1b[32m✓\x1b[0m Proxy restarted (managed service).");
-                    println!("  Verify active upstreams: lean-ctx proxy status");
+                    if crate::proxy_autostart::start_on_port(port) {
+                        println!("\x1b[32m✓\x1b[0m Proxy restarted (managed service).");
+                        println!("  Verify active upstreams: lean-ctx proxy status");
+                    } else {
+                        eprintln!(
+                            "\x1b[31m✗\x1b[0m Managed proxy restart failed; port {port} was not transferred."
+                        );
+                        std::process::exit(1);
+                    }
                 } else if stop_proxy_process(port) {
                     println!();
                     println!("  No autostart service installed — start the proxy again:");
@@ -560,7 +568,12 @@ pub(crate) fn cmd_proxy(rest: &[String]) {
                 bridge_codex_chatgpt_optin();
 
                 let port = crate::proxy_setup::default_port();
-                crate::proxy_autostart::install(port, false);
+                if !crate::proxy_autostart::install(port, false) {
+                    eprintln!(
+                        "\x1b[31m✗\x1b[0m Proxy enable failed; managed service did not acquire port {port}."
+                    );
+                    std::process::exit(1);
+                }
                 std::thread::sleep(std::time::Duration::from_millis(500));
 
                 let home = dirs::home_dir().unwrap_or_default();

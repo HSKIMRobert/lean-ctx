@@ -744,6 +744,7 @@ async fn shutdown_signal() {
 async fn health() -> impl IntoResponse {
     let body = serde_json::json!({
         "status": "ok",
+        "service": "lean-ctx-proxy",
         "pid": std::process::id(),
     });
     (StatusCode::OK, axum::Json(body))
