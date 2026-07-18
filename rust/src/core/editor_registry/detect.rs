@@ -80,6 +80,14 @@ pub fn build_targets(home: &Path) -> Vec<EditorTarget> {
             config_type: ConfigType::Codex,
         },
         EditorTarget {
+            name: "Grok",
+            agent_key: "grok".to_string(),
+            // Same TOML shape as Codex: [mcp_servers.lean-ctx] command/args.
+            config_path: home.join(".grok/config.toml"),
+            detect_path: home.join(".grok"),
+            config_type: ConfigType::Codex,
+        },
+        EditorTarget {
             name: "Gemini CLI",
             agent_key: "gemini".to_string(),
             config_path: home.join(".gemini/settings.json"),

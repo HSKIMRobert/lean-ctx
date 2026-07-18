@@ -173,6 +173,15 @@ It is used by:
       "sources": ["https://developers.openai.com/codex/mcp", "https://developers.openai.com/codex/hooks"]
     },
     {
+      "id": "grok",
+      "displayName": "Grok",
+      "config": { "paths": ["~/.grok/config.toml", ".grok/config.toml"], "rootKey": "mcp_servers" },
+      "hooks": { "supported": true, "paths": ["~/.grok/hooks/*.json"], "events": ["PreToolUse", "SessionStart", "PreCompact"] },
+      "toolApproval": { "model": "policy", "key": null },
+      "instructionLimits": { "mcpServerInstructionsMaxChars": null },
+      "sources": ["https://x.ai/cli"]
+    },
+    {
       "id": "trae",
       "displayName": "Trae",
       "config": { "paths": ["~/.trae/mcp.json", ".trae/mcp.json"], "rootKey": "mcpServers" },
