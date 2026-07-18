@@ -10,7 +10,6 @@ FROZEN_LIMIT=2000
 
 # Legacy files awaiting their split (Wave C and later). Paths relative to repo root.
 ALLOWLIST=(
-  rust/src/proxy_setup.rs
   rust/src/core/config/mod.rs
   rust/src/core/rules_canonical.rs
   rust/src/core/config/tests.rs

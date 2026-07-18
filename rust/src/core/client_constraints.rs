@@ -107,6 +107,12 @@ pub const ALL_CLIENTS: &[ClientConstraints] = &[
         supports_auto_approve: false,
     },
     ClientConstraints {
+        id: "grok",
+        display_name: "Grok",
+        mcp_instructions_max_chars: None,
+        supports_auto_approve: false,
+    },
+    ClientConstraints {
         id: "trae",
         display_name: "Trae",
         mcp_instructions_max_chars: None,
@@ -167,6 +173,7 @@ pub fn by_editor_name(name: &str) -> Option<&'static ClientConstraints> {
         "Gemini CLI" => by_client_id("gemini-cli"),
         "Antigravity" => by_client_id("antigravity"),
         "Codex CLI" => by_client_id("codex"),
+        "Grok" => by_client_id("grok"),
         "Trae" => by_client_id("trae"),
         "Qwen Code" => by_client_id("qwen-code"),
         "Verdent" => by_client_id("verdent"),

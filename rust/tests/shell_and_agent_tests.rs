@@ -469,6 +469,74 @@ fn agent_init_lists_antigravity_in_supported() {
 }
 
 #[test]
+fn agent_init_lists_grok_in_supported() {
+    let (_stdout, stderr, _code) =
+        run_with_env(&["init", "--agent", "nonexistent_agent"], &[], None);
+    assert!(
+        stderr.contains("grok"),
+        "supported list should include grok: {stderr}"
+    );
+}
+
+#[test]
+fn agent_init_grok_writes_mcp_hooks_and_skill() {
+    let tmpdir = tempfile::tempdir().expect("create tempdir");
+    let home = tmpdir.path();
+    std::fs::create_dir_all(home.join(".grok")).unwrap();
+    std::fs::write(home.join(".grok/config.toml"), "[ui]\ntheme = \"test\"\n").unwrap();
+
+    let home_str = home.to_string_lossy().to_string();
+    #[cfg(not(windows))]
+    let env = [("HOME", home_str.as_str()), ("LEAN_CTX_DISABLED", "1")];
+    #[cfg(windows)]
+    let env = [
+        ("HOME", home_str.as_str()),
+        ("USERPROFILE", home_str.as_str()),
+        ("LEAN_CTX_DISABLED", "1"),
+    ];
+
+    let (stdout, stderr, code) = run_with_env(
+        &["init", "--agent", "grok", "--global", "--mode", "hybrid"],
+        &env,
+        None,
+    );
+    assert_eq!(
+        code, 0,
+        "init --agent grok should succeed\nstdout={stdout}\nstderr={stderr}"
+    );
+    assert!(
+        !stderr.contains("Unknown agent"),
+        "grok should be recognized: {stderr}"
+    );
+
+    let config = std::fs::read_to_string(home.join(".grok/config.toml")).unwrap();
+    assert!(
+        config.contains("[mcp_servers.lean-ctx]"),
+        "MCP section missing: {config}"
+    );
+
+    let hooks = std::fs::read_to_string(home.join(".grok/hooks/lean-ctx.json")).unwrap();
+    assert!(
+        hooks.contains("hook rewrite") && hooks.contains("PreToolUse"),
+        "hooks missing rewrite: {hooks}"
+    );
+
+    let skill = home.join(".grok/skills/lean-ctx/SKILL.md");
+    assert!(skill.exists(), "SKILL.md should be installed at {skill:?}");
+
+    // Global rules injection uses ~/.grok/AGENTS.md when the home is detected.
+    // Under a temp HOME with only config.toml present, detection should succeed.
+    let agents_md = home.join(".grok/AGENTS.md");
+    if agents_md.exists() {
+        let body = std::fs::read_to_string(&agents_md).unwrap();
+        assert!(
+            body.contains("lean-ctx"),
+            "AGENTS.md should mention lean-ctx: {body}"
+        );
+    }
+}
+
+#[test]
 fn hook_rewrite_works_with_shell_override() {
     let input = r#"{"tool_name":"Bash","command":"git status"}"#;
     let (stdout, _stderr, _code) = run_hook_test(

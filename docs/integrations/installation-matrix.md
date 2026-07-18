@@ -22,6 +22,7 @@ The default per agent comes from `recommend_hook_mode`: agents in the `HYBRID_AG
 |----------|--------------------------|-----------|
 | `cursor` | **Hybrid** | `hooks.json` compresses Shell output; MCP for cached reads/search |
 | `codex` | **Hybrid** | `hooks.json` (SessionStart/PreToolUse) for Bash; MCP for reads (Desktop/Cloud variants have no hooks) |
+| `grok` | **Replace** | Claude-compatible `~/.grok/hooks/*.json` (PreToolUse rewrite/redirect/deny); MCP in `~/.grok/config.toml` |
 | `gemini` | **Hybrid** | BeforeTool hooks for shell; MCP for reads/search |
 | `claude` / `claude-code` | **Hybrid** | PreToolUse Bash hooks + MCP (hooks don't fire in headless `-p` mode → MCP guarantees reads) |
 | `codebuddy` | **Hybrid** | Same architecture as Claude Code — PreToolUse Bash hooks + MCP |
@@ -43,6 +44,17 @@ Legend:
 | Claude Code (`claude`) | `~/.claude.json` (MCP enabled — Hybrid) | `~/.claude/CLAUDE.md` block (no rules file since 3.8) | `~/.claude/settings.json` hook wiring (Bash rewrite + Read redirect) | `~/.claude/skills/lean-ctx/SKILL.md` |
 | CodeBuddy (`codebuddy`) | `~/.codebuddy.json` (MCP enabled — Hybrid) | `~/.codebuddy/CODEBUDDY.md` block | `~/.codebuddy/settings.json` hook wiring (Bash rewrite + Read redirect) | `~/.codebuddy/skills/lean-ctx/SKILL.md` |
 | Codex (`codex`) | `~/.codex/config.toml` (MCP enabled — Hybrid) | `~/.codex/LEAN-CTX.md` + `~/.codex/AGENTS.md` | `~/.codex/hooks.json` (SessionStart/PreToolUse) | `~/.codex/skills/lean-ctx/SKILL.md` |
+| Grok (`grok`) | `~/.grok/config.toml` (`[mcp_servers.lean-ctx]`) | `~/.grok/AGENTS.md` | `~/.grok/hooks/lean-ctx.json` (PreToolUse + SessionStart) | `~/.grok/skills/lean-ctx/SKILL.md` |
+
+### LLM proxy wiring (`lean-ctx proxy enable`)
+
+| Agent | Config / env written | Upstream on lean-ctx proxy |
+|------|----------------------|---------------------------|
+| Claude | `ANTHROPIC_BASE_URL` (API-key mode only) | `anthropic` → `api.anthropic.com` |
+| Codex | `openai_base_url` / optional ChatGPT rail | `openai` / ChatGPT backend |
+| Pi | `~/.pi/agent/models.json` `baseUrl` | Anthropic + OpenAI built-ins |
+| Grok (subscription / `grok login`) | shell `GROK_CLI_CHAT_PROXY_BASE_URL` only — **never** `models_base_url` (that forces API-key auth) | `/providers/grok-chat/v1` → `https://cli-chat-proxy.grok.com` (session Bearer forwarded) |
+| Grok (API key / `XAI_API_KEY`) | `[endpoints].models_base_url` + `GROK_MODELS_BASE_URL` | `/providers/xai/v1` → `https://api.x.ai` |
 | OpenCode (`opencode`) | `~/.config/opencode/opencode.json` (MCP enabled — Hybrid) | `~/.config/opencode/rules/lean-ctx.md` | `~/.config/opencode/plugins/lean-ctx.ts` | — |
 | Windsurf (`windsurf`) | `~/.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/rules/lean-ctx.md` (global) + project `.windsurfrules` | `~/.codeium/windsurf/hooks.json` (`observe` + `pre_mcp_tool_use`) | — (N/A by design) |
 | VS Code (`vscode`) | `~/Library/Application Support/Code/User/mcp.json` (macOS) · `~/.config/Code/User/mcp.json` (Linux) — native MCP, written by `setup` | `~/Library/Application Support/Code/User/.../copilot-instructions.md` | — | — |

@@ -25,7 +25,9 @@ pub fn setup_single_agent(
     global: bool,
     mode: crate::hooks::HookMode,
 ) -> AgentSetupResult {
-    let home = dirs::home_dir().unwrap_or_default();
+    // Prefer HOME/USERPROFILE so tests and portable installs work on Windows
+    // (dirs::home_dir uses Known Folder API and ignores env overrides).
+    let home = crate::core::home::resolve_home_dir().unwrap_or_default();
     let mut result = AgentSetupResult::default();
 
     crate::hooks::install_agent_hook_with_mode(agent_name, global, mode);
@@ -55,7 +57,9 @@ pub fn setup_single_agent(
 }
 
 pub fn configure_agent_mcp(agent: &str) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    // Prefer HOME/USERPROFILE (dirs::home_dir ignores env on Windows).
+    let home = crate::core::home::resolve_home_dir()
+        .ok_or_else(|| "Cannot determine home directory".to_string())?;
     let binary = resolve_portable_binary();
 
     let targets = agent_mcp_targets(agent, &home)?;
@@ -178,6 +182,12 @@ pub(crate) fn agent_mcp_targets(
                 ConfigType::Codex,
             );
         }
+        "grok" => push(
+            &mut targets,
+            "Grok",
+            home.join(".grok/config.toml"),
+            ConfigType::Codex,
+        ),
         "gemini" => {
             push(
                 &mut targets,
@@ -365,7 +375,9 @@ pub(crate) fn agent_mcp_targets(
 }
 
 pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or_else(|| "Cannot determine home directory".to_string())?;
+    // Prefer HOME/USERPROFILE (dirs::home_dir ignores env on Windows).
+    let home = crate::core::home::resolve_home_dir()
+        .ok_or_else(|| "Cannot determine home directory".to_string())?;
 
     let mut targets = Vec::<EditorTarget>::new();
 
@@ -433,6 +445,12 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
                 ConfigType::Codex,
             );
         }
+        "grok" => push(
+            &mut targets,
+            "Grok",
+            home.join(".grok/config.toml"),
+            ConfigType::Codex,
+        ),
         "gemini" => {
             push(
                 &mut targets,

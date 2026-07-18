@@ -178,6 +178,10 @@ pub struct ProxyStats {
     pub openai: ProviderStats,
     pub chatgpt: ProviderStats,
     pub gemini: ProviderStats,
+    /// Grok dual-rail (`/providers/grok-chat`, `/providers/xai`) — OpenAI wire
+    /// shape, separate identity so `proxy status` does not fold xAI traffic
+    /// into the OpenAI bucket.
+    pub grok: ProviderStats,
 }
 
 #[derive(Default)]
@@ -201,6 +205,7 @@ impl Default for ProxyStats {
             openai: ProviderStats::default(),
             chatgpt: ProviderStats::default(),
             gemini: ProviderStats::default(),
+            grok: ProviderStats::default(),
         }
     }
 }
@@ -256,12 +261,15 @@ impl ProxyStats {
     /// Maps a proxy `provider_label` to its per-upstream bucket. Unknown labels
     /// return `None` (still counted in the totals, never misattributed to a bucket);
     /// every real upstream — Gemini included — passes an explicit label.
+    /// `"Grok"` is the identity label for registry routes `grok-chat` / `xai`
+    /// (OpenAI wire shape; see `providers::stats_label`).
     fn provider(&self, provider_label: &str) -> Option<&ProviderStats> {
         match provider_label {
             "Anthropic" => Some(&self.anthropic),
             "OpenAI" => Some(&self.openai),
             "ChatGPT" => Some(&self.chatgpt),
             "Gemini" => Some(&self.gemini),
+            "Grok" => Some(&self.grok),
             _ => None,
         }
     }
@@ -272,6 +280,7 @@ impl ProxyStats {
             "openai": self.openai.summary(),
             "chatgpt": self.chatgpt.summary(),
             "gemini": self.gemini.summary(),
+            "grok": self.grok.summary(),
         })
     }
 }
@@ -490,6 +499,9 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     // so `lean-ctx config set proxy.*_upstream` (or any config.toml edit) takes
     // effect on the running proxy within seconds, without a restart (#449).
     let (upstream_tx, upstream_rx) = tokio::sync::watch::channel(Arc::new(initial.clone()));
+    // Clone before moving into ProxyState — auth guard needs live registry
+    // snapshots to decide client-auth provider fallback under require_token.
+    let auth_upstreams = upstream_rx.clone();
     spawn_upstream_refresh(upstream_tx, initial.clone());
 
     let Upstreams {
@@ -625,10 +637,20 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     {
         let expected = auth_token.clone();
         let keys = gateway_keys.clone();
+        let upstreams = auth_upstreams;
         app = app.layer(axum::middleware::from_fn(move |req, next| {
             let expected = expected.clone();
             let keys = keys.clone();
-            proxy_auth_guard(req, next, expected, require_token, loopback_open, keys)
+            let upstreams = upstreams.clone();
+            proxy_auth_guard(
+                req,
+                next,
+                expected,
+                require_token,
+                loopback_open,
+                keys,
+                upstreams,
+            )
         }));
     }
 
@@ -652,8 +674,9 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     }
     if !loopback_bind {
         println!(
-            "  ⚠ gateway mode: non-loopback bind — Bearer token REQUIRED (provider-key \
-             fallback disabled), Host allowlist + rate limit active"
+            "  ⚠ gateway mode: non-loopback bind — Bearer token REQUIRED for gateway-held \
+             keys and non-registry routes; client-auth /providers/* (api_key_env unset) \
+             still accept provider credentials. Host allowlist + rate limit active"
         );
     }
     println!("  Anthropic: POST /v1/messages → {anthropic_upstream}");
@@ -881,6 +904,7 @@ async fn proxy_auth_guard(
     require_token: bool,
     loopback_open: bool,
     gateway_keys: Arc<gateway_identity::GatewayKeys>,
+    upstreams: tokio::sync::watch::Receiver<Arc<Upstreams>>,
 ) -> Result<Response, Response> {
     let path = req.uri().path();
     if path == "/health" || me_shell_path(path) {
@@ -917,11 +941,17 @@ async fn proxy_auth_guard(
         return Ok(next.run(req).await);
     }
 
-    // Accept provider API keys on provider routes (loopback-only, host_guard runs first).
+    // Accept provider API keys on provider routes (host_guard runs first).
+    // Client-auth registry rails (`/providers/{id}` with api_key_env=None,
+    // e.g. Grok dual-rail) stay open even when require_token is set — the
+    // Authorization / x-xai-token-auth header must carry the upstream session
+    // and cannot also hold the lean-ctx Bearer.
+    let client_auth_registry = is_client_auth_registry_route(path, &upstreams.borrow());
     if provider_key_fallback_allowed(
         require_token,
         has_provider_api_key(&req),
         is_provider_route(path),
+        client_auth_registry,
     ) {
         attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
         return Ok(next.run(req).await);
@@ -1001,8 +1031,10 @@ fn me_shell_path(path: &str) -> bool {
 fn has_provider_api_key(req: &axum::extract::Request) -> bool {
     let headers = req.headers();
     // Provider-specific key headers: Anthropic `x-api-key`, Google
-    // `x-goog-api-key`, Azure `api-key`. Any non-empty value authenticates.
-    for key in ["x-api-key", "x-goog-api-key", "api-key"] {
+    // `x-goog-api-key`, Azure `api-key`, Grok subscription `x-xai-token-auth`.
+    // Any non-empty value authenticates. Grok dual-rail may send only the
+    // session header (no Authorization) against `/providers/grok-chat`.
+    for key in ["x-api-key", "x-goog-api-key", "api-key", "x-xai-token-auth"] {
         if headers
             .get(key)
             .and_then(|v| v.to_str().ok())
@@ -1032,6 +1064,23 @@ fn has_provider_api_key(req: &axum::extract::Request) -> bool {
     false
 }
 
+/// `/providers/{id}/...` where the registered provider has no gateway-held
+/// key (`api_key_env = None`). These dual-rail / client-auth rails put the
+/// upstream session in Authorization or provider-specific headers.
+fn is_client_auth_registry_route(path: &str, upstreams: &Upstreams) -> bool {
+    let Some(rest) = path.strip_prefix("/providers/") else {
+        return false;
+    };
+    let id = rest.split('/').next().unwrap_or("");
+    if id.is_empty() {
+        return false;
+    }
+    upstreams
+        .providers
+        .iter()
+        .any(|p| p.id == id && p.api_key_env.is_none())
+}
+
 fn is_provider_route(path: &str) -> bool {
     path.starts_with("/v1/")
         || path.starts_with("/v1beta/")
@@ -1042,22 +1091,44 @@ fn is_provider_route(path: &str) -> bool {
         // Bare model-catalog discovery (enterprise#63): clients whose base URL
         // omits `/v1` send `GET /models` with their provider key.
         || path == "/models"
+        // Universal provider registry (enterprise#7): clients point their base
+        // URL at `/providers/{id}/v1` (Grok subscription:
+        // `GROK_CLI_CHAT_PROXY_BASE_URL`, Azure Foundry, OpenRouter, …) and
+        // authenticate with their own provider/session Bearer. Without this,
+        // model-list + chat land as lean-ctx 401s — Grok cannot select a mode.
+        || path.starts_with("/providers/")
 }
 
 /// Decides whether a request authenticates via a provider API key alone, without
-/// the lean-ctx Bearer token. True only in the default, loopback-friendly mode
-/// where a local AI tool's own provider key is accepted on a provider route. When
-/// `require_token` is set the fallback is disabled and the Bearer token becomes
-/// mandatory — the startup path forces this whenever the listener binds a
-/// non-loopback address (gateway mode, enterprise#8), because the fallback's
-/// justification is strictly "loopback only". Pure, so the policy is
+/// the lean-ctx Bearer token.
+///
+/// * Built-in provider routes (`/v1/*`, bare endpoints, …): only when
+///   `require_token` is false (loopback-friendly default). Gateway mode
+///   (non-loopback bind) forces `require_token` so these require the lean-ctx
+///   Bearer (enterprise#8).
+/// * Client-auth registry routes (`/providers/{id}` with `api_key_env = None`,
+///   e.g. Grok dual-rail): always allowed when a provider credential is present.
+///   The Authorization / `x-xai-token-auth` header must carry the upstream
+///   session and cannot also hold the lean-ctx Bearer. Gateway-held keys
+///   (`api_key_env` set) never take this path — those still need the lean-ctx
+///   token so inject cannot be abused with a forged provider header.
+///
+/// Pure (except the precomputed `client_auth_registry` flag), so the policy is
 /// unit-testable without axum middleware plumbing.
+#[allow(clippy::fn_params_excessive_bools)] // deliberate pure predicate for unit tests
 fn provider_key_fallback_allowed(
     require_token: bool,
     has_provider_key: bool,
     is_provider_route: bool,
+    client_auth_registry: bool,
 ) -> bool {
-    !require_token && has_provider_key && is_provider_route
+    if !has_provider_key || !is_provider_route {
+        return false;
+    }
+    if client_auth_registry {
+        return true;
+    }
+    !require_token
 }
 
 /// Maps a bare provider endpoint to its canonical `/v1/...` form, preserving any

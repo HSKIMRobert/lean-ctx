@@ -1204,6 +1204,10 @@ const ALLOWED_UPSTREAM_HOSTS: &[&str] = &[
     "api.openai.com",
     "chatgpt.com",
     "generativelanguage.googleapis.com",
+    // xAI Grok (OpenAI-compatible). Used by auto-seeded registry providers
+    // when `lean-ctx proxy enable` wires Grok (API-key rail + subscription rail).
+    "api.x.ai",
+    "cli-chat-proxy.grok.com",
 ];
 
 pub(super) fn validate_upstream_url(

@@ -85,6 +85,27 @@ fn is_provider_route_model_catalog() {
     assert!(!is_provider_route("/modelsx"));
 }
 
+#[test]
+fn is_provider_route_registry_providers() {
+    // enterprise#7 + Grok subscription rail: base URL is
+    // `http://127.0.0.1:4444/providers/grok-chat/v1`, so model list and chat
+    // hit `/providers/{id}/v1/...` with the client's own session/API Bearer.
+    // These must authenticate via provider-key fallback (loopback), not lean-ctx
+    // token alone — otherwise Grok's mode/model picker stays empty.
+    assert!(is_provider_route("/providers/grok-chat/v1/models"));
+    assert!(is_provider_route(
+        "/providers/grok-chat/v1/chat/completions"
+    ));
+    assert!(is_provider_route("/providers/grok-chat/v1/responses"));
+    assert!(is_provider_route("/providers/xai/v1/models"));
+    assert!(is_provider_route("/providers/foundry/v1/chat/completions"));
+    // Bare prefix without trailing path still matches the registry mount.
+    assert!(is_provider_route("/providers/grok-chat"));
+    // Unrelated paths stay closed.
+    assert!(!is_provider_route("/provider/grok-chat/v1/models"));
+    assert!(!is_provider_route("/api/providers/x"));
+}
+
 #[cfg(feature = "gateway-server")]
 #[test]
 fn me_shell_is_public_but_data_api_stays_guarded() {
@@ -184,24 +205,45 @@ fn provider_key_fallback_allowed_in_default_mode() {
     // Default (require_token = false): a provider key on a provider route is
     // sufficient. This is what lets a local AI tool authenticate with its own
     // key and no lean-ctx Bearer token (the loopback-friendly behavior).
-    assert!(provider_key_fallback_allowed(false, true, true));
+    assert!(provider_key_fallback_allowed(false, true, true, false));
 }
 
 #[test]
-fn provider_key_fallback_denied_in_strict_mode() {
-    // Strict (require_token = true, e.g. shared/multi-user host): the
-    // provider-key fallback is disabled, so even a valid provider key on a
-    // provider route is not enough — the Bearer token becomes mandatory.
-    assert!(!provider_key_fallback_allowed(true, true, true));
+fn provider_key_fallback_denied_in_strict_mode_for_builtin_routes() {
+    // Strict (require_token = true): built-in /v1/* routes still require the
+    // lean-ctx Bearer — provider-key alone is not enough.
+    assert!(!provider_key_fallback_allowed(true, true, true, false));
+}
+
+#[test]
+fn provider_key_fallback_allowed_for_client_auth_registry_under_require_token() {
+    // Grok dual-rail /providers/{id} with api_key_env=None: Authorization (or
+    // x-xai-token-auth) must carry the upstream session, so provider-key
+    // fallback stays open even when require_token is set.
+    assert!(provider_key_fallback_allowed(true, true, true, true));
+    assert!(!provider_key_fallback_allowed(true, false, true, true));
+    assert!(!provider_key_fallback_allowed(true, true, false, true));
 }
 
 #[test]
 fn provider_key_fallback_requires_key_and_provider_route() {
     // The fallback never fires without a provider key, nor off a provider
     // route — regardless of mode.
-    assert!(!provider_key_fallback_allowed(false, false, true));
-    assert!(!provider_key_fallback_allowed(false, true, false));
-    assert!(!provider_key_fallback_allowed(true, false, true));
+    assert!(!provider_key_fallback_allowed(false, false, true, false));
+    assert!(!provider_key_fallback_allowed(false, true, false, false));
+    assert!(!provider_key_fallback_allowed(true, false, true, false));
+}
+
+#[test]
+fn has_provider_api_key_x_xai_token_auth() {
+    // Grok subscription rail may authenticate solely via x-xai-token-auth.
+    let req = build_request(
+        &[("x-xai-token-auth", "sess-xyz")],
+        "/providers/grok-chat/v1",
+    );
+    assert!(has_provider_api_key(&req));
+    let empty = build_request(&[("x-xai-token-auth", "  ")], "/providers/grok-chat/v1");
+    assert!(!has_provider_api_key(&empty));
 }
 
 #[test]

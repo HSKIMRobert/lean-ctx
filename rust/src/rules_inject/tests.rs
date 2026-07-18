@@ -105,7 +105,12 @@ fn zed_rules_path_is_os_aware_and_matches_config_dir() {
 fn target_count() {
     let home = std::path::PathBuf::from("/tmp/fake_home");
     let targets = build_rules_targets(&home, crate::core::config::RulesInjection::Shared);
-    assert_eq!(targets.len(), 25);
+    // Includes Grok (`~/.grok/AGENTS.md`).
+    assert_eq!(targets.len(), 26);
+    assert!(
+        targets.iter().any(|t| t.name == "Grok"),
+        "Grok must have a rules target"
+    );
     assert!(
         !targets.iter().any(|t| t.name == "Claude Code"),
         "Claude Code must not get a rules target"
@@ -115,7 +120,7 @@ fn target_count() {
         "CodeBuddy must not get a rules target"
     );
     let dedicated = build_rules_targets(&home, crate::core::config::RulesInjection::Dedicated);
-    assert_eq!(dedicated.len(), 25);
+    assert_eq!(dedicated.len(), 26);
 }
 
 #[test]
@@ -439,10 +444,10 @@ fn skill_template_not_empty() {
 
 #[test]
 fn skill_targets_count() {
-    // Claude, CodeBuddy, Cursor, Codex, Copilot, OpenClaw + OpenCode (GH #686).
+    // Claude, CodeBuddy, Cursor, Codex, Copilot, Grok, OpenClaw + OpenCode (GH #686).
     let home = std::path::PathBuf::from("/tmp/fake_home");
     let targets = build_skill_targets(&home);
-    assert_eq!(targets.len(), 7);
+    assert_eq!(targets.len(), 8);
 }
 
 #[test]

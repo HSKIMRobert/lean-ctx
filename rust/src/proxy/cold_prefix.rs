@@ -304,11 +304,26 @@ fn touch_path() -> Option<std::path::PathBuf> {
         .map(|d| d.join(TOUCH_FILE))
 }
 
+/// Serializes disk read/write. Concurrent `maybe_persist` callers (and the
+/// multi-step restart test) must not interleave a stale full-map snapshot over a
+/// just-written baseline — last-writer-wins on the whole file is otherwise racy.
+fn disk_io_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
 /// Seeds the in-memory baselines from disk on proxy startup so an idle gap that
 /// straddles a restart is still detected. Merges by most-recent `last_touch` and
 /// OR-s the sticky `repacking` latch, so a re-seed can only bias toward "warm"
 /// (or keep a latch), never toward a wrong "cold".
 pub fn resume_from_disk() {
+    let _disk = disk_io_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    resume_from_disk_unlocked();
+}
+
+fn resume_from_disk_unlocked() {
     let Some(path) = touch_path() else {
         return;
     };
@@ -346,6 +361,13 @@ fn maybe_persist(force: bool, now: u64) {
 
 /// Atomically writes the current baselines to disk (`.tmp` + rename).
 fn persist_now(now: u64) {
+    let _disk = disk_io_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    persist_now_unlocked(now);
+}
+
+fn persist_now_unlocked(now: u64) {
     let Some(path) = touch_path() else {
         return;
     };
@@ -403,6 +425,19 @@ fn test_remove(messages: &[Value]) {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&key);
     }
+}
+
+/// Test-only: persist → drop RAM → resume under `disk_io_lock` so a concurrent
+/// `maybe_persist` cannot overwrite the file in the gap between remove and resume
+/// (the flake behind `cold_baseline_survives_restart_via_disk`).
+#[cfg(test)]
+fn test_persist_drop_and_resume(messages: &[Value]) {
+    let _disk = disk_io_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    persist_now_unlocked(now_secs());
+    test_remove(messages);
+    resume_from_disk_unlocked();
 }
 
 #[cfg(test)]
@@ -551,11 +586,9 @@ mod tests {
         let _iso = crate::core::data_dir::isolated_data_dir();
         let msgs = cached_body("restart-survival conversation", Some("5m"));
         seed(&msgs, 3 * 60 * 60);
-        persist_now(now_secs());
-        // Simulate a proxy restart: the in-memory baseline is gone.
-        test_remove(&msgs);
-        // resume_from_disk restores it; the persisted cold gap still triggers.
-        resume_from_disk();
+        // Atomic under disk_io_lock: parallel cold_prefix tests also call
+        // maybe_persist and would otherwise wipe this key after test_remove.
+        test_persist_drop_and_resume(&msgs);
         assert!(
             repack_decision(&msgs, 1),
             "a persisted cold baseline must survive a restart and still repack"

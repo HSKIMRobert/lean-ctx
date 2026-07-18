@@ -31,7 +31,7 @@ pub(super) fn classify_redirect(tool_name: &str) -> RedirectKind {
     match tool_name {
         "Read" | "read" | "read_file" | "view" => RedirectKind::Read,
         "Grep" | "grep" | "search" | "ripgrep" | "rg" => RedirectKind::Grep,
-        "Glob" | "glob" => RedirectKind::Glob,
+        "Glob" | "glob" | "list_dir" => RedirectKind::Glob,
         _ => RedirectKind::None,
     }
 }
@@ -594,6 +594,8 @@ pub(super) fn build_redirect_output(
     }
 
     serde_json::json!({
+        // Grok PreToolUse decision field.
+        "decision": "allow",
         // Cursor hook output format.
         "permission": "allow",
         "updated_input": updated_input.clone(),

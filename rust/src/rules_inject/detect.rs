@@ -26,6 +26,7 @@ pub(super) fn is_tool_detected(target: &RulesTarget, home: &std::path::Path) -> 
                 crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
             codex_dir.exists() || command_exists("codex")
         }
+        "Grok" => home.join(".grok").exists() || command_exists("grok"),
         "Cursor" => home.join(".cursor").exists(),
         "Windsurf" => home.join(".codeium/windsurf").exists(),
         "Gemini CLI" => home.join(".gemini").exists(),
