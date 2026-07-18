@@ -50,6 +50,26 @@ pub(super) struct RegistryProviderId {
     pub local: bool,
 }
 
+/// Registry ids that share the Grok / xAI dual-rail (subscription `grok-chat`,
+/// API-key `xai`). OpenAI wire shape; separate `proxy status` bucket.
+pub(super) fn is_grok_provider_id(id: &str) -> bool {
+    matches!(
+        id.trim().to_ascii_lowercase().as_str(),
+        "grok-chat" | "xai" | "grok"
+    )
+}
+
+/// Per-upstream stats label for a registry route.
+///
+/// Wire shape stays `OpenAI`/`Anthropic`/… for compression; identity for
+/// `ProxyStats` may differ (Grok must not fold into the OpenAI line).
+pub(super) fn stats_label<'a>(registry_id: Option<&str>, shape_label: &'a str) -> &'a str {
+    match registry_id {
+        Some(id) if is_grok_provider_id(id) => "Grok",
+        _ => shape_label,
+    }
+}
+
 pub async fn handler(
     State(state): State<ProxyState>,
     Path((id, rest)): Path<(String, String)>,
@@ -181,6 +201,25 @@ pub(super) fn inject_gateway_credential(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stats_label_maps_grok_rails_to_grok_bucket() {
+        assert_eq!(stats_label(Some("grok-chat"), "OpenAI"), "Grok");
+        assert_eq!(stats_label(Some("xai"), "OpenAI"), "Grok");
+        assert_eq!(stats_label(Some("GROK"), "OpenAI"), "Grok");
+        assert_eq!(stats_label(Some("foundry"), "OpenAI"), "OpenAI");
+        assert_eq!(stats_label(None, "OpenAI"), "OpenAI");
+        assert_eq!(stats_label(Some("local"), "OpenAI"), "OpenAI");
+    }
+
+    #[test]
+    fn is_grok_provider_id_accepts_dual_rail_ids() {
+        assert!(is_grok_provider_id("grok-chat"));
+        assert!(is_grok_provider_id("xai"));
+        assert!(is_grok_provider_id(" Grok "));
+        assert!(!is_grok_provider_id("openai"));
+        assert!(!is_grok_provider_id("foundry"));
+    }
 
     fn provider(shape: WireShape, api_key_env: Option<&str>) -> ResolvedProvider {
         ResolvedProvider {

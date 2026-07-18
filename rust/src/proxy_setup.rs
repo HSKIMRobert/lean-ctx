@@ -462,11 +462,9 @@ fn install_grok_env(home: &Path, port: u16, quiet: bool, force: bool) {
     if grok_dir.exists() && mode != GrokAuthMode::None {
         // Seed registry providers only on the live install path.
         match mode {
-            GrokAuthMode::Subscription => ensure_proxy_provider(
-                GROK_CHAT_PROVIDER_ID,
-                GROK_CHAT_UPSTREAM,
-                quiet,
-            ),
+            GrokAuthMode::Subscription => {
+                ensure_proxy_provider(GROK_CHAT_PROVIDER_ID, GROK_CHAT_UPSTREAM, quiet)
+            }
             GrokAuthMode::ApiKey => ensure_proxy_provider(XAI_PROVIDER_ID, XAI_UPSTREAM, quiet),
             GrokAuthMode::None => {}
         }
@@ -545,9 +543,7 @@ enum ShellFlavor {
 fn grok_proxy_base_url(port: u16, mode: GrokAuthMode) -> Option<String> {
     let base = format!("http://127.0.0.1:{port}");
     match mode {
-        GrokAuthMode::Subscription => {
-            Some(format!("{base}/providers/{GROK_CHAT_PROVIDER_ID}/v1"))
-        }
+        GrokAuthMode::Subscription => Some(format!("{base}/providers/{GROK_CHAT_PROVIDER_ID}/v1")),
         GrokAuthMode::ApiKey => Some(format!("{base}/providers/{XAI_PROVIDER_ID}/v1")),
         GrokAuthMode::None => None,
     }
@@ -642,13 +638,7 @@ fn ensure_proxy_provider(id: &str, base_url: &str, quiet: bool) {
 }
 
 /// Testable core of [`install_grok_env`].
-fn install_grok_env_at(
-    grok_dir: &Path,
-    port: u16,
-    quiet: bool,
-    force: bool,
-    mode: GrokAuthMode,
-) {
+fn install_grok_env_at(grok_dir: &Path, port: u16, quiet: bool, force: bool, mode: GrokAuthMode) {
     use crate::core::config::{is_local_proxy_url, normalize_url_opt};
 
     if !grok_dir.exists() {
@@ -738,9 +728,7 @@ fn install_grok_env_at(
                 }
                 let _ = std::fs::write(&config_path, updated);
                 if !quiet {
-                    println!(
-                        "  Configured Grok [endpoints].models_base_url → proxy ({proxy_url})"
-                    );
+                    println!("  Configured Grok [endpoints].models_base_url → proxy ({proxy_url})");
                 }
             }
         }
@@ -2559,5 +2547,4 @@ $env:GEMINI_API_BASE_URL = "{base}"
         assert_eq!(once, twice, "re-upsert must be byte-stable");
         assert_eq!(grok_models_base_url(&twice).as_deref(), Some(url));
     }
-
 }

@@ -85,6 +85,27 @@ fn is_provider_route_model_catalog() {
     assert!(!is_provider_route("/modelsx"));
 }
 
+#[test]
+fn is_provider_route_registry_providers() {
+    // enterprise#7 + Grok subscription rail: base URL is
+    // `http://127.0.0.1:4444/providers/grok-chat/v1`, so model list and chat
+    // hit `/providers/{id}/v1/...` with the client's own session/API Bearer.
+    // These must authenticate via provider-key fallback (loopback), not lean-ctx
+    // token alone — otherwise Grok's mode/model picker stays empty.
+    assert!(is_provider_route("/providers/grok-chat/v1/models"));
+    assert!(is_provider_route(
+        "/providers/grok-chat/v1/chat/completions"
+    ));
+    assert!(is_provider_route("/providers/grok-chat/v1/responses"));
+    assert!(is_provider_route("/providers/xai/v1/models"));
+    assert!(is_provider_route("/providers/foundry/v1/chat/completions"));
+    // Bare prefix without trailing path still matches the registry mount.
+    assert!(is_provider_route("/providers/grok-chat"));
+    // Unrelated paths stay closed.
+    assert!(!is_provider_route("/provider/grok-chat/v1/models"));
+    assert!(!is_provider_route("/api/providers/x"));
+}
+
 #[cfg(feature = "gateway-server")]
 #[test]
 fn me_shell_is_public_but_data_api_stays_guarded() {

@@ -178,6 +178,10 @@ pub struct ProxyStats {
     pub openai: ProviderStats,
     pub chatgpt: ProviderStats,
     pub gemini: ProviderStats,
+    /// Grok dual-rail (`/providers/grok-chat`, `/providers/xai`) — OpenAI wire
+    /// shape, separate identity so `proxy status` does not fold xAI traffic
+    /// into the OpenAI bucket.
+    pub grok: ProviderStats,
 }
 
 #[derive(Default)]
@@ -201,6 +205,7 @@ impl Default for ProxyStats {
             openai: ProviderStats::default(),
             chatgpt: ProviderStats::default(),
             gemini: ProviderStats::default(),
+            grok: ProviderStats::default(),
         }
     }
 }
@@ -256,12 +261,15 @@ impl ProxyStats {
     /// Maps a proxy `provider_label` to its per-upstream bucket. Unknown labels
     /// return `None` (still counted in the totals, never misattributed to a bucket);
     /// every real upstream — Gemini included — passes an explicit label.
+    /// `"Grok"` is the identity label for registry routes `grok-chat` / `xai`
+    /// (OpenAI wire shape; see `providers::stats_label`).
     fn provider(&self, provider_label: &str) -> Option<&ProviderStats> {
         match provider_label {
             "Anthropic" => Some(&self.anthropic),
             "OpenAI" => Some(&self.openai),
             "ChatGPT" => Some(&self.chatgpt),
             "Gemini" => Some(&self.gemini),
+            "Grok" => Some(&self.grok),
             _ => None,
         }
     }
@@ -272,6 +280,7 @@ impl ProxyStats {
             "openai": self.openai.summary(),
             "chatgpt": self.chatgpt.summary(),
             "gemini": self.gemini.summary(),
+            "grok": self.grok.summary(),
         })
     }
 }
@@ -1042,6 +1051,12 @@ fn is_provider_route(path: &str) -> bool {
         // Bare model-catalog discovery (enterprise#63): clients whose base URL
         // omits `/v1` send `GET /models` with their provider key.
         || path == "/models"
+        // Universal provider registry (enterprise#7): clients point their base
+        // URL at `/providers/{id}/v1` (Grok subscription:
+        // `GROK_CLI_CHAT_PROXY_BASE_URL`, Azure Foundry, OpenRouter, …) and
+        // authenticate with their own provider/session Bearer. Without this,
+        // model-list + chat land as lean-ctx 401s — Grok cannot select a mode.
+        || path.starts_with("/providers/")
 }
 
 /// Decides whether a request authenticates via a provider API key alone, without
