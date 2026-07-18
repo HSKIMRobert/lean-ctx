@@ -11,6 +11,11 @@ pub fn handle(
     intent: Option<&str>,
     timeout: Option<u64>,
 ) -> (String, ShellOutcome) {
+    if language.eq_ignore_ascii_case("shell")
+        && let Err(message) = crate::core::shell_allowlist::check_shell_allowlist(code)
+    {
+        return (message.to_string(), ShellOutcome::Blocked);
+    }
     let result = sandbox::execute(language, code, timeout);
     (
         format_result(&result, intent),
@@ -81,6 +86,19 @@ pub fn handle_file(
 /// results. The outcome carries the first non-zero exit code (0 when all
 /// tasks succeeded), so one failing task marks the whole batch as failed.
 pub fn handle_batch(items: &[(String, String)]) -> (String, ShellOutcome) {
+    for (index, (language, code)) in items.iter().enumerate() {
+        if language.eq_ignore_ascii_case("shell")
+            && let Err(message) = crate::core::shell_allowlist::check_shell_allowlist(code)
+        {
+            return (
+                format!(
+                    "batch item {} blocked by shell policy:\n{message}",
+                    index + 1
+                ),
+                ShellOutcome::Blocked,
+            );
+        }
+    }
     let results = sandbox::batch_execute(items);
     let mut output = Vec::new();
 
@@ -281,6 +299,36 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
+    fn shell_execution_cannot_bypass_ctx_shell_allowlist() {
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "echo");
+        let (result, outcome) = handle("shell", "definitely_not_allowed_command", None, None);
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        assert_eq!(outcome, ShellOutcome::Blocked);
+        assert!(
+            result.contains("shell allowlist"),
+            "unexpected result: {result}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn shell_batch_is_preflighted_before_any_item_runs() {
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "echo");
+        let items = vec![
+            ("shell".to_string(), "echo safe".to_string()),
+            (
+                "shell".to_string(),
+                "definitely_not_allowed_command".to_string(),
+            ),
+        ];
+        let (result, outcome) = handle_batch(&items);
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        assert_eq!(outcome, ShellOutcome::Blocked);
+        assert!(result.contains("batch item 2 blocked"));
+    }
+
+    #[test]
     fn detect_language_from_path() {
         assert_eq!(detect_language_from_extension("test.py"), "python");
         assert_eq!(detect_language_from_extension("test.js"), "javascript");
@@ -336,8 +384,8 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     fn batch_with_failing_task_reports_failure() {
         let items = vec![
-            ("shell".to_string(), "echo ok".to_string()),
-            ("shell".to_string(), "exit 3".to_string()),
+            ("python".to_string(), "print('ok')".to_string()),
+            ("python".to_string(), "raise SystemExit(3)".to_string()),
         ];
         let (_, outcome) = handle_batch(&items);
         assert_eq!(

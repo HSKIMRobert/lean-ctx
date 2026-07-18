@@ -19,8 +19,7 @@ impl McpTool for CtxExecuteTool {
             "ctx_execute",
             "Run code in sandbox (11 languages) — use when conditionals, multi-line or cross-language transforms.\n\
              ANTIPATTERN: for simple one-liners, prefer ctx_shell (lower overhead, auto-compressed).\n\
-             language=shell is the trusted script path: no allowlist, by design (not an escape hatch) —\n\
-             use for multi-line scripts, pipelines, or commands ctx_shell blocks.\n\
+             language=shell supports multi-line scripts but shares ctx_shell's security policy.\n\
              action=code (default) for one-shot; action=batch for parallel multi-language;\n\
              action=file to process a project file (extension auto-detects).\n\
              Pass intent to focus large output and save tokens. Languages: javascript,\n\
@@ -56,7 +55,21 @@ impl McpTool for CtxExecuteTool {
                         "type": "string",
                         "description": "File path for action=file (language auto-detected)."
                     }
-                }
+                },
+                "oneOf": [
+                    {
+                        "properties": { "action": { "enum": ["code"] } },
+                        "required": ["language", "code"]
+                    },
+                    {
+                        "properties": { "action": { "const": "batch" } },
+                        "required": ["action", "items"]
+                    },
+                    {
+                        "properties": { "action": { "const": "file" } },
+                        "required": ["action", "path"]
+                    }
+                ]
             }),
         )
     }

@@ -112,6 +112,11 @@ pub fn normalize_for_strict_validators(schema: &mut Map<String, Value>) {
             }
         }
     }
+    for keyword in ["if", "then", "else", "not"] {
+        if let Some(Value::Object(sub)) = schema.get_mut(keyword) {
+            normalize_for_strict_validators(sub);
+        }
+    }
 }
 
 pub const CORE_TOOL_NAMES: &[&str] = &[
