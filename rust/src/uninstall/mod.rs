@@ -287,6 +287,7 @@ fn remove_skill_dirs(home: &Path, dry_run: bool) -> bool {
                 .unwrap_or_else(|| home.join(".codex"))
                 .join("skills/lean-ctx"),
         ),
+        ("Grok", home.join(".grok/skills/lean-ctx")),
         ("Copilot", home.join(".copilot/skills/lean-ctx")),
         ("OpenClaw", home.join(".openclaw/skills/lean-ctx")),
     ];
@@ -470,6 +471,7 @@ fn scan_dirs(home: &Path) -> Vec<PathBuf> {
         home.join(".pi"),
         home.join(".pi/agent"),
         home.join(".hermes"),
+        home.join(".grok"),
         home.join(".verdent"),
         home.join(".cline"),
         home.join(".roo"),

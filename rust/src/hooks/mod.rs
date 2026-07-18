@@ -61,6 +61,7 @@ pub const REPLACE_AGENTS: &[&str] = &[
     "windsurf",
     "opencode",
     "gemini",
+    "grok",
 ];
 
 /// Agents that get Hybrid mode (MCP + shell hooks) because they lack reliable
@@ -89,6 +90,7 @@ pub const HYBRID_AGENTS: &[&str] = &[
     "antigravity-cli",
     "amazonq",
     "verdent",
+    "grok",
 ];
 
 /// Auto-detect the best hook mode for a given agent key.
@@ -119,7 +121,8 @@ use agents::{
     install_crush_hook_with_mode, install_cursor_deny_hook, install_cursor_hook_config,
     install_cursor_hook_scripts, install_cursor_hook_with_mode, install_gemini_deny_hook,
     install_gemini_hook, install_gemini_hook_config, install_gemini_hook_scripts,
-    install_hermes_hook_with_mode, install_jetbrains_hook, install_kiro_hook,
+    install_grok_hook_with_mode, install_hermes_hook_with_mode, install_jetbrains_hook,
+    install_kiro_hook,
     install_openclaw_hook, install_opencode_hook_with_mode, install_pi_hook_with_mode,
     install_qoder_hook, install_qoder_hook_with_mode, install_windsurf_hooks,
     install_windsurf_hooks_replace, install_windsurf_rules,
@@ -173,6 +176,8 @@ const REFRESH_EXEMPT_HYBRID_AGENTS: &[&str] = &[
     "trae",
     "amazonq",
     "verdent",
+    // Hooks are pure JSON + TOML (no binary-path shell scripts to re-render).
+    "grok",
 ];
 
 /// Silently refresh all hook scripts for agents that are already configured.
@@ -939,6 +944,7 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
             // `~/.gemini/settings.json`, so install the plugin too (#284).
             install_antigravity_cli_hook();
         }
+        "grok" => install_grok_hook_with_mode(global, mode),
         "antigravity" => install_antigravity_hook(),
         "antigravity-cli" => install_antigravity_cli_hook(),
         "augment" => install_mcp_json_agent(
@@ -1027,7 +1033,7 @@ pub fn install_agent_hook_with_mode(agent: &str, global: bool, mode: HookMode) {
             eprintln!(
                 "    claude, cline, codebuddy, codex, continue, copilot, crush, cursor, emacs, gemini,"
             );
-            eprintln!("    hermes, jetbrains, kiro, neovim, openclaw, opencode, pi, qoder,");
+            eprintln!("    grok, hermes, jetbrains, kiro, neovim, openclaw, opencode, pi, qoder,");
             eprintln!("    qoderwork, qwen, roo, sublime, trae, verdent, vscode, windsurf, zed");
             std::process::exit(1);
         }

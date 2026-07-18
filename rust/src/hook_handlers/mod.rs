@@ -166,6 +166,8 @@ fn read_stdin_with_timeout(timeout: Duration) -> Option<String> {
 
 fn build_dual_allow_output() -> String {
     serde_json::json!({
+        // Grok PreToolUse decision field.
+        "decision": "allow",
         "permission": "allow",
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -188,6 +190,8 @@ fn build_dual_rewrite_output(tool_input: Option<&serde_json::Value>, rewritten: 
     };
 
     serde_json::json!({
+        // Grok PreToolUse decision field (allow with optional mutation).
+        "decision": "allow",
         // Cursor hook output format.
         "permission": "allow",
         "updated_input": updated_input.clone(),
@@ -226,6 +230,7 @@ fn is_shell_tool(tool_name: &str) -> bool {
             | "runterminal"
             | "run_command"
             | "run_shell_command"
+            | "run_terminal_command"
             | "execute_command"
             | "exec_command"
             | "command_exec"

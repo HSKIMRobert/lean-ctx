@@ -308,6 +308,7 @@ fn match_agent_name(cli_key: &str, target_name: &str) -> bool {
         || (needle == "antigravity" && tn.contains("antigravity"))
         || (needle == "augment" && tn.contains("augment"))
         || (needle == "openclaw" && tn.contains("openclaw"))
+        || (needle == "grok" && tn.contains("grok"))
         || (needle == "vscode" && (tn.contains("vs code") || tn.contains("vscode")))
 }
 

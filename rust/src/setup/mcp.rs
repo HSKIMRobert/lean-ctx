@@ -178,6 +178,12 @@ pub(crate) fn agent_mcp_targets(
                 ConfigType::Codex,
             );
         }
+        "grok" => push(
+            &mut targets,
+            "Grok",
+            home.join(".grok/config.toml"),
+            ConfigType::Codex,
+        ),
         "gemini" => {
             push(
                 &mut targets,
@@ -433,6 +439,12 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
                 ConfigType::Codex,
             );
         }
+        "grok" => push(
+            &mut targets,
+            "Grok",
+            home.join(".grok/config.toml"),
+            ConfigType::Codex,
+        ),
         "gemini" => {
             push(
                 &mut targets,

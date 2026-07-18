@@ -191,6 +191,9 @@ fn print_deny_compression_markers(tool_name: &str) {
          Set LEAN_CTX_ALLOW_COMPRESSED_WRITE=1 to override."
     );
     let output = serde_json::json!({
+        // Grok PreToolUse decision field.
+        "decision": "deny",
+        "reason": msg,
         "permission": "deny",
         "user_message": msg
     });
@@ -203,10 +206,10 @@ fn print_deny_compression_markers(tool_name: &str) {
 fn smart_deny_message(tool_name: &str, payload: &str) -> String {
     let args = extract_tool_args(payload);
     match tool_name {
-        "Read" | "read" | "ReadFile" => build_ctx_read_hint(&args),
+        "Read" | "read" | "ReadFile" | "read_file" => build_ctx_read_hint(&args),
         "Grep" | "grep" | "Search" => build_ctx_search_hint(&args),
-        "Glob" | "glob" => build_ctx_glob_hint(&args),
-        "Shell" | "Bash" | "bash" => build_ctx_shell_hint(&args),
+        "Glob" | "glob" | "list_dir" => build_ctx_glob_hint(&args),
+        "Shell" | "Bash" | "bash" | "run_terminal_command" => build_ctx_shell_hint(&args),
         _ => "Use the equivalent ctx_* tool — lean-ctx replace mode is active.".to_string(),
     }
 }
@@ -321,6 +324,9 @@ fn build_ctx_shell_hint(args: &serde_json::Map<String, serde_json::Value>) -> St
 fn print_smart_deny(tool_name: &str, payload: &str) {
     let msg = smart_deny_message(tool_name, payload);
     let output = serde_json::json!({
+        // Grok PreToolUse decision field.
+        "decision": "deny",
+        "reason": msg,
         "permission": "deny",
         "user_message": msg
     });

@@ -42,6 +42,11 @@ pub(super) fn build_skill_targets(home: &std::path::Path) -> Vec<SkillTarget> {
                 .join("skills/lean-ctx"),
         },
         SkillTarget {
+            agent_key: "grok",
+            display_name: "Grok",
+            skill_dir: home.join(".grok/skills/lean-ctx"),
+        },
+        SkillTarget {
             agent_key: "copilot",
             display_name: "GitHub Copilot",
             skill_dir: home.join(".copilot/skills/lean-ctx"),
@@ -77,6 +82,7 @@ fn is_skill_agent_detected(agent_key: &str, home: &std::path::Path) -> bool {
                 crate::core::home::resolve_codex_dir().unwrap_or_else(|| home.join(".codex"));
             codex_dir.exists() || command_exists("codex")
         }
+        "grok" => home.join(".grok").exists() || command_exists("grok"),
         "copilot" => {
             home.join(".copilot").exists()
                 || home.join(".copilot/mcp-config.json").exists()

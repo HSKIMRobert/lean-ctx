@@ -349,6 +349,7 @@ pub(super) fn remove_mcp_configs(home: &Path, dry_run: bool) -> bool {
                 .unwrap_or_else(|| home.join(".codex"))
                 .join("config.toml"),
         ),
+        ("Grok", home.join(".grok/config.toml")),
         ("OpenCode", home.join(".config/opencode/opencode.json")),
         ("Qwen Code", home.join(".qwen/settings.json")),
         ("Qwen Code (legacy)", home.join(".qwen/mcp.json")),
@@ -633,6 +634,7 @@ pub(super) fn remove_rules_files(home: &Path, dry_run: bool) -> bool {
                 .join("AGENTS.md"),
         ),
         ("Hermes Agent", home.join(".hermes/HERMES.md")),
+        ("Grok", home.join(".grok/AGENTS.md")),
     ];
 
     let mut removed = false;
@@ -863,6 +865,7 @@ pub(super) fn remove_hook_files(home: &Path, dry_run: bool) -> bool {
         home.join(".github/hooks/lean-ctx-redirect.sh"),
         home.join(".qoder/hooks/lean-ctx-rewrite.sh"),
         home.join(".qoder/hooks/lean-ctx-redirect.sh"),
+        home.join(".grok/hooks/lean-ctx.json"),
     ];
 
     let mut removed = false;
