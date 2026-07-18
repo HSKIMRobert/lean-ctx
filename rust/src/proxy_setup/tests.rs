@@ -244,7 +244,7 @@ fn shell_export_omits_anthropic_without_key() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    install_shell_exports(home.path(), port, true);
+    install_shell_exports(home.path(), port, true, false);
 
     let rc = std::fs::read_to_string(home.path().join(".zshrc")).unwrap();
     assert!(
@@ -674,7 +674,7 @@ fn shell_export_includes_anthropic_with_key() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    install_shell_exports(home.path(), port, true);
+    install_shell_exports(home.path(), port, true, false);
 
     let rc = std::fs::read_to_string(home.path().join(".zshrc")).unwrap();
     assert!(
@@ -958,4 +958,39 @@ fn upsert_grok_models_base_url_is_idempotent() {
     let twice = upsert_grok_models_base_url(&once, url);
     assert_eq!(once, twice, "re-upsert must be byte-stable");
     assert_eq!(grok_models_base_url(&twice).as_deref(), Some(url));
+}
+
+#[test]
+fn effective_grok_auth_mode_force_none_coerces_to_subscription() {
+    let home = tempfile::tempdir().unwrap();
+    // No auth.json, no models_base_url → None without force.
+    assert_eq!(grok_auth_mode(home.path()), GrokAuthMode::None);
+    assert_eq!(
+        effective_grok_auth_mode(home.path(), false),
+        GrokAuthMode::None
+    );
+    // --force must not leave shell/provider install on None (false success).
+    assert_eq!(
+        effective_grok_auth_mode(home.path(), true),
+        GrokAuthMode::Subscription
+    );
+}
+
+#[test]
+fn force_none_subscription_shell_exports_include_grok_chat() {
+    // Under force, shell uses Subscription so GROK_CLI_CHAT_PROXY_BASE_URL is
+    // emitted (not the "not configured" omit note).
+    let posix = render_grok_shell_exports(
+        "http://127.0.0.1:18765",
+        GrokAuthMode::Subscription,
+        ShellFlavor::Posix,
+    );
+    assert!(
+        posix.contains("GROK_CLI_CHAT_PROXY_BASE_URL"),
+        "force+subscription must export chat proxy base: {posix}"
+    );
+    assert!(
+        !posix.contains("Grok CLI not configured"),
+        "must not omit Grok under force subscription: {posix}"
+    );
 }

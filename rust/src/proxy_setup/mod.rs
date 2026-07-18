@@ -42,7 +42,7 @@ pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
         }
         return;
     }
-    install_shell_exports(home, port, quiet);
+    install_shell_exports(home, port, quiet, false);
     install_claude_env(home, port, quiet);
     install_codex_env(home, port, quiet);
     install_pi_env(home, port, quiet, false);
@@ -52,7 +52,9 @@ pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
 /// Install proxy env without config guard (used by `lean-ctx proxy enable` which has already set the flag).
 /// `force_endpoint`: if true, overrides even non-local custom endpoints.
 pub fn install_proxy_env_unchecked(home: &Path, port: u16, quiet: bool, force_endpoint: bool) {
-    install_shell_exports(home, port, quiet);
+    // Shell exports and Grok install share `force_endpoint` so force+no-auth
+    // seeds grok-chat and still emits GROK_CLI_CHAT_PROXY_BASE_URL.
+    install_shell_exports(home, port, quiet, force_endpoint);
     if force_endpoint {
         install_claude_env_inner(home, port, quiet, true);
     } else {

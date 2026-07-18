@@ -17,9 +17,11 @@ use super::util::{GROK_OMITTED_NOTE, is_local_lean_ctx_url, is_proxy_reachable};
 /// (lean-ctx forwards `Authorization` upstream).
 pub(crate) fn install_grok_env(home: &Path, port: u16, quiet: bool, force: bool) {
     let grok_dir = home.join(".grok");
-    let mode = grok_auth_mode(home);
+    let mode = effective_grok_auth_mode(home, force);
     if grok_dir.exists() && mode != GrokAuthMode::None {
-        // Seed registry providers only on the live install path.
+        // Seed registry providers only on the live install path. Under
+        // `--force` with no detected auth, `effective_grok_auth_mode` coerces
+        // to Subscription so the grok-chat rail is seeded (not a no-op success).
         match mode {
             GrokAuthMode::Subscription => {
                 ensure_proxy_provider(GROK_CHAT_PROVIDER_ID, GROK_CHAT_UPSTREAM, quiet);
@@ -29,6 +31,18 @@ pub(crate) fn install_grok_env(home: &Path, port: u16, quiet: bool, force: bool)
         }
     }
     install_grok_env_at(&grok_dir, port, quiet, force, mode);
+}
+
+/// Auth mode used for install + shell exports.
+///
+/// `--force` with no detected credentials coerces to the subscription rail so
+/// provider seed and `GROK_CLI_CHAT_PROXY_BASE_URL` exports stay consistent
+/// (do not claim success while skipping both).
+pub(crate) fn effective_grok_auth_mode(home: &Path, force: bool) -> GrokAuthMode {
+    match grok_auth_mode(home) {
+        GrokAuthMode::None if force => GrokAuthMode::Subscription,
+        other => other,
+    }
 }
 
 pub(crate) fn uninstall_grok_env(home: &Path, quiet: bool) {

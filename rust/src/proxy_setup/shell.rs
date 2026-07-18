@@ -5,10 +5,10 @@ use std::path::Path;
 use crate::marked_block;
 
 use super::claude::anthropic_api_key_available;
-use super::grok::{ShellFlavor, grok_auth_mode, render_grok_shell_exports};
+use super::grok::{ShellFlavor, effective_grok_auth_mode, render_grok_shell_exports};
 use super::util::{ANTHROPIC_OMITTED_NOTE, PROXY_ENV_END, PROXY_ENV_START, is_proxy_reachable};
 
-pub(crate) fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
+pub(crate) fn install_shell_exports(home: &Path, port: u16, quiet: bool, force_endpoint: bool) {
     if !is_proxy_reachable(port) {
         if !quiet {
             println!("  Skipping shell proxy exports (proxy not running on port {port})");
@@ -31,7 +31,8 @@ pub(crate) fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
     // `anthropic_api_key_available`).
     let include_anthropic = anthropic_api_key_available(home);
     // Grok (xAI): dual rail — subscription → cli-chat-proxy; API-key → api.x.ai.
-    let grok_mode = grok_auth_mode(home);
+    // Match install_grok_env: --force with no auth still exports the subscription rail.
+    let grok_mode = effective_grok_auth_mode(home, force_endpoint);
     let posix_grok = render_grok_shell_exports(&base, grok_mode, ShellFlavor::Posix);
 
     let posix_anthropic = if include_anthropic {
