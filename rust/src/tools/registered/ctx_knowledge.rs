@@ -54,7 +54,11 @@ action=consolidate imports latest session if present, runs lifecycle, then frees
                 "allOf": [
                     {
                         "if": { "properties": { "action": { "const": "remember" } }, "required": ["action"] },
-                        "then": { "anyOf": [{ "required": ["value"] }, { "required": ["content"] }] }
+                        "then": { "required": ["category"], "anyOf": [{ "required": ["value"] }, { "required": ["content"] }] }
+                    },
+                    {
+                        "if": { "properties": { "action": { "const": "pattern" } }, "required": ["action"] },
+                        "then": { "required": ["value"] }
                     },
                     {
                         "if": { "properties": { "action": { "const": "search" } }, "required": ["action"] },

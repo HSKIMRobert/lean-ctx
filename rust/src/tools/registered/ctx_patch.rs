@@ -22,17 +22,14 @@ impl McpTool for CtxPatchTool {
     fn tool_def(&self) -> Tool {
         tool_def(
             "ctx_patch",
-            "Hash-anchored edit. ALWAYS ctx_read(mode=\"anchored\") first → lines like 42:a1b2|code (line=42, hash=a1b2).\n\
-             replace_lines(path, start_line, start_hash, end_line, end_hash, new_text) — ALL required.\n\
-             set_line(path, line, hash, new_text) | insert_after(path, line, hash, new_text) | delete(path, line, hash).\n\
-             replace_symbol(path, name, new_body) | create(path, new_text) | replace_all(path, find, replace, dry_run?).\n\
-             Batch: ops:[{op, path, ...}] — not replace_symbol/replace_all.\n\
-             CONFLICT = stale anchors, re-read. Line-only patch (no hash) → error.",
+            "Safe file edit. Anchored ops use line+hash from ctx_read(mode=\"anchored\"); \
+             CONFLICT means re-read. replace_unique(path,old_text,new_text) is a no-read, \
+             exact unique replacement. replace_symbol/create/replace_all and cross-file ops[] supported.",
             json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string" },
-                    "op": { "type": "string", "enum": ["set_line", "replace_lines", "insert_after", "delete", "replace_symbol", "create", "replace_all"] },
+                    "op": { "type": "string", "enum": ["set_line", "replace_lines", "insert_after", "delete", "replace_unique", "replace_symbol", "create", "replace_all"] },
                     "line": { "type": "integer" },
                     "hash": { "type": "string" },
                     "start_line": { "type": "integer" },
@@ -40,12 +37,13 @@ impl McpTool for CtxPatchTool {
                     "end_line": { "type": "integer" },
                     "end_hash": { "type": "string" },
                     "new_text": { "type": "string" },
+                    "old_text": { "type": "string" },
                     "name": { "type": "string" },
                     "new_body": { "type": "string" },
-                    "find": { "type": "string", "description": "Literal text to find (replace_all)" },
-                    "replace": { "type": "string", "description": "Replacement text (replace_all)" },
-                    "dry_run": { "type": "boolean", "description": "Preview only, do not write (replace_all)" },
-                    "ops": { "type": "array", "items": { "type": "object" }, "description": "Batch ops; per-op path overrides optional top-level path." }
+                    "find": { "type": "string" },
+                    "replace": { "type": "string" },
+                    "dry_run": { "type": "boolean" },
+                    "ops": { "type": "array", "items": { "type": "object" } }
                 }
             }),
         )
@@ -60,6 +58,10 @@ impl McpTool for CtxPatchTool {
         // ctx_refactor so there is one symbol-edit implementation (epic #1008).
         if crate::tools::ctx_patch::is_replace_symbol(args) {
             return delegate_replace_symbol(args, ctx);
+        }
+
+        if get_str(args, "op").as_deref() == Some("replace_unique") {
+            return delegate_replace_unique(args, ctx);
         }
 
         // #825: replace_all short-circuits before anchor parsing.
@@ -113,6 +115,34 @@ impl McpTool for CtxPatchTool {
             content_blocks: None,
         })
     }
+}
+
+/// One-shot content-anchored edit (#1010). Delegate to ctx_edit's audited
+/// unique-replacement path so ambiguity checks, TOCTOU guards, atomic writes,
+/// cache invalidation, evidence and session tracking remain single-sourced.
+fn delegate_replace_unique(
+    args: &Map<String, Value>,
+    ctx: &ToolContext,
+) -> Result<ToolOutput, ErrorData> {
+    let edit_args =
+        build_unique_edit_args(args).map_err(|message| ErrorData::invalid_params(message, None))?;
+    crate::tools::registered::ctx_edit::CtxEditTool.handle(&edit_args, ctx)
+}
+
+fn build_unique_edit_args(args: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+    let old_text = get_str(args, "old_text")
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| "replace_unique requires non-empty old_text".to_string())?;
+    let new_text =
+        get_str(args, "new_text").ok_or_else(|| "replace_unique requires new_text".to_string())?;
+
+    let mut edit_args = args.clone();
+    edit_args.insert("old_string".into(), Value::String(old_text));
+    edit_args.insert("new_string".into(), Value::String(new_text));
+    edit_args.insert("replace_all".into(), Value::Bool(false));
+    edit_args.remove("old_text");
+    edit_args.remove("op");
+    Ok(edit_args)
 }
 
 /// Options with one top-level value cannot be applied safely to multiple files:
@@ -513,5 +543,28 @@ mod batch_grouping_tests {
             assert!(validate_cross_file_options(&args, 2).is_err());
             assert!(validate_cross_file_options(&args, 1).is_ok());
         }
+    }
+
+    #[test]
+    fn replace_unique_maps_to_a_single_safe_ctx_edit_replacement() {
+        let args = Map::from_iter([
+            ("path".into(), json!("a.rs")),
+            ("op".into(), json!("replace_unique")),
+            ("old_text".into(), json!("old")),
+            ("new_text".into(), json!("new")),
+        ]);
+        let mapped = build_unique_edit_args(&args).expect("valid mapping");
+        assert_eq!(mapped.get("old_string"), Some(&json!("old")));
+        assert_eq!(mapped.get("new_string"), Some(&json!("new")));
+        assert_eq!(mapped.get("replace_all"), Some(&json!(false)));
+        assert!(!mapped.contains_key("op"));
+        assert!(!mapped.contains_key("old_text"));
+    }
+
+    #[test]
+    fn replace_unique_requires_explicit_old_and_new_text() {
+        assert!(build_unique_edit_args(&Map::new()).is_err());
+        let only_old = Map::from_iter([("old_text".into(), json!("old"))]);
+        assert!(build_unique_edit_args(&only_old).is_err());
     }
 }

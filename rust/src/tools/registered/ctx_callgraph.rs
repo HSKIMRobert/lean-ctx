@@ -32,15 +32,10 @@ impl McpTool for CtxCallgraphTool {
                     "from": { "type": "string" },
                     "to": { "type": "string" }
                 },
-                "oneOf": [
-                    {
-                        "properties": { "action": { "enum": ["callers", "callees", "risk"] } },
-                        "required": ["symbol"]
-                    },
-                    {
-                        "properties": { "action": { "const": "trace" } },
-                        "required": ["action", "from", "to"]
-                    }
+                "required": ["action"],
+                "allOf": [
+                    { "if": { "properties": { "action": { "enum": ["callers", "callees", "risk"] } }, "required": ["action"] }, "then": { "required": ["symbol"] } },
+                    { "if": { "properties": { "action": { "const": "trace" } }, "required": ["action"] }, "then": { "required": ["from", "to"] } }
                 ]
             }),
         )

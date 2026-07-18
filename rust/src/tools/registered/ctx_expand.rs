@@ -34,19 +34,9 @@ impl McpTool for CtxExpandTool {
                     "query": { "type": "string" },
                     "session_id": { "type": "string" }
                 },
-                "oneOf": [
-                    {
-                        "properties": { "action": { "enum": ["retrieve"] } },
-                        "required": ["id"]
-                    },
-                    {
-                        "properties": { "action": { "const": "list" } },
-                        "required": ["action"]
-                    },
-                    {
-                        "properties": { "action": { "const": "search_all" } },
-                        "required": ["action", "query"]
-                    }
+                "allOf": [
+                    { "if": { "properties": { "action": { "const": "search_all" } }, "required": ["action"] }, "then": { "required": ["query"] } },
+                    { "if": { "not": { "properties": { "action": { "enum": ["list", "search_all"] } }, "required": ["action"] } }, "then": { "required": ["id"] } }
                 ]
             }),
         )

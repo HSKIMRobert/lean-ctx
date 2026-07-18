@@ -81,7 +81,7 @@ action=callers|callees symbol='fn' → every call site with file:line.
 action=trace from→to finds the path between two symbols (depth=N).
 For end-to-end flow understanding use ctx_compose FIRST.
 
-Parameters: `action`, `depth`, `file`, `from`, `symbol`, `to`
+Parameters: `action`*, `depth`, `file`, `from`, `symbol`, `to`
 
 ## `ctx_checkpoint`
 
@@ -209,8 +209,7 @@ Parameters: `create`, `new_string`*, `old_string`, `path`*, `replace_all`
 
 Run code in sandbox (11 languages) — use when conditionals, multi-line or cross-language transforms.
 ANTIPATTERN: for simple one-liners, prefer ctx_shell (lower overhead, auto-compressed).
-language=shell is the trusted script path: no allowlist, by design (not an escape hatch) —
-use for multi-line scripts, pipelines, or commands ctx_shell blocks.
+language=shell supports multi-line scripts but shares ctx_shell's security policy.
 action=code (default) for one-shot; action=batch for parallel multi-language;
 action=file to process a project file (extension auto-detects).
 Pass intent to focus large output and save tokens. Languages: javascript,
@@ -286,7 +285,7 @@ File-level dependency graph queries.
 action=symbol path="file.rs::fnName" returns the DEFINITION (not usages — use ctx_search for references). neighbors=imports±direction, impact=reverse-dep blast radius, path from→to=dependency chain, diff since=HEAD~1=git change impact, diagram kind=deps|calls (Mermaid).
 For understanding code use ctx_compose FIRST.
 
-Parameters: `action`, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
+Parameters: `action`*, `depth`, `format`, `kind`, `path`, `project_root`, `since`, `to`
 
 ## `ctx_handoff`
 
@@ -433,14 +432,9 @@ Parameters: `action`, `description`, `path`
 
 ## `ctx_patch`
 
-Hash-anchored edit. ALWAYS ctx_read(mode="anchored") first → lines like 42:a1b2|code (line=42, hash=a1b2).
-replace_lines(path, start_line, start_hash, end_line, end_hash, new_text) — ALL required.
-set_line(path, line, hash, new_text) | insert_after(path, line, hash, new_text) | delete(path, line, hash).
-replace_symbol(path, name, new_body) | create(path, new_text) | replace_all(path, find, replace, dry_run?).
-Batch: ops:[{op, path, ...}] — not replace_symbol/replace_all.
-CONFLICT = stale anchors, re-read. Line-only patch (no hash) → error.
+Safe file edit. Anchored ops use line+hash from ctx_read(mode="anchored"); CONFLICT means re-read. replace_unique(path,old_text,new_text) is a no-read, exact unique replacement. replace_symbol/create/replace_all and cross-file ops[] supported.
 
-Parameters: `dry_run`, `end_hash`, `end_line`, `find`, `hash`, `line`, `name`, `new_body`, `new_text`, `op`, `ops`, `path`, `replace`, `start_hash`, `start_line`
+Parameters: `dry_run`, `end_hash`, `end_line`, `find`, `hash`, `line`, `name`, `new_body`, `new_text`, `old_text`, `op`, `ops`, `path`, `replace`, `start_hash`, `start_line`
 
 ## `ctx_plan`
 
