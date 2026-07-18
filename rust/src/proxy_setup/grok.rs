@@ -108,7 +108,11 @@ pub(crate) fn grok_proxy_base_url(port: u16, mode: GrokAuthMode) -> Option<Strin
     }
 }
 
-pub(crate) fn render_grok_shell_exports(base: &str, mode: GrokAuthMode, flavor: ShellFlavor) -> String {
+pub(crate) fn render_grok_shell_exports(
+    base: &str,
+    mode: GrokAuthMode,
+    flavor: ShellFlavor,
+) -> String {
     match mode {
         GrokAuthMode::None => format!("# {GROK_OMITTED_NOTE}"),
         GrokAuthMode::Subscription => {
@@ -197,7 +201,13 @@ pub(crate) fn ensure_proxy_provider(id: &str, base_url: &str, quiet: bool) {
 }
 
 /// Testable core of [`install_grok_env`].
-pub(crate) fn install_grok_env_at(grok_dir: &Path, port: u16, quiet: bool, force: bool, mode: GrokAuthMode) {
+pub(crate) fn install_grok_env_at(
+    grok_dir: &Path,
+    port: u16,
+    quiet: bool,
+    force: bool,
+    mode: GrokAuthMode,
+) {
     use crate::core::config::{is_local_proxy_url, normalize_url_opt};
 
     if !grok_dir.exists() {

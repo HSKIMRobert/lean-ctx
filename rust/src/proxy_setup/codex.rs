@@ -283,7 +283,11 @@ pub(crate) fn strip_codex_proxy_entries(body: &str) -> String {
     }
 }
 
-pub(crate) fn has_top_level_codex_config_key(body: &str, key: &str, predicate: impl Fn(&str) -> bool) -> bool {
+pub(crate) fn has_top_level_codex_config_key(
+    body: &str,
+    key: &str,
+    predicate: impl Fn(&str) -> bool,
+) -> bool {
     for line in body.lines() {
         let t = line.trim_start();
         if t.starts_with('[') {

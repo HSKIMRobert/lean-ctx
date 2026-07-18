@@ -17,7 +17,6 @@ pub fn is_local_lean_ctx_url(url: &str) -> bool {
     url.starts_with("http://127.0.0.1:") || url.starts_with("http://localhost:")
 }
 
-
 /// Proxy reachability timeout. Priority: env var > config.toml > 200ms default.
 pub fn proxy_timeout() -> std::time::Duration {
     if let Ok(val) = std::env::var("LEAN_CTX_PROXY_TIMEOUT_MS")

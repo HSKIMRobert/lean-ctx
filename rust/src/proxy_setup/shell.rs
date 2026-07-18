@@ -6,9 +6,7 @@ use crate::marked_block;
 
 use super::claude::anthropic_api_key_available;
 use super::grok::{ShellFlavor, grok_auth_mode, render_grok_shell_exports};
-use super::util::{
-    ANTHROPIC_OMITTED_NOTE, PROXY_ENV_END, PROXY_ENV_START, is_proxy_reachable,
-};
+use super::util::{ANTHROPIC_OMITTED_NOTE, PROXY_ENV_END, PROXY_ENV_START, is_proxy_reachable};
 
 pub(crate) fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
     if !is_proxy_reachable(port) {

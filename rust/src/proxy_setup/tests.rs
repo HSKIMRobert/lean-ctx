@@ -1,10 +1,10 @@
-use super::*;
 use super::claude::*;
 use super::codex::*;
 use super::grok::*;
 use super::pi::*;
 use super::shell::*;
 use super::util::*;
+use super::*;
 
 #[test]
 fn uid_port_first_regular_user() {
@@ -311,9 +311,7 @@ fn codex_env_migrates_legacy_env_entry() {
     let port = listener.local_addr().unwrap().port();
     std::fs::write(
         codex_dir.join("config.toml"),
-        format!(
-            "model = \"gpt-5.2\"\n\n[env]\nOPENAI_BASE_URL = \"http://127.0.0.1:{port}\"\n"
-        ),
+        format!("model = \"gpt-5.2\"\n\n[env]\nOPENAI_BASE_URL = \"http://127.0.0.1:{port}\"\n"),
     )
     .unwrap();
 

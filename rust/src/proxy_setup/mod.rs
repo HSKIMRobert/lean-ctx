@@ -19,9 +19,7 @@ use std::path::Path;
 use crate::marked_block;
 
 use claude::{install_claude_env, install_claude_env_inner, uninstall_claude_env};
-use codex::{
-    codex_config_has_local_proxy_entry, strip_codex_proxy_entries, uninstall_codex_env,
-};
+use codex::{codex_config_has_local_proxy_entry, strip_codex_proxy_entries, uninstall_codex_env};
 use grok::{
     grok_config_has_local_proxy_entry, install_grok_env, strip_grok_proxy_entries,
     uninstall_grok_env,
@@ -31,10 +29,10 @@ use shell::install_shell_exports;
 use util::{PROXY_ENV_END, PROXY_ENV_START};
 
 pub use claude::anthropic_api_key_available;
-pub use grok::{grok_session_auth_available, xai_api_key_available};
-pub use util::{default_port, is_local_lean_ctx_url, proxy_timeout};
 pub(crate) use codex::install_codex_env;
+pub use grok::{grok_session_auth_available, xai_api_key_available};
 pub(crate) use util::is_proxy_reachable;
+pub use util::{default_port, is_local_lean_ctx_url, proxy_timeout};
 
 pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
     let cfg = crate::core::config::Config::load();
@@ -159,7 +157,6 @@ pub fn cleanup_stale_proxy_env(home: &Path) -> usize {
     cleaned
 }
 
-
 pub fn has_stale_proxy_url(home: &Path) -> bool {
     let cfg = crate::core::config::Config::load();
     if cfg.proxy_enabled == Some(true) {
@@ -223,5 +220,3 @@ pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
     uninstall_pi_env(home, quiet);
     uninstall_grok_env(home, quiet);
 }
-
-

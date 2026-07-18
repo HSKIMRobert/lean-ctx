@@ -255,7 +255,9 @@ mod tests {
         assert!(is_openai_responses_path("/v1/responses"));
         assert!(is_openai_responses_path("/v1/responses/"));
         assert!(is_openai_responses_path("/responses"));
-        assert!(is_openai_responses_path("/v1/responses/resp_123/input_items"));
+        assert!(is_openai_responses_path(
+            "/v1/responses/resp_123/input_items"
+        ));
         assert!(!is_openai_responses_path("/v1/chat/completions"));
         assert!(!is_openai_responses_path("/v1/models"));
         assert!(!is_openai_responses_path("/v1/responsesx"));
