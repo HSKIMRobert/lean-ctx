@@ -40,10 +40,14 @@ lean-ctx ls src/              # directory map
 
 When working on lean-ctx itself:
 
-1. **Before building**: `lean-ctx stop` (LaunchAgent respawns otherwise)
-2. **Build**: `cd rust && cargo build --release`
-3. **Test**: `cargo test --lib` + `cargo clippy -- -W clippy::all`
-4. **Install**: `lean-ctx dev-install` (atomic stop→build→install→restart)
+1. **Build without stopping the installed runtime**: `cd rust && cargo build --release`
+2. **Test without stopping the installed runtime**: `cargo test --lib` + `cargo clippy -- -W clippy::all`
+3. **Install**: `lean-ctx dev-install` (build→atomic stop/install→restart)
+
+Do not run `lean-ctx stop` before builds or tests. It unloads the user's global
+proxy and daemon even though Cargo writes only to the worktree's target directory.
+`lean-ctx dev-install` performs the required short stop immediately before replacing
+the installed binary and restores autostart afterward.
 
 ## Session Continuity
 
