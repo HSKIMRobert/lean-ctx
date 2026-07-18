@@ -13,6 +13,9 @@ const DEFAULT_PROXY_PORT: u16 = 4444;
 /// route it through the proxy.
 const ANTHROPIC_OMITTED_NOTE: &str = "ANTHROPIC_BASE_URL omitted: Claude Pro/Max subscription authenticates against api.anthropic.com directly (set ANTHROPIC_API_KEY to route Claude through the proxy)";
 
+/// Comment written when Grok is not routable through the proxy (no session and no API key).
+const GROK_OMITTED_NOTE: &str = "Grok proxy env omitted: run `grok login` (subscription) or set XAI_API_KEY to route Grok through lean-ctx";
+
 pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
     let cfg = crate::core::config::Config::load();
     if cfg.proxy_enabled != Some(true) {
@@ -25,6 +28,7 @@ pub fn install_proxy_env(home: &Path, port: u16, quiet: bool) {
     install_claude_env(home, port, quiet);
     install_codex_env(home, port, quiet);
     install_pi_env(home, port, quiet, false);
+    install_grok_env(home, port, quiet, false);
 }
 
 /// Install proxy env without config guard (used by `lean-ctx proxy enable` which has already set the flag).
@@ -38,6 +42,7 @@ pub fn install_proxy_env_unchecked(home: &Path, port: u16, quiet: bool, force_en
     }
     install_codex_env(home, port, quiet);
     install_pi_env(home, port, quiet, force_endpoint);
+    install_grok_env(home, port, quiet, force_endpoint);
 }
 
 pub fn preview_proxy_cleanup(home: &Path) {
@@ -60,6 +65,13 @@ pub fn preview_proxy_cleanup(home: &Path) {
         && codex_config_has_local_proxy_entry(&content)
     {
         println!("  Would remove Codex proxy URL from config.toml");
+    }
+
+    let grok_path = home.join(".grok/config.toml");
+    if let Ok(content) = std::fs::read_to_string(grok_path)
+        && grok_config_has_local_proxy_entry(&content)
+    {
+        println!("  Would remove Grok proxy models_base_url from config.toml");
     }
 }
 
@@ -111,6 +123,16 @@ pub fn cleanup_stale_proxy_env(home: &Path) -> usize {
         let filtered = strip_codex_proxy_entries(&content);
         let _ = std::fs::write(&codex_path, &filtered);
         println!("  ✓ Removed stale Codex proxy URL from config.toml");
+        cleaned += 1;
+    }
+
+    let grok_path = home.join(".grok/config.toml");
+    if let Ok(content) = std::fs::read_to_string(&grok_path)
+        && grok_config_has_local_proxy_entry(&content)
+    {
+        let cleaned_toml = strip_grok_proxy_entries(&content);
+        let _ = std::fs::write(&grok_path, &cleaned_toml);
+        println!("  ✓ Removed stale Grok proxy models_base_url from config.toml");
         cleaned += 1;
     }
 
@@ -242,6 +264,7 @@ pub fn uninstall_proxy_env(home: &Path, quiet: bool) {
     uninstall_claude_env(home, quiet);
     uninstall_codex_env(home, quiet);
     uninstall_pi_env(home, quiet);
+    uninstall_grok_env(home, quiet);
 }
 
 fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
@@ -266,6 +289,9 @@ fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
     // subscription must keep talking to api.anthropic.com directly (see
     // `anthropic_api_key_available`).
     let include_anthropic = anthropic_api_key_available(home);
+    // Grok (xAI): dual rail — subscription → cli-chat-proxy; API-key → api.x.ai.
+    let grok_mode = grok_auth_mode(home);
+    let posix_grok = render_grok_shell_exports(&base, grok_mode, ShellFlavor::Posix);
 
     let posix_anthropic = if include_anthropic {
         format!(r#"export ANTHROPIC_BASE_URL="{base}""#)
@@ -277,6 +303,7 @@ fn install_shell_exports(home: &Path, port: u16, quiet: bool) {
 {posix_anthropic}
 export OPENAI_BASE_URL="{openai_base}"
 export GEMINI_API_BASE_URL="{base}"
+{posix_grok}
 {PROXY_ENV_END}"#
     );
 
@@ -304,11 +331,13 @@ export GEMINI_API_BASE_URL="{base}"
         } else {
             format!("# {ANTHROPIC_OMITTED_NOTE}")
         };
+        let fish_grok = render_grok_shell_exports(&base, grok_mode, ShellFlavor::Fish);
         let fish_block = format!(
             r#"{PROXY_ENV_START}
 {fish_anthropic}
 set -gx OPENAI_BASE_URL "{openai_base}"
 set -gx GEMINI_API_BASE_URL "{base}"
+{fish_grok}
 {PROXY_ENV_END}"#
         );
         marked_block::upsert(
@@ -331,11 +360,13 @@ set -gx GEMINI_API_BASE_URL "{base}"
         } else {
             format!("# {ANTHROPIC_OMITTED_NOTE}")
         };
+        let ps_grok = render_grok_shell_exports(&base, grok_mode, ShellFlavor::PowerShell);
         let ps_block = format!(
             r#"{PROXY_ENV_START}
 {ps_anthropic}
 $env:OPENAI_BASE_URL = "{openai_base}"
 $env:GEMINI_API_BASE_URL = "{base}"
+{ps_grok}
 {PROXY_ENV_END}"#
         );
         marked_block::upsert(
@@ -412,6 +443,435 @@ fn uninstall_codex_env(home: &Path, quiet: bool) {
     if !quiet {
         println!("  ✓ Removed Codex proxy URL(s) from Codex CLI config");
     }
+}
+
+/// Grok (xAI Build CLI) dual-rail proxy wiring.
+///
+/// | Auth | How Grok authenticates | lean-ctx entry | Upstream |
+/// |------|------------------------|----------------|----------|
+/// | **Subscription** (`grok login` / OIDC session in `~/.grok/auth.json`) | Bearer session token | `GROK_CLI_CHAT_PROXY_BASE_URL` → `/providers/grok-chat/v1` | `https://cli-chat-proxy.grok.com` |
+/// | **API key** (`XAI_API_KEY`) | Bearer API key | `[endpoints].models_base_url` + `GROK_MODELS_BASE_URL` → `/providers/xai/v1` | `https://api.x.ai` |
+///
+/// Docs: setting `models_base_url` forces API-key mode and drops session auth —
+/// subscription must never write that field. OIDC/subscription docs use
+/// `GROK_CLI_CHAT_PROXY_BASE_URL` and send the session Bearer to the proxy
+/// (lean-ctx forwards `Authorization` upstream).
+fn install_grok_env(home: &Path, port: u16, quiet: bool, force: bool) {
+    let grok_dir = home.join(".grok");
+    let mode = grok_auth_mode(home);
+    if grok_dir.exists() && mode != GrokAuthMode::None {
+        // Seed registry providers only on the live install path.
+        match mode {
+            GrokAuthMode::Subscription => ensure_proxy_provider(
+                GROK_CHAT_PROVIDER_ID,
+                GROK_CHAT_UPSTREAM,
+                quiet,
+            ),
+            GrokAuthMode::ApiKey => ensure_proxy_provider(XAI_PROVIDER_ID, XAI_UPSTREAM, quiet),
+            GrokAuthMode::None => {}
+        }
+    }
+    install_grok_env_at(&grok_dir, port, quiet, force, mode);
+}
+
+fn uninstall_grok_env(home: &Path, quiet: bool) {
+    uninstall_grok_env_at(&home.join(".grok"), quiet);
+}
+
+/// True when an xAI API key is available for the API-key rail.
+pub fn xai_api_key_available() -> bool {
+    for var in ["XAI_API_KEY", "GROK_CODE_XAI_API_KEY"] {
+        if let Ok(v) = std::env::var(var)
+            && !v.trim().is_empty()
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// True when `~/.grok/auth.json` holds a session/OIDC access token (subscription).
+pub fn grok_session_auth_available(home: &Path) -> bool {
+    let path = home.join(".grok/auth.json");
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return false;
+    };
+    // Shape: { "<issuer>::<id>": { "key": "...", "auth_mode": "oidc"|"...", ... }, ... }
+    doc.as_object().is_some_and(|entries| {
+        entries.values().any(|v| {
+            v.get("key")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|k| !k.trim().is_empty())
+        })
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrokAuthMode {
+    /// Browser/OIDC session — use cli-chat-proxy rail (never models_base_url).
+    Subscription,
+    /// Pay-as-you-go API key — use models_base_url → api.x.ai.
+    ApiKey,
+    None,
+}
+
+/// Prefer subscription when a session token is present (Grok itself prefers
+/// session over `XAI_API_KEY`). Fall back to API-key rail only when no session.
+fn grok_auth_mode(home: &Path) -> GrokAuthMode {
+    if grok_session_auth_available(home) {
+        GrokAuthMode::Subscription
+    } else if xai_api_key_available() {
+        GrokAuthMode::ApiKey
+    } else {
+        GrokAuthMode::None
+    }
+}
+
+const XAI_PROVIDER_ID: &str = "xai";
+const XAI_UPSTREAM: &str = "https://api.x.ai";
+const GROK_CHAT_PROVIDER_ID: &str = "grok-chat";
+const GROK_CHAT_UPSTREAM: &str = "https://cli-chat-proxy.grok.com";
+
+#[derive(Debug, Clone, Copy)]
+enum ShellFlavor {
+    Posix,
+    Fish,
+    PowerShell,
+}
+
+fn grok_proxy_base_url(port: u16, mode: GrokAuthMode) -> Option<String> {
+    let base = format!("http://127.0.0.1:{port}");
+    match mode {
+        GrokAuthMode::Subscription => {
+            Some(format!("{base}/providers/{GROK_CHAT_PROVIDER_ID}/v1"))
+        }
+        GrokAuthMode::ApiKey => Some(format!("{base}/providers/{XAI_PROVIDER_ID}/v1")),
+        GrokAuthMode::None => None,
+    }
+}
+
+fn render_grok_shell_exports(base: &str, mode: GrokAuthMode, flavor: ShellFlavor) -> String {
+    match mode {
+        GrokAuthMode::None => format!("# {GROK_OMITTED_NOTE}"),
+        GrokAuthMode::Subscription => {
+            // Session Bearer stays on the cli-chat-proxy rail. Do NOT set
+            // GROK_MODELS_BASE_URL — that switches Grok into API-key auth.
+            let url = format!("{base}/providers/{GROK_CHAT_PROVIDER_ID}/v1");
+            match flavor {
+                ShellFlavor::Posix => {
+                    format!(r#"export GROK_CLI_CHAT_PROXY_BASE_URL="{url}""#)
+                }
+                ShellFlavor::Fish => {
+                    format!(r#"set -gx GROK_CLI_CHAT_PROXY_BASE_URL "{url}""#)
+                }
+                ShellFlavor::PowerShell => {
+                    format!(r#"$env:GROK_CLI_CHAT_PROXY_BASE_URL = "{url}""#)
+                }
+            }
+        }
+        GrokAuthMode::ApiKey => {
+            let url = format!("{base}/providers/{XAI_PROVIDER_ID}/v1");
+            match flavor {
+                ShellFlavor::Posix => format!(
+                    r#"export GROK_MODELS_BASE_URL="{url}"
+export GROK_CLI_CHAT_PROXY_BASE_URL="{url}""#
+                ),
+                ShellFlavor::Fish => format!(
+                    r#"set -gx GROK_MODELS_BASE_URL "{url}"
+set -gx GROK_CLI_CHAT_PROXY_BASE_URL "{url}""#
+                ),
+                ShellFlavor::PowerShell => format!(
+                    r#"$env:GROK_MODELS_BASE_URL = "{url}"
+$env:GROK_CLI_CHAT_PROXY_BASE_URL = "{url}""#
+                ),
+            }
+        }
+    }
+}
+
+/// Ensure lean-ctx config has a `[[proxy.providers]]` entry. Idempotent.
+fn ensure_proxy_provider(id: &str, base_url: &str, quiet: bool) {
+    use crate::core::config::{ProviderEntry, WireShape};
+
+    let cfg = crate::core::config::Config::load();
+    if cfg
+        .proxy
+        .providers
+        .iter()
+        .any(|p| p.id.trim().eq_ignore_ascii_case(id))
+    {
+        return;
+    }
+
+    match crate::core::config::Config::update_global(|c| {
+        if c.proxy
+            .providers
+            .iter()
+            .any(|p| p.id.trim().eq_ignore_ascii_case(id))
+        {
+            return;
+        }
+        c.proxy.providers.push(ProviderEntry {
+            id: id.to_string(),
+            shape: WireShape::OpenAi,
+            base_url: base_url.to_string(),
+            api_key_env: None, // forward caller's Bearer (session or XAI_API_KEY)
+            enabled: None,
+            local: None,
+        });
+    }) {
+        Ok(_) => {
+            if !quiet {
+                println!("  \x1b[32m✓\x1b[0m Seeded [[proxy.providers]] id={id} → {base_url}");
+            }
+        }
+        Err(e) => {
+            tracing::warn!("could not seed {id} proxy provider: {e}");
+            if !quiet {
+                eprintln!(
+                    "  \u{26a0} Could not seed {id} provider in config.toml: {e}\n    \
+                     Add manually:\n      [[proxy.providers]]\n      id = \"{id}\"\n      \
+                     shape = \"openai\"\n      base_url = \"{base_url}\""
+                );
+            }
+        }
+    }
+}
+
+/// Testable core of [`install_grok_env`].
+fn install_grok_env_at(
+    grok_dir: &Path,
+    port: u16,
+    quiet: bool,
+    force: bool,
+    mode: GrokAuthMode,
+) {
+    use crate::core::config::{is_local_proxy_url, normalize_url_opt};
+
+    if !grok_dir.exists() {
+        return;
+    }
+    if mode == GrokAuthMode::None && !force {
+        if !quiet {
+            eprintln!("  \u{26a0} Grok: no session token and no XAI_API_KEY.");
+            eprintln!("    Subscription: run `grok login`, then `lean-ctx proxy enable`.");
+            eprintln!("    API key:      export XAI_API_KEY=…, then re-run proxy enable.");
+        }
+        return;
+    }
+    // force with no auth still needs a mode — prefer subscription rail if forced.
+    let mode = if mode == GrokAuthMode::None && force {
+        GrokAuthMode::Subscription
+    } else {
+        mode
+    };
+
+    if !is_proxy_reachable(port) {
+        if !quiet {
+            println!("  Skipping Grok proxy env (proxy not running on port {port})");
+        }
+        return;
+    }
+
+    let Some(proxy_url) = grok_proxy_base_url(port, mode) else {
+        return;
+    };
+    let config_path = grok_dir.join("config.toml");
+    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+
+    match mode {
+        GrokAuthMode::Subscription => {
+            // Critical: strip any prior models_base_url we wrote in API-key mode —
+            // that field forces API-key auth and breaks subscription.
+            if grok_config_has_local_proxy_entry(&existing) {
+                let cleaned = strip_grok_proxy_entries(&existing);
+                if cleaned != existing {
+                    let _ = std::fs::write(&config_path, cleaned);
+                    if !quiet {
+                        println!(
+                            "  \x1b[32m✓\x1b[0m Grok subscription: removed [endpoints].models_base_url \
+                             (would force API-key auth)"
+                        );
+                    }
+                }
+            }
+            if !quiet {
+                println!(
+                    "  Configured Grok subscription rail: GROK_CLI_CHAT_PROXY_BASE_URL → {proxy_url}"
+                );
+                println!(
+                    "    (session Bearer forwarded to {GROK_CHAT_UPSTREAM}; shell export applied)"
+                );
+            }
+        }
+        GrokAuthMode::ApiKey => {
+            // Never clobber a custom remote models_base_url unless --force.
+            if let Some(current) = grok_models_base_url(&existing) {
+                if current == proxy_url {
+                    if !quiet {
+                        println!("  Grok API-key rail already configured");
+                    }
+                    return;
+                }
+                if !force
+                    && let Some(custom) = normalize_url_opt(&current)
+                    && !is_local_proxy_url(&custom)
+                    && !custom.contains("/providers/xai/")
+                {
+                    if !quiet {
+                        eprintln!(
+                            "  \u{26a0} Grok: kept custom models_base_url ({current}); \
+                             use `lean-ctx proxy enable --force` to override."
+                        );
+                    }
+                    return;
+                }
+            }
+
+            let updated = upsert_grok_models_base_url(&existing, &proxy_url);
+            if updated != existing {
+                if let Some(parent) = config_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&config_path, updated);
+                if !quiet {
+                    println!(
+                        "  Configured Grok [endpoints].models_base_url → proxy ({proxy_url})"
+                    );
+                }
+            }
+        }
+        GrokAuthMode::None => {}
+    }
+}
+
+fn uninstall_grok_env_at(grok_dir: &Path, quiet: bool) {
+    let config_path = grok_dir.join("config.toml");
+    let existing = match std::fs::read_to_string(&config_path) {
+        Ok(s) if !s.trim().is_empty() => s,
+        _ => return,
+    };
+    if !grok_config_has_local_proxy_entry(&existing) {
+        return;
+    }
+    let cleaned = strip_grok_proxy_entries(&existing);
+    let _ = std::fs::write(&config_path, cleaned);
+    if !quiet {
+        println!("  \x1b[32m✓\x1b[0m Removed Grok proxy models_base_url from ~/.grok/config.toml");
+    }
+}
+
+/// Read `[endpoints].models_base_url` from a Grok config.toml body.
+fn grok_models_base_url(content: &str) -> Option<String> {
+    let mut in_endpoints = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_endpoints = trimmed == "[endpoints]";
+            continue;
+        }
+        if in_endpoints
+            && let Some(rest) = trimmed
+                .strip_prefix("models_base_url")
+                .map(str::trim)
+                .and_then(|r| r.strip_prefix('='))
+                .map(str::trim)
+        {
+            let val = rest.trim_matches(|c| c == '"' || c == '\'');
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn grok_config_has_local_proxy_entry(content: &str) -> bool {
+    grok_models_base_url(content).is_some_and(|u| {
+        is_local_lean_ctx_url(&u) && (u.contains("/providers/xai") || u.contains("127.0.0.1"))
+    })
+}
+
+/// Upsert `[endpoints].models_base_url = "..."` preserving other content.
+fn upsert_grok_models_base_url(existing: &str, proxy_url: &str) -> String {
+    let desired = format!("models_base_url = \"{proxy_url}\"");
+    let mut out = String::with_capacity(existing.len() + 64);
+    let mut in_endpoints = false;
+    let mut saw_endpoints = false;
+    let mut wrote_key = false;
+
+    for line in existing.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if in_endpoints && !wrote_key {
+                out.push_str(&desired);
+                out.push('\n');
+                wrote_key = true;
+            }
+            in_endpoints = trimmed == "[endpoints]";
+            if in_endpoints {
+                saw_endpoints = true;
+            }
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_endpoints && trimmed.starts_with("models_base_url") && trimmed.contains('=') {
+            out.push_str(&desired);
+            out.push('\n');
+            wrote_key = true;
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    if in_endpoints && !wrote_key {
+        out.push_str(&desired);
+        out.push('\n');
+        wrote_key = true;
+    }
+    if !saw_endpoints {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str("\n[endpoints]\n");
+        out.push_str(&desired);
+        out.push('\n');
+        let _ = wrote_key;
+    }
+    out
+}
+
+/// Remove only a local lean-ctx proxy `models_base_url` from Grok config.
+fn strip_grok_proxy_entries(content: &str) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut in_endpoints = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_endpoints = trimmed == "[endpoints]";
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if in_endpoints
+            && trimmed.starts_with("models_base_url")
+            && trimmed.contains('=')
+            && let Some(rest) = trimmed
+                .split_once('=')
+                .map(|(_, v)| v.trim().trim_matches(|c| c == '"' || c == '\''))
+            && is_local_lean_ctx_url(rest)
+        {
+            continue; // drop local proxy line
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 /// Pi / forge resolve their provider endpoint from `~/.pi/agent/models.json`
@@ -1951,4 +2411,153 @@ $env:GEMINI_API_BASE_URL = "{base}"
             "a custom endpoint must be preserved on disable"
         );
     }
+
+    #[test]
+    fn grok_api_key_mode_writes_models_base_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let grok_dir = dir.path().join(".grok");
+        std::fs::create_dir_all(&grok_dir).unwrap();
+        std::fs::write(grok_dir.join("config.toml"), "[ui]\ntheme = \"test\"\n").unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        install_grok_env_at(&grok_dir, port, true, false, GrokAuthMode::ApiKey);
+
+        let cfg = std::fs::read_to_string(grok_dir.join("config.toml")).unwrap();
+        assert!(
+            cfg.contains(&format!(
+                "models_base_url = \"http://127.0.0.1:{port}/providers/xai/v1\""
+            )),
+            "API-key mode must point at /providers/xai/v1, got:\n{cfg}"
+        );
+    }
+
+    #[test]
+    fn grok_subscription_mode_never_writes_models_base_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let grok_dir = dir.path().join(".grok");
+        std::fs::create_dir_all(&grok_dir).unwrap();
+        // Stale API-key config left from a previous enable — must be stripped.
+        std::fs::write(
+            grok_dir.join("config.toml"),
+            "[ui]\n\n[endpoints]\nmodels_base_url = \"http://127.0.0.1:4444/providers/xai/v1\"\n",
+        )
+        .unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+
+        install_grok_env_at(&grok_dir, port, true, false, GrokAuthMode::Subscription);
+
+        let cfg = std::fs::read_to_string(grok_dir.join("config.toml")).unwrap();
+        assert!(
+            !cfg.contains("models_base_url"),
+            "subscription must strip models_base_url (forces API-key auth):\n{cfg}"
+        );
+
+        // Shell export must use grok-chat rail, not xai/models.
+        let exports = render_grok_shell_exports(
+            &format!("http://127.0.0.1:{port}"),
+            GrokAuthMode::Subscription,
+            ShellFlavor::Posix,
+        );
+        assert!(
+            exports.contains("GROK_CLI_CHAT_PROXY_BASE_URL")
+                && exports.contains("/providers/grok-chat/v1"),
+            "subscription shell export must set CLI chat proxy → grok-chat: {exports}"
+        );
+        assert!(
+            !exports.contains("GROK_MODELS_BASE_URL"),
+            "subscription must not set GROK_MODELS_BASE_URL: {exports}"
+        );
+    }
+
+    #[test]
+    fn grok_session_auth_detects_oidc_auth_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        std::fs::create_dir_all(home.join(".grok")).unwrap();
+        std::fs::write(
+            home.join(".grok/auth.json"),
+            r#"{"https://auth.x.ai::id":{"key":"sess-token","auth_mode":"oidc"}}"#,
+        )
+        .unwrap();
+        assert!(grok_session_auth_available(home));
+        assert_eq!(grok_auth_mode(home), GrokAuthMode::Subscription);
+    }
+
+    #[test]
+    fn grok_session_auth_prefers_subscription_over_api_key() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        std::fs::create_dir_all(home.join(".grok")).unwrap();
+        std::fs::write(
+            home.join(".grok/auth.json"),
+            r#"{"https://auth.x.ai::id":{"key":"sess-token","auth_mode":"oidc"}}"#,
+        )
+        .unwrap();
+        let prev = std::env::var("XAI_API_KEY").ok();
+        crate::test_env::set_var("XAI_API_KEY", "xai-key");
+        assert_eq!(
+            grok_auth_mode(home),
+            GrokAuthMode::Subscription,
+            "session token must win over XAI_API_KEY (matches Grok runtime)"
+        );
+        match prev {
+            Some(v) => crate::test_env::set_var("XAI_API_KEY", v),
+            None => crate::test_env::remove_var("XAI_API_KEY"),
+        }
+    }
+
+    #[test]
+    fn grok_env_skips_without_auth() {
+        let dir = tempfile::tempdir().unwrap();
+        let grok_dir = dir.path().join(".grok");
+        std::fs::create_dir_all(&grok_dir).unwrap();
+        std::fs::write(grok_dir.join("config.toml"), "[ui]\n").unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        install_grok_env_at(&grok_dir, port, true, false, GrokAuthMode::None);
+
+        let cfg = std::fs::read_to_string(grok_dir.join("config.toml")).unwrap();
+        assert!(
+            !cfg.contains("models_base_url"),
+            "no-auth mode must leave config untouched:\n{cfg}"
+        );
+    }
+
+    #[test]
+    fn grok_uninstall_strips_only_local_proxy_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let grok_dir = dir.path().join(".grok");
+        std::fs::create_dir_all(&grok_dir).unwrap();
+        std::fs::write(
+            grok_dir.join("config.toml"),
+            "[ui]\ntheme = \"t\"\n\n[endpoints]\nmodels_base_url = \"http://127.0.0.1:4444/providers/xai/v1\"\nother = 1\n",
+        )
+        .unwrap();
+
+        uninstall_grok_env_at(&grok_dir, true);
+
+        let cfg = std::fs::read_to_string(grok_dir.join("config.toml")).unwrap();
+        assert!(
+            !cfg.contains("models_base_url"),
+            "local proxy URL must be stripped:\n{cfg}"
+        );
+        assert!(cfg.contains("theme"), "user content preserved:\n{cfg}");
+        assert!(cfg.contains("other = 1"), "other keys preserved:\n{cfg}");
+    }
+
+    #[test]
+    fn upsert_grok_models_base_url_is_idempotent() {
+        let url = "http://127.0.0.1:4444/providers/xai/v1";
+        let once = upsert_grok_models_base_url("[ui]\n", url);
+        let twice = upsert_grok_models_base_url(&once, url);
+        assert_eq!(once, twice, "re-upsert must be byte-stable");
+        assert_eq!(grok_models_base_url(&twice).as_deref(), Some(url));
+    }
+
 }

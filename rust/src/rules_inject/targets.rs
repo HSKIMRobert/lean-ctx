@@ -173,6 +173,11 @@ pub(super) fn build_rules_targets(
             format: RulesFormat::SharedMarkdown,
         },
         RulesTarget {
+            name: "Grok",
+            path: home.join(".grok/AGENTS.md"),
+            format: RulesFormat::SharedMarkdown,
+        },
+        RulesTarget {
             name: "Hermes Agent",
             path: home.join(".hermes/HERMES.md"),
             format: RulesFormat::SharedMarkdown,
