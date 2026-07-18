@@ -647,25 +647,60 @@ pub fn build_property_graph(project_root: &str) -> anyhow::Result<()> {
     super::property_graph::mirror_index(project_root, &index)
 }
 
+/// Maximum time `open_or_build` will wait for a synchronous graph build before
+/// falling back to "graph unavailable" (#1018). Prevents blocking-pool
+/// exhaustion on large repos with cold indices, especially on Windows with AV.
+const BUILD_TIMEOUT_SECS: u64 = 30;
+
+/// Serialization gate: only one synchronous graph build at a time. Concurrent
+/// callers that cannot acquire the gate return immediately with `None` rather
+/// than queueing (which would exhaust the blocking pool). The background indexer
+/// picks up the build for them asynchronously.
+static BUILD_GATE: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
 pub fn open_or_build(project_root: &str) -> Option<OpenGraphProvider> {
-    // Open via `open_existing` (not `open_best_effort`): we build synchronously
-    // below, so we must NOT spawn the background indexer. Its worker holds the
-    // graph-index file lock, which would starve the synchronous scan into
-    // returning an empty index — the "No graph available" first-call regression
-    // after the PropertyGraph default flip (#695/#682.2).
     if let (Some(p), _) = open_existing(project_root) {
         return Some(p);
     }
-    let idx = super::graph_index::load_or_build(project_root);
-    if idx.files.is_empty() {
-        return None;
-    }
-    Some(OpenGraphProvider {
-        source: GraphProviderSource::GraphIndex,
-        provider: GraphProvider::GraphIndex(idx),
-    })
-}
 
+    // Try to acquire the build gate without blocking. If another tool call is
+    // already building the graph, don't queue — trigger background build and
+    // return None so the caller gets a graceful "index building" message.
+    let Ok(_gate) = BUILD_GATE.try_lock() else {
+        tracing::info!(
+            "open_or_build: another build in progress for {project_root}; returning None"
+        );
+        trigger_lazy_graph_build(project_root);
+        return None;
+    };
+
+    // Run the potentially-slow `load_or_build` under a timeout thread so we
+    // don't block the calling tool handler for unbounded time (#1018).
+    let root_owned = project_root.to_string();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let idx = super::graph_index::load_or_build(&root_owned);
+        let _ = tx.send(idx);
+    });
+
+    let timeout = std::time::Duration::from_secs(BUILD_TIMEOUT_SECS);
+    match rx.recv_timeout(timeout) {
+        Ok(idx) if !idx.files.is_empty() => Some(OpenGraphProvider {
+            source: GraphProviderSource::GraphIndex,
+            provider: GraphProvider::GraphIndex(idx),
+        }),
+        Ok(_) => None,
+        Err(_) => {
+            tracing::warn!(
+                "open_or_build: graph build timed out after {BUILD_TIMEOUT_SECS}s for {project_root}; \
+                 triggering background build"
+            );
+            trigger_lazy_graph_build(project_root);
+            None
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

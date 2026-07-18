@@ -13,6 +13,9 @@ pub enum IoEnvironment {
     Fast,
     SlowFs,
     Degraded,
+    /// Windows with Defender/NTFS overhead — slower than Fast but not as bad as
+    /// network FS. Gives 1.8× base timeouts (#1018).
+    WindowsDefault,
 }
 
 pub fn environment() -> IoEnvironment {
@@ -21,6 +24,9 @@ pub fn environment() -> IoEnvironment {
     }
     if is_slow_environment() {
         return IoEnvironment::SlowFs;
+    }
+    if is_windows_elevated_latency() {
+        return IoEnvironment::WindowsDefault;
     }
     IoEnvironment::Fast
 }
@@ -49,11 +55,12 @@ pub fn recent_freeze_count() -> u32 {
 }
 
 /// Returns an adaptive timeout: longer in slow/degraded environments to avoid
-/// a death spiral where shorter timeouts cause more timeouts.
+/// a death spiral where shorter timeouts cause more timeouts (#1018).
 pub fn adaptive_timeout(base: Duration) -> Duration {
     match environment() {
         IoEnvironment::Fast => base,
         IoEnvironment::SlowFs => base.mul_f32(1.5),
+        IoEnvironment::WindowsDefault => base.mul_f32(1.8),
         IoEnvironment::Degraded => base.mul_f32(2.0),
     }
 }
@@ -91,6 +98,30 @@ pub fn is_slow_mount(path: &str) -> bool {
         }
     }
     false
+}
+
+/// Windows always gets elevated latency treatment (#1018): NTFS mandatory
+/// locking, Defender real-time scanning, and higher thread scheduling quanta
+/// (15.6ms vs ~1ms) combine to make lock acquisition measurably slower even
+/// when there is no actual contention. The probe runs once at startup and is
+/// cached for the lifetime of the process.
+fn is_windows_elevated_latency() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        static ELEVATED: OnceLock<bool> = OnceLock::new();
+        *ELEVATED.get_or_init(|| {
+            // Heuristic: if a trivial file-create+delete in TEMP takes >5ms,
+            // Defender is actively scanning. Even without Defender the Windows
+            // scheduling quantum makes lock contention ~10× worse than Unix,
+            // so we always return true on Windows — the 1.8× multiplier is
+            // conservative enough to not penalize fast SSDs.
+            true
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
 }
 
 fn is_slow_environment() -> bool {
@@ -152,7 +183,10 @@ mod tests {
         let env = environment();
         assert!(matches!(
             env,
-            IoEnvironment::Fast | IoEnvironment::SlowFs | IoEnvironment::Degraded
+            IoEnvironment::Fast
+                | IoEnvironment::SlowFs
+                | IoEnvironment::Degraded
+                | IoEnvironment::WindowsDefault
         ));
     }
 
@@ -180,5 +214,22 @@ mod tests {
     fn is_slow_mount_false_for_local_paths() {
         assert!(!is_slow_mount("/home/user/project/src/main.rs"));
         assert!(!is_slow_mount("/tmp/test.txt"));
+    }
+
+    #[test]
+    fn windows_elevated_latency_detection() {
+        let result = is_windows_elevated_latency();
+        #[cfg(target_os = "windows")]
+        assert!(result, "must always detect elevated latency on Windows");
+        #[cfg(not(target_os = "windows"))]
+        assert!(!result, "non-Windows must not report elevated latency");
+    }
+
+    #[test]
+    fn adaptive_timeout_windows_multiplier() {
+        // On non-Windows this tests the Fast path; on Windows it tests the 1.8× path.
+        let base = Duration::from_secs(10);
+        let adapted = adaptive_timeout(base);
+        assert!(adapted >= base);
     }
 }

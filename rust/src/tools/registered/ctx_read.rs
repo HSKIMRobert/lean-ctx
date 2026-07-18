@@ -127,33 +127,25 @@ impl CtxReadTool {
             .ok_or_else(|| ErrorData::internal_error("cache not available", None))?;
 
         let current_task = {
-            let rt = tokio::runtime::Handle::current();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(8);
             let mut attempt = 0u32;
             loop {
-                if let Ok(session) = rt.block_on(tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    session_lock.read(),
-                )) {
-                    break session.task.as_ref().map(|t| t.description.clone());
+                // #1018: use try_read_owned instead of Handle::block_on to avoid
+                // the async-runtime-saturation anti-pattern on Windows.
+                if let Ok(guard) = session_lock.clone().try_read_owned() {
+                    break guard.task.as_ref().map(|t| t.description.clone());
                 }
                 attempt += 1;
-                if attempt >= 3 {
+                if std::time::Instant::now() >= deadline {
                     tracing::warn!(
                         "session read-lock timeout after {attempt} attempts in ctx_read for {path}"
                     );
-                    return Err(ErrorData::internal_error(
-                        "session lock timeout — another tool may be holding it. Retry in a moment.",
-                        None,
-                    ));
+                    break None;
                 }
-                tracing::debug!(
-                    "session read-lock attempt {attempt}/3 timed out for {path}, retrying"
-                );
-                std::thread::sleep(std::time::Duration::from_millis(100 * u64::from(attempt)));
+                std::thread::sleep(std::time::Duration::from_millis(25));
             }
         };
         let task_ref = current_task.as_deref();
-
         let profile = crate::core::profiles::active_profile();
         // #513: `raw=true` is the intuitive "give me the exact bytes" escape an
         // agent reaches for. Alias it to mode="raw" (verbatim, unframed) and

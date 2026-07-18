@@ -5,55 +5,101 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 const BASE_READ_TIMEOUT: Duration = Duration::from_secs(10);
 const BASE_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Acquire a read lock with an adaptive timeout based on I/O health.
-/// Returns `None` on timeout (caller must provide graceful fallback).
-/// Records a freeze event for self-healing if the timeout is hit.
+/// Spin interval between `try_*` attempts. Kept short enough for responsiveness
+/// but long enough to avoid busy-spinning on Windows where thread scheduling
+/// quanta are ~15ms.
+const SPIN_INTERVAL: Duration = Duration::from_millis(20);
+
+/// Acquire a read lock via a non-blocking spin loop with an adaptive timeout.
 ///
-/// Callers are expected to already be in a blocking context (e.g. via
-/// `block_in_place` in the dispatch layer). This function uses
-/// `Handle::block_on` directly to avoid nested `block_in_place` calls
-/// that would consume additional blocking-pool threads.
+/// Unlike the previous `Handle::block_on` approach, this never parks a blocking
+/// thread waiting for the async runtime to make progress — eliminating the
+/// stall-under-load anti-pattern on Windows (#1018). The loop yields the thread
+/// between attempts so it does not starve other work on the blocking pool.
+///
+/// Returns `None` on timeout (caller must provide graceful fallback).
 pub fn read<T: Send + Sync + 'static>(
     lock: &Arc<RwLock<T>>,
     context: &str,
 ) -> Option<OwnedRwLockReadGuard<T>> {
     let timeout = crate::core::io_health::adaptive_timeout(BASE_READ_TIMEOUT);
-    let lock_clone = lock.clone();
-    let rt = tokio::runtime::Handle::current();
-    let result = rt.block_on(tokio::time::timeout(timeout, lock_clone.read_owned()));
-    if let Ok(guard) = result {
-        Some(guard)
-    } else {
-        crate::core::io_health::record_freeze();
-        tracing::warn!(
-            "bounded_lock: read timeout ({}ms) for {context}; degrading gracefully",
-            timeout.as_millis()
-        );
-        None
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        if let Ok(guard) = lock.clone().try_read_owned() {
+            return Some(guard);
+        }
+        if std::time::Instant::now() >= deadline {
+            crate::core::io_health::record_freeze();
+            tracing::warn!(
+                "bounded_lock: read timeout ({}ms) for {context}; degrading gracefully",
+                timeout.as_millis()
+            );
+            return None;
+        }
+        std::thread::sleep(SPIN_INTERVAL);
     }
 }
 
-/// Acquire a write lock with an adaptive timeout based on I/O health.
-/// Returns `None` on timeout (caller must provide graceful fallback).
-/// Records a freeze event for self-healing if the timeout is hit.
+/// Acquire a write lock via a non-blocking spin loop with an adaptive timeout.
+/// See `read()` for design rationale (#1018).
 ///
-/// See `read()` for design rationale.
+/// Returns `None` on timeout (caller must provide graceful fallback).
 pub fn write<T: Send + Sync + 'static>(
     lock: &Arc<RwLock<T>>,
     context: &str,
 ) -> Option<OwnedRwLockWriteGuard<T>> {
     let timeout = crate::core::io_health::adaptive_timeout(BASE_WRITE_TIMEOUT);
-    let lock_clone = lock.clone();
-    let rt = tokio::runtime::Handle::current();
-    let result = rt.block_on(tokio::time::timeout(timeout, lock_clone.write_owned()));
-    if let Ok(guard) = result {
-        Some(guard)
-    } else {
-        crate::core::io_health::record_freeze();
-        tracing::warn!(
-            "bounded_lock: write timeout ({}ms) for {context}; degrading gracefully",
-            timeout.as_millis()
-        );
-        None
+    let deadline = std::time::Instant::now() + timeout;
+
+    loop {
+        if let Ok(guard) = lock.clone().try_write_owned() {
+            return Some(guard);
+        }
+        if std::time::Instant::now() >= deadline {
+            crate::core::io_health::record_freeze();
+            tracing::warn!(
+                "bounded_lock: write timeout ({}ms) for {context}; degrading gracefully",
+                timeout.as_millis()
+            );
+            return None;
+        }
+        std::thread::sleep(SPIN_INTERVAL);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_succeeds_on_uncontested_lock() {
+        let lock = Arc::new(RwLock::new(42u32));
+        let guard = read(&lock, "test").expect("uncontested read must succeed");
+        assert_eq!(*guard, 42);
+    }
+
+    #[test]
+    fn write_succeeds_on_uncontested_lock() {
+        let lock = Arc::new(RwLock::new(0u32));
+        let mut guard = write(&lock, "test").expect("uncontested write must succeed");
+        *guard = 7;
+        assert_eq!(*guard, 7);
+    }
+
+    #[test]
+    fn multiple_readers_concurrent() {
+        let lock = Arc::new(RwLock::new(99u32));
+        let g1 = read(&lock, "r1").expect("first reader");
+        let g2 = read(&lock, "r2").expect("second reader");
+        assert_eq!(*g1, 99);
+        assert_eq!(*g2, 99);
+    }
+
+    #[test]
+    fn write_excludes_readers() {
+        let lock = Arc::new(RwLock::new(0u32));
+        let _hold = lock.clone().try_write_owned().unwrap();
+        assert!(lock.clone().try_read_owned().is_err());
     }
 }

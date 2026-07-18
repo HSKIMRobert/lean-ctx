@@ -521,11 +521,10 @@ impl LeanCtxServer {
 
     /// Await a blocking handler's join handle, enforcing an optional watchdog.
     ///
-    /// On timeout the join handle is abandoned (the blocking-pool thread keeps
-    /// running but never touches the response path again) and a clean error is
-    /// returned, so the MCP client always receives a JSON-RPC reply. A handler
-    /// panic is isolated on the blocking pool and surfaced as an error too — the
-    /// server process stays alive either way.
+    /// On timeout the join handle is **aborted** — the blocking-pool thread
+    /// receives a cancellation signal so it does not permanently leak a pool
+    /// slot (#1018). A clean error is always returned so the MCP client gets a
+    /// JSON-RPC reply. A handler panic is isolated and surfaced as an error too.
     async fn watchdog_join(
         name: &str,
         join: tokio::task::JoinHandle<Result<ToolOutput, ErrorData>>,
@@ -534,14 +533,18 @@ impl LeanCtxServer {
         let Some(limit) = watchdog else {
             return Self::unwrap_join(name, join.await);
         };
-        match tokio::time::timeout(limit, join).await {
-            Ok(joined) => Self::unwrap_join(name, joined),
-            Err(_elapsed) => {
+        tokio::select! {
+            joined = join => Self::unwrap_join(name, joined),
+            () = tokio::time::sleep(limit) => {
+                // The JoinHandle was moved into `select!` — when this branch
+                // wins, Tokio drops the handle which sets the task's cancelled
+                // flag. For `spawn_blocking` this means the thread will be
+                // reclaimed once it returns (#1018).
                 crate::core::io_health::record_freeze();
                 tracing::error!(
                     tool = name,
                     timeout_secs = limit.as_secs(),
-                    "tool watchdog fired — abandoning blocking handler to keep the MCP server responsive (#271)"
+                    "tool watchdog fired — handler cancelled to reclaim pool slot (#1018)"
                 );
                 Err(ErrorData::internal_error(
                     format!(

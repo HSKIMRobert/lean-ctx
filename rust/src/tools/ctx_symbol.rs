@@ -10,11 +10,11 @@ pub fn handle(
     kind: Option<&str>,
     project_root: &str,
 ) -> (String, usize) {
-    let Some(open) = graph_provider::open_or_build(project_root) else {
+    let Some(open) = graph_provider::open_best_effort(project_root) else {
         return (
             format!(
-                "Symbol '{name}' not found (no graph available). \
-                 Try ctx_search(pattern=\"{name}\") for a broader search.",
+                "Symbol '{name}' not found (graph index is building in the background — \
+                 retry in a few seconds). Try ctx_search(pattern=\"{name}\") for an immediate broader search.",
             ),
             0,
         );
@@ -64,7 +64,7 @@ pub fn best_symbol_snippet_for_task(
     task: &str,
     project_root: &str,
 ) -> Option<(String, usize)> {
-    let open = graph_provider::open_or_build(project_root)?;
+    let open = graph_provider::open_best_effort(project_root)?;
     let gp = &open.provider;
     let candidates = gp.find_symbols(name, None, None);
     let scores: Vec<usize> = candidates
@@ -133,7 +133,7 @@ pub fn render_by_handle(handle: &str, project_root: &str) -> (String, usize) {
             0,
         );
     };
-    let Some(open) = graph_provider::open_or_build(project_root) else {
+    let Some(open) = graph_provider::open_best_effort(project_root) else {
         return (
             format!("Handle '{handle}' not resolvable (no graph available)."),
             0,

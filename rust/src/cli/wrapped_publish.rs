@@ -237,8 +237,9 @@ pub(crate) fn link(code: Option<&str>) {
     let store = PublishedStore::load();
     let Some(card) = linkable_card(&store) else {
         eprintln!(
-            "No published card on this machine yet.\n\
-             Publish first:  lean-ctx gain --publish --leaderboard"
+            "No leaderboard card on this machine yet.\n\
+             1. Publish:     lean-ctx gain --publish --leaderboard\n\
+             2. Then link:   lean-ctx gain --link"
         );
         std::process::exit(1);
     };
@@ -496,7 +497,8 @@ pub(crate) fn publish(period: &str, name: Option<&str>, leaderboard: bool) {
                 }
                 if card.account_claimed {
                     println!(
-                        "Linked to your account — all your machines now stack under one leaderboard entry."
+                        "Linked this leaderboard card to your account. Cards published from your other \
+                         signed-in machines stack under the same leaderboard entry."
                     );
                 } else {
                     if cloud_client::is_logged_in() {
