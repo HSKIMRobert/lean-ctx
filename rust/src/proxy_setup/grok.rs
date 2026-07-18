@@ -166,48 +166,98 @@ $env:GROK_CLI_CHAT_PROXY_BASE_URL = "{url}""#
 }
 
 /// Ensure lean-ctx config has a `[[proxy.providers]]` entry. Idempotent.
-pub(crate) fn ensure_proxy_provider(id: &str, base_url: &str, quiet: bool) {
-    use crate::core::config::{ProviderEntry, WireShape};
+/// Result of ensuring a `[[proxy.providers]]` entry matches the rail upstream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ProviderEnsureAction {
+    /// Id already present with the desired `base_url` (normalized).
+    Unchanged,
+    /// No matching id — entry was appended.
+    Seeded,
+    /// Id present but `base_url` was stale; rewritten to the rail upstream.
+    Updated { previous: String },
+}
 
+/// Seed or repair a provider row so `id` maps to `base_url`.
+///
+/// When the id already exists with a different base URL (manual edit, host
+/// rename), updates it in place. Other fields (`shape`, `api_key_env`, …) are
+/// left alone. Comparison uses [`normalize_url`] (trim + strip trailing `/`).
+pub(super) fn reconcile_proxy_provider(
+    providers: &mut Vec<crate::core::config::ProviderEntry>,
+    id: &str,
+    base_url: &str,
+) -> ProviderEnsureAction {
+    use crate::core::config::{ProviderEntry, WireShape, normalize_url};
+
+    let desired = normalize_url(base_url);
+    if let Some(existing) = providers
+        .iter_mut()
+        .find(|p| p.id.trim().eq_ignore_ascii_case(id))
+    {
+        if normalize_url(&existing.base_url) == desired {
+            return ProviderEnsureAction::Unchanged;
+        }
+        let previous = existing.base_url.clone();
+        existing.base_url = desired;
+        return ProviderEnsureAction::Updated { previous };
+    }
+
+    providers.push(ProviderEntry {
+        id: id.to_string(),
+        shape: WireShape::OpenAi,
+        base_url: desired,
+        api_key_env: None, // forward caller's Bearer (session or XAI_API_KEY)
+        enabled: None,
+        local: None,
+    });
+    ProviderEnsureAction::Seeded
+}
+
+/// Ensure `[[proxy.providers]]` has `id` pointing at the rail `base_url`.
+///
+/// Re-running proxy enable repairs a stale/wrong base_url for a matching id
+/// (manual edit or host rename). Logs seed/update when `quiet` is false.
+pub(crate) fn ensure_proxy_provider(id: &str, base_url: &str, quiet: bool) {
+    use crate::core::config::normalize_url;
+
+    let desired = normalize_url(base_url);
     let cfg = crate::core::config::Config::load();
     if cfg
         .proxy
         .providers
         .iter()
-        .any(|p| p.id.trim().eq_ignore_ascii_case(id))
+        .any(|p| p.id.trim().eq_ignore_ascii_case(id) && normalize_url(&p.base_url) == desired)
     {
         return;
     }
 
+    let mut action = ProviderEnsureAction::Unchanged;
     match crate::core::config::Config::update_global(|c| {
-        if c.proxy
-            .providers
-            .iter()
-            .any(|p| p.id.trim().eq_ignore_ascii_case(id))
-        {
-            return;
-        }
-        c.proxy.providers.push(ProviderEntry {
-            id: id.to_string(),
-            shape: WireShape::OpenAi,
-            base_url: base_url.to_string(),
-            api_key_env: None, // forward caller's Bearer (session or XAI_API_KEY)
-            enabled: None,
-            local: None,
-        });
+        action = reconcile_proxy_provider(&mut c.proxy.providers, id, &desired);
     }) {
         Ok(_) => {
-            if !quiet {
-                println!("  \x1b[32m✓\x1b[0m Seeded [[proxy.providers]] id={id} → {base_url}");
+            if quiet {
+                return;
+            }
+            match action {
+                ProviderEnsureAction::Unchanged => {}
+                ProviderEnsureAction::Seeded => {
+                    println!("  \x1b[32m✓\x1b[0m Seeded [[proxy.providers]] id={id} → {desired}");
+                }
+                ProviderEnsureAction::Updated { previous } => {
+                    println!(
+                        "  \x1b[33m!\x1b[0m Updated [[proxy.providers]] id={id} base_url\n    was: {previous}\n    now: {desired}"
+                    );
+                }
             }
         }
         Err(e) => {
-            tracing::warn!("could not seed {id} proxy provider: {e}");
+            tracing::warn!("could not ensure {id} proxy provider: {e}");
             if !quiet {
                 eprintln!(
-                    "  \u{26a0} Could not seed {id} provider in config.toml: {e}\n    \
-                     Add manually:\n      [[proxy.providers]]\n      id = \"{id}\"\n      \
-                     shape = \"openai\"\n      base_url = \"{base_url}\""
+                    "  \u{26a0} Could not ensure {id} provider in config.toml: {e}\n    \
+                     Fix manually:\n      [[proxy.providers]]\n      id = \"{id}\"\n      \
+                     shape = \"openai\"\n      base_url = \"{desired}\""
                 );
             }
         }
