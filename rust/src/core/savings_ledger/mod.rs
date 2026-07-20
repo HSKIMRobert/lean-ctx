@@ -11,16 +11,19 @@ pub mod roi;
 pub mod signed_batch;
 pub mod store;
 
-pub use event::{MECHANISM_CACHING, MECHANISM_COMPRESSION, MECHANISM_ROUTING, SavingsEvent};
+#[cfg(test)]
+mod migration_tests;
+
+pub use event::{SavingsEvent, MECHANISM_CACHING, MECHANISM_COMPRESSION, MECHANISM_ROUTING};
 pub use evidence_projection::{
-    LedgerAttributionLinkV2, LedgerEvidenceProjectionV2, LedgerEvidenceSourceBindingV2,
-    LedgerProjectionErrorV2, VerifiedLedgerSnapshotV2, load_projection_artifact_v2,
-    project_settlement_attribution_v2,
+    load_projection_artifact_v2, project_settlement_attribution_v2, LedgerAttributionLinkV2,
+    LedgerEvidenceProjectionV2, LedgerEvidenceSourceBindingV2, LedgerProjectionErrorV2,
+    VerifiedLedgerSnapshotV2,
 };
-pub use roi::{RoiReport, roi_report};
+pub use roi::{roi_report, RoiReport};
 pub use signed_batch::{BatchVerifyResult, SignedSavingsBatchV1};
 pub use store::{
-    LedgerSnapshotReadErrorV2, LedgerSummary, VerifyResult, read_verified_snapshot_v2,
+    read_verified_snapshot_v2, LedgerSnapshotReadErrorV2, LedgerSummary, VerifyResult,
 };
 
 use std::sync::OnceLock;
