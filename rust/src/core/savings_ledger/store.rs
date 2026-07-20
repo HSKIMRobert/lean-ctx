@@ -6,6 +6,7 @@
 //! concurrent writers. Cryptographic signing of batches is a later phase (G5/G6).
 
 use std::fs::{self, OpenOptions};
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -14,7 +15,7 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use fs2::FileExt;
 
-use super::event::{SavingsEvent, compute_hash};
+use super::event::{EvidenceClass, SavingsEvent, compute_hash};
 use super::evidence_projection::{
     LedgerProjectionErrorV2, MAX_LEDGER_SNAPSHOT_BYTES_V2, VerifiedLedgerSnapshotV2,
 };
@@ -452,6 +453,50 @@ pub fn bounce_tokens_since(path: &Path, days: Option<u32>) -> u64 {
     total
 }
 
+/// Aggregated savings for one ledger mechanism.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MechanismSummary {
+    pub count: usize,
+    pub saved_tokens: u64,
+    pub saved_usd: f64,
+}
+
+/// Returns events whose mechanism exactly matches `mechanism`.
+pub fn query_by_mechanism(path: &Path, mechanism: &str) -> Vec<SavingsEvent> {
+    load(path)
+        .into_iter()
+        .filter(|event| event.mechanism == mechanism)
+        .collect()
+}
+
+/// Returns events whose evidence class exactly matches `class`.
+pub fn query_by_evidence_class(path: &Path, class: &EvidenceClass) -> Vec<SavingsEvent> {
+    load(path)
+        .into_iter()
+        .filter(|event| event.evidence_class.as_ref() == Some(class))
+        .collect()
+}
+
+/// Returns events whose attribution group exactly matches `group`.
+pub fn query_by_attribution_group(path: &Path, group: &str) -> Vec<SavingsEvent> {
+    load(path)
+        .into_iter()
+        .filter(|event| event.attribution_group.as_deref() == Some(group))
+        .collect()
+}
+
+/// Aggregates event count, saved tokens, and saved USD by mechanism.
+pub fn summarize_by_mechanism(path: &Path) -> BTreeMap<String, MechanismSummary> {
+    let mut summaries = BTreeMap::new();
+    for event in load(path) {
+        let summary = summaries.entry(event.mechanism).or_insert_with(Default::default);
+        summary.count += 1;
+        summary.saved_tokens = summary.saved_tokens.saturating_add(event.saved_tokens);
+        summary.saved_usd += event.saved_usd;
+    }
+    summaries
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::event::MECHANISM_COMPRESSION;
@@ -732,6 +777,73 @@ mod tests {
         assert!(verify(&p).valid, "chain stays valid across event kinds");
 
         assert_eq!(bounce_tokens_since(&p, None), 200);
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn query_by_mechanism_returns_only_matching_events() {
+        let p = temp_path("query-mechanism");
+        append(&p, sample(100)).unwrap();
+        let mut routing = sample(25);
+        routing.mechanism = "routing".into();
+        append(&p, routing).unwrap();
+
+        let result = query_by_mechanism(&p, "routing");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].saved_tokens, 25);
+        assert!(query_by_mechanism(&p, "missing").is_empty());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn query_by_evidence_class_returns_only_matching_events() {
+        let p = temp_path("query-evidence");
+        let mut measured = sample(100);
+        measured.evidence_class = Some(EvidenceClass::Measured);
+        append(&p, measured).unwrap();
+        let mut declared = sample(25);
+        declared.evidence_class = Some(EvidenceClass::Declared);
+        append(&p, declared).unwrap();
+
+        let result = query_by_evidence_class(&p, &EvidenceClass::Measured);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].saved_tokens, 100);
+        assert!(query_by_evidence_class(&p, &EvidenceClass::Statistical).is_empty());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn query_by_attribution_group_returns_only_matching_events() {
+        let p = temp_path("query-attribution");
+        let mut first = sample(100);
+        first.attribution_group = Some("team-a".into());
+        append(&p, first).unwrap();
+        let mut second = sample(25);
+        second.attribution_group = Some("team-b".into());
+        append(&p, second).unwrap();
+
+        let result = query_by_attribution_group(&p, "team-a");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].saved_tokens, 100);
+        assert!(query_by_attribution_group(&p, "team-c").is_empty());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn summarize_by_mechanism_aggregates_count_tokens_and_usd() {
+        let p = temp_path("summary-mechanism");
+        append(&p, sample(100)).unwrap();
+        append(&p, sample(25)).unwrap();
+        let mut routing = sample(40);
+        routing.mechanism = "routing".into();
+        append(&p, routing).unwrap();
+
+        let result = summarize_by_mechanism(&p);
+        let compression = result.get(MECHANISM_COMPRESSION).unwrap();
+        assert_eq!(compression.count, 2);
+        assert_eq!(compression.saved_tokens, 125);
+        assert!((compression.saved_usd - 125.0 / 1_000_000.0 * 3.0).abs() < 1e-9);
+        assert_eq!(result.get("routing").unwrap().saved_tokens, 40);
         let _ = fs::remove_file(&p);
     }
 }
