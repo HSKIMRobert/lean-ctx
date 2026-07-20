@@ -30,6 +30,68 @@ fn default_version() -> String {
     String::new()
 }
 
+// ── P5 Unified Ledger Enums ──────────────────────────────────────────────────
+
+/// How the savings value was determined (P5 — billing-grade evidence).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MeasurementMethod {
+    /// Token counts measured by local tokenizer before/after compression.
+    DirectCount,
+    /// Savings inferred from an A/B holdout experiment.
+    Holdout,
+    /// Savings estimated from a calibrated baseline model.
+    BaselineEstimate,
+    /// Savings confirmed by provider billing reconciliation.
+    ProviderReconciled,
+    /// Method not yet determined or legacy events.
+    Unknown,
+}
+
+/// Trustworthiness class of the evidence backing a savings claim (P5).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceClass {
+    /// Locally measured, reproducible, deterministic.
+    Measured,
+    /// Locally measured but with known approximation (e.g. proxy tokenizer).
+    Approximated,
+    /// Derived from statistical experiment (holdout).
+    Statistical,
+    /// Declared by operator without independent measurement.
+    Declared,
+    /// No evidence attached (legacy or unknown).
+    Unclassified,
+}
+
+/// Customer disposition of a savings claim (P5 — settlement path).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerApproval {
+    /// No customer review yet.
+    Pending,
+    /// Customer accepted the savings claim.
+    Approved,
+    /// Customer disputed the savings claim.
+    Disputed,
+    /// Claim superseded by a correction event.
+    Superseded,
+}
+
+/// Settlement lifecycle state (P5 — billing pipeline).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SettlementStatus {
+    /// Not eligible for settlement (insufficient evidence).
+    Ineligible,
+    /// Evidence sufficient, awaiting approval.
+    Eligible,
+    /// Included in a settlement batch.
+    Settled,
+    /// Reversed after settlement.
+    Reversed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SavingsEvent {
     pub ts: String,
@@ -74,20 +136,113 @@ pub struct SavingsEvent {
     /// to empty (unknown), never a guessed version.
     #[serde(default = "default_version")]
     pub version: String,
+
+    // ── P5 Unified Ledger Fields (all Option + serde(default) = backward-compat) ──
+    /// DIM 3: intent tag from IntentClassifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent_tag: Option<String>,
+    /// Outcome of the context delivery: used | merged | sent | discarded | unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// DIM 3: originally requested model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_original: Option<String>,
+    /// DIM 3: actually routed model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_routed: Option<String>,
+    /// DIM 3: tokens saved through routing (cheaper model, same content).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routing_savings: Option<u64>,
+    /// DIM 2: original response output tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_original_tokens: Option<u64>,
+    /// DIM 2: delivered response output tokens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_delivered_tokens: Option<u64>,
+    /// DIM 4: agent chain correlation ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_chain_id: Option<String>,
+    /// DIM 4: depth in the agent chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_depth: Option<u8>,
+
+    // ── P5 Evidence & Settlement Fields ──
+    /// How the savings were measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_method: Option<MeasurementMethod>,
+    /// Trustworthiness class of the evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_class: Option<EvidenceClass>,
+    /// Confidence score [0.0, 1.0] for the savings measurement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// Quality signal from outcome tracking.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_signal: Option<String>,
+    /// Exclusive attribution group (no double-counting across groups).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution_group: Option<String>,
+    /// BLAKE3 hash identifying the attribution scope uniquely.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attribution_id: Option<String>,
+    /// Reference to the baseline used for counterfactual.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_ref: Option<String>,
+    /// Pricing model version used for valuation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_version: Option<String>,
+    /// Customer approval state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub customer_approval: Option<CustomerApproval>,
+    /// Settlement lifecycle state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settlement_status: Option<SettlementStatus>,
 }
 
 impl SavingsEvent {
-    /// Canonical (v4) representation of the *content* fields (everything except the chain
-    /// hashes), hashed on append and re-hashed on verify. v4 = v3 + the `version`
-    /// field (#NNN); the `v4|` prefix pins the scheme so a downgrade is itself
-    /// tamper-evident.
-    ///
-    /// Monetary values are committed as integer **micro-USD** rather than `{:.6}` of a raw
-    /// `f64`. A fixed-precision float string is *not* round-trip stable: a value sitting on a
-    /// 6th-decimal tie (e.g. `0.0235575`) can re-parse from JSON into a neighbouring `f64`
-    /// that `{:.6}` rounds the other way, which silently broke the chain for untampered data.
-    /// Integers serialise/parse exactly, so the hash is reproducible.
+    /// Canonical (v5) representation: v4 + P5 unified ledger fields.
+    /// New fields are committed as `option_str(field)` — `None` becomes "_"
+    /// (a sentinel that never appears in real values), so the hash is stable
+    /// regardless of whether the field was populated.
     pub fn canonical_content(&self) -> String {
+        format!(
+            "v5|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            self.ts,
+            self.tool,
+            self.mechanism,
+            self.model_id,
+            self.tokenizer,
+            self.baseline_tokens,
+            self.actual_tokens,
+            self.saved_tokens,
+            self.bounce_adjustment,
+            micro_usd(self.unit_price_per_m_usd),
+            micro_usd(self.saved_usd),
+            self.repo_hash,
+            self.agent_id,
+            self.version,
+            option_str(self.attribution_id.as_ref()),
+            option_str(self.intent_tag.as_ref()),
+            option_str(self.model_routed.as_ref()),
+            self.measurement_method.as_ref().map_or("_", |m| match m {
+                MeasurementMethod::DirectCount => "direct_count",
+                MeasurementMethod::Holdout => "holdout",
+                MeasurementMethod::BaselineEstimate => "baseline_estimate",
+                MeasurementMethod::ProviderReconciled => "provider_reconciled",
+                MeasurementMethod::Unknown => "unknown",
+            }),
+            self.evidence_class.as_ref().map_or("_", |e| match e {
+                EvidenceClass::Measured => "measured",
+                EvidenceClass::Approximated => "approximated",
+                EvidenceClass::Statistical => "statistical",
+                EvidenceClass::Declared => "declared",
+                EvidenceClass::Unclassified => "unclassified",
+            }),
+        )
+    }
+
+    /// v4 canonical: v3 + version field. Retained so v4-written ledgers verify.
+    pub fn canonical_content_v4(&self) -> String {
         format!(
             "v4|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             self.ts,
@@ -176,6 +331,7 @@ impl SavingsEvent {
     /// valid; broken-by-bug ones are repaired by `rechain`, which re-hashes under v4).
     pub fn hash_matches(&self, prev_hash: &str) -> bool {
         self.entry_hash == compute_hash(prev_hash, &self.canonical_content())
+            || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_v4())
             || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_v3())
             || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_v2())
             || self.entry_hash == compute_hash(prev_hash, &self.canonical_content_legacy())
@@ -196,6 +352,11 @@ fn micro_usd(usd: f64) -> i64 {
     const TIE_EPSILON_MICRO: f64 = 1e-6;
     let scaled = usd * 1_000_000.0;
     (scaled + TIE_EPSILON_MICRO.copysign(scaled)).round() as i64
+}
+
+/// Maps `Option<String>` to a stable canonical form: the value or `"_"` for None.
+fn option_str(opt: Option<&String>) -> &str {
+    opt.map_or("_", String::as_str)
 }
 
 /// `SHA-256(prev_hash || content)` as lowercase hex — the chain link primitive.
@@ -228,6 +389,25 @@ mod tests {
             prev_hash: String::new(),
             entry_hash: String::new(),
             version: "3.9.0".into(),
+            intent_tag: None,
+            outcome: None,
+            model_original: None,
+            model_routed: None,
+            routing_savings: None,
+            response_original_tokens: None,
+            response_delivered_tokens: None,
+            agent_chain_id: None,
+            chain_depth: None,
+            measurement_method: None,
+            evidence_class: None,
+            confidence: None,
+            quality_signal: None,
+            attribution_group: None,
+            attribution_id: None,
+            baseline_ref: None,
+            price_version: None,
+            customer_approval: None,
+            settlement_status: None,
         }
     }
 
@@ -388,5 +568,71 @@ mod tests {
         // of a tie is irrelevant as long as it is reproducible).
         let tie = 9423.0 * 2.5 / 1_000_000.0;
         assert_eq!(micro_usd(tie), micro_usd(tie));
+    }
+    #[test]
+    fn v4_hash_still_verifies_after_v5_upgrade() {
+        let mut e = ev();
+        e.prev_hash = "genesis".into();
+        e.entry_hash = compute_hash(&e.prev_hash, &e.canonical_content_v4());
+        assert!(
+            e.hash_matches(&e.prev_hash),
+            "v4 hash must verify via hash_matches"
+        );
+    }
+
+    #[test]
+    fn v5_commits_p5_fields() {
+        let mut e = ev();
+        e.attribution_id = Some("attr_001".into());
+        e.measurement_method = Some(MeasurementMethod::DirectCount);
+        e.evidence_class = Some(EvidenceClass::Measured);
+        e.prev_hash = "genesis".into();
+        e.entry_hash = compute_hash(&e.prev_hash, &e.canonical_content());
+        assert!(e.hash_matches(&e.prev_hash));
+
+        let mut forged = e.clone();
+        forged.attribution_id = Some("attr_002".into());
+        assert!(
+            !forged.hash_matches(&forged.prev_hash),
+            "rewriting attribution_id must be tamper-evident"
+        );
+    }
+
+    #[test]
+    fn p5_fields_default_to_none_on_deserialize() {
+        let e = ev();
+        let json = serde_json::to_string(&e).unwrap();
+        let parsed: SavingsEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.attribution_id, None);
+        assert_eq!(parsed.measurement_method, None);
+        assert_eq!(parsed.evidence_class, None);
+        assert_eq!(parsed.customer_approval, None);
+        assert_eq!(parsed.settlement_status, None);
+    }
+
+    #[test]
+    fn p5_enums_serialize_roundtrip() {
+        let mut e = ev();
+        e.measurement_method = Some(MeasurementMethod::Holdout);
+        e.evidence_class = Some(EvidenceClass::Statistical);
+        e.customer_approval = Some(CustomerApproval::Approved);
+        e.settlement_status = Some(SettlementStatus::Eligible);
+        e.confidence = Some(0.95);
+        e.attribution_id = Some("blake3_abc".into());
+
+        let json = serde_json::to_string(&e).unwrap();
+        let parsed: SavingsEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.measurement_method, Some(MeasurementMethod::Holdout));
+        assert_eq!(parsed.evidence_class, Some(EvidenceClass::Statistical));
+        assert_eq!(parsed.customer_approval, Some(CustomerApproval::Approved));
+        assert_eq!(parsed.settlement_status, Some(SettlementStatus::Eligible));
+        assert_eq!(parsed.confidence, Some(0.95));
+        assert_eq!(parsed.attribution_id, Some("blake3_abc".into()));
+    }
+
+    #[test]
+    fn option_str_maps_none_to_underscore() {
+        assert_eq!(option_str(None), "_");
+        assert_eq!(option_str(Some(&"val".to_string())), "val");
     }
 }
