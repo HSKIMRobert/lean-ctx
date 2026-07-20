@@ -46,12 +46,33 @@ impl ResponseOptimizer for BuiltinResponseOptimizer {
 
         Ok(ResponseOptimizationResult {
             response_ref: request.response_ref,
-            delivered_tokens: request.target_tokens.min(request.original_tokens),
+            delivered_tokens: delivered_tokens(&request, &decision),
             recovery_ref: decision
                 .cache_hit
                 .then(|| format!("cache:{:016x}", decision.cache_key)),
         })
     }
+}
+
+fn delivered_tokens(
+    request: &ResponseOptimizationRequest,
+    decision: &crate::proxy::response_optimizer::OptimizationDecision,
+) -> u64 {
+    if decision.cache_hit {
+        return 0;
+    }
+
+    let original = request.original_tokens;
+    let target = request.target_tokens.min(original);
+    if decision.is_duplicate {
+        let dedup_factor = target;
+        return original
+            .saturating_mul(dedup_factor)
+            .checked_div(original.max(1))
+            .unwrap_or(dedup_factor);
+    }
+
+    target
 }
 
 #[cfg(test)]
@@ -86,5 +107,38 @@ mod tests {
         let opt = BuiltinResponseOptimizer::new();
         let result = opt.optimize_response(req(500, 300)).unwrap();
         assert_eq!(result.response_ref, "resp:abc");
+    }
+
+    #[test]
+    fn registry_path_reports_cache_as_zero_delivery() {
+        let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
+        let mut request = req(1000, 400);
+        request.context.session_id = "registry-response-optimizer".into();
+        request.response_ref = "resp:registry-response-optimizer".into();
+        let first = registry
+            .response_optimizer
+            .optimize_response(request.clone())
+            .unwrap();
+        let cached = registry
+            .response_optimizer
+            .optimize_response(request)
+            .unwrap();
+
+        assert_eq!(first.delivered_tokens, 400);
+        assert_eq!(cached.delivered_tokens, 0);
+    }
+
+    #[test]
+    fn duplicate_delivery_uses_target_ratio() {
+        let request = req(1000, 250);
+        let decision = crate::proxy::response_optimizer::OptimizationDecision {
+            cache_hit: false,
+            is_duplicate: true,
+            cache_key: 0,
+            tokens_saved: 750,
+            source: crate::proxy::response_optimizer::OptimizationSource::Dedup,
+        };
+
+        assert_eq!(delivered_tokens(&request, &decision), 250);
     }
 }

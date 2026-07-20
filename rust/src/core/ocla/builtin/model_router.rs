@@ -4,7 +4,7 @@
 //! canonical trait. Emits ModelRouted events. Routes to the best candidate
 //! model within the cost/latency constraints.
 
-use crate::core::config::{Config, RoutingRules};
+use crate::core::config::{Config, Effort, RoutingRules};
 use crate::core::ocla::traits::{ModelRouter, OclaService};
 use crate::core::ocla::types::{
     ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaResult, RoutingDecision,
@@ -79,9 +79,23 @@ impl ModelRouter for BuiltinModelRouter {
         Ok(RoutingDecision {
             model,
             provider,
-            reasoning_budget_tokens: 4096,
+            reasoning_budget_tokens: configured_reasoning_budget(),
             decision_ref: format!("route:{}", request.context.request_id),
         })
+    }
+}
+
+fn configured_reasoning_budget() -> u64 {
+    reasoning_budget(Config::load().proxy.resolved_effort())
+}
+
+fn reasoning_budget(effort: Option<Effort>) -> u64 {
+    match effort {
+        Some(Effort::Minimal) => 1_024,
+        Some(Effort::Low) => 2_048,
+        Some(Effort::Medium) => 4_096,
+        Some(Effort::High) => 8_192,
+        None => 0,
     }
 }
 
@@ -166,5 +180,27 @@ mod tests {
         assert_eq!(decision.model, "default");
         assert_eq!(decision.provider, "unknown");
         assert_eq!(decision.decision_ref, "route:r1");
+    }
+
+    #[test]
+    fn registry_path_routes_with_configured_budget() {
+        let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
+        let decision = registry
+            .model_router
+            .route_model(route_req(&["gpt-4o"]))
+            .unwrap();
+
+        assert_eq!(decision.model, "gpt-4o");
+        assert_eq!(
+            decision.reasoning_budget_tokens,
+            configured_reasoning_budget()
+        );
+    }
+
+    #[test]
+    fn maps_configured_effort_to_budget() {
+        assert_eq!(reasoning_budget(Some(Effort::Minimal)), 1_024);
+        assert_eq!(reasoning_budget(Some(Effort::High)), 8_192);
+        assert_eq!(reasoning_budget(None), 0);
     }
 }
