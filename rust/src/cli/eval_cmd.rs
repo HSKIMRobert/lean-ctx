@@ -18,7 +18,6 @@ use crate::core::eval_ab::testbench::lockfile::TestbenchLock;
 use crate::core::eval_ab::testbench::{self, TestbenchConfig, TestbenchReport, findings};
 use crate::core::eval_ab::{AbRunConfig, run_ab};
 use crate::core::ocla::registry::OclaRegistry;
-use crate::core::ocla::traits::ExperimentRunner;
 use crate::core::ocla::types::{ExperimentRequest, OclaRequestContext};
 
 /// Entry point dispatched from `cli::dispatch`.

@@ -21,7 +21,7 @@ impl BuiltinModelRouter {
         Self::with_rules(Config::load().proxy.routing)
     }
 
-    fn with_rules(rules: RoutingRules) -> Self {
+    pub(crate) fn with_rules(rules: RoutingRules) -> Self {
         Self { rules }
     }
 }
