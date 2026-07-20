@@ -5,6 +5,7 @@
 //! OclaEvent with the measured token counts.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use crate::core::ocla::traits::{OclaService, UsageSink};
 use crate::core::ocla::types::{OclaCapability, OclaCapabilityKind, OclaResult, UsageRecord};
@@ -54,6 +55,7 @@ impl OclaService for BuiltinUsageSink {
 
 impl UsageSink for BuiltinUsageSink {
     fn record_usage(&self, usage: UsageRecord) -> OclaResult<()> {
+        let started_at = Instant::now();
         self.total_input
             .fetch_add(usage.input_tokens, Ordering::Relaxed);
         self.total_output
@@ -61,12 +63,13 @@ impl UsageSink for BuiltinUsageSink {
         self.total_billed
             .fetch_add(usage.provider_billed_tokens, Ordering::Relaxed);
         self.record_count.fetch_add(1, Ordering::Relaxed);
+        let duration_ms = started_at.elapsed().as_millis() as u64;
 
         ocla_bus::emit(OclaEvent::RequestCompleted {
             model: usage.model,
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
-            duration_ms: 0,
+            duration_ms,
             session_id: Some(usage.context.session_id),
         });
 
@@ -104,5 +107,14 @@ mod tests {
         assert_eq!(sink.total_input_tokens(), 300);
         assert_eq!(sink.total_output_tokens(), 130);
         assert_eq!(sink.record_count(), 2);
+    }
+
+    #[test]
+    fn registry_path_records_usage() {
+        let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
+        registry
+            .usage_sink
+            .record_usage(usage("registry-model", 12, 8))
+            .unwrap();
     }
 }

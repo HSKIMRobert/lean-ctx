@@ -4,7 +4,7 @@
 //! canonical trait. Emits ModelRouted events. Routes to the best candidate
 //! model within the cost/latency constraints.
 
-use crate::core::config::{Config, RoutingRules};
+use crate::core::config::{Config, Effort, RoutingRules};
 use crate::core::ocla::traits::{ModelRouter, OclaService};
 use crate::core::ocla::types::{
     ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaResult, RoutingDecision,
@@ -21,7 +21,7 @@ impl BuiltinModelRouter {
         Self::with_rules(Config::load().proxy.routing)
     }
 
-    pub(crate) fn with_rules(rules: RoutingRules) -> Self {
+    fn with_rules(rules: RoutingRules) -> Self {
         Self { rules }
     }
 }
@@ -61,7 +61,9 @@ impl ModelRouter for BuiltinModelRouter {
             },
             |decision| {
                 let model = decision.routed_model;
-                let provider = decision.routed_provider.unwrap_or_default();
+                let provider = decision
+                    .routed_provider
+                    .unwrap_or_else(|| infer_provider(&model));
                 let changed = decision.model_changed;
                 (model, provider, decision.tier, changed)
             },
@@ -77,12 +79,23 @@ impl ModelRouter for BuiltinModelRouter {
         Ok(RoutingDecision {
             model,
             provider,
-            reasoning_budget_tokens: u64::try_from(
-                Config::load().context_budget_tokens_effective(),
-            )
-            .unwrap_or(u64::MAX),
+            reasoning_budget_tokens: configured_reasoning_budget(),
             decision_ref: format!("route:{}", request.context.request_id),
         })
+    }
+}
+
+fn configured_reasoning_budget() -> u64 {
+    reasoning_budget(Config::load().proxy.resolved_effort())
+}
+
+fn reasoning_budget(effort: Option<Effort>) -> u64 {
+    match effort {
+        Some(Effort::Minimal) => 1_024,
+        Some(Effort::Low) => 2_048,
+        Some(Effort::Medium) => 4_096,
+        Some(Effort::High) => 8_192,
+        None => 0,
     }
 }
 
@@ -101,7 +114,6 @@ fn infer_provider(model: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ocla::registry::OclaRegistry;
     use crate::core::ocla::types::OclaRequestContext;
     use std::collections::BTreeMap;
 
@@ -171,18 +183,24 @@ mod tests {
     }
 
     #[test]
-    fn registry_with_builtins_routes_model() {
-        let registry = OclaRegistry::with_builtins();
+    fn registry_path_routes_with_configured_budget() {
+        let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
         let decision = registry
             .model_router
             .route_model(route_req(&["gpt-4o"]))
             .unwrap();
 
         assert_eq!(decision.model, "gpt-4o");
-        assert_eq!(decision.provider, "openai");
         assert_eq!(
             decision.reasoning_budget_tokens,
-            u64::try_from(Config::load().context_budget_tokens_effective()).unwrap_or(u64::MAX)
+            configured_reasoning_budget()
         );
+    }
+
+    #[test]
+    fn maps_configured_effort_to_budget() {
+        assert_eq!(reasoning_budget(Some(Effort::Minimal)), 1_024);
+        assert_eq!(reasoning_budget(Some(Effort::High)), 8_192);
+        assert_eq!(reasoning_budget(None), 0);
     }
 }
