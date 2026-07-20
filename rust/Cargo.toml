@@ -226,7 +226,6 @@ clap = "4.5"
 subtle = "2.6"
 md-5 = "0.11"
 anyhow = "1.0"
-clap = { version = "4.6", default-features = false, features = ["std"] }
 regex = "1.12"
 walkdir = "2.5"
 ignore = "0.4"
