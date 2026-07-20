@@ -44,6 +44,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::core::ocla::types::ResponseOptimizationRequest;
+use crate::core::savings_ledger::{self, SavingsEvent};
 
 /// Configuration for the response optimizer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,20 +398,86 @@ pub fn optimize_response(request: &ResponseOptimizationRequest) -> OptimizationD
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let cache_key = compute_cache_key("ocla-response", None, &[&request.response_ref]);
 
-    if optimizer.try_cache_hit(cache_key).is_some() {
-        return optimizer.cache_hit_decision(
+    let decision = if optimizer.try_cache_hit(cache_key).is_some() {
+        optimizer.cache_hit_decision(
             cache_key,
             request
                 .original_tokens
                 .saturating_sub(request.target_tokens),
-        );
-    }
+        )
+    } else {
+        optimizer.record_response(
+            cache_key,
+            &request.response_ref,
+            request.target_tokens.min(request.original_tokens),
+        )
+    };
 
-    optimizer.record_response(
-        cache_key,
-        &request.response_ref,
-        request.target_tokens.min(request.original_tokens),
-    )
+    let delivered_tokens = if decision.cache_hit {
+        0
+    } else {
+        request.target_tokens.min(request.original_tokens)
+    };
+    record_response_measurement(request, delivered_tokens);
+    decision
+}
+
+fn record_response_measurement(request: &ResponseOptimizationRequest, delivered_tokens: u64) {
+    let ledger_disabled = std::env::var("LEAN_CTX_SAVINGS_LEDGER")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "off" | "0" | "false" | "no"
+            )
+        });
+    if request.original_tokens <= delivered_tokens || ledger_disabled {
+        return;
+    }
+    let Some(path) = savings_ledger::store::default_path() else {
+        return;
+    };
+
+    let quote = crate::core::gain::model_pricing::ModelPricing::load().quote(None);
+    let saved_tokens = request.original_tokens - delivered_tokens;
+    let event = SavingsEvent {
+        ts: chrono::Utc::now().to_rfc3339(),
+        tool: "proxy_response_optimizer".into(),
+        mechanism: savings_ledger::MECHANISM_COMPRESSION.into(),
+        model_id: quote.model_key.clone(),
+        tokenizer: crate::core::tokens::detect_tokenizer(&quote.model_key).to_string(),
+        baseline_tokens: request.original_tokens,
+        actual_tokens: delivered_tokens,
+        saved_tokens,
+        bounce_adjustment: 0,
+        unit_price_per_m_usd: quote.cost.input_per_m,
+        saved_usd: saved_tokens as f64 * quote.cost.input_per_m / 1_000_000.0,
+        repo_hash: String::new(),
+        agent_id: request.context.agent_id.clone(),
+        prev_hash: String::new(),
+        entry_hash: String::new(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        intent_tag: None,
+        outcome: None,
+        model_original: None,
+        model_routed: None,
+        routing_savings: None,
+        response_original_tokens: Some(request.original_tokens),
+        response_delivered_tokens: Some(delivered_tokens),
+        agent_chain_id: None,
+        chain_depth: None,
+        measurement_method: Some(savings_ledger::event::MeasurementMethod::DirectCount),
+        evidence_class: Some(savings_ledger::event::EvidenceClass::Measured),
+        confidence: Some(1.0),
+        quality_signal: None,
+        attribution_group: None,
+        attribution_id: Some(request.response_ref.clone()),
+        baseline_ref: None,
+        price_version: None,
+        customer_approval: None,
+        settlement_status: None,
+    };
+    let _ = savings_ledger::store::append(&path, event);
 }
 
 /// Remove a session's optimizer (cleanup on session end).
@@ -637,5 +704,36 @@ mod tests {
         let h1 = opt.try_cache_hit(key).map(str::to_string);
         let h2 = opt.try_cache_hit(key).map(str::to_string);
         assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn ocla_registry_path_measures_response_tokens() {
+        let _isolated = crate::core::data_dir::isolated_data_dir();
+        let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
+        let request = ResponseOptimizationRequest {
+            context: crate::core::ocla::types::OclaRequestContext {
+                request_id: "response-optimizer-test".into(),
+                session_id: "response-optimizer-test".into(),
+                agent_id: "agent-test".into(),
+                content_ref: "response:test".into(),
+                tenant_id: None,
+            },
+            response_ref: "blake3:response-optimizer-test".into(),
+            original_tokens: 1_000,
+            target_tokens: 400,
+        };
+
+        let result = registry
+            .response_optimizer
+            .optimize_response(request)
+            .expect("registry response optimizer must succeed");
+        assert_eq!(result.delivered_tokens, 400);
+
+        let event = savings_ledger::all_events()
+            .into_iter()
+            .find(|event| event.tool == "proxy_response_optimizer")
+            .expect("response optimization must create a ledger event");
+        assert_eq!(event.response_original_tokens, Some(1_000));
+        assert_eq!(event.response_delivered_tokens, Some(400));
     }
 }
