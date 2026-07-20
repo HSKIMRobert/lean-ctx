@@ -997,10 +997,12 @@ mod tests {
 
     #[tokio::test]
     async fn stalled_eventstream_can_be_bounded_by_request_timeout() {
+        use futures::pin_mut;
         let stream = tee_eventstream(
             futures::stream::pending::<Result<Vec<u8>, std::convert::Infallible>>(),
             crate::proxy::usage::Scanner::new(crate::proxy::usage::Provider::Anthropic, None),
         );
+        pin_mut!(stream);
         let result = tokio::time::timeout(std::time::Duration::ZERO, stream.next()).await;
         assert!(result.is_err());
     }

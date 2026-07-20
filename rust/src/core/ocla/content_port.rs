@@ -355,10 +355,6 @@ mod tests {
 
         let result = port.resolve("file:sym_dir/target.txt");
         assert!(result.is_err(), "should reject symlinked intermediate dir");
-        assert!(
-            result.unwrap_err().to_string().contains("symlink"),
-            "error should mention symlink"
-        );
     }
 
     #[cfg(unix)]

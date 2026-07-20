@@ -146,6 +146,8 @@ mod tests {
             Ok(EfficiencyAnalysis {
                 etpao_milli: sample.accepted.map(|_| sample.delivered_tokens),
                 duplicate_ratio_milli: 0,
+                compression_rate_milli: 0,
+                cache_hit_rate_milli: 0,
                 recommendation_refs: Vec::new(),
             })
         }

@@ -177,7 +177,7 @@ mod tests {
     fn compress_rejects_non_file_ref() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
         let provider = BuiltinCompressionProvider::new();
         let err = provider
             .compress_with_port(
@@ -198,7 +198,7 @@ mod tests {
     fn compress_rejects_zero_source_tokens() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
         let provider = BuiltinCompressionProvider::new();
         let err = provider
             .compress_with_port(
@@ -219,7 +219,7 @@ mod tests {
     fn compress_rejects_zero_target_tokens() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
         let provider = BuiltinCompressionProvider::new();
         let err = provider
             .compress_with_port(
@@ -273,7 +273,7 @@ mod tests {
             }\n";
         fs::write(root.join("test.rs"), content).unwrap();
 
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
         let provider = BuiltinCompressionProvider::new();
         let source_tokens = tokens::count_tokens(content) as u64;
 
@@ -298,7 +298,7 @@ mod tests {
     fn compress_propagates_resolve_error() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
         let provider = BuiltinCompressionProvider::new();
         let err = provider
             .compress_with_port(
@@ -329,7 +329,7 @@ mod tests {
         let source_tokens = tokens::count_tokens(&compressed) as u64;
         assert!(source_tokens > 0);
         let ref_key = format!("blake3:{}", blake3::hash(compressed.as_bytes()).to_hex());
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
 
         let err = BuiltinCompressionProvider::new()
             .compress_with_port(
@@ -358,7 +358,7 @@ mod tests {
         let delivered_tokens = tokens::count_tokens(&compressed) as u64;
         assert!(delivered_tokens > 1);
         let ref_key = format!("blake3:{}", blake3::hash(compressed.as_bytes()).to_hex());
-        let port = CompressionContentPort::new(&root);
+        let port = CompressionContentPort::new(&root).unwrap();
 
         let err = BuiltinCompressionProvider::new()
             .compress_with_port(

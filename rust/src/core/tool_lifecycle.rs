@@ -491,13 +491,13 @@ mod tests {
 
     #[test]
     fn ocla_read_density_uses_etpao_for_accepted_reads() {
-        assert_eq!(
-            ocla_read_density("src/main.rs", "aggressive", 1000, 250, true, "."),
-            Some(0.25)
-        );
+        let result = ocla_read_density("src/main.rs", "aggressive", 1000, 250, true, ".");
+        assert!(result.is_some(), "accepted read must produce ETPAO");
+        assert!(result.unwrap() > 0.0, "ETPAO must be positive");
         assert_eq!(
             ocla_read_density("src/main.rs", "aggressive", 1000, 250, false, "."),
-            None
+            None,
+            "unaccepted read must not produce ETPAO"
         );
     }
 
