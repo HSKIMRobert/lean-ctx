@@ -340,6 +340,7 @@ pub mod active_inference;
 pub mod agent_attribution;
 pub mod agent_budget;
 pub mod agent_lease;
+pub mod attribution;
 pub mod anchor;
 pub mod ann_cache;
 pub mod atomic_fs;
