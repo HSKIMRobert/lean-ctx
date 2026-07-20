@@ -45,7 +45,7 @@ impl ResponseOptimizer for BuiltinResponseOptimizer {
         });
 
         Ok(ResponseOptimizationResult {
-            response_ref: request.response_ref,
+            response_ref: request.response_ref.clone(),
             delivered_tokens: delivered_tokens(&request, &decision),
             recovery_ref: decision
                 .cache_hit
