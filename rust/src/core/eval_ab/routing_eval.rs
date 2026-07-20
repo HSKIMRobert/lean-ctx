@@ -25,10 +25,12 @@
 //! evidence, not a demo.
 
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::core::config::{RoutingRules, parse_route_target};
 use crate::core::gain::model_pricing::{ModelPricing, PricingMatchKind};
 use crate::core::intent_engine::{classify, route_intent};
+use crate::core::ocla::types::{ExperimentRequest, ExperimentResult};
 
 use super::suite::EvalSuite;
 
@@ -244,6 +246,44 @@ pub fn run_routing_eval(
     })
 }
 
+/// Production OCLA callsite for the routing A/B experiment.
+///
+/// `experiment_ref` identifies the NDJSON suite selected by the caller. The
+/// report digest becomes the outcome ref, so the OCLA result points at the
+/// exact deterministic evaluation instead of fabricating a completion token.
+pub fn run_routing_experiment(
+    request: &ExperimentRequest,
+    requested_model: &str,
+    rules: &RoutingRules,
+    pricing: &ModelPricing,
+) -> anyhow::Result<ExperimentResult> {
+    let suite_path = Path::new(&request.experiment_ref);
+    let suite = EvalSuite::load(suite_path)?;
+    let suite_name = suite_path.file_name().map_or_else(
+        || request.experiment_ref.clone(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let report = run_routing_eval(
+        &suite,
+        &suite_name,
+        pricing,
+        &RoutingEvalConfig {
+            requested_model: requested_model.to_string(),
+            rules: rules.clone(),
+        },
+    )?;
+
+    Ok(ExperimentResult {
+        experiment_ref: request.experiment_ref.clone(),
+        outcome_ref: format!(
+            "outcome:{}:{}",
+            request.experiment_ref,
+            report.determinism_digest()
+        ),
+        rollback_ref: Some(format!("rollback:{}", request.cohort_ref)),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +314,20 @@ mod tests {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+        }
+    }
+
+    fn experiment_request(suite: &std::path::Path) -> ExperimentRequest {
+        ExperimentRequest {
+            context: crate::core::ocla::types::OclaRequestContext {
+                request_id: "request-1".into(),
+                session_id: "session-1".into(),
+                agent_id: "agent-test".into(),
+                content_ref: "ref:test".into(),
+                tenant_id: None,
+            },
+            experiment_ref: suite.to_string_lossy().into_owned(),
+            cohort_ref: "cohort:treatment".into(),
         }
     }
 
@@ -344,5 +398,52 @@ mod tests {
         assert!((usd - 9.75).abs() < 1e-9);
         // Upgrades are negative savings — never hidden.
         assert!(routing_saving_usd(&pricing, "phi-4", "claude-opus-4.5", 1_000_000) < 0.0);
+    }
+
+    #[test]
+    fn ocla_adapter_returns_evaluation_digest_and_rollback_ref() {
+        let root = tempfile::tempdir().unwrap();
+        let ws = root.path().join("corpus");
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("readme.md"), "fixture corpus").unwrap();
+        let suite_path = root.path().join("suite.ndjson");
+        std::fs::write(
+            &suite_path,
+            r#"{"id":"q","domain":"qa","prompt":"how does config work?","workspace":"corpus","answers":["config"]}"#,
+        )
+        .unwrap();
+
+        let result = run_routing_experiment(
+            &experiment_request(&suite_path),
+            "claude-opus-4.5",
+            &rules(&[("standard", "foundry:Phi-4")]),
+            &ModelPricing::embedded(),
+        )
+        .unwrap();
+
+        assert!(result.outcome_ref.starts_with("outcome:"));
+        assert_eq!(
+            result.rollback_ref.as_deref(),
+            Some("rollback:cohort:treatment")
+        );
+    }
+
+    #[test]
+    fn ocla_adapter_propagates_inactive_routing_rules() {
+        let (_root, suite) = suite_with(&[("q", "how does config work?")]);
+        let suite_path = suite.dir.join("suite.ndjson");
+        std::fs::write(
+            &suite_path,
+            r#"{"id":"q","domain":"qa","prompt":"how does config work?","workspace":"corpus","answers":["config"]}"#,
+        )
+        .unwrap();
+        let request = experiment_request(&suite_path);
+        let error = run_routing_experiment(
+            &request,
+            "claude-opus-4.5",
+            &RoutingRules::default(),
+            &ModelPricing::embedded(),
+        );
+        assert!(error.is_err());
     }
 }
