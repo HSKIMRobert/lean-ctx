@@ -57,12 +57,31 @@ impl EfficiencyAnalyzer for BuiltinEfficiencyAnalyzer {
             .unwrap_or(0)
             .min(1000) as u16;
 
+        #[allow(clippy::cast_possible_truncation)]
+        let duplicate_ratio = sample
+            .cache_hits
+            .saturating_mul(1000)
+            .checked_div(sample.cache_reads)
+            .unwrap_or(0)
+            .min(1000) as u16;
+
+        let mut recommendation_refs = Vec::new();
+        if compression_rate < 300 {
+            recommendation_refs.push("increase_compression_aggressiveness".into());
+        }
+        if cache_hit_rate > 800 {
+            recommendation_refs.push("leverage_high_cache_hit_rate".into());
+        }
+        if matches!(etpao, Some(value) if value > 0 && value < 500) {
+            recommendation_refs.push("review_low_etpao_reads".into());
+        }
+
         Ok(EfficiencyAnalysis {
             etpao_milli: etpao,
-            duplicate_ratio_milli: compression_rate,
+            duplicate_ratio_milli: duplicate_ratio,
             compression_rate_milli: compression_rate,
             cache_hit_rate_milli: cache_hit_rate,
-            recommendation_refs: Vec::new(),
+            recommendation_refs,
         })
     }
 }
@@ -124,11 +143,50 @@ mod tests {
     #[test]
     fn duplicate_ratio() {
         let analyzer = BuiltinEfficiencyAnalyzer::new();
-        let result = analyzer
-            .analyze_efficiency(sample(1000, 250, Some(true)))
-            .unwrap();
+        let mut input = sample(1000, 250, Some(true));
+        input.cache_hits = 3;
+        input.cache_reads = 4;
+
+        let result = analyzer.analyze_efficiency(input).unwrap();
+
         assert_eq!(result.duplicate_ratio_milli, 750);
         assert_eq!(result.compression_rate_milli, 750);
+    }
+
+    #[test]
+    fn recommendations_follow_efficiency_thresholds() {
+        let mut input = sample(1000, 800, Some(true));
+        input.cache_hits = 9;
+        input.cache_reads = 10;
+
+        let result = BuiltinEfficiencyAnalyzer::new()
+            .analyze_efficiency(input)
+            .unwrap();
+
+        assert_eq!(
+            result.recommendation_refs,
+            vec![
+                "increase_compression_aggressiveness",
+                "leverage_high_cache_hit_rate",
+            ]
+        );
+
+        let result = BuiltinEfficiencyAnalyzer::new()
+            .analyze_efficiency(sample(1000, 100, Some(true)))
+            .unwrap();
+        assert_eq!(result.recommendation_refs, vec!["review_low_etpao_reads"]);
+    }
+
+    #[test]
+    fn registry_with_builtins_analyzes_efficiency() {
+        let registry = crate::core::ocla::OclaRegistry::with_builtins();
+        let result = registry
+            .efficiency_analyzer
+            .analyze_efficiency(sample(1000, 200, Some(true)))
+            .unwrap();
+
+        assert_eq!(result.etpao_milli, Some(200));
+        assert_eq!(result.compression_rate_milli, 800);
     }
 
     #[test]
