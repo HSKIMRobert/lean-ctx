@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use crate::core::ocla::traits::{ObservationHook, OclaService};
 use crate::core::ocla::types::{Observation, OclaCapability, OclaCapabilityKind, OclaResult};
 use crate::core::ocla_bus::{self, OclaEvent};
+use crate::core::savings_ledger::event::SavingsEvent;
 
 const MAX_OBSERVATIONS: usize = 512;
 const ORIGINAL_TOKENS: &str = "original_tokens";
@@ -43,6 +44,24 @@ impl BuiltinObservationHook {
         };
         let start = ring.len().saturating_sub(limit);
         ring.iter().skip(start).cloned().collect()
+    }
+
+    /// Classify compression quality from the fraction of tokens saved.
+    pub fn quality_signal_for_compression(ratio: f64) -> String {
+        if ratio >= 0.8 {
+            "excellent".into()
+        } else if ratio >= 0.5 {
+            "good".into()
+        } else if ratio >= 0.2 {
+            "moderate".into()
+        } else {
+            "marginal".into()
+        }
+    }
+
+    /// Attach compression quality context to a savings event.
+    pub fn apply_quality_signal(event: &mut SavingsEvent, ratio: f64) {
+        event.quality_signal = Some(Self::quality_signal_for_compression(ratio));
     }
 
     fn enrich(observation: &mut Observation) -> (u64, u64) {
@@ -113,6 +132,12 @@ impl ObservationHook for BuiltinObservationHook {
             .content_ref
             .strip_prefix("file:")
             .map(str::to_string);
+        let ratio = if original == 0 {
+            0.0
+        } else {
+            saved as f64 / original as f64
+        };
+        let quality_signal = Self::quality_signal_for_compression(ratio);
         Self::project_heatmap(&observation, original, saved);
 
         let mut state = self
@@ -134,7 +159,7 @@ impl ObservationHook for BuiltinObservationHook {
             path,
             before_tokens: original,
             after_tokens: original.saturating_sub(saved),
-            strategy: format!("observation:{name}"),
+            strategy: format!("observation:{name};quality:{quality_signal}"),
         });
 
         Ok(())
@@ -253,5 +278,70 @@ mod tests {
         let stored = state.ring.get("s1").unwrap().back().unwrap();
         assert_eq!(stored.attributes[DELIVERED_TOKENS], "0");
         assert_eq!(stored.attributes[COMPRESSION_RATIO_MILLI], "1000");
+    }
+
+    #[test]
+    fn compression_quality_signal_uses_expected_thresholds() {
+        assert_eq!(
+            BuiltinObservationHook::quality_signal_for_compression(0.8),
+            "excellent"
+        );
+        assert_eq!(
+            BuiltinObservationHook::quality_signal_for_compression(0.5),
+            "good"
+        );
+        assert_eq!(
+            BuiltinObservationHook::quality_signal_for_compression(0.2),
+            "moderate"
+        );
+        assert_eq!(
+            BuiltinObservationHook::quality_signal_for_compression(0.19),
+            "marginal"
+        );
+    }
+
+    #[test]
+    fn apply_quality_signal_sets_event_quality() {
+        let mut event = SavingsEvent {
+            ts: "2026-06-01T00:00:00+00:00".into(),
+            tool: "ctx_read".into(),
+            mechanism: "compression".into(),
+            model_id: "model".into(),
+            tokenizer: "tokenizer".into(),
+            baseline_tokens: 100,
+            actual_tokens: 50,
+            saved_tokens: 50,
+            bounce_adjustment: 0,
+            unit_price_per_m_usd: 1.0,
+            saved_usd: 0.00005,
+            repo_hash: "repo".into(),
+            agent_id: "agent".into(),
+            prev_hash: String::new(),
+            entry_hash: String::new(),
+            version: String::new(),
+            intent_tag: None,
+            outcome: None,
+            model_original: None,
+            model_routed: None,
+            routing_savings: None,
+            response_original_tokens: None,
+            response_delivered_tokens: None,
+            agent_chain_id: None,
+            chain_depth: None,
+            measurement_method: None,
+            evidence_class: None,
+            confidence: None,
+            quality_signal: None,
+            attribution_group: None,
+            attribution_id: None,
+            baseline_ref: None,
+            price_version: None,
+            customer_approval: None,
+            settlement_status: None,
+        };
+
+        BuiltinObservationHook::apply_quality_signal(&mut event, 0.5);
+
+        assert_eq!(event.quality_signal.as_deref(), Some("good"));
     }
 }
