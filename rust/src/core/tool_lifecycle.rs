@@ -12,7 +12,8 @@ use crate::core::context_ir::{ContextIrSourceKindV1, ContextIrV1, RecordIrInput}
 use crate::core::context_ledger::ContextLedger;
 use crate::core::heatmap;
 use crate::core::intent_engine::StructuredIntent;
-use crate::core::ocla::EfficiencyAnalyzer;
+use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
+use crate::core::ocla::{EfficiencyAnalyzer, OclaRegistry, SavingsLedger};
 use crate::core::session::SessionState;
 use crate::core::stats;
 
@@ -83,7 +84,21 @@ pub fn record_file_read(
     // counts; the model-correct re-tokenization happens on the MCP read path,
     // which holds the source text. For the default O200kBase model these are
     // identical anyway.
-    crate::core::savings_ledger::record_read_event(original_tokens, saved);
+    let _ = OclaRegistry::global()
+        .savings_ledger
+        .record_savings(SavingsEvidence {
+            context: OclaRequestContext {
+                request_id: format!("read:{path}:{mode}"),
+                session_id: String::new(),
+                agent_id: String::new(),
+                content_ref: path.to_string(),
+                tenant_id: None,
+            },
+            original_tokens: original_tokens as u64,
+            delivered_tokens: output_tokens as u64,
+            quality_ref: None,
+            evidence_ref: format!("read:{path}:{mode}"),
+        });
 
     // Project root the learning sinks below are scoped to. Defaults to "." (the
     // MCP path's `project_root_snapshot` fallback) so a rootless read still
@@ -666,9 +681,9 @@ mod tests {
 /// Best-effort: silently drops if provider is unavailable or source_ref can't be
 /// constructed. This is the canonical production callsite for the compression capability.
 fn project_ocla_compression(path: &str, source_tokens: u64, output_tokens: u64) {
+    use crate::core::ocla::OclaRegistry;
     use crate::core::ocla::traits::CompressionProvider;
     use crate::core::ocla::types::{CompressionRequest, OclaRequestContext};
-    use crate::core::ocla::OclaRegistry;
 
     let reg = OclaRegistry::global();
     let source_ref = format!("file:{path}");

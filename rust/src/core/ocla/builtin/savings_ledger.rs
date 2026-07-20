@@ -56,6 +56,12 @@ impl OclaService for BuiltinSavingsLedger {
 
 impl SavingsLedger for BuiltinSavingsLedger {
     fn record_savings(&self, evidence: SavingsEvidence) -> OclaResult<String> {
+        crate::core::savings_ledger::record_tool_event(
+            "ocla_savings",
+            evidence.original_tokens.try_into().unwrap_or(usize::MAX),
+            evidence.delivered_tokens.try_into().unwrap_or(usize::MAX),
+        );
+
         let saved = evidence
             .original_tokens
             .saturating_sub(evidence.delivered_tokens);
@@ -122,5 +128,33 @@ mod tests {
         ledger.record_savings(evidence(1000, 250)).unwrap();
 
         assert_eq!(ledger.savings_ratio_milli(), 750);
+    }
+
+    #[test]
+    fn delegates_to_verified_ledger() {
+        let dir = crate::core::data_dir::isolated_data_dir();
+        let ledger = BuiltinSavingsLedger::new();
+
+        ledger.record_savings(evidence(1000, 250)).unwrap();
+
+        let path = dir.path().join("savings").join("ledger.jsonl");
+        let content = std::fs::read_to_string(path).expect("verified ledger written");
+        let event: crate::core::savings_ledger::SavingsEvent =
+            serde_json::from_str(content.lines().next().expect("one ledger event"))
+                .expect("valid ledger event");
+        assert_eq!(event.tool, "ocla_savings");
+        assert_eq!(event.baseline_tokens, 1000);
+        assert_eq!(event.actual_tokens, 250);
+        assert_eq!(event.saved_tokens, 750);
+    }
+
+    #[test]
+    fn skips_zero_savings_in_verified_ledger() {
+        let dir = crate::core::data_dir::isolated_data_dir();
+        let ledger = BuiltinSavingsLedger::new();
+
+        ledger.record_savings(evidence(100, 100)).unwrap();
+
+        assert!(!dir.path().join("savings").join("ledger.jsonl").exists());
     }
 }
