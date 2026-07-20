@@ -16,7 +16,11 @@ use super::builtin::{
     outcome_tracker::BuiltinOutcomeTracker, response_optimizer::BuiltinResponseOptimizer,
     savings_ledger::BuiltinSavingsLedger, usage_sink::BuiltinUsageSink,
 };
-use super::traits::*;
+use super::traits::{
+    AgentGateway, CompressionProvider, ConfigTuner, ConnectorScheduler, EfficiencyAnalyzer,
+    ExperimentRunner, IntentClassifier, MetricsExporter, ModelRouter, ObservationHook,
+    OutcomeTracker, ResponseOptimizer, SavingsLedger, UsageSink,
+};
 
 static GLOBAL_REGISTRY: OnceLock<OclaRegistry> = OnceLock::new();
 
