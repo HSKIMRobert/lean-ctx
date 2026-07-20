@@ -4,12 +4,14 @@
 //! canonical trait. Emits ModelRouted events. Routes to the best candidate
 //! model within the cost/latency constraints.
 
-use crate::core::config::{Config, Effort, RoutingRules};
+use crate::core::config::{Config, Effort, RoutingRules, parse_route_target};
 use crate::core::ocla::traits::{ModelRouter, OclaService};
 use crate::core::ocla::types::{
-    ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaResult, RoutingDecision,
+    IntentDecision, ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaResult,
+    RoutingDecision,
 };
 use crate::core::ocla_bus::{self, OclaEvent};
+use crate::core::savings_ledger::store::{self, MechanismSummary};
 use serde_json::json;
 
 pub struct BuiltinModelRouter {
@@ -38,8 +40,27 @@ impl OclaService for BuiltinModelRouter {
     }
 }
 
+/// Routing result with deterministic rationale for OCLA observability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RoutingDecisionWithRationale {
+    pub decision: RoutingDecision,
+    pub routing_rationale: String,
+}
+
 impl ModelRouter for BuiltinModelRouter {
     fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision> {
+        Ok(self.route_model_with_intent(&request, None)?.decision)
+    }
+}
+
+impl BuiltinModelRouter {
+    /// Routes using a classifier decision when available, while preserving the
+    /// proxy router as the fallback for absent or low-confidence decisions.
+    pub fn route_model_with_intent(
+        &self,
+        request: &ModelRouteRequest,
+        intent: Option<&IntentDecision>,
+    ) -> OclaResult<RoutingDecisionWithRationale> {
         let requested_model = request
             .candidate_models
             .first()
@@ -49,7 +70,11 @@ impl ModelRouter for BuiltinModelRouter {
             "model": requested_model.clone(),
             "messages": [{"role": "user", "content": request.context.content_ref}]
         });
-        let routed = crate::proxy::model_router::route(&body, &self.rules);
+        let routed = intent
+            .as_ref()
+            .and_then(|decision| route_for_intent(&requested_model, decision, &self.rules))
+            .or_else(|| crate::proxy::model_router::route(&body, &self.rules));
+        let ledger = routing_ledger_summary();
         let (model, provider, tier, model_changed) = routed.map_or_else(
             || {
                 (
@@ -72,17 +97,128 @@ impl ModelRouter for BuiltinModelRouter {
         ocla_bus::emit(OclaEvent::ModelRouted {
             requested_model: requested_model.clone(),
             routed_model: model.clone(),
-            tier,
+            tier: tier.clone(),
             model_changed,
         });
 
-        Ok(RoutingDecision {
-            model,
-            provider,
-            reasoning_budget_tokens: configured_reasoning_budget(),
-            decision_ref: format!("route:{}", request.context.request_id),
+        let routing_rationale = routing_rationale(intent, tier.as_str(), ledger.as_ref());
+        Ok(RoutingDecisionWithRationale {
+            decision: RoutingDecision {
+                model,
+                provider,
+                reasoning_budget_tokens: configured_reasoning_budget(),
+                decision_ref: format!("route:{}", request.context.request_id),
+            },
+            routing_rationale,
         })
     }
+}
+
+fn route_for_intent(
+    requested_model: &str,
+    decision: &IntentDecision,
+    rules: &RoutingRules,
+) -> Option<crate::proxy::model_router::RoutingDecision> {
+    if decision.confidence_milli < 500
+        || !rules.is_active()
+        || rules.tiers.is_empty()
+        || rules.aliases.contains_key(requested_model)
+    {
+        return None;
+    }
+    let tier = intent_tier(&decision.intent);
+    let target = rules.tiers.get(tier)?;
+    if target.is_empty() {
+        return Some(crate::proxy::model_router::RoutingDecision {
+            requested_model: requested_model.to_string(),
+            routed_model: requested_model.to_string(),
+            routed_provider: None,
+            tier: tier.to_string(),
+            confidence: f64::from(decision.confidence_milli) / 1000.0,
+            reasoning: format!("classifier intent selected {tier} tier"),
+            model_changed: false,
+            estimated_cost_ratio: None,
+        });
+    }
+    let (provider, model) = parse_route_target(target)?;
+    Some(crate::proxy::model_router::RoutingDecision {
+        requested_model: requested_model.to_string(),
+        routed_model: model.to_string(),
+        routed_provider: provider.map(str::to_string),
+        tier: tier.to_string(),
+        confidence: f64::from(decision.confidence_milli) / 1000.0,
+        reasoning: format!("classifier intent selected {tier} tier"),
+        model_changed: requested_model != model,
+        estimated_cost_ratio: None,
+    })
+}
+
+fn intent_tier(intent: &str) -> &'static str {
+    let intent = intent.to_ascii_lowercase();
+    if [
+        "read",
+        "list",
+        "show",
+        "explain",
+        "summarize",
+        "status",
+        "search",
+        "lookup",
+    ]
+    .iter()
+    .any(|term| intent.contains(term))
+    {
+        "fast"
+    } else if [
+        "code",
+        "fix",
+        "implement",
+        "refactor",
+        "debug",
+        "build",
+        "patch",
+        "test",
+    ]
+    .iter()
+    .any(|term| intent.contains(term))
+    {
+        "premium"
+    } else {
+        "standard"
+    }
+}
+
+fn routing_ledger_summary() -> Option<MechanismSummary> {
+    let path = store::default_path()?;
+    store::summarize_by_mechanism(&path).remove("routing")
+}
+
+fn routing_rationale(
+    intent: Option<&IntentDecision>,
+    tier: &str,
+    ledger: Option<&MechanismSummary>,
+) -> String {
+    let intent_part = intent.map_or_else(
+        || "proxy classifier".to_string(),
+        |decision| {
+            format!(
+                "classifier intent '{}' (confidence {})",
+                decision.intent, decision.confidence_milli
+            )
+        },
+    );
+    let ledger_part = match ledger {
+        Some(summary) if summary.saved_usd > 0.0 => format!(
+            "ledger confirms {} routing events saving ${:.6}",
+            summary.count, summary.saved_usd
+        ),
+        Some(summary) => format!(
+            "ledger reports {} routing events without positive savings",
+            summary.count
+        ),
+        None => "routing savings history unavailable".to_string(),
+    };
+    format!("{intent_part} selected {tier} tier; {ledger_part}")
 }
 
 fn configured_reasoning_budget() -> u64 {
@@ -202,5 +338,39 @@ mod tests {
         assert_eq!(reasoning_budget(Some(Effort::Minimal)), 1_024);
         assert_eq!(reasoning_budget(Some(Effort::High)), 8_192);
         assert_eq!(reasoning_budget(None), 0);
+    }
+
+    #[test]
+    fn classifier_routes_simple_intent_to_fast_tier() {
+        let router = BuiltinModelRouter::with_rules(active_rules(&[
+            ("fast", "anthropic:claude-haiku-4-5"),
+            ("premium", "openai:gpt-5"),
+        ]));
+        let result = router
+            .route_model_with_intent(
+                &route_req(&["gpt-4o"]),
+                Some(&IntentDecision {
+                    intent: "read the config".into(),
+                    confidence_milli: 900,
+                    rationale_ref: None,
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(result.decision.model, "claude-haiku-4-5");
+        assert!(result.routing_rationale.contains("read the config"));
+        assert!(result.routing_rationale.contains("fast tier"));
+    }
+
+    #[test]
+    fn ledger_rationale_distinguishes_material_savings() {
+        let summary = MechanismSummary {
+            count: 2,
+            saved_tokens: 0,
+            saved_usd: 0.25,
+        };
+        let rationale = routing_rationale(None, "fast", Some(&summary));
+        assert!(rationale.contains("confirms 2 routing events"));
+        assert!(rationale.contains("$0.250000"));
     }
 }
