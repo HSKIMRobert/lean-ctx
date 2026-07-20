@@ -521,6 +521,10 @@ pub fn run() {
                 super::cmd_ledger(&rest);
                 return;
             }
+            "ocla" => {
+                super::cmd_ocla(&rest);
+                return;
+            }
             "control" | "context-control" => {
                 super::cmd_control(&rest);
                 return;

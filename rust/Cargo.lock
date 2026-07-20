@@ -2454,6 +2454,7 @@ dependencies = [
  "bytecount",
  "chacha20poly1305",
  "chrono",
+ "clap",
  "criterion",
  "crossterm",
  "deadpool-postgres",
