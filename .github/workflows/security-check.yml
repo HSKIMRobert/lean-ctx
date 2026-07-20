@@ -20,7 +20,6 @@ jobs:
           persist-credentials: false
 
       - name: Required public-tree and audited-baseline delta gate
-        continue-on-error: true  # RG-09 baseline not yet established on main
         run: >-
           python3 scripts/history-policy-gate.py gate --root .
           --policy security/history-policy-v1.json
@@ -32,7 +31,7 @@ jobs:
         with:
           name: history-delta-evidence
           path: history-delta-evidence.json
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Check for dangerous patterns
         run: |
