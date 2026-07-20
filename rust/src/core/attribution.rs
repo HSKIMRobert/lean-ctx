@@ -29,9 +29,7 @@ pub fn attribution_group_for_mechanism(mechanism: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        attribution_group_for_mechanism, check_unique, generate_attribution_id,
-    };
+    use super::{attribution_group_for_mechanism, check_unique, generate_attribution_id};
 
     #[test]
     fn generation_is_deterministic() {
