@@ -1,7 +1,6 @@
 use crate::core::cache::SessionCache;
 use crate::core::intent_engine::{classify, route_intent};
 use crate::core::intent_protocol::{IntentRecord, IntentSubject};
-use crate::core::ocla::traits::IntentClassifier;
 use crate::core::ocla::types::{IntentRequest, OclaRequestContext};
 use crate::tools::CrpMode;
 
