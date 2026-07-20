@@ -113,4 +113,16 @@ mod tests {
         assert_eq!(scheduled.job_ref, "job:github:1");
         assert_eq!(scheduled.queue_ref, "provider:github:dispatch");
     }
+
+    #[test]
+    fn registry_with_builtins_exposes_connector_scheduler() {
+        let registry = crate::core::ocla::OclaRegistry::with_builtins();
+        let scheduled = registry
+            .connector_scheduler
+            .schedule_connector(job("github"))
+            .unwrap();
+
+        assert_eq!(scheduled.job_ref, "job:github:1");
+        assert_eq!(scheduled.queue_ref, "provider:github:dispatch");
+    }
 }
