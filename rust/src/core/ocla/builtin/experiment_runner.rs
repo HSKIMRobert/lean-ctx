@@ -31,15 +31,31 @@ impl OclaService for BuiltinExperimentRunner {
 
 impl ExperimentRunner for BuiltinExperimentRunner {
     fn run_experiment(&self, request: ExperimentRequest) -> OclaResult<ExperimentResult> {
-        let outcome_ref = format!(
-            "outcome:{}:{}",
-            request.experiment_ref, request.context.request_id
-        );
+        let config = crate::core::config::Config::load();
+        let requested_model = config
+            .proxy
+            .baseline
+            .reference_model
+            .as_deref()
+            .ok_or_else(|| {
+                crate::core::ocla::types::OclaError::Rejected(
+                    OclaCapabilityKind::ExperimentRunner,
+                    "no reference model configured for routing evaluation".into(),
+                )
+            })?;
+        let pricing = crate::core::gain::model_pricing::ModelPricing::load();
 
-        Ok(ExperimentResult {
-            experiment_ref: request.experiment_ref,
-            outcome_ref,
-            rollback_ref: Some(format!("rollback:{}", request.cohort_ref)),
+        crate::core::eval_ab::routing_eval::run_routing_experiment(
+            &request,
+            requested_model,
+            &config.proxy.routing,
+            &pricing,
+        )
+        .map_err(|error| {
+            crate::core::ocla::types::OclaError::Rejected(
+                OclaCapabilityKind::ExperimentRunner,
+                error.to_string(),
+            )
         })
     }
 }
@@ -64,17 +80,16 @@ mod tests {
     }
 
     #[test]
-    fn produces_deterministic_outcome_ref() {
+    fn rejects_missing_suite_instead_of_fabricating_result() {
         let runner = BuiltinExperimentRunner::new();
-        let r1 = runner.run_experiment(experiment("exp-a")).unwrap();
-        let r2 = runner.run_experiment(experiment("exp-a")).unwrap();
-        assert_eq!(r1.outcome_ref, r2.outcome_ref);
+        let error = runner.run_experiment(experiment("/definitely/missing-suite.ndjson"));
+        assert!(error.is_err());
     }
 
     #[test]
-    fn rollback_ref_contains_cohort() {
+    fn invalid_request_never_returns_synthetic_refs() {
         let runner = BuiltinExperimentRunner::new();
-        let result = runner.run_experiment(experiment("exp-b")).unwrap();
-        assert!(result.rollback_ref.unwrap().contains("cohort:control"));
+        let result = runner.run_experiment(experiment("exp-b"));
+        assert!(result.is_err());
     }
 }
