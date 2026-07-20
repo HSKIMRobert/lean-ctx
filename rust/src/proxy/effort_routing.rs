@@ -180,6 +180,44 @@ pub fn effort_for_turn(class: TurnClass, base: Effort) -> Effort {
     }
 }
 
+/// Adjust effort from a classifier intent while preserving the configured
+/// effort for intents that are not clearly simple reads or coding work.
+pub fn intent_aware_effort(intent: &str, base_effort: Effort) -> Effort {
+    let intent = intent.to_ascii_lowercase();
+    if [
+        "code",
+        "coding",
+        "fix",
+        "implement",
+        "refactor",
+        "debug",
+        "build",
+        "patch",
+        "test",
+    ]
+    .iter()
+    .any(|term| intent.contains(term))
+    {
+        Effort::High
+    } else if [
+        "read",
+        "list",
+        "show",
+        "explain",
+        "summarize",
+        "status",
+        "search",
+        "lookup",
+    ]
+    .iter()
+    .any(|term| intent.contains(term))
+    {
+        Effort::Minimal
+    } else {
+        base_effort
+    }
+}
+
 /// Snapshot routing statistics.
 pub fn stats() -> RoutingStats {
     RoutingStats {
@@ -355,6 +393,19 @@ mod tests {
             effort_for_turn(TurnClass::Full, Effort::Medium),
             Effort::Medium
         );
+    }
+
+    #[test]
+    fn intent_adjusts_effort_by_task_complexity() {
+        assert_eq!(
+            intent_aware_effort("fix the parser", Effort::Low),
+            Effort::High
+        );
+        assert_eq!(
+            intent_aware_effort("read the config", Effort::High),
+            Effort::Minimal
+        );
+        assert_eq!(intent_aware_effort("chat", Effort::Medium), Effort::Medium);
     }
 
     #[test]
