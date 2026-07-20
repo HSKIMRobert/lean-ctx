@@ -69,7 +69,104 @@ impl OclaRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ocla::types::{OclaCapabilityKind, OclaCapabilityStatus};
+    use crate::core::ocla::types::{
+        OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaCapabilityStatus,
+    };
+
+    fn assert_builtin_capability(capability: OclaCapability, expected: OclaCapabilityKind) {
+        assert_eq!(capability.kind, expected);
+        assert_eq!(capability.status, OclaCapabilityStatus::Available);
+        assert_eq!(capability.api_version, OCLA_API_VERSION);
+    }
+
+    macro_rules! builtin_capability_test {
+        ($name:ident, $field:ident, $kind:ident) => {
+            #[test]
+            fn $name() {
+                let registry = OclaRegistry::with_builtins();
+                assert_builtin_capability(registry.$field.capability(), OclaCapabilityKind::$kind);
+            }
+        };
+    }
+
+    #[test]
+    fn global_returns_the_same_registry_instance() {
+        let first = OclaRegistry::global();
+        let second = OclaRegistry::global();
+
+        assert!(std::ptr::eq(first, second));
+    }
+
+    builtin_capability_test!(
+        observation_hook_builtin_is_initialized_and_valid,
+        observation_hook,
+        ObservationHook
+    );
+    builtin_capability_test!(
+        usage_sink_builtin_is_initialized_and_valid,
+        usage_sink,
+        UsageSink
+    );
+    builtin_capability_test!(
+        metrics_exporter_builtin_is_initialized_and_valid,
+        metrics_exporter,
+        MetricsExporter
+    );
+    builtin_capability_test!(
+        savings_ledger_builtin_is_initialized_and_valid,
+        savings_ledger,
+        SavingsLedger
+    );
+    builtin_capability_test!(
+        intent_classifier_builtin_is_initialized_and_valid,
+        intent_classifier,
+        IntentClassifier
+    );
+    builtin_capability_test!(
+        outcome_tracker_builtin_is_initialized_and_valid,
+        outcome_tracker,
+        OutcomeTracker
+    );
+    builtin_capability_test!(
+        compression_provider_builtin_is_initialized_and_valid,
+        compression_provider,
+        CompressionProvider
+    );
+    builtin_capability_test!(
+        response_optimizer_builtin_is_initialized_and_valid,
+        response_optimizer,
+        ResponseOptimizer
+    );
+    builtin_capability_test!(
+        model_router_builtin_is_initialized_and_valid,
+        model_router,
+        ModelRouter
+    );
+    builtin_capability_test!(
+        efficiency_analyzer_builtin_is_initialized_and_valid,
+        efficiency_analyzer,
+        EfficiencyAnalyzer
+    );
+    builtin_capability_test!(
+        config_tuner_builtin_is_initialized_and_valid,
+        config_tuner,
+        ConfigTuner
+    );
+    builtin_capability_test!(
+        experiment_runner_builtin_is_initialized_and_valid,
+        experiment_runner,
+        ExperimentRunner
+    );
+    builtin_capability_test!(
+        connector_scheduler_builtin_is_initialized_and_valid,
+        connector_scheduler,
+        ConnectorScheduler
+    );
+    builtin_capability_test!(
+        agent_gateway_builtin_is_initialized_and_valid,
+        agent_gateway,
+        AgentGateway
+    );
 
     #[test]
     fn registry_exposes_all_fourteen_capabilities() {
