@@ -11,6 +11,13 @@ use super::ProxyState;
 use super::codec::{decode_gzip_bounded, decode_zstd_bounded, encode_gzip, encode_zstd};
 use super::connector::schedule_provider_connector;
 
+const INTENT_MESSAGE_CAP: usize = 2000;
+
+#[derive(Clone, Debug)]
+struct ProxyIntentClassification {
+    decision: crate::core::ocla::types::IntentDecision,
+}
+
 /// Header set by Headroom when it has already compressed the request.
 const HEADROOM_COMPRESSED_HEADER: &str = "x-headroom-compressed";
 
@@ -134,6 +141,8 @@ pub async fn forward_request(
     let preserve_content_encoding = prepared.preserve_content_encoding;
     let route = prepared.route;
     let parsed = prepared.parsed;
+    let _intent_classification =
+        classify_and_store_proxy_intent(&mut parts, parsed.as_ref(), lineage.as_ref(), &body_bytes);
 
     // Apply the routing decision to the wire: re-target the upstream and — for
     // registry providers holding their own key — swap the credential headers.
@@ -300,6 +309,100 @@ pub async fn forward_request(
     )
     .await
 }
+
+fn classify_and_store_proxy_intent(
+    parts: &mut Parts,
+    parsed: Option<&serde_json::Value>,
+    lineage: Option<&crate::core::ocla::types::OclaRequestContext>,
+    body_bytes: &[u8],
+) -> Option<ProxyIntentClassification> {
+    let model = parsed
+        .and_then(|value| value.get("model"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| super::usage::gemini_model_from_path(parts.uri.path()))
+        .unwrap_or_else(|| "unknown".to_string());
+    let message = parsed.and_then(proxy_intent_message);
+    let candidate = match message.as_deref() {
+        Some(message) => format!("model={model}; message={message}"),
+        None => format!("model={model}"),
+    };
+    let context = lineage.cloned().unwrap_or_else(|| {
+        let content_ref = format!("blake3:{}", blake3::hash(body_bytes).to_hex());
+        crate::core::ocla::types::OclaRequestContext {
+            request_id: format!("proxy-intent:{content_ref}"),
+            session_id: "proxy".to_string(),
+            agent_id: "proxy".to_string(),
+            content_ref,
+            tenant_id: None,
+        }
+    });
+    let request = crate::core::ocla::types::IntentRequest {
+        context,
+        candidate_intents: vec![candidate],
+    };
+    let decision = match crate::core::ocla::OclaRegistry::global()
+        .intent_classifier
+        .classify_intent(request)
+    {
+        Ok(decision) => decision,
+        Err(error) => {
+            tracing::warn!("lean-ctx proxy intent classifier unavailable: {error:?}");
+            return None;
+        }
+    };
+    let classification = ProxyIntentClassification { decision };
+    // Preserve the pre-forward decision for downstream post-forward routing
+    // and accounting hooks without classifying the request a second time.
+    parts.extensions.insert(classification.clone());
+    Some(classification)
+}
+
+fn proxy_intent_message(parsed: &serde_json::Value) -> Option<String> {
+    let items = parsed.get("messages").or_else(|| parsed.get("input"))?;
+    if let Some(text) = items.as_str() {
+        return bounded_intent_text(text);
+    }
+    let last_user = items
+        .as_array()?
+        .iter()
+        .rev()
+        .find(|item| item.get("role").and_then(serde_json::Value::as_str) == Some("user"))?;
+    let content = last_user.get("content")?;
+    if let Some(text) = content.as_str() {
+        return bounded_intent_text(text);
+    }
+    let mut message = String::new();
+    for part in content.as_array()? {
+        if matches!(
+            part.get("type").and_then(serde_json::Value::as_str),
+            Some("text" | "input_text")
+        ) && let Some(text) = part.get("text").and_then(serde_json::Value::as_str)
+        {
+            if !message.is_empty() {
+                message.push(' ');
+            }
+            message.push_str(text);
+            if message.len() >= INTENT_MESSAGE_CAP {
+                break;
+            }
+        }
+    }
+    bounded_intent_text(&message)
+}
+
+fn bounded_intent_text(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut end = trimmed.len().min(INTENT_MESSAGE_CAP);
+    while !trimmed.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(trimmed[..end].to_string())
+}
+
 /// Requested model for the policy gate (enterprise#25): from the JSON body
 /// (Anthropic/OpenAI dialects) or the URL path (Gemini). Encrypted-passthrough
 /// or unparseable bodies yield `None` — the ceiling governs what the gateway
@@ -927,6 +1030,36 @@ fn xlat_response_bytes(resp_bytes: &[u8], _status: StatusCode) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ocla::registry::with_test_registry;
+    use crate::core::ocla::traits::{IntentClassifier, OclaService};
+    use crate::core::ocla::types::{
+        IntentDecision, IntentRequest, OclaCapability, OclaCapabilityKind, OclaResult,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct SpyIntentClassifier(Arc<AtomicUsize>);
+
+    impl OclaService for SpyIntentClassifier {
+        fn capability(&self) -> OclaCapability {
+            OclaCapability::available(OclaCapabilityKind::IntentClassifier)
+        }
+    }
+
+    impl IntentClassifier for SpyIntentClassifier {
+        fn classify_intent(&self, request: IntentRequest) -> OclaResult<IntentDecision> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(IntentDecision {
+                intent: request
+                    .candidate_intents
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default(),
+                confidence_milli: 1000,
+                rationale_ref: None,
+            })
+        }
+    }
 
     fn parts_for(uri: &str) -> Parts {
         Request::builder().uri(uri).body(()).unwrap().into_parts().0
@@ -940,6 +1073,36 @@ mod tests {
         let out = serde_json::to_vec(&value).unwrap();
         let compressed_size = out.len();
         (out, original_size, compressed_size)
+    }
+
+    #[test]
+    fn proxy_cycle_invokes_and_stores_intent_classification() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = crate::core::ocla::OclaRegistry::with_builtins();
+        registry.intent_classifier = Arc::new(SpyIntentClassifier(calls.clone()));
+        let _guard = with_test_registry(registry);
+
+        let body = serde_json::json!({
+            "model": "gpt-5",
+            "messages": [{"role": "user", "content": "explain caching"}]
+        });
+        let body_bytes = serde_json::to_vec(&body).unwrap();
+        let mut parts = parts_for("/v1/chat/completions");
+        let classification =
+            classify_and_store_proxy_intent(&mut parts, Some(&body), None, &body_bytes)
+                .expect("builtin proxy classification should succeed");
+
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            classification.decision.intent,
+            "model=gpt-5; message=explain caching"
+        );
+        assert!(
+            parts
+                .extensions
+                .get::<ProxyIntentClassification>()
+                .is_some()
+        );
     }
 
     // --- enterprise#11/#18: wire context (identity + baseline inputs) ---
