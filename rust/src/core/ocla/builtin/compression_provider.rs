@@ -292,6 +292,8 @@ mod tests {
         assert!(r.delivered_ref.starts_with("blake3:"));
         assert!(r.delivered_tokens < source_tokens);
         assert_eq!(r.recovery_ref, Some("file:test.rs".into()));
+        let delivered = port.retrieve(&r.delivered_ref).unwrap();
+        assert!(delivered.len() < content.len());
     }
 
     #[test]
@@ -317,6 +319,31 @@ mod tests {
             msg.contains("resolve") || msg.contains("No such file") || msg.contains("not found"),
             "unexpected error: {msg}"
         );
+    }
+
+    #[test]
+    fn compress_empty_file_persists_empty_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        fs::write(root.join("empty.rs"), b"").unwrap();
+        let port = CompressionContentPort::new(&root).unwrap();
+
+        let result = BuiltinCompressionProvider::new()
+            .compress_with_port(
+                CompressionRequest {
+                    context: ctx(),
+                    source_ref: "file:empty.rs".into(),
+                    source_tokens: 1,
+                    target_tokens: 1,
+                    quality_policy_ref: None,
+                },
+                &port,
+            )
+            .unwrap();
+
+        assert_eq!(result.delivered_tokens, 0);
+        assert_eq!(result.recovery_ref, Some("file:empty.rs".into()));
+        assert!(port.retrieve(&result.delivered_ref).unwrap().is_empty());
     }
 
     #[test]
