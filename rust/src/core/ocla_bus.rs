@@ -62,6 +62,9 @@ pub enum OclaEvent {
         input_saved: u64,
         output_saved: u64,
         source: SavingsSource,
+        attribution_id: Option<String>,
+        evidence_class: Option<String>,
+        measurement_method: Option<String>,
     },
     /// Intent classified for a request (P8 — model_router.rs).
     IntentClassified {
@@ -454,22 +457,34 @@ mod tests {
             input_saved: 10,
             output_saved: 5,
             source: SavingsSource::Compression,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
         });
         bus.emit_if_enabled(OclaEvent::SavingsRecorded {
             input_saved: 20,
             output_saved: 10,
             source: SavingsSource::Cache,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
         });
         bus.emit_if_enabled(OclaEvent::SavingsRecorded {
             input_saved: 30,
             output_saved: 15,
             source: SavingsSource::Routing,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
         });
         // At capacity. Next emit evicts oldest.
         bus.emit_if_enabled(OclaEvent::SavingsRecorded {
             input_saved: 40,
             output_saved: 20,
             source: SavingsSource::Verbosity,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
         });
 
         assert_eq!(bus.len(), 3);
@@ -630,6 +645,9 @@ mod tests {
                 input_saved: 10,
                 output_saved: 5,
                 source: SavingsSource::ResponseCache,
+                attribution_id: None,
+                evidence_class: None,
+                measurement_method: None,
             },
             OclaEvent::IntentClassified {
                 tier: "standard".into(),
@@ -665,5 +683,23 @@ mod tests {
             let _: OclaEvent = serde_json::from_str(&json).unwrap();
         }
         assert_eq!(events.len(), 10, "exactly 10 event types");
+    }
+
+    #[test]
+    fn savings_recorded_p5_fields_roundtrip() {
+        let event = OclaEvent::SavingsRecorded {
+            input_saved: 100,
+            output_saved: 25,
+            source: SavingsSource::Routing,
+            attribution_id: Some("attr-42".into()),
+            evidence_class: Some("measured".into()),
+            measurement_method: Some("provider_reconciled".into()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("attribution_id"));
+        assert!(json.contains("evidence_class"));
+        assert!(json.contains("measurement_method"));
+        let deserialized: OclaEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, deserialized);
     }
 }

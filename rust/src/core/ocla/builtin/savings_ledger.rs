@@ -116,6 +116,9 @@ impl SavingsLedger for BuiltinSavingsLedger {
             input_saved: saved,
             output_saved: 0,
             source: SavingsSource::Compression,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
         });
 
         let mut entries = self
