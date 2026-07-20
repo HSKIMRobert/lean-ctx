@@ -4,7 +4,7 @@
     "max_commits": 20000,
     "max_objects": 300000,
     "max_findings": 100,
-    "command_timeout_seconds": 600
+    "command_timeout_seconds": 120
   },
   "forbidden_paths": [
     {
@@ -44,13 +44,13 @@
     "tests/security/test_history_policy_gate.py"
   ],
   "scanner_source_sha256": {
-    ".github/workflows/security-check.yml": "c1ee715b5609e0861ae5b8e4517ef4961a7ede9ffcf19d0c304f66da2fc9c421",
+    ".github/workflows/security-check.yml": "7d71f7d658de5d23b4e8a4922b546b952d4f2d21fff9ceade7c5da44bc75d19f",
     "scripts/history-policy-gate.py": "e554c071cd785dc82fa73e5f0144d080a516550a17732fe103b4a4788db43182",
     "tests/security/test_history_policy_gate.py": "f3921aaecc395691d1c113bcec3955a2a70ca4362cb521246fd3355d880870fc"
   },
   "baseline": {
-    "commit": "b6937197d7f15590805dd794b9fe440d8a34de02",
+    "commit": "d7f8324b7ed373677f505ccec81c9fb277b60386",
     "report": "security/evidence/full-history-baseline-v1.json",
-    "report_sha256": "03814db276f30234dce139664a12a4003b17c038d2f15b044c61d0c035c6c91e"
+    "report_sha256": "ed2f8974238f8d98202e63b73be96c10937a6549dd93cbc8c859531594122d4b"
   }
 }
