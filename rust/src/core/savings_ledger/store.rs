@@ -5,8 +5,8 @@
 //! the file tail under the lock (O(1) per append), not cached, to stay correct under
 //! concurrent writers. Cryptographic signing of batches is a later phase (G5/G6).
 
-use std::fs::{self, OpenOptions};
 use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -489,7 +489,9 @@ pub fn query_by_attribution_group(path: &Path, group: &str) -> Vec<SavingsEvent>
 pub fn summarize_by_mechanism(path: &Path) -> BTreeMap<String, MechanismSummary> {
     let mut summaries = BTreeMap::new();
     for event in load(path) {
-        let summary = summaries.entry(event.mechanism).or_insert_with(Default::default);
+        let summary = summaries
+            .entry(event.mechanism)
+            .or_insert_with(Default::default);
         summary.count += 1;
         summary.saved_tokens = summary.saved_tokens.saturating_add(event.saved_tokens);
         summary.saved_usd += event.saved_usd;
