@@ -28,6 +28,7 @@ pub mod chatgpt;
 pub mod chatgpt_cookies;
 pub mod chatgpt_ws;
 mod codec;
+mod connector;
 pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;

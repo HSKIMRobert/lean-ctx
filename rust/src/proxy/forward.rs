@@ -9,6 +9,7 @@ use std::borrow::Cow;
 
 use super::ProxyState;
 use super::codec::{decode_gzip_bounded, decode_zstd_bounded, encode_gzip, encode_zstd};
+use super::connector::schedule_provider_connector;
 
 /// Header set by Headroom when it has already compressed the request.
 const HEADROOM_COMPRESSED_HEADER: &str = "x-headroom-compressed";
@@ -299,41 +300,6 @@ pub async fn forward_request(
     )
     .await
 }
-
-fn schedule_provider_connector(
-    parts: &Parts,
-    lineage: Option<&crate::core::ocla::OclaRequestContext>,
-    route: Option<&super::routing::RouteDecision>,
-    provider_label: &str,
-) {
-    let Some(context) = lineage.cloned() else {
-        return;
-    };
-    let connector_id = route
-        .and_then(|decision| decision.provider_id.as_deref())
-        .or_else(|| {
-            parts
-                .extensions
-                .get::<super::providers::RegistryProviderId>()
-                .map(|provider| provider.id.as_str())
-        })
-        .unwrap_or(provider_label)
-        .to_owned();
-    let payload_ref = context.content_ref.clone();
-    let job = crate::core::ocla::ConnectorJob {
-        context,
-        connector_id,
-        payload_ref,
-        deadline_ms: None,
-    };
-    if let Err(error) = crate::core::ocla::OclaRegistry::global()
-        .connector_scheduler
-        .schedule_connector(job)
-    {
-        tracing::warn!("lean-ctx connector scheduling skipped: {error}");
-    }
-}
-
 /// Requested model for the policy gate (enterprise#25): from the JSON body
 /// (Anthropic/OpenAI dialects) or the URL path (Gemini). Encrypted-passthrough
 /// or unparseable bodies yield `None` — the ceiling governs what the gateway
