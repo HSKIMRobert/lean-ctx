@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -21,9 +22,31 @@ PROFILE = "leanctx.ocla-verifier-conformance/v1"
 MAX_WIRE_BYTES = 64 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 MAX_VERIFIER_BYTES = 128 * 1024 * 1024
+MAX_CONTRACT_ARTIFACT_BYTES = 8 * 1024 * 1024
 CASE_TIMEOUT_SECONDS = 5.0
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIXTURES = ROOT / "clients/rust/lean-ctx-client/tests/fixtures"
+CONTRACT_PACK = ROOT / "docs/contracts/ocla-contract-pack-v1.json"
+CONTRACT_PACK_ARTIFACTS = frozenset(
+    {
+        "clients/rust/lean-ctx-client/tests/fixtures/agent-envelope-v1.json",
+        "clients/rust/lean-ctx-client/tests/fixtures/canonical-token-envelope-v1.json",
+        "clients/rust/lean-ctx-client/tests/fixtures/invalid-agent-envelope-v1.json",
+        "clients/rust/lean-ctx-client/tests/fixtures/invalid-token-envelope-v1.json",
+        "clients/rust/lean-ctx-client/tests/fixtures/self-relay-agent-envelope-v1.json",
+        "contracts/ocla/v1/ocla.proto",
+        "docs/contracts/capabilities-contract-v1.md",
+        "docs/contracts/conformance-v1.md",
+        "docs/contracts/ocla-agent-envelope-v1.schema.json",
+        "docs/contracts/ocla-verifier-conformance-v1.md",
+        "docs/contracts/ocla-wire-v1.schema.json",
+        "scripts/verify-ocla-contract-suite.py",
+    }
+)
+SCHEMA_MIRRORS = (
+    "ocla-wire-v1.schema.json",
+    "ocla-agent-envelope-v1.schema.json",
+)
 class SuiteError(ValueError):
     """A stable infrastructure error that is safe to expose."""
 
@@ -86,6 +109,77 @@ def read_bounded_descriptor(descriptor: int, maximum: int, label: str) -> bytes:
         total += len(chunk)
         if total > maximum:
             raise SuiteError(f"{label}_oversize")
+
+
+def read_contract_artifact(root: Path, relative: str) -> bytes:
+    """Read one contract-pack artifact through a bounded regular-file handle."""
+
+    path = root / relative
+    if path.is_symlink() or not path.is_file():
+        raise SuiteError("contract_artifact_not_regular")
+    flags = os.O_RDONLY
+    if os.name == "posix":
+        if not hasattr(os, "O_NOFOLLOW"):
+            raise SuiteError("platform_missing_safe_open")
+        flags |= os.O_NOFOLLOW
+    descriptor = -1
+    try:
+        descriptor = os.open(path, flags)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise SuiteError("contract_artifact_not_regular")
+        return read_bounded_descriptor(
+            descriptor, MAX_CONTRACT_ARTIFACT_BYTES, "contract_artifact"
+        )
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def validate_contract_pack(root: Path = ROOT, pack: object | None = None) -> None:
+    """Fail closed when the committed OCLA contract pack drifts or is incomplete."""
+
+    if pack is None:
+        try:
+            pack = json.loads(CONTRACT_PACK.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SuiteError("contract_pack_invalid") from error
+    if not isinstance(pack, dict) or pack.get("schema_version") != "leanctx.contract-pack/v1":
+        raise SuiteError("contract_pack_schema")
+    artifacts = pack.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise SuiteError("contract_pack_artifacts")
+    seen: set[str] = set()
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or set(artifact) != {"path", "sha256"}:
+            raise SuiteError("contract_pack_artifact_entry")
+        relative = artifact["path"]
+        digest = artifact["sha256"]
+        if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+            raise SuiteError("contract_pack_artifact_path")
+        if any(part in ("", ".", "..") for part in Path(relative).parts):
+            raise SuiteError("contract_pack_artifact_path")
+        if relative in seen:
+            raise SuiteError("contract_pack_artifact_duplicate")
+        seen.add(relative)
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or digest != digest.lower()
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise SuiteError("contract_pack_artifact_digest")
+        body = read_contract_artifact(root, relative)
+        if hashlib.sha256(body).hexdigest() != digest:
+            raise SuiteError("contract_pack_artifact_drift")
+    if seen != CONTRACT_PACK_ARTIFACTS:
+        raise SuiteError("contract_pack_artifact_set")
+    for name in SCHEMA_MIRRORS:
+        public = read_contract_artifact(root, f"docs/contracts/{name}")
+        packaged = read_contract_artifact(
+            root, f"clients/rust/lean-ctx-client/contracts/{name}"
+        )
+        if public != packaged:
+            raise SuiteError("contract_schema_mirror_drift")
 
 
 def open_fixture_directory(root: Path) -> int | None:
@@ -385,6 +479,7 @@ def execute_case(verifier: Path, case: Case, directory: Path) -> dict[str, objec
 
 
 def run(verifier: Path, fixtures: Path) -> dict[str, object]:
+    validate_contract_pack()
     with tempfile.TemporaryDirectory(prefix="leanctx-ocla-suite-") as temporary:
         directory = Path(temporary)
         suffix = verifier.suffix if os.name != "posix" else ""

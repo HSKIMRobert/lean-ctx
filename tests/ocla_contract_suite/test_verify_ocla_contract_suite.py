@@ -60,6 +60,23 @@ class OclaContractSuiteTests(unittest.TestCase):
         self.assertEqual(len(report["results"]), 18)
         self.assertTrue(all(item["passed"] for item in report["results"]))
 
+    def test_contract_pack_artifacts_are_hash_bound(self) -> None:
+        SUITE.validate_contract_pack()
+
+    def test_contract_pack_drift_and_extra_entries_fail_closed(self) -> None:
+        pack = json.loads(SUITE.CONTRACT_PACK.read_text(encoding="utf-8"))
+        drifted = json.loads(json.dumps(pack))
+        drifted["artifacts"][0]["sha256"] = "0" * 64
+        with self.assertRaises(SUITE.SuiteError):
+            SUITE.validate_contract_pack(pack=drifted)
+
+        extra = json.loads(json.dumps(pack))
+        extra["artifacts"].append(
+            {"path": "docs/contracts/unknown.json", "sha256": "0" * 64}
+        )
+        with self.assertRaises(SUITE.SuiteError):
+            SUITE.validate_contract_pack(pack=extra)
+
     def test_report_is_byte_deterministic(self) -> None:
         first = self.invoke()
         second = self.invoke()
