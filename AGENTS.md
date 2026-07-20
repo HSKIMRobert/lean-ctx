@@ -85,6 +85,22 @@ All provider data flows through the same consolidation pipeline:
 This means `ctx_semantic_search` finds issues/PRs/tickets, `ctx_knowledge` recalls provider facts,
 and `ctx_read` shows cross-source hints (e.g. "Issue #42 references this file").
 
+## Agent Bus Registration (mandatory, first action)
+
+Every agent MUST register on the lean-ctx agent bus at session start:
+
+```bash
+lean-ctx agent register --id "<type>-$$" --role coder --owner yves@lean-ctx
+```
+
+Replace `<type>` with `codex`, `cursor`, or `claude`. `$$` is your shell PID.
+This enables coordination, directives, and prevents duplicate work.
+
+After registration, check for pending directives:
+```bash
+lean-ctx agent list
+```
+
 ## Branch Hygiene (mandatory)
 
 GitHub remote must stay clean: only `main` + `cla-signatures` + max 1 active PR branch per agent.
