@@ -12,8 +12,7 @@ use crate::core::context_ir::{ContextIrSourceKindV1, ContextIrV1, RecordIrInput}
 use crate::core::context_ledger::ContextLedger;
 use crate::core::heatmap;
 use crate::core::intent_engine::StructuredIntent;
-use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
-use crate::core::ocla::{EfficiencyAnalyzer, OclaRegistry, SavingsLedger};
+use crate::core::ocla::EfficiencyAnalyzer;
 use crate::core::session::SessionState;
 use crate::core::stats;
 
@@ -74,7 +73,6 @@ pub fn record_file_read(
     duration: std::time::Duration,
     output_excerpt: &str,
 ) {
-    propose_adaptive_tuning(path, mode);
     let saved = original_tokens.saturating_sub(output_tokens);
     let tool_key = format!("cli_{mode}");
 
@@ -85,21 +83,7 @@ pub fn record_file_read(
     // counts; the model-correct re-tokenization happens on the MCP read path,
     // which holds the source text. For the default O200kBase model these are
     // identical anyway.
-    let _ = OclaRegistry::global()
-        .savings_ledger
-        .record_savings(SavingsEvidence {
-            context: OclaRequestContext {
-                request_id: format!("read:{path}:{mode}"),
-                session_id: String::new(),
-                agent_id: String::new(),
-                content_ref: path.to_string(),
-                tenant_id: None,
-            },
-            original_tokens: original_tokens as u64,
-            delivered_tokens: output_tokens as u64,
-            quality_ref: None,
-            evidence_ref: format!("read:{path}:{mode}"),
-        });
+    crate::core::savings_ledger::record_read_event(original_tokens, saved);
 
     // Project root the learning sinks below are scoped to. Defaults to "." (the
     // MCP path's `project_root_snapshot` fallback) so a rootless read still
@@ -190,30 +174,12 @@ pub fn record_file_read(
     // OCLA CompressionProvider runtime projection: for aggressive-mode reads with
     // positive savings, record the compression event through the canonical OCLA
     // capability so the registry tracks real compression evidence.
+    if saved > 0 {
+        project_ocla_savings(path, original_tokens as u64, output_tokens as u64);
+    }
     if mode == "aggressive" && saved > 0 {
         project_ocla_compression(path, original_tokens as u64, output_tokens as u64);
     }
-}
-
-fn propose_adaptive_tuning(path: &str, mode: &str) {
-    if !crate::core::config::Config::load().auto_mode_learning_effective() {
-        return;
-    }
-
-    let request = crate::core::ocla::types::ConfigTuningRequest {
-        context: crate::core::ocla::types::OclaRequestContext {
-            request_id: format!("read-tuning:{path}:{mode}"),
-            session_id: "tool_lifecycle".to_string(),
-            agent_id: "lean-ctx".to_string(),
-            content_ref: format!("file:{path}"),
-            tenant_id: None,
-        },
-        config_ref: mode.to_string(),
-        objective_ref: "minimize_tokens".to_string(),
-    };
-    let _ = crate::core::ocla::OclaRegistry::global()
-        .config_tuner
-        .propose_tuning(request);
 }
 
 /// Replicate the MCP read path's learning side effects (`registered/ctx_read.rs`
@@ -725,4 +691,30 @@ fn project_ocla_compression(path: &str, source_tokens: u64, output_tokens: u64) 
         quality_policy_ref: None,
     };
     let _ = reg.compression_provider.compress(request);
+}
+
+fn project_ocla_savings(path: &str, original_tokens: u64, output_tokens: u64) {
+    use crate::core::ocla::OclaRegistry;
+    use crate::core::ocla::traits::SavingsLedger;
+    use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
+
+    let context = OclaRequestContext {
+        request_id: format!("cli-read-{}", path.len()),
+        session_id: SessionState::load_latest()
+            .map(|session| session.id)
+            .unwrap_or_else(|| "cli-read".to_string()),
+        agent_id: "lean-ctx".to_string(),
+        content_ref: format!("file:{path}"),
+        tenant_id: None,
+    };
+    let evidence = SavingsEvidence {
+        context,
+        original_tokens,
+        delivered_tokens: output_tokens,
+        quality_ref: None,
+        evidence_ref: format!("read:{path}:{original_tokens}:{output_tokens}"),
+    };
+    let _ = OclaRegistry::global()
+        .savings_ledger
+        .record_savings(evidence);
 }
