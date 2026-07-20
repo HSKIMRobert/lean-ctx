@@ -85,6 +85,16 @@ All provider data flows through the same consolidation pipeline:
 This means `ctx_semantic_search` finds issues/PRs/tickets, `ctx_knowledge` recalls provider facts,
 and `ctx_read` shows cross-source hints (e.g. "Issue #42 references this file").
 
+## Branch Hygiene (mandatory)
+
+GitHub remote must stay clean: only `main` + `cla-signatures` + max 1 active PR branch per agent.
+
+- **After merge → delete source branch**: `SKIP_PREFLIGHT=1 git push github --delete <branch>`
+- **Branch naming**: `<type>/<issue-or-slug>` (e.g. `fix/1037-heal`, `feat/p4-usage-sink`)
+- **Max 1 open branch per agent** on GitHub. No parallel feature branches.
+- **Before push**: `git ls-remote --heads github | wc -l` — if >3, clean up first.
+- **No branches without PRs** on GitHub. Either open a PR or keep it local.
+
 ## Quality Bar
 
 - Zero clippy warnings, all tests pass
