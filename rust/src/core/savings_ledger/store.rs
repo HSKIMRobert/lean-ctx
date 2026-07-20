@@ -14,9 +14,9 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use fs2::FileExt;
 
-use super::event::{SavingsEvent, compute_hash};
+use super::event::{compute_hash, SavingsEvent};
 use super::evidence_projection::{
-    LedgerProjectionErrorV2, MAX_LEDGER_SNAPSHOT_BYTES_V2, VerifiedLedgerSnapshotV2,
+    LedgerProjectionErrorV2, VerifiedLedgerSnapshotV2, MAX_LEDGER_SNAPSHOT_BYTES_V2,
 };
 
 pub const GENESIS: &str = "genesis";
