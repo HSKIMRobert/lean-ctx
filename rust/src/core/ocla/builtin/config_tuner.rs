@@ -160,4 +160,19 @@ mod tests {
 
         assert!(!proposal.proposal_ref.contains("aggressive->aggressive"));
     }
+
+    #[test]
+    fn registry_with_builtins_proposes_the_same_tuning() {
+        use crate::core::ocla::registry::OclaRegistry;
+
+        let direct = BuiltinConfigTuner::new()
+            .tune(tuning_req("aggressive"))
+            .unwrap();
+        let via_registry = OclaRegistry::with_builtins()
+            .config_tuner
+            .propose_tuning(tuning_req("aggressive"))
+            .unwrap();
+
+        assert_eq!(via_registry, direct);
+    }
 }
