@@ -43,6 +43,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use crate::core::ocla::types::ResponseOptimizationRequest;
+
 /// Configuration for the response optimizer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -381,6 +383,34 @@ pub fn get_or_create(
     reg.entry(session_id.to_string())
         .or_insert_with(|| Arc::new(Mutex::new(SessionOptimizer::new(config.clone()))))
         .clone()
+}
+
+/// Apply the proxy optimizer to an OCLA response decision.
+pub fn optimize_response(request: &ResponseOptimizationRequest) -> OptimizationDecision {
+    let config = ResponseOptimizerConfig {
+        enabled: true,
+        ..Default::default()
+    };
+    let optimizer = get_or_create(&request.context.session_id, &config);
+    let mut optimizer = optimizer
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let cache_key = compute_cache_key("ocla-response", None, &[&request.response_ref]);
+
+    if optimizer.try_cache_hit(cache_key).is_some() {
+        return optimizer.cache_hit_decision(
+            cache_key,
+            request
+                .original_tokens
+                .saturating_sub(request.target_tokens),
+        );
+    }
+
+    optimizer.record_response(
+        cache_key,
+        &request.response_ref,
+        request.target_tokens.min(request.original_tokens),
+    )
 }
 
 /// Remove a session's optimizer (cleanup on session end).
