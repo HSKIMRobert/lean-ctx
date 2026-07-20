@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 use super::{
     CanonicalTokenEnvelopeV1, OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaRegistry,
 };
-use crate::core::ocla::traits::OclaService;
 use crate::core::ocla::wire::decode_envelope;
 
 /// Builds the stateless OCLA REST router for merging into an Axum application.
@@ -94,7 +93,7 @@ mod tests {
     use axum::body::Body;
     use axum::body::to_bytes;
     use axum::http::{Request, StatusCode, header};
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tower::ServiceExt;
 
     fn request_context() -> super::super::OclaRequestContext {

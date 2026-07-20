@@ -46,7 +46,7 @@ impl ResponseOptimizer for BuiltinResponseOptimizer {
 
         Ok(ResponseOptimizationResult {
             response_ref: request.response_ref.clone(),
-            delivered_tokens: decision.delivered_tokens,
+            delivered_tokens: delivered_tokens(&request, &decision),
             recovery_ref: decision
                 .cache_hit
                 .then(|| format!("cache:{:016x}", decision.cache_key)),
@@ -136,9 +136,6 @@ mod tests {
             is_duplicate: true,
             cache_key: 0,
             tokens_saved: 750,
-            original_tokens: 1000,
-            delivered_tokens: 250,
-            dedup_similarity: 1.0,
             source: crate::proxy::response_optimizer::OptimizationSource::Dedup,
         };
 

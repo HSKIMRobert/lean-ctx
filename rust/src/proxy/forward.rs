@@ -15,7 +15,7 @@ const INTENT_MESSAGE_CAP: usize = 2000;
 
 #[derive(Clone, Debug)]
 struct ProxyIntentClassification {
-    decision: crate::core::ocla::types::IntentDecision,
+    _decision: crate::core::ocla::types::IntentDecision,
 }
 
 /// Header set by Headroom when it has already compressed the request.
@@ -351,7 +351,9 @@ fn classify_and_store_proxy_intent(
             return None;
         }
     };
-    let classification = ProxyIntentClassification { decision };
+    let classification = ProxyIntentClassification {
+        _decision: decision,
+    };
     // Preserve the pre-forward decision for downstream post-forward routing
     // and accounting hooks without classifying the request a second time.
     parts.extensions.insert(classification.clone());
@@ -1094,7 +1096,7 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(
-            classification.decision.intent,
+            classification._decision.intent,
             "model=gpt-5; message=explain caching"
         );
         assert!(
