@@ -36,19 +36,20 @@ impl ResponseOptimizer for BuiltinResponseOptimizer {
         &self,
         request: ResponseOptimizationRequest,
     ) -> OclaResult<ResponseOptimizationResult> {
-        let delivered = request.target_tokens.min(request.original_tokens);
-        let saved = request.original_tokens.saturating_sub(delivered);
+        let decision = crate::proxy::response_optimizer::optimize_response(&request);
 
         ocla_bus::emit(OclaEvent::ResponseOptimized {
-            cache_hit: false,
-            is_duplicate: false,
-            tokens_saved: saved,
+            cache_hit: decision.cache_hit,
+            is_duplicate: decision.is_duplicate,
+            tokens_saved: decision.tokens_saved,
         });
 
         Ok(ResponseOptimizationResult {
             response_ref: request.response_ref,
-            delivered_tokens: delivered,
-            recovery_ref: None,
+            delivered_tokens: request.target_tokens.min(request.original_tokens),
+            recovery_ref: decision
+                .cache_hit
+                .then(|| format!("cache:{:016x}", decision.cache_key)),
         })
     }
 }
