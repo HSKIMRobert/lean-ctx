@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use crate::terminal_ui::ProgressIndicator;
+
 pub(crate) fn cmd_index(args: &[String]) {
     let project_root = super::common::detect_project_root(args);
     let root = Path::new(&project_root);
@@ -38,22 +40,9 @@ pub(crate) fn cmd_index(args: &[String]) {
             }));
             crate::core::index_orchestrator::ensure_all_background(&project_root);
 
-            let started = std::time::Instant::now();
-            let timeout = Duration::from_mins(5);
-            eprint!("building indexes (graph + BM25)");
-            loop {
-                std::thread::sleep(Duration::from_millis(500));
-                let status = crate::core::index_orchestrator::status_json(&project_root);
-                if !status.contains("\"building\"") {
-                    break;
-                }
-                eprint!(".");
-                if started.elapsed() > timeout {
-                    eprintln!(" timeout (background build continues)");
-                    return;
-                }
+            if !wait_graph_bm25_progress(&project_root, Duration::from_mins(5)) {
+                return;
             }
-            eprintln!(" done");
 
             // Surface the BM25 build outcome so the operator knows the index
             // state (issue #249).
@@ -94,22 +83,9 @@ pub(crate) fn cmd_index(args: &[String]) {
             }
             crate::core::index_orchestrator::ensure_all_background(&project_root);
 
-            let started = std::time::Instant::now();
-            let timeout = Duration::from_mins(5);
-            eprintln!("rebuilding indexes (graph + BM25)");
-            loop {
-                std::thread::sleep(Duration::from_millis(500));
-                let status = crate::core::index_orchestrator::status_json(&project_root);
-                if !status.contains("\"building\"") {
-                    break;
-                }
-                eprint!(".");
-                if started.elapsed() > timeout {
-                    eprintln!(" timeout (background build continues)");
-                    return;
-                }
+            if !wait_graph_bm25_progress(&project_root, Duration::from_mins(5)) {
+                return;
             }
-            eprintln!(" done");
 
             // Surface the BM25 build outcome (chunk count + persisted size, or the
             // "too large to persist" remedy) so the operator is never left guessing.
@@ -126,8 +102,7 @@ pub(crate) fn cmd_index(args: &[String]) {
             eprintln!("property graph mirrored from graph_index during index build");
 
             // Build semantic (dense embedding) index on top of the fresh BM25.
-            eprintln!("building semantic (dense embedding) index ...");
-            crate::core::index_orchestrator::build_semantic(&project_root);
+            wait_semantic_progress(&project_root);
             let sem = crate::core::index_orchestrator::semantic_summary(&project_root);
             match sem.state {
                 "ready" => eprintln!("  semantic index ready"),
@@ -183,25 +158,12 @@ pub(crate) fn cmd_index(args: &[String]) {
             if !disk.bm25_index.exists {
                 eprintln!("BM25 index not found — building graph + BM25 first ...");
                 crate::core::index_orchestrator::ensure_all_background(&project_root);
-                let started = std::time::Instant::now();
-                let timeout = Duration::from_mins(5);
-                loop {
-                    std::thread::sleep(Duration::from_millis(500));
-                    let status = crate::core::index_orchestrator::status_json(&project_root);
-                    if !status.contains("\"building\"") {
-                        break;
-                    }
-                    eprint!(".");
-                    if started.elapsed() > timeout {
-                        eprintln!(" timeout");
-                        return;
-                    }
+                if !wait_graph_bm25_progress(&project_root, Duration::from_mins(5)) {
+                    return;
                 }
-                eprintln!(" done");
             }
 
-            eprintln!("building semantic (dense embedding) index ...");
-            crate::core::index_orchestrator::build_semantic(&project_root);
+            wait_semantic_progress(&project_root);
             let sem = crate::core::index_orchestrator::semantic_summary(&project_root);
             match sem.state {
                 "ready" => eprintln!("semantic index ready"),
@@ -237,6 +199,87 @@ pub(crate) fn cmd_index(args: &[String]) {
                    lean-ctx index watch"
             );
         }
+    }
+}
+
+/// Wait for graph + BM25 with a shared progress indicator.
+///
+/// Uses [`progress_view`] (typed) — no JSON scrape. Returns `false` on timeout
+/// (background work continues).
+fn wait_graph_bm25_progress(project_root: &str, timeout: Duration) -> bool {
+    let mut progress = ProgressIndicator::new("indexes");
+    let start = Instant::now();
+    loop {
+        let view = crate::core::index_orchestrator::progress_view(project_root);
+        if !view.graph_bm25_active() {
+            progress.finish("indexes (graph + BM25) done (search may still be warming)");
+            return true;
+        }
+        apply_graph_bm25_progress(&mut progress, &view);
+        progress.tick();
+        if start.elapsed() > timeout {
+            progress.finish("indexes still building (timeout — check `lean-ctx index status`)");
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Build semantic on a worker thread while showing progress.
+///
+/// Returns `false` on timeout (worker keeps running).
+fn wait_semantic_progress(project_root: &str) -> bool {
+    let root = project_root.to_string();
+    let handle = std::thread::spawn(move || {
+        crate::core::index_orchestrator::build_semantic(&root);
+    });
+    let mut progress = ProgressIndicator::new("semantic");
+    let start = Instant::now();
+    let timeout = Duration::from_mins(10);
+    loop {
+        if handle.is_finished() {
+            let _ = handle.join();
+            progress.finish("semantic done");
+            return true;
+        }
+        let view = crate::core::index_orchestrator::progress_view(project_root);
+        apply_semantic_progress(&mut progress, &view);
+        progress.tick();
+        if start.elapsed() > timeout {
+            progress.finish("semantic still building (timeout — check `lean-ctx index status`)");
+            // JoinHandle drop detaches — leave worker running.
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn apply_graph_bm25_progress(
+    progress: &mut ProgressIndicator,
+    view: &crate::core::index_orchestrator::ProgressView,
+) {
+    if !view.graph_run_done {
+        progress.set_label("graph");
+        progress.indeterminate();
+        return;
+    }
+    // BM25 phase (or graph→BM25 handoff).
+    progress.set_label("BM25");
+    if view.bm25.total > 0 {
+        progress.set(view.bm25.done, view.bm25.total);
+    } else {
+        progress.indeterminate();
+    }
+}
+
+fn apply_semantic_progress(
+    progress: &mut ProgressIndicator,
+    view: &crate::core::index_orchestrator::ProgressView,
+) {
+    if view.semantic.total > 0 {
+        progress.set(view.semantic.done, view.semantic.total);
+    } else {
+        progress.indeterminate();
     }
 }
 

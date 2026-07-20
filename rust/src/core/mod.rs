@@ -421,6 +421,7 @@ pub mod index_filter;
 pub mod index_namespace;
 pub mod index_orchestrator;
 pub mod index_paths;
+pub mod index_progress;
 pub mod ingestion;
 pub mod input_filters;
 pub mod instruction_compiler;
