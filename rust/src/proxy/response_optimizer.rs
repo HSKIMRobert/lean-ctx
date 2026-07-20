@@ -27,8 +27,8 @@
 //!
 //! ## Dedup design
 //!
-//! - Tracks BLAKE3 fingerprints of recent responses (last 16)
-//! - A response whose first 200 chars match a recent fingerprint is flagged
+//! - Tracks response bodies and BLAKE3 fingerprints in a bounded recent window
+//! - A response is flagged when normalized edit similarity reaches its threshold
 //! - Flagging is observability-only in v1 (no truncation)
 //!
 //! ## Determinism
@@ -61,6 +61,8 @@ pub struct ResponseOptimizerConfig {
     pub cache_capacity: usize,
     /// Number of recent response fingerprints to track for dedup. Default: 16.
     pub dedup_window: usize,
+    /// Minimum response similarity required to flag a duplicate. Default: 0.9.
+    pub dedup_similarity_threshold: f64,
 }
 
 impl Default for ResponseOptimizerConfig {
@@ -72,6 +74,7 @@ impl Default for ResponseOptimizerConfig {
             cache_ttl_secs: 300,
             cache_capacity: 64,
             dedup_window: 16,
+            dedup_similarity_threshold: 0.9,
         }
     }
 }
@@ -152,20 +155,35 @@ impl ResponseCache {
 #[derive(Debug)]
 pub struct DedupTracker {
     fingerprints: VecDeque<u64>,
+    responses: VecDeque<String>,
     window: usize,
+    similarity_threshold: f64,
 }
 
 impl DedupTracker {
     pub fn new(window: usize) -> Self {
+        Self::with_threshold(window, 0.9)
+    }
+
+    pub fn with_threshold(window: usize, similarity_threshold: f64) -> Self {
         Self {
             fingerprints: VecDeque::with_capacity(window),
+            responses: VecDeque::with_capacity(window),
             window,
+            similarity_threshold: if similarity_threshold.is_finite() {
+                similarity_threshold.clamp(0.0, 1.0)
+            } else {
+                0.9
+            },
         }
     }
 
     /// Record a response fingerprint. Returns true if this is a duplicate
     /// (fingerprint was already in the recent window).
     pub fn record(&mut self, fingerprint: u64) -> bool {
+        if self.window == 0 {
+            return false;
+        }
         let is_dup = self.fingerprints.contains(&fingerprint);
         if self.fingerprints.len() >= self.window {
             self.fingerprints.pop_front();
@@ -174,8 +192,37 @@ impl DedupTracker {
         is_dup
     }
 
+    /// Record a response and flag it when its similarity to a recent response
+    /// reaches the configured threshold.
+    pub fn record_response(&mut self, response: &str) -> bool {
+        self.record_response_with_score(response).0
+    }
+
+    /// Record a response and return both duplicate status and similarity.
+    pub fn record_response_with_score(&mut self, response: &str) -> (bool, f64) {
+        if self.window == 0 {
+            return (false, 0.0);
+        }
+        let similarity = self.similarity_score(response);
+        let is_dup = similarity >= self.similarity_threshold;
+        if self.responses.len() >= self.window {
+            self.responses.pop_front();
+        }
+        self.responses.push_back(response.to_string());
+        (is_dup, similarity)
+    }
+
+    /// Return the highest similarity to a response in the recent window.
+    pub fn similarity_score(&self, response: &str) -> f64 {
+        self.responses
+            .iter()
+            .map(|previous| response_similarity(previous, response))
+            .fold(0.0, f64::max)
+    }
+
     pub fn clear(&mut self) {
         self.fingerprints.clear();
+        self.responses.clear();
     }
 }
 
@@ -190,6 +237,12 @@ pub struct OptimizationDecision {
     pub cache_key: u64,
     /// Estimated output tokens saved (0 if cache miss).
     pub tokens_saved: u64,
+    /// Original output tokens measured by the caller.
+    pub original_tokens: u64,
+    /// Delivered output tokens measured by the caller.
+    pub delivered_tokens: u64,
+    /// Highest similarity against the recent response window.
+    pub dedup_similarity: f64,
     /// Source of the optimization.
     pub source: OptimizationSource,
 }
@@ -231,7 +284,8 @@ impl SessionOptimizer {
             config.cache_capacity,
             Duration::from_secs(config.cache_ttl_secs),
         );
-        let dedup = DedupTracker::new(config.dedup_window);
+        let dedup =
+            DedupTracker::with_threshold(config.dedup_window, config.dedup_similarity_threshold);
         Self {
             cache,
             dedup,
@@ -262,28 +316,47 @@ impl SessionOptimizer {
         response: &str,
         output_tokens: u64,
     ) -> OptimizationDecision {
-        let fingerprint = fingerprint_response(response);
+        self.record_response_with_counts(cache_key, response, output_tokens, output_tokens)
+    }
+
+    /// Record a response while carrying the measured original and delivered
+    /// output counts from the caller.
+    pub fn record_response_with_counts(
+        &mut self,
+        cache_key: u64,
+        response: &str,
+        original_tokens: u64,
+        delivered_tokens: u64,
+    ) -> OptimizationDecision {
         let is_dup = if self.config.dedup_enabled {
-            let dup = self.dedup.record(fingerprint);
+            let (dup, similarity) = self.dedup.record_response_with_score(response);
             if dup {
                 self.stats.dedup_detections += 1;
             }
-            dup
+            similarity
+        } else {
+            0.0
+        };
+        let is_duplicate = if self.config.dedup_enabled {
+            is_dup >= self.config.dedup_similarity_threshold
         } else {
             false
         };
 
         if self.config.cache_enabled {
             self.cache
-                .put(cache_key, response.to_string(), output_tokens);
+                .put(cache_key, response.to_string(), delivered_tokens);
         }
 
         OptimizationDecision {
             cache_hit: false,
-            is_duplicate: is_dup,
+            is_duplicate,
             cache_key,
             tokens_saved: 0,
-            source: if is_dup {
+            original_tokens,
+            delivered_tokens,
+            dedup_similarity: is_dup,
+            source: if is_duplicate {
                 OptimizationSource::Dedup
             } else {
                 OptimizationSource::None
@@ -293,11 +366,24 @@ impl SessionOptimizer {
 
     /// Build a decision record for a cache hit.
     pub fn cache_hit_decision(&self, cache_key: u64, tokens_saved: u64) -> OptimizationDecision {
+        self.cache_hit_decision_with_counts(cache_key, tokens_saved, tokens_saved)
+    }
+
+    /// Build a cache-hit decision from the measured original output count.
+    pub fn cache_hit_decision_with_counts(
+        &self,
+        cache_key: u64,
+        original_tokens: u64,
+        tokens_saved: u64,
+    ) -> OptimizationDecision {
         OptimizationDecision {
             cache_hit: true,
             is_duplicate: false,
             cache_key,
             tokens_saved,
+            original_tokens,
+            delivered_tokens: 0,
+            dedup_similarity: 0.0,
             source: OptimizationSource::Cache,
         }
     }
@@ -331,6 +417,48 @@ pub fn fingerprint_response(response: &str) -> u64 {
     let mut hasher = SimpleHasher::new();
     hasher.write(prefix.as_bytes());
     hasher.finish()
+}
+
+/// Compute normalized Levenshtein similarity for two response bodies.
+pub fn response_similarity(left: &str, right: &str) -> f64 {
+    if left == right {
+        return 1.0;
+    }
+    let left: Vec<char> = left.chars().collect();
+    let right: Vec<char> = right.chars().collect();
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let (short, long) = if left.len() <= right.len() {
+        (&left, &right)
+    } else {
+        (&right, &left)
+    };
+    let mut previous: Vec<usize> = (0..=short.len()).collect();
+    let mut current = vec![0; short.len() + 1];
+    for (long_index, long_char) in long.iter().enumerate() {
+        current[0] = long_index + 1;
+        for (short_index, short_char) in short.iter().enumerate() {
+            current[short_index + 1] = if long_char == short_char {
+                previous[short_index]
+            } else {
+                1 + previous[short_index]
+                    .min(previous[short_index + 1])
+                    .min(current[short_index])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    1.0 - (previous[short.len()] as f64 / long.len() as f64)
+}
+
+/// Measure original and delivered response body tokens with the canonical
+/// tokenizer used by savings accounting.
+pub fn measure_output_tokens(original: &str, delivered: &str) -> (u64, u64) {
+    (
+        crate::core::tokens::count_tokens(original) as u64,
+        crate::core::tokens::count_tokens(delivered) as u64,
+    )
 }
 
 /// A simple, fast, non-cryptographic hasher (FNV-1a inspired).
@@ -398,17 +526,19 @@ pub fn optimize_response(request: &ResponseOptimizationRequest) -> OptimizationD
     let cache_key = compute_cache_key("ocla-response", None, &[&request.response_ref]);
 
     if optimizer.try_cache_hit(cache_key).is_some() {
-        return optimizer.cache_hit_decision(
+        return optimizer.cache_hit_decision_with_counts(
             cache_key,
+            request.original_tokens,
             request
                 .original_tokens
                 .saturating_sub(request.target_tokens),
         );
     }
 
-    optimizer.record_response(
+    optimizer.record_response_with_counts(
         cache_key,
         &request.response_ref,
+        request.original_tokens,
         request.target_tokens.min(request.original_tokens),
     )
 }
@@ -496,6 +626,46 @@ mod tests {
         assert!(!dedup.record(100), "first occurrence");
         assert!(!dedup.record(200), "different fingerprint");
         assert!(dedup.record(100), "repeated");
+    }
+
+    #[test]
+    fn dedup_flags_similar_responses_at_configured_threshold() {
+        let mut dedup = DedupTracker::with_threshold(8, 0.9);
+        assert!(!dedup.record_response("The answer is concise and complete."));
+        let (is_duplicate, similarity) =
+            dedup.record_response_with_score("The answer is concise and complete!");
+        assert!(is_duplicate);
+        assert!(similarity >= 0.9);
+        assert!(response_similarity("abc", "abc") > 0.99);
+        assert!(response_similarity("abc", "xyz") < 0.01);
+    }
+
+    #[test]
+    fn dedup_threshold_rejects_less_similar_responses() {
+        let mut dedup = DedupTracker::with_threshold(8, 0.9);
+        dedup.record_response("The answer is concise and complete.");
+        assert!(!dedup.record_response("A completely unrelated response."));
+    }
+
+    #[test]
+    fn default_config_sets_dedup_similarity_threshold() {
+        assert_eq!(
+            ResponseOptimizerConfig::default().dedup_similarity_threshold,
+            0.9
+        );
+    }
+
+    #[test]
+    fn measure_output_tokens_uses_canonical_tokenizer() {
+        let original = "The original response has more words.";
+        let delivered = "Short response.";
+        assert_eq!(
+            measure_output_tokens(original, delivered),
+            (
+                crate::core::tokens::count_tokens(original) as u64,
+                crate::core::tokens::count_tokens(delivered) as u64,
+            )
+        );
     }
 
     #[test]
