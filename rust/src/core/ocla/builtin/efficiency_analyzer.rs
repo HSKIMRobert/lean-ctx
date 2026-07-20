@@ -8,6 +8,8 @@ use crate::core::ocla::traits::{EfficiencyAnalyzer, OclaService};
 use crate::core::ocla::types::{
     EfficiencyAnalysis, EfficiencySample, OclaCapability, OclaCapabilityKind, OclaResult,
 };
+use crate::core::{io_boundary, tokens};
+use std::path::Path;
 
 pub struct BuiltinEfficiencyAnalyzer;
 
@@ -31,29 +33,52 @@ impl OclaService for BuiltinEfficiencyAnalyzer {
 
 impl EfficiencyAnalyzer for BuiltinEfficiencyAnalyzer {
     fn analyze_efficiency(&self, sample: EfficiencySample) -> OclaResult<EfficiencyAnalysis> {
+        let original_tokens = measured_original_tokens(&sample);
         let etpao = if sample.accepted == Some(true) && sample.delivered_tokens > 0 {
-            Some(sample.delivered_tokens.saturating_mul(1000) / sample.original_tokens.max(1))
+            Some(sample.delivered_tokens.saturating_mul(1000) / original_tokens.max(1))
         } else {
             None
         };
 
-        let dup_ratio = if sample.original_tokens > 0 {
-            let savings = sample
-                .original_tokens
-                .saturating_sub(sample.delivered_tokens);
+        let compression_rate = if original_tokens > 0 {
+            let savings = original_tokens.saturating_sub(sample.delivered_tokens);
             #[allow(clippy::cast_possible_truncation)]
-            let ratio = (savings.saturating_mul(1000) / sample.original_tokens) as u16;
+            let ratio = (savings.saturating_mul(1000) / original_tokens).min(1000) as u16;
             ratio
+        } else {
+            0
+        };
+        let cache_hit_rate = if sample.cache_reads > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let rate =
+                (sample.cache_hits.saturating_mul(1000) / sample.cache_reads).min(1000) as u16;
+            rate
         } else {
             0
         };
 
         Ok(EfficiencyAnalysis {
             etpao_milli: etpao,
-            duplicate_ratio_milli: dup_ratio,
+            duplicate_ratio_milli: compression_rate,
+            compression_rate_milli: compression_rate,
+            cache_hit_rate_milli: cache_hit_rate,
             recommendation_refs: Vec::new(),
         })
     }
+}
+
+fn measured_original_tokens(sample: &EfficiencySample) -> u64 {
+    let path = sample
+        .context
+        .content_ref
+        .strip_prefix("file:")
+        .unwrap_or(&sample.context.content_ref);
+    if Path::new(path).is_file()
+        && let Ok(content) = io_boundary::read_file_lossy(path)
+    {
+        return tokens::count_tokens(&content) as u64;
+    }
+    sample.original_tokens
 }
 
 #[cfg(test)]
@@ -73,6 +98,8 @@ mod tests {
             original_tokens: original,
             delivered_tokens: delivered,
             accepted,
+            cache_hits: 0,
+            cache_reads: 0,
         }
     }
 
@@ -101,5 +128,34 @@ mod tests {
             .analyze_efficiency(sample(1000, 250, Some(true)))
             .unwrap();
         assert_eq!(result.duplicate_ratio_milli, 750);
+        assert_eq!(result.compression_rate_milli, 750);
+    }
+
+    #[test]
+    fn cache_hit_rate_uses_observed_reads() {
+        let analyzer = BuiltinEfficiencyAnalyzer::new();
+        let mut input = sample(1000, 400, Some(true));
+        input.cache_hits = 3;
+        input.cache_reads = 4;
+
+        let result = analyzer.analyze_efficiency(input).unwrap();
+
+        assert_eq!(result.cache_hit_rate_milli, 750);
+    }
+
+    #[test]
+    fn original_tokens_are_measured_from_file_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.rs");
+        std::fs::write(&path, "hello world").unwrap();
+        let mut input = sample(1000, 1, Some(true));
+        input.context.content_ref = format!("file:{}", path.display());
+
+        let result = BuiltinEfficiencyAnalyzer::new()
+            .analyze_efficiency(input)
+            .unwrap();
+
+        assert_eq!(result.etpao_milli, Some(500));
+        assert_eq!(result.compression_rate_milli, 500);
     }
 }

@@ -335,12 +335,20 @@ pub struct EfficiencySample {
     pub original_tokens: u64,
     pub delivered_tokens: u64,
     pub accepted: Option<bool>,
+    #[serde(default)]
+    pub cache_hits: u64,
+    #[serde(default)]
+    pub cache_reads: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EfficiencyAnalysis {
     pub etpao_milli: Option<u64>,
     pub duplicate_ratio_milli: u16,
+    #[serde(default)]
+    pub compression_rate_milli: u16,
+    #[serde(default)]
+    pub cache_hit_rate_milli: u16,
     pub recommendation_refs: Vec<String>,
 }
 
