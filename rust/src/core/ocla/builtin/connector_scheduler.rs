@@ -52,8 +52,7 @@ impl OclaService for BuiltinConnectorScheduler {
 impl ConnectorScheduler for BuiltinConnectorScheduler {
     fn schedule_connector(&self, job: ConnectorJob) -> OclaResult<ScheduledJob> {
         let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
-        let job_ref = format!("job:{}:{seq}", job.connector_id);
-        let queue_ref = format!("queue:{}", job.connector_id);
+        let scheduled = crate::proxy::providers::schedule_connector(&job, seq)?;
 
         let mut queue = self
             .queue
@@ -65,7 +64,7 @@ impl ConnectorScheduler for BuiltinConnectorScheduler {
         }
         queue.push_back(job);
 
-        Ok(ScheduledJob { job_ref, queue_ref })
+        Ok(scheduled)
     }
 }
 
@@ -105,5 +104,13 @@ mod tests {
             scheduler.schedule_connector(job("test")).unwrap();
         }
         assert_eq!(scheduler.pending_count(), MAX_QUEUED_JOBS);
+    }
+
+    #[test]
+    fn schedule_delegates_provider_queue_selection() {
+        let scheduler = BuiltinConnectorScheduler::new();
+        let scheduled = scheduler.schedule_connector(job("github")).unwrap();
+        assert_eq!(scheduled.job_ref, "job:github:1");
+        assert_eq!(scheduled.queue_ref, "provider:github:dispatch");
     }
 }
