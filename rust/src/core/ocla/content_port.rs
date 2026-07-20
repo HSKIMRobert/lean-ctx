@@ -344,8 +344,7 @@ mod tests {
         let err = port.resolve("file:link.txt").unwrap_err();
         assert!(
             err.to_string().contains("symlink"),
-            "expected symlink rejection, got: {}",
-            err
+            "expected symlink rejection, got: {err}"
         );
     }
 
