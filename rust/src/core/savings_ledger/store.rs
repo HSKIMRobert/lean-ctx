@@ -487,7 +487,7 @@ pub fn query_by_attribution_group(path: &Path, group: &str) -> Vec<SavingsEvent>
 
 /// Aggregates event count, saved tokens, and saved USD by mechanism.
 pub fn summarize_by_mechanism(path: &Path) -> BTreeMap<String, MechanismSummary> {
-    let mut summaries = BTreeMap::new();
+    let mut summaries: BTreeMap<String, MechanismSummary> = BTreeMap::new();
     for event in load(path) {
         let summary = summaries
             .entry(event.mechanism)
