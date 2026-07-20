@@ -73,6 +73,7 @@ pub fn record_file_read(
     duration: std::time::Duration,
     output_excerpt: &str,
 ) {
+    propose_adaptive_tuning(path, mode);
     let saved = original_tokens.saturating_sub(output_tokens);
     let tool_key = format!("cli_{mode}");
 
@@ -177,6 +178,27 @@ pub fn record_file_read(
     if mode == "aggressive" && saved > 0 {
         project_ocla_compression(path, original_tokens as u64, output_tokens as u64);
     }
+}
+
+fn propose_adaptive_tuning(path: &str, mode: &str) {
+    if !crate::core::config::Config::load().auto_mode_learning_effective() {
+        return;
+    }
+
+    let request = crate::core::ocla::types::ConfigTuningRequest {
+        context: crate::core::ocla::types::OclaRequestContext {
+            request_id: format!("read-tuning:{path}:{mode}"),
+            session_id: "tool_lifecycle".to_string(),
+            agent_id: "lean-ctx".to_string(),
+            content_ref: format!("file:{path}"),
+            tenant_id: None,
+        },
+        config_ref: mode.to_string(),
+        objective_ref: "minimize_tokens".to_string(),
+    };
+    let _ = crate::core::ocla::OclaRegistry::global()
+        .config_tuner
+        .propose_tuning(request);
 }
 
 /// Replicate the MCP read path's learning side effects (`registered/ctx_read.rs`
@@ -666,9 +688,9 @@ mod tests {
 /// Best-effort: silently drops if provider is unavailable or source_ref can't be
 /// constructed. This is the canonical production callsite for the compression capability.
 fn project_ocla_compression(path: &str, source_tokens: u64, output_tokens: u64) {
+    use crate::core::ocla::OclaRegistry;
     use crate::core::ocla::traits::CompressionProvider;
     use crate::core::ocla::types::{CompressionRequest, OclaRequestContext};
-    use crate::core::ocla::OclaRegistry;
 
     let reg = OclaRegistry::global();
     let source_ref = format!("file:{path}");
