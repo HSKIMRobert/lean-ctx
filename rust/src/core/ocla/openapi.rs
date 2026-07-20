@@ -1,0 +1,294 @@
+//! OpenAPI 3.1 projection of the public OCLA wire contract.
+
+use serde_json::{Value, json};
+
+use super::{
+    OCLA_API_VERSION,
+    wire::{agent_envelope_schema, canonical_envelope_schema},
+};
+
+fn schema_ref(name: &str) -> Value {
+    json!({"$ref": format!("#/components/schemas/{name}")})
+}
+
+fn error_response(description: &str) -> Value {
+    json!({
+        "description": description,
+        "content": {
+            "application/json": {"schema": schema_ref("OclaError")}
+        }
+    })
+}
+
+fn capability_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["kind", "api_version", "status", "limits"],
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": [
+                    "observation_hook", "usage_sink", "metrics_exporter",
+                    "savings_ledger", "intent_classifier", "outcome_tracker",
+                    "compression_provider", "response_optimizer", "model_router",
+                    "efficiency_analyzer", "config_tuner", "experiment_runner",
+                    "connector_scheduler", "agent_gateway"
+                ]
+            },
+            "api_version": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": ["available", "degraded", "unavailable"]
+            },
+            "limits": {
+                "type": "object",
+                "additionalProperties": {"type": "integer", "minimum": 0}
+            }
+        }
+    })
+}
+
+fn savings_event_schema() -> Value {
+    let required = json!([
+        "ts",
+        "tool",
+        "mechanism",
+        "model_id",
+        "tokenizer",
+        "baseline_tokens",
+        "actual_tokens",
+        "saved_tokens",
+        "bounce_adjustment",
+        "unit_price_per_m_usd",
+        "saved_usd",
+        "repo_hash",
+        "agent_id",
+        "prev_hash",
+        "entry_hash",
+        "version"
+    ]);
+    let mut properties = serde_json::Map::new();
+    for fields in [
+        json!({
+            "ts": {"type": "string"},
+            "tool": {"type": "string"},
+            "mechanism": {"type": "string", "enum": ["compression", "routing", "caching"]},
+            "model_id": {"type": "string"},
+            "tokenizer": {"type": "string"},
+            "baseline_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "actual_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "saved_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "bounce_adjustment": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "unit_price_per_m_usd": {"type": "number"},
+            "saved_usd": {"type": "number"},
+            "repo_hash": {"type": "string"},
+            "agent_id": {"type": "string"},
+            "prev_hash": {"type": "string"},
+            "entry_hash": {"type": "string"},
+            "version": {"type": "string"},
+        }),
+        json!({
+            "intent_tag": {"type": ["string", "null"]},
+            "outcome": {"type": ["string", "null"]},
+            "model_original": {"type": ["string", "null"]},
+            "model_routed": {"type": ["string", "null"]},
+            "routing_savings": {"type": ["integer", "null"], "minimum": 0, "maximum": u64::MAX},
+            "response_original_tokens": {"type": ["integer", "null"], "minimum": 0, "maximum": u64::MAX},
+            "response_delivered_tokens": {"type": ["integer", "null"], "minimum": 0, "maximum": u64::MAX},
+            "agent_chain_id": {"type": ["string", "null"]},
+            "chain_depth": {"type": ["integer", "null"], "minimum": 0, "maximum": u8::MAX},
+            "measurement_method": {
+                "type": ["string", "null"],
+                "enum": ["direct_count", "holdout", "baseline_estimate", "provider_reconciled", "unknown", null]
+            },
+            "evidence_class": {
+                "type": ["string", "null"],
+                "enum": ["measured", "approximated", "statistical", "declared", "unclassified", null]
+            },
+            "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+            "quality_signal": {"type": ["string", "null"]},
+            "attribution_group": {"type": ["string", "null"]},
+            "attribution_id": {"type": ["string", "null"]},
+            "baseline_ref": {"type": ["string", "null"]},
+            "price_version": {"type": ["string", "null"]},
+        }),
+        json!({
+            "customer_approval": {
+                "type": ["string", "null"],
+                "enum": ["pending", "approved", "disputed", "superseded", null]
+            },
+            "settlement_status": {
+                "type": ["string", "null"],
+                "enum": ["ineligible", "eligible", "settled", "reversed", null]
+            }
+        }),
+    ] {
+        properties.extend(fields.as_object().expect("event fields object").clone());
+    }
+    json!({"type": "object", "required": required, "properties": properties})
+}
+
+fn ledger_summary_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": [
+            "total_events", "saved_tokens", "saved_usd", "bounce_tokens",
+            "bounce_events", "tokenizers", "by_model", "by_day",
+            "by_tool", "by_mechanism", "net_saved_tokens"
+        ],
+        "properties": {
+            "total_events": {"type": "integer", "minimum": 0},
+            "saved_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "saved_usd": {"type": "number"},
+            "bounce_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "bounce_events": {"type": "integer", "minimum": 0},
+            "tokenizers": {"type": "array", "items": {"type": "string"}},
+            "by_model": {"type": "array", "items": {"$ref": "#/components/schemas/LedgerModelTotals"}},
+            "by_day": {"type": "array", "items": {"$ref": "#/components/schemas/LedgerDayTotals"}},
+            "by_tool": {"type": "array", "items": {"$ref": "#/components/schemas/LedgerToolTotals"}},
+            "by_mechanism": {"type": "array", "items": {"$ref": "#/components/schemas/LedgerMechanismTotals"}},
+            "net_saved_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX}
+        }
+    })
+}
+
+/// Builds the CI-visible OpenAPI 3.1 document for the OCLA OSS surface.
+#[must_use]
+pub fn ocla_openapi_spec() -> Value {
+    let envelope_request = json!({
+        "oneOf": [
+            schema_ref("CanonicalTokenEnvelopeV1"),
+            schema_ref("AgentEnvelopeV1")
+        ]
+    });
+
+    json!({
+        "openapi": "3.1.0",
+        "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+        "info": {
+            "title": "LeanCTX OCLA API",
+            "description": "Provider-neutral Open Context & Token Lifecycle Architecture contract.",
+            "version": OCLA_API_VERSION,
+            "license": {"name": "Apache-2.0"}
+        },
+        "servers": [{"url": "/"}],
+        "paths": {
+            "/ocla/v1/health": {
+                "get": {
+                    "operationId": "oclaHealth",
+                    "summary": "Check OCLA availability",
+                    "responses": {
+                        "200": {"description": "OCLA is available", "content": {"application/json": {"schema": schema_ref("HealthResponse")}}},
+                        "503": error_response("OCLA is unavailable")
+                    }
+                }
+            },
+            "/ocla/v1/capabilities": {
+                "get": {
+                    "operationId": "oclaCapabilities",
+                    "summary": "List registered OCLA capabilities",
+                    "responses": {
+                        "200": {"description": "Registered capabilities", "content": {"application/json": {"schema": schema_ref("CapabilitiesResponse")}}},
+                        "503": error_response("Capability registry is unavailable")
+                    }
+                }
+            },
+            "/ocla/v1/envelope": {
+                "post": {
+                    "operationId": "submitOclaEnvelope",
+                    "summary": "Validate and accept a payload-free OCLA envelope",
+                    "requestBody": {"required": true, "content": {"application/json": {"schema": envelope_request}}},
+                    "responses": {
+                        "200": {"description": "Envelope accepted", "content": {"application/json": {"schema": envelope_request}}},
+                        "400": error_response("Envelope failed validation")
+                    }
+                }
+            },
+            "/ocla/v1/ledger": {
+                "get": {
+                    "operationId": "getOclaLedger",
+                    "summary": "Read the verified local savings ledger",
+                    "parameters": [
+                        {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}},
+                        {"name": "mechanism", "in": "query", "required": false, "schema": {"type": "string", "enum": ["compression", "routing", "caching"]}}
+                    ],
+                    "responses": {
+                        "200": {"description": "Verified ledger snapshot", "content": {"application/json": {"schema": schema_ref("LedgerResponse")}}},
+                        "503": error_response("Ledger is unavailable or invalid")
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "CanonicalTokenEnvelopeV1": canonical_envelope_schema(),
+                "AgentEnvelopeV1": agent_envelope_schema(),
+                "HealthResponse": {
+                    "type": "object",
+                    "required": ["status", "api_version"],
+                    "properties": {"status": {"const": "ok"}, "api_version": {"const": OCLA_API_VERSION}}
+                },
+                "CapabilitiesResponse": {
+                    "type": "object",
+                    "required": ["api_version", "capabilities"],
+                    "properties": {"api_version": {"const": OCLA_API_VERSION}, "capabilities": {"type": "array", "items": schema_ref("OclaCapability")}}
+                },
+                "OclaCapability": capability_schema(),
+                "OclaError": {
+                    "type": "object",
+                    "required": ["error"],
+                    "properties": {"error": {"type": "string"}, "code": {"type": "string"}}
+                },
+                "SavingsEvent": savings_event_schema(),
+                "LedgerModelTotals": {"type": "array", "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 0}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+                "LedgerDayTotals": {"type": "array", "prefixItems": [{"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"}, {"type": "integer", "minimum": 0}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+                "LedgerToolTotals": {"type": "array", "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 0}], "minItems": 2, "maxItems": 2},
+                "LedgerMechanismTotals": {"type": "array", "prefixItems": [{"type": "string"}, {"type": "integer", "minimum": 0}, {"type": "number"}], "minItems": 3, "maxItems": 3},
+                "LedgerSummary": ledger_summary_schema(),
+                "LedgerResponse": {
+                    "type": "object",
+                    "required": ["api_version", "verified", "events", "summary"],
+                    "properties": {
+                        "api_version": {"const": OCLA_API_VERSION},
+                        "verified": {"type": "boolean"},
+                        "events": {"type": "array", "items": schema_ref("SavingsEvent")},
+                        "summary": schema_ref("LedgerSummary")
+                    }
+                }
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_snapshot_matches_checked_in_contract() {
+        if std::env::var_os("LEANCTX_UPDATE_OCLA_OPENAPI_SNAPSHOT").is_some() {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/ocla_openapi_snapshot.json");
+            let json = serde_json::to_string(&ocla_openapi_spec())
+                .expect("serialize OCLA OpenAPI snapshot");
+            std::fs::write(path, json + "\n").expect("write OCLA OpenAPI snapshot");
+            return;
+        }
+        let expected = include_str!("../../../tests/fixtures/ocla_openapi_snapshot.json").trim();
+        let actual =
+            serde_json::to_string(&ocla_openapi_spec()).expect("serialize OCLA OpenAPI snapshot");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn openapi_exposes_all_ocla_endpoints_and_wire_schemas() {
+        let spec = ocla_openapi_spec();
+        let paths = spec["paths"].as_object().expect("paths object");
+        assert!(paths.contains_key("/ocla/v1/health"));
+        assert!(paths.contains_key("/ocla/v1/capabilities"));
+        assert!(paths.contains_key("/ocla/v1/envelope"));
+        assert!(paths.contains_key("/ocla/v1/ledger"));
+        assert!(spec["components"]["schemas"]["CanonicalTokenEnvelopeV1"].is_object());
+        assert!(spec["components"]["schemas"]["AgentEnvelopeV1"].is_object());
+    }
+}

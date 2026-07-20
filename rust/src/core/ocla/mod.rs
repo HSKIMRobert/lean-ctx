@@ -6,6 +6,7 @@
 
 pub mod builtin;
 pub mod content_port;
+pub mod openapi;
 pub mod registry;
 pub mod traits;
 pub mod types;
