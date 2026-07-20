@@ -195,6 +195,10 @@ pub struct Config {
     /// `LEAN_CTX_DASHBOARD_AUTH` env var.
     #[serde(default = "serde_defaults::default_true")]
     pub dashboard_auth: bool,
+    /// Provider prompt-cache hit rate for net-of-injection calculation (#1104).
+    /// Anthropic ~90%, OpenAI ~50%. Default 0.75 (conservative cross-provider).
+    #[serde(default)]
+    pub dashboard_cache_hit_rate: Option<f64>,
     #[serde(default = "serde_defaults::default_buddy_enabled")]
     pub buddy_enabled: bool,
     #[serde(default = "serde_defaults::default_true")]
@@ -742,6 +746,7 @@ impl Default for Config {
             proxy_allowed_hosts: Vec::new(),
             proxy_max_rps: None,
             dashboard_auth: true,
+            dashboard_cache_hit_rate: None,
             buddy_enabled: serde_defaults::default_buddy_enabled(),
             enable_wakeup_ctx: true,
             redirect_exclude: Vec::new(),
@@ -1019,6 +1024,16 @@ impl Config {
         }
     }
 
+
+    /// Provider prompt-cache hit rate for net-of-injection (#1104).
+    /// Returns the configured value or None (caller picks the default).
+    #[must_use]
+    pub fn dashboard_cache_hit_rate(&self) -> Option<f64> {
+        std::env::var("LEAN_CTX_CACHE_HIT_RATE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .or(self.dashboard_cache_hit_rate)
+    }
     /// Returns the user-configured hook mode override, or `None` for auto-detect.
     /// Env var `LEAN_CTX_HOOK_MODE` takes priority over config.
     #[must_use]

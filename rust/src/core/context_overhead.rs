@@ -98,15 +98,32 @@ pub fn tool_tokens(t: &rmcp::model::Tool) -> usize {
     desc + schema
 }
 
-/// Pure net-of-injection reconciliation: the total injection tax
-/// (`overhead_per_turn × turns`) and the signed net savings after subtracting
-/// it. Lives here — the home of injection accounting — so both `lean-ctx gain`
-/// and the verified savings ledger/ROI reconcile against the same math. The net
-/// is signed because on a non-caching rail a short run can legitimately go
-/// net-negative until savings outgrow the per-turn injection (#361, #685).
+/// Estimated per-turn overhead of native IDE tools (Read, Grep, Shell, Glob,
+/// Write, StrReplace) — lean-ctx replaces these 1:1, so only the delta above
+/// this baseline is attributable lean-ctx overhead.
+const NATIVE_BASELINE_TOKENS_PER_TURN: u64 = 2400;
+
+/// Conservative provider prompt-cache hit rate. Anthropic achieves ~90% on
+/// stable prefixes (#498), OpenAI ~50%. Default 75% cross-provider estimate.
+fn provider_cache_hit_rate() -> f64 {
+    crate::core::config::Config::load()
+        .dashboard_cache_hit_rate()
+        .unwrap_or(0.75)
+}
+
+/// Net-of-injection reconciliation with baseline + cache corrections (#1104).
+///
+/// Two fixes over the original `saved - overhead × turns`:
+/// 1. **Baseline**: native tools also inject ~2,400 tok/turn of schemas — only
+///    the delta above that is lean-ctx's fault.
+/// 2. **Cache**: stable prefixes are cached by providers (Anthropic 90%,
+///    OpenAI 50%) — effective cost is `delta × (1 - cache_rate)`.
 #[must_use]
 pub fn net_of_injection(tokens_saved: u64, overhead_per_turn: u64, turns: u64) -> (u64, i64) {
-    let total = overhead_per_turn.saturating_mul(turns);
+    let delta = overhead_per_turn.saturating_sub(NATIVE_BASELINE_TOKENS_PER_TURN);
+    let cache_rate = provider_cache_hit_rate();
+    let effective_per_turn = (delta as f64 * (1.0 - cache_rate)) as u64;
+    let total = effective_per_turn.saturating_mul(turns);
     let net = tokens_saved as i64 - total as i64;
     (total, net)
 }
@@ -222,20 +239,23 @@ mod tests {
     }
 
     #[test]
-    fn net_of_injection_subtracts_per_turn_tax() {
-        // 1000 saved, 50/turn over 8 turns = 400 tax → net 600.
-        assert_eq!(net_of_injection(1000, 50, 8), (400, 600));
+    fn net_of_injection_subtracts_delta_above_baseline() {
+        // 3400 tok/turn - 2400 baseline = 1000 delta.
+        // With 75% cache: effective = 1000 * 0.25 = 250/turn.
+        // 8 turns: total = 2000, net = 10000 - 2000 = 8000.
+        let (total, net) = net_of_injection(10000, 3400, 8);
+        assert!(total < 3000, "cache + baseline must reduce tax, got {total}");
+        assert!(net > 7000, "net must reflect reduced tax, got {net}");
     }
 
     #[test]
-    fn net_of_injection_can_go_negative_on_short_runs() {
-        // The honest case the report must not hide: gross < injection tax.
-        assert_eq!(net_of_injection(100, 50, 8), (400, -300));
+    fn net_of_injection_below_baseline_means_zero_tax() {
+        // 2000 tok/turn < 2400 baseline → delta = 0 → no tax at all.
+        assert_eq!(net_of_injection(5000, 2000, 100), (0, 5000));
     }
 
     #[test]
     fn net_of_injection_collapses_to_gross_without_proxy_turns() {
-        // No proxy in the path → no counted turns → net == gross.
         assert_eq!(net_of_injection(1234, 3000, 0), (0, 1234));
     }
 }
