@@ -6,7 +6,8 @@
       "session_id": "session-golden-001",
       "agent_id": "agent-golden-001",
       "content_ref": "blake3:0123456789abcdef",
-      "tenant_id": "tenant-golden"
+      "tenant_id": "tenant-golden",
+      "trace_id": "tr-unit"
     },
     "surface": "proxy",
     "direction": "output",
@@ -30,7 +31,8 @@
       "session_id": "agent-session-golden-001",
       "agent_id": "owner-agent",
       "content_ref": "blake3:fedcba9876543210",
-      "tenant_id": "tenant-agent-golden"
+      "tenant_id": "tenant-agent-golden",
+      "trace_id": "tr-unit"
     },
     "from_agent_id": "owner-agent",
     "to_agent_id": "reviewer-agent",
@@ -38,3 +40,4 @@
     "budget_tokens": 4096
   }
 }
+
