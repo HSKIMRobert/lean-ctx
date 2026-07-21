@@ -100,6 +100,28 @@ async fn post_envelope(body: String, idempotency_key: Option<&str>) -> (StatusCo
     (status, value)
 }
 
+async fn json_request(method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            body.map_or_else(String::new, |body| body.to_string()),
+        ))
+        .expect("request");
+    let response = ocla_router().oneshot(request).await.expect("response");
+    let status = response.status();
+    let body = to_bytes(response.into_body(), 1_000_000)
+        .await
+        .expect("response body");
+    let value = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).expect("JSON response")
+    };
+    (status, value)
+}
+
 #[test]
 fn canonical_envelope_matches_golden_fixture() {
     let wire = encode_envelope(&canonical_envelope()).expect("encode canonical envelope");
@@ -201,6 +223,93 @@ async fn payload_over_256_kib_is_rejected_with_413() {
         .await
         .expect("response");
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn budget_post_returns_the_configured_limit_schema() {
+    let scope = "user:contract-budget";
+    let (status, body) = json_request(
+        "POST",
+        "/ocla/v1/budget",
+        Some(serde_json::json!({
+            "scope": scope,
+            "max_tokens_per_day": 12_345,
+            "max_usd_per_day": 6.75
+        })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    for field in [
+        "scope",
+        "max_tokens_per_day",
+        "max_usd_per_day",
+        "consumed_tokens",
+        "consumed_usd",
+    ] {
+        assert!(body.get(field).is_some(), "missing budget field: {field}");
+    }
+    assert_eq!(body["scope"], scope);
+    assert_eq!(body["max_tokens_per_day"], 12_345);
+}
+
+#[tokio::test]
+async fn budget_get_returns_existing_and_missing_scope_statuses() {
+    let scope = "team:contract-budget-get";
+    let (post_status, _) = json_request(
+        "POST",
+        "/ocla/v1/budget",
+        Some(serde_json::json!({
+            "scope": scope,
+            "max_tokens_per_day": 100,
+            "max_usd_per_day": 1.25
+        })),
+    )
+    .await;
+    assert_eq!(post_status, StatusCode::OK);
+
+    let (status, body) = json_request("GET", &format!("/ocla/v1/budget/{scope}"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["scope"], scope);
+    assert!(body["consumed_tokens"].is_number());
+    assert!(body["consumed_usd"].is_number());
+
+    let (missing_status, missing_body) =
+        json_request("GET", "/ocla/v1/budget/user:contract-budget-missing", None).await;
+    assert_eq!(missing_status, StatusCode::NOT_FOUND);
+    assert_eq!(missing_body["error"], "budget not found");
+}
+
+#[tokio::test]
+async fn dlq_get_returns_entries_and_stats_schema() {
+    let (status, body) = json_request("GET", "/ocla/v1/dlq", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["dead_letters"].is_array());
+    for field in ["total", "oldest_age_seconds", "by_target_agent"] {
+        assert!(
+            body["stats"].get(field).is_some(),
+            "missing DLQ field: {field}"
+        );
+    }
+    assert!(body["stats"]["by_target_agent"].is_object());
+}
+
+#[tokio::test]
+async fn health_get_returns_aggregated_report_schema() {
+    let (status, body) = json_request("GET", "/ocla/v1/health", None).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["overall"].is_string() || body["overall"].is_object());
+    assert!(body["components"].is_array());
+    assert!(body["uptime_seconds"].is_u64());
+    assert_eq!(body["version"], "ocla/v1");
+    assert!(
+        !body["components"]
+            .as_array()
+            .expect("components")
+            .is_empty()
+    );
 }
 
 #[test]
