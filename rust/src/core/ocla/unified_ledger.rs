@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use fs2::FileExt;
 
-use super::types::{OclaError, OclaResult};
+use super::types::{OclaError, OclaRequestContext, OclaResult};
 use crate::core::savings_ledger::SavingsEvent;
 
 /// Unified P5 savings event combining the legacy chain fields with
@@ -28,6 +28,8 @@ pub struct UnifiedSavingsEventV2 {
     pub agent_id: Option<String>,
     pub efficiency_etpao: Option<u64>,
     pub attribution_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 /// Unified ledger contract for P5 migration and eventual legacy replacement.
@@ -106,6 +108,7 @@ impl FileUnifiedLedger {
                 .attribution_id
                 .clone()
                 .unwrap_or_else(|| event.repo_hash.clone()),
+            trace_id: OclaRequestContext::current_trace_id(),
         })
     }
 }
@@ -169,6 +172,46 @@ impl UnifiedLedger for FileUnifiedLedger {
 mod tests {
     use super::*;
 
+    fn savings_event() -> SavingsEvent {
+        SavingsEvent {
+            ts: "2026-01-01T00:00:00Z".into(),
+            tool: "ctx_read".into(),
+            mechanism: "compression".into(),
+            model_id: "model".into(),
+            tokenizer: "tokenizer".into(),
+            baseline_tokens: 100,
+            actual_tokens: 40,
+            saved_tokens: 60,
+            bounce_adjustment: 0,
+            unit_price_per_m_usd: 1.0,
+            saved_usd: 0.00006,
+            repo_hash: "repo".into(),
+            agent_id: "agent".into(),
+            prev_hash: "genesis".into(),
+            entry_hash: "event".into(),
+            version: "version".into(),
+            intent_tag: None,
+            outcome: None,
+            model_original: None,
+            model_routed: None,
+            routing_savings: None,
+            response_original_tokens: None,
+            response_delivered_tokens: None,
+            agent_chain_id: None,
+            chain_depth: None,
+            measurement_method: None,
+            evidence_class: None,
+            confidence: None,
+            quality_signal: None,
+            attribution_group: None,
+            attribution_id: None,
+            baseline_ref: None,
+            price_version: None,
+            customer_approval: None,
+            settlement_status: None,
+        }
+    }
+
     #[test]
     fn schema_instantiates_legacy_and_p5_fields() {
         let event = UnifiedSavingsEventV2 {
@@ -187,11 +230,28 @@ mod tests {
             agent_id: Some("agent-test".into()),
             efficiency_etpao: Some(750),
             attribution_id: "attribution:test".into(),
+            trace_id: Some("tr-test".into()),
         };
 
         assert_eq!(event.saved_tokens, 600);
         assert_eq!(event.attribution_id, "attribution:test");
         assert_eq!(event.intent.as_deref(), Some("summarize"));
+    }
+
+    #[test]
+    fn request_context_trace_id_reaches_unified_event() {
+        let context = OclaRequestContext {
+            request_id: "request".into(),
+            session_id: "session".into(),
+            agent_id: "agent".into(),
+            content_ref: "content".into(),
+            tenant_id: None,
+            trace_id: "tr-request".into(),
+        };
+        let unified = context.scope(|| {
+            FileUnifiedLedger::from_savings_event(&savings_event()).expect("legacy event converts")
+        });
+        assert_eq!(unified.trace_id.as_deref(), Some("tr-request"));
     }
 
     #[test]
@@ -218,6 +278,7 @@ mod tests {
             agent_id: Some("agent".into()),
             efficiency_etpao: None,
             attribution_id: "attr".into(),
+            trace_id: None,
         };
         assert_eq!(ledger.record_unified(event).unwrap(), "event-1");
         assert!(ledger.verify_chain().unwrap());
