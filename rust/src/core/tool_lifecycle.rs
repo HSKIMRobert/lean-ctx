@@ -730,34 +730,6 @@ mod tests {
         assert!(item.duration_us > 0, "a real duration must be recorded");
     }
 }
-
-/// Project an aggressive-mode compression event into the OCLA CompressionProvider.
-/// Best-effort: silently drops if provider is unavailable or source_ref can't be
-/// constructed. This is the canonical production callsite for the compression capability.
-fn project_ocla_compression(path: &str, source_tokens: u64, output_tokens: u64) {
-    use crate::core::ocla::OclaRegistry;
-    use crate::core::ocla::types::{CompressionRequest, OclaRequestContext};
-
-    let reg = OclaRegistry::global();
-    let source_ref = format!("file:{path}");
-    let request = CompressionRequest {
-        context: OclaRequestContext {
-            request_id: format!("cli-read-{}", path.len()),
-            session_id: SessionState::load_latest()
-                .map(|s| s.id)
-                .unwrap_or_default(),
-            agent_id: String::new(),
-            content_ref: source_ref.clone(),
-            tenant_id: None,
-        },
-        source_ref,
-        source_tokens,
-        target_tokens: output_tokens,
-        quality_policy_ref: None,
-    };
-    let _ = reg.compression_provider.compress(request);
-}
-
 fn project_ocla_savings(path: &str, original_tokens: u64, output_tokens: u64) {
     use crate::core::ocla::OclaRegistry;
     use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
