@@ -10,6 +10,16 @@ use super::serde_defaults;
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// OCLA deployment settings.
+///
+/// This wrapper maps the TOML shape `[ocla.sidecar]`; the sidecar runtime
+/// type remains in `core::ocla::sidecar` so it can be used independently.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OclaConfig {
+    pub sidecar: crate::core::ocla::sidecar::SidecarConfig,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretDetectionConfig {
@@ -1084,5 +1094,53 @@ mod gateway_server_tests {
         assert!(validate_mcp_upstream_url("http://mcp.example.com/mcp", true).is_ok());
         assert!(validate_mcp_upstream_url("ftp://mcp.example.com", false).is_err());
         assert!(validate_mcp_upstream_url("   ", false).is_err());
+    }
+}
+
+#[cfg(test)]
+mod ocla_tests {
+    use super::OclaConfig;
+    use crate::core::ocla::sidecar::SidecarConfig;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct ConfigFile {
+        ocla: OclaConfig,
+    }
+
+    #[test]
+    fn sidecar_defaults_are_loopback_and_disabled() {
+        let config = SidecarConfig::default();
+        assert_eq!(config.bind_addr, "127.0.0.1:3334");
+        assert!(!config.enabled);
+        assert!(config.auth_token.is_none());
+    }
+
+    #[test]
+    fn nested_sidecar_toml_deserializes() {
+        let config: ConfigFile = toml::from_str(
+            r#"
+                [ocla.sidecar]
+                bind_addr = "127.0.0.1:9000"
+                auth_token = "wire-secret"
+                tls_cert_path = "/etc/lean-ctx/cert.pem"
+                tls_key_path = "/etc/lean-ctx/key.pem"
+                enabled = true
+            "#,
+        )
+        .expect("OCLA sidecar config");
+
+        let sidecar = config.ocla.sidecar;
+        assert_eq!(sidecar.bind_addr, "127.0.0.1:9000");
+        assert_eq!(sidecar.auth_token.as_deref(), Some("wire-secret"));
+        assert_eq!(
+            sidecar.tls_cert_path.as_deref().unwrap().to_str(),
+            Some("/etc/lean-ctx/cert.pem")
+        );
+        assert_eq!(
+            sidecar.tls_key_path.as_deref().unwrap().to_str(),
+            Some("/etc/lean-ctx/key.pem")
+        );
+        assert!(sidecar.enabled);
     }
 }
