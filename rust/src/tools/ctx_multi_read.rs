@@ -103,8 +103,10 @@ pub fn handle_with_task_fresh(
              ⚠ Output capped at {max_bytes} bytes (LCTX_MAX_MULTI_READ_BYTES). \
              {skipped} file(s) skipped. Use individual ctx_read calls for remaining files."
         )
-    } else {
+    } else if total_saved > 0 {
         format!("Read {n} files | {total_saved} tokens saved")
+    } else {
+        format!("Read {n} files")
     };
     format!("{body}\n---\n{summary}")
 }
