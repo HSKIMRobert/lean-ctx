@@ -32,6 +32,7 @@ pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
 mod connector;
+pub(crate) mod conversation;
 pub mod cost;
 pub mod counterfactual;
 pub mod effort;
@@ -61,6 +62,7 @@ pub mod prose;
 pub mod prose_ranker;
 pub mod providers;
 pub mod response_optimizer;
+pub(crate) mod response_shaper;
 pub mod routing;
 pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]

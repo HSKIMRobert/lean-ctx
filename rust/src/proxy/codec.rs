@@ -89,3 +89,35 @@ pub(super) async fn retry_backoff() {
         getrandom::fill(&mut buf).map_or(100, |()| u64::from(u16::from_le_bytes(buf)) % 200);
     tokio::time::sleep(std::time::Duration::from_millis(150 + jitter_ms)).await;
 }
+
+/// True when the upstream base URL points at a loopback/local endpoint (an
+/// Ollama/vLLM-style local model): billed with the transparent
+/// `local_shadow_rate` instead of provider list prices (enterprise#15/#18).
+pub(super) fn upstream_is_local(upstream_base: &str) -> bool {
+    let rest = upstream_base
+        .strip_prefix("https://")
+        .or_else(|| upstream_base.strip_prefix("http://"))
+        .unwrap_or(upstream_base);
+    let host_port = rest.split(['/', '?']).next().unwrap_or(rest);
+    let host = if let Some(b) = host_port.strip_prefix('[') {
+        b.split(']').next().unwrap_or(b)
+    } else {
+        host_port.split(':').next().unwrap_or(host_port)
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "::1" | "0.0.0.0")
+}
+
+/// Constructs the full upstream URL from the request path (or default).
+pub(super) fn build_upstream_url(
+    parts: &axum::http::request::Parts,
+    base: &str,
+    default_path: &str,
+) -> String {
+    format!(
+        "{base}{}",
+        parts
+            .uri
+            .path_and_query()
+            .map_or(default_path, axum::http::uri::PathAndQuery::as_str)
+    )
+}

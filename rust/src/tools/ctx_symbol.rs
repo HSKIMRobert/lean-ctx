@@ -177,8 +177,22 @@ fn render_single(sym: &SymbolInfo, gp: &GraphProvider, project_root: &str) -> (S
     };
 
     let lines: Vec<&str> = content.lines().collect();
-    let start = sym.start_line.saturating_sub(1);
+    let start = sym.start_line.saturating_sub(1).min(lines.len());
     let end = sym.end_line.min(lines.len());
+    if start >= end {
+        return (
+            format!(
+                "{}#{}@L{} — stale index (file is {}L, symbol indexed at L{}-{}). Reindexing.",
+                sym.file,
+                sym.name,
+                sym.start_line,
+                lines.len(),
+                sym.start_line,
+                sym.end_line
+            ),
+            0,
+        );
+    }
     let snippet: String = lines[start..end]
         .iter()
         .enumerate()

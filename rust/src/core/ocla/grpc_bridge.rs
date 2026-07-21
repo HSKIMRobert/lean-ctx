@@ -48,7 +48,7 @@ impl Drop for RunningGuard {
 /// The standalone gRPC package attaches `lean_ctx_ocla_grpc::serve` to this
 /// listener at binary level; the main library intentionally has no dependency
 /// on that package.
-pub fn start_grpc_server(config: GrpcConfig) -> OclaResult<()> {
+pub fn start_grpc_server(config: &GrpcConfig) -> OclaResult<()> {
     if !config.enabled {
         return Ok(());
     }
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn disabled_grpc_server_does_not_start() {
-        assert!(start_grpc_server(GrpcConfig::default()).is_ok());
+        assert!(start_grpc_server(&GrpcConfig::default()).is_ok());
         assert!(!is_grpc_available());
     }
 }

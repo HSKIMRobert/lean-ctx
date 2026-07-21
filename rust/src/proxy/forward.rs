@@ -187,12 +187,12 @@ pub async fn forward_request(
         .and_then(|v| v.get("model"))
         .and_then(|m| m.as_str());
     let cache_prompt_hash = super::ocla_cache_bridge::prompt_hash(&body_bytes);
-    if let (Some(cache), Some(model)) = (&state.ocla_cache, model) {
-        if let Some(body) = cache.try_cache_hit(model, &cache_prompt_hash, 0.0, 0) {
-            let mut response = Response::new(Body::from(body));
-            trace_id::inject_trace_id(&mut response, &trace_id);
-            return Ok(response);
-        }
+    if let (Some(cache), Some(model)) = (&state.ocla_cache, model)
+        && let Some(body) = cache.try_cache_hit(model, &cache_prompt_hash, 0.0, 0)
+    {
+        let mut response = Response::new(Body::from(body));
+        trace_id::inject_trace_id(&mut response, &trace_id);
+        return Ok(response);
     }
     super::cost::record(
         model,
@@ -208,7 +208,7 @@ pub async fn forward_request(
     let upstream_url = if xlat {
         format!("{upstream_base}/v1/chat/completions")
     } else {
-        build_upstream_url(&parts, upstream_base, default_path)
+        crate::proxy::codec::build_upstream_url(&parts, upstream_base, default_path)
     };
 
     let counterfactual = if provider_label == "Anthropic" && !xlat {
@@ -366,7 +366,10 @@ fn wire_context(
         .extensions
         .get::<super::providers::RegistryProviderId>();
     let provider = registry.map_or(provider_label, |r| r.id.as_str());
-    let is_local = registry.map_or_else(|| upstream_is_local(upstream_base), |r| r.local);
+    let is_local = registry.map_or_else(
+        || crate::proxy::codec::upstream_is_local(upstream_base),
+        |r| r.local,
+    );
     Box::new(super::usage::WireContext {
         provider: provider.to_string(),
         person: tags.person,
@@ -380,24 +383,6 @@ fn wire_context(
         counterfactual: None, // populated after the probe spawn (#701)
         lineage,
     })
-}
-
-/// True when the upstream base URL points at a loopback/local endpoint (an
-/// Ollama/vLLM-style local model): billed with the transparent
-/// `local_shadow_rate` instead of provider list prices (enterprise#15/#18).
-fn upstream_is_local(upstream_base: &str) -> bool {
-    let rest = upstream_base
-        .strip_prefix("https://")
-        .or_else(|| upstream_base.strip_prefix("http://"))
-        .unwrap_or(upstream_base);
-    let host_port = rest.split(['/', '?']).next().unwrap_or(rest);
-    // Split off the port; bracketed IPv6 hosts keep their brackets.
-    let host = if let Some(b) = host_port.strip_prefix('[') {
-        b.split(']').next().unwrap_or(b)
-    } else {
-        host_port.split(':').next().unwrap_or(host_port)
-    };
-    matches!(host, "127.0.0.1" | "localhost" | "::1" | "0.0.0.0")
 }
 
 /// Output-savings arm (#895) for a request body, or `None` when no holdout is
@@ -564,16 +549,6 @@ fn translated_openai_body(
     _parsed: &serde_json::Value,
 ) -> Option<serde_json::Value> {
     None
-}
-
-fn build_upstream_url(parts: &Parts, base: &str, default_path: &str) -> String {
-    format!(
-        "{base}{}",
-        parts
-            .uri
-            .path_and_query()
-            .map_or(default_path, axum::http::uri::PathAndQuery::as_str)
-    )
 }
 
 /// Request headers forwarded verbatim to the upstream provider. Anything not
@@ -999,14 +974,20 @@ mod tests {
             "http://[::1]:9999",
             "http://0.0.0.0:4000",
         ] {
-            assert!(upstream_is_local(local), "{local} must count as local");
+            assert!(
+                crate::proxy::codec::upstream_is_local(local),
+                "{local} must count as local"
+            );
         }
         for remote in [
             "https://api.anthropic.com",
             "https://acme.services.ai.azure.com/openai",
             "https://localhost.evil.example.com", // subdomain trick ≠ local
         ] {
-            assert!(!upstream_is_local(remote), "{remote} must not be local");
+            assert!(
+                !crate::proxy::codec::upstream_is_local(remote),
+                "{remote} must not be local"
+            );
         }
     }
 
@@ -1362,7 +1343,7 @@ mod tests {
         let base = "https://api.anthropic.com";
         let parts = parts_for("/v1/messages/count_tokens");
         assert_eq!(
-            build_upstream_url(&parts, base, "/v1/messages"),
+            crate::proxy::codec::build_upstream_url(&parts, base, "/v1/messages"),
             "https://api.anthropic.com/v1/messages/count_tokens"
         );
     }
@@ -1372,7 +1353,7 @@ mod tests {
         let base = "https://api.anthropic.com";
         let parts = parts_for("/v1/messages/batches/batch_123/results");
         assert_eq!(
-            build_upstream_url(&parts, base, "/v1/messages"),
+            crate::proxy::codec::build_upstream_url(&parts, base, "/v1/messages"),
             "https://api.anthropic.com/v1/messages/batches/batch_123/results"
         );
     }
@@ -1382,7 +1363,7 @@ mod tests {
         let base = "https://api.anthropic.com";
         let parts = parts_for("/v1/messages");
         assert_eq!(
-            build_upstream_url(&parts, base, "/v1/messages"),
+            crate::proxy::codec::build_upstream_url(&parts, base, "/v1/messages"),
             "https://api.anthropic.com/v1/messages"
         );
     }
@@ -1392,7 +1373,7 @@ mod tests {
         let base = "https://api.anthropic.com";
         let parts = parts_for("/v1/messages/count_tokens?model=claude-4");
         assert_eq!(
-            build_upstream_url(&parts, base, "/v1/messages"),
+            crate::proxy::codec::build_upstream_url(&parts, base, "/v1/messages"),
             "https://api.anthropic.com/v1/messages/count_tokens?model=claude-4"
         );
     }

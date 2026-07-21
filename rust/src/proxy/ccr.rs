@@ -118,6 +118,15 @@ pub(crate) fn persist_yaml(content: &str) -> Option<String> {
     persist_with(content, "yaml")
 }
 
+/// Persist an HTML page's verbatim original (#1124) under the `html_` prefix
+/// and return its `{state}/tee/html_{hash}.log` handle. The extracted markdown
+/// is the compressed form; the full HTML is recoverable via [`resolve_tee`] /
+/// `ctx_expand`. Shares the content-address and best-effort write contract of
+/// [`persist`].
+pub(crate) fn persist_html(content: &str) -> Option<String> {
+    persist_with(content, "html")
+}
+
 fn persist_with(content: &str, prefix: &str) -> Option<String> {
     if content.len() < MIN_TEE_BYTES {
         return None;

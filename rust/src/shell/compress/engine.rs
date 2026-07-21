@@ -228,6 +228,32 @@ pub(crate) fn verbatim_yaml_crush_lossy(
     ))
 }
 
+/// HTML content extractor (#1124): extracts article/main content from web
+/// pages and converts to clean markdown. Triggered for HTML content in the
+/// verbatim crusher ladder (curl, wget, fetch outputs). The full HTML is
+/// persisted to CCR under the `html_` prefix for recovery via `ctx_expand`.
+pub(crate) fn verbatim_html_crush(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let result = crate::core::html_crush::crush_if_beneficial(output)?;
+    let crushed_tokens = count_tokens(&result.text);
+    if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
+        return None;
+    }
+    let handle = crate::proxy::ccr::persist_html(output)?;
+    let body = shell_savings_footer(&result.text, original_tokens, crushed_tokens);
+    Some(format!(
+        "{body}\n[lean-ctx: HTML extracted to markdown — full page at {handle}, \
+         ctx_expand(id=\"{handle}\", search=\"…\") for a section]"
+    ))
+}
+
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     compress_if_beneficial_with_exit(command, output, -1)
 }
@@ -346,6 +372,11 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
             }
             if let Some(crushed) =
                 verbatim_yaml_crush_lossy(output, original_tokens, min_output_tokens, enabled)
+            {
+                return crushed;
+            }
+            if let Some(crushed) =
+                verbatim_html_crush(output, original_tokens, min_output_tokens, enabled)
             {
                 return crushed;
             }

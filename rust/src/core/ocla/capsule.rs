@@ -142,7 +142,7 @@ impl CapsuleStore {
         let Ok(entries) = self.entries.read() else {
             return CapsuleStats::default();
         };
-        let total_bytes = entries.values().fold(0, |total, entry| {
+        let total_bytes = entries.values().fold(0_usize, |total, entry| {
             total.saturating_add(entry.data.len()).saturating_add(
                 entry
                     .deltas
@@ -179,15 +179,14 @@ fn resolve_entries(
             .get(current)
             .ok_or_else(|| invalid(format!("unknown capsule: {capsule_ref}")))?;
         deltas.extend(entry.deltas.iter().cloned());
-        match entry.parent_ref.as_deref() {
-            Some(parent_ref) => current = parent_ref,
-            None => {
-                let mut data = entry.data.clone();
-                for delta in deltas.iter().rev() {
-                    apply_patch(&mut data, delta)?;
-                }
-                return Ok(data);
+        if let Some(parent_ref) = entry.parent_ref.as_deref() {
+            current = parent_ref;
+        } else {
+            let mut data = entry.data.clone();
+            for delta in deltas.iter().rev() {
+                apply_patch(&mut data, delta)?;
             }
+            return Ok(data);
         }
     }
 }
