@@ -88,6 +88,21 @@ const _: () = assert!(DEFAULT_BM25_PERSIST_MB >= 512);
 /// so it is left available; users wanting it gone can add it to `disabled_tools`.
 pub const EDIT_TOOL_NAMES: &[&str] = &["ctx_edit", "ctx_patch"];
 
+/// Default locations for shell output capture.
+///
+/// `/private/tmp` is the canonical target behind macOS's `/tmp` symlink, while
+/// `temp_dir()` also covers per-user scratch directories such as `$TMPDIR`.
+pub(crate) fn default_shell_write_allow_paths() -> Vec<String> {
+    let mut paths = vec![std::env::temp_dir().to_string_lossy().into_owned()];
+    #[cfg(unix)]
+    for path in ["/tmp", "/private/tmp", "/var/tmp"] {
+        if !paths.iter().any(|existing| existing == path) {
+            paths.push(path.to_string());
+        }
+    }
+    paths
+}
+
 /// Global lean-ctx configuration loaded from `config.toml`, merged with project-local overrides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -720,6 +735,11 @@ pub struct Config {
     /// via `LEAN_CTX_SHELL_ALLOW_WRITES=1`.
     #[serde(default)]
     pub shell_allow_writes: bool,
+    /// Absolute paths where shell redirects and `tee` may capture output.
+    /// Empty uses the operating system's temporary directories. Project files
+    /// remain denied even when a configured path overlaps the project root.
+    #[serde(default)]
+    pub write_allow_paths: Vec<String>,
 
     /// #814: opt-in to allow `python3 -c`, `node -e`, etc. in ctx_shell.
     /// Default `false` — inline code is blocked because it leaves no auditable
@@ -858,9 +878,136 @@ impl Default for Config {
             shell_heavy_timeout_secs: None,
             shell_heavy_prefixes: Vec::new(),
             shell_allow_writes: false,
+            write_allow_paths: Vec::new(),
             shell_allow_inline_scripts: false,
             setup: SetupConfig::default(),
         }
+    }
+}
+
+/// Holds the most recent global `config.toml` parse error, if the file currently
+/// fails to parse. When that happens `Config::load()` silently falls back to the
+/// built-in defaults and only logs to stderr — which is invisible over an MCP/stdio
+/// transport. Recording it here lets callers (e.g. the shell-allowlist diagnostic
+/// and `lean-ctx doctor`) surface "you're on defaults because your config is broken".
+static LAST_PARSE_ERROR: Mutex<Option<String>> = Mutex::new(None);
+
+/// Returns the most recent global config parse error, or `None` if the current
+/// `config.toml` parsed successfully (or no config file exists).
+#[must_use]
+pub fn last_config_parse_error() -> Option<String> {
+    LAST_PARSE_ERROR.lock().ok().and_then(|g| g.clone())
+}
+
+fn record_parse_error(err: Option<String>) {
+    if let Ok(mut guard) = LAST_PARSE_ERROR.lock() {
+        *guard = err;
+    }
+}
+
+/// Reset every SECURITY-sensitive field of a parsed project-local `Config` back
+/// to its default, returning the names of the ones that actually carried an
+/// override. Used by [`Config::merge_local`] for untrusted workspaces: clearing a
+/// field to its default makes the downstream "== default ⇒ no override" merge
+/// guards skip it automatically, so a single list here gates every sensitive key
+/// without touching the per-field merge arms (security audit #4).
+///
+/// Sensitive = anything that can widen lean-ctx's own boundaries or steer the
+/// agent: the shell allowlist, path-jail roots, proxy upstreams, command
+/// aliases, network passthrough, rules scope/injection, tool surface control
+/// (profile/enabled-list/categories, disabling) and permission inheritance.
+/// Comfort/perf knobs are intentionally NOT listed.
+fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str> {
+    let mut withheld: Vec<&'static str> = Vec::new();
+
+    if local.shell_allowlist != default_shell_allowlist() {
+        local.shell_allowlist = default_shell_allowlist();
+        withheld.push("shell_allowlist");
+    }
+    if !local.shell_allowlist_extra.is_empty() {
+        local.shell_allowlist_extra.clear();
+        withheld.push("shell_allowlist_extra");
+    }
+    if !local.allow_paths.is_empty() {
+        local.allow_paths.clear();
+        withheld.push("allow_paths");
+    }
+    if !local.write_allow_paths.is_empty() {
+        local.write_allow_paths.clear();
+        withheld.push("write_allow_paths");
+    }
+    if !local.extra_roots.is_empty() {
+        local.extra_roots.clear();
+        withheld.push("extra_roots");
+    }
+    if !local.allow_symlink_roots.is_empty() {
+        local.allow_symlink_roots.clear();
+        withheld.push("allow_symlink_roots");
+    }
+    if !local.custom_aliases.is_empty() {
+        local.custom_aliases.clear();
+        withheld.push("custom_aliases");
+    }
+    if !local.passthrough_urls.is_empty() {
+        local.passthrough_urls.clear();
+        withheld.push("passthrough_urls");
+    }
+    if local.proxy.anthropic_upstream.is_some()
+        || local.proxy.openai_upstream.is_some()
+        || local.proxy.chatgpt_upstream.is_some()
+        || local.proxy.gemini_upstream.is_some()
+    {
+        local.proxy.anthropic_upstream = None;
+        local.proxy.openai_upstream = None;
+        local.proxy.chatgpt_upstream = None;
+        local.proxy.gemini_upstream = None;
+        withheld.push("proxy.*_upstream");
+    }
+    if local.rules_scope.is_some() {
+        local.rules_scope = None;
+        withheld.push("rules_scope");
+    }
+    if local.rules_injection.is_some() {
+        local.rules_injection = None;
+        withheld.push("rules_injection");
+    }
+    if local.permission_inheritance.is_some() {
+        local.permission_inheritance = None;
+        withheld.push("permission_inheritance");
+    }
+    if !local.disabled_tools.is_empty() {
+        local.disabled_tools.clear();
+        withheld.push("disabled_tools");
+    }
+    if local.tool_profile.is_some() {
+        local.tool_profile = None;
+        withheld.push("tool_profile");
+    }
+    if !local.tools_enabled.is_empty() {
+        local.tools_enabled.clear();
+        withheld.push("tools_enabled");
+    }
+    if !local.default_tool_categories.is_empty() {
+        local.default_tool_categories.clear();
+        withheld.push("default_tool_categories");
+    }
+    if !local.index.respect_gitignore {
+        local.index.respect_gitignore = true;
+        withheld.push("index.respect_gitignore");
+    }
+
+    withheld
+}
+
+/// Names of the SECURITY-sensitive overrides a project-local `.lean-ctx.toml`
+/// carries — the keys `strip_sensitive_overrides` would withhold for an
+/// untrusted workspace. Read-only (parses a throwaway `Config`); used by
+/// `lean-ctx trust` to tell the user exactly what trusting will enable.
+#[must_use]
+pub fn local_sensitive_overrides(local_toml: &str) -> Vec<&'static str> {
+    match toml::from_str::<Config>(local_toml) {
+        Ok(mut parsed) => strip_sensitive_overrides(&mut parsed),
+        Err(_) => Vec::new(),
     }
 }
 
@@ -1143,6 +1290,16 @@ impl Config {
                 "1" | "true" | "yes" | "on"
             ),
             Err(_) => self.shell_allow_writes,
+        }
+    }
+
+    /// Returns the effective paths where shell output capture may write.
+    /// Empty configuration intentionally falls back to OS temp directories.
+    pub fn shell_write_allow_paths_effective(&self) -> Vec<String> {
+        if self.write_allow_paths.is_empty() {
+            default_shell_write_allow_paths()
+        } else {
+            self.write_allow_paths.clone()
         }
     }
 
