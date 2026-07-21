@@ -19,7 +19,7 @@ use crate::core::tokens::count_tokens;
 /// the join below blocks forever, wedging the caller *despite* the timeout
 /// having fired (GH #720: an orphaned `rg` kept a Cursor shell session dead
 /// for hours).
-fn wait_with_limits(
+pub(super) fn wait_with_limits(
     mut child: Child,
     max_bytes: usize,
     timeout: std::time::Duration,
@@ -233,7 +233,7 @@ const DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 const HEAVY_MAX_BYTES: usize = 32 * 1024 * 1024; // 32 MB
 const HEAVY_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(10);
 
-fn exec_limits(command: &str) -> (usize, std::time::Duration) {
+pub(super) fn exec_limits(command: &str) -> (usize, std::time::Duration) {
     let max_bytes = if is_heavy_command(command) {
         HEAVY_MAX_BYTES
     } else {
@@ -653,7 +653,7 @@ pub fn exec(command: &str) -> i32 {
         return exec_inherit_tracked(command, &shell, &shell_flag);
     }
 
-    exec_buffered(command, &shell, &shell_flag, &cfg)
+    super::pipeline::exec_buffered(command, &shell, &shell_flag, &cfg)
 }
 
 fn collapse_nested_lean_ctx_exec(command: &str) -> Option<String> {
@@ -826,197 +826,7 @@ pub(crate) fn combine_streams(stdout: &str, stderr: &str, exit_code: i32) -> Str
     }
 }
 
-fn exec_buffered(command: &str, shell: &str, shell_flag: &str, cfg: &config::Config) -> i32 {
-    #[cfg(windows)]
-    super::platform::set_console_utf8();
-
-    let start = std::time::Instant::now();
-
-    let mut cmd = Command::new(shell);
-
-    #[cfg(windows)]
-    let ps_tmp_path: Option<tempfile::TempPath>;
-    #[cfg(windows)]
-    {
-        if super::platform::is_powershell(shell) {
-            let ps_script = format!(
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; {}",
-                command
-            );
-            // A temp script lets us set UTF-8 output encoding. If the temp file
-            // cannot be created (full disk, perms, broken TMP), degrade to
-            // running the command inline rather than panicking the process.
-            match tempfile::Builder::new()
-                .prefix("lean-ctx-ps-")
-                .suffix(".ps1")
-                .tempfile()
-            {
-                Ok(tmp) => {
-                    let tmp_path = tmp.into_temp_path();
-                    let _ = std::fs::write(&tmp_path, &ps_script);
-                    cmd.args([
-                        "-NoProfile",
-                        "-ExecutionPolicy",
-                        "Bypass",
-                        "-File",
-                        &tmp_path.to_string_lossy(),
-                    ]);
-                    ps_tmp_path = Some(tmp_path);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "lean-ctx: temp script unavailable ({e}); running PowerShell inline"
-                    );
-                    cmd.arg(shell_flag);
-                    cmd.arg(command);
-                    ps_tmp_path = None;
-                }
-            }
-        } else {
-            cmd.arg(shell_flag);
-            cmd.arg(command);
-            ps_tmp_path = None;
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        cmd.arg(shell_flag);
-        cmd.arg(command);
-    }
-
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    // #720: the buffered path serves agents and pipes — there is no
-    // interactive stdin to forward. Inheriting the host's stdin let
-    // stdin-reading commands (`rg` with no path after an empty `$(…)`
-    // substitution, `cat` without a file) block forever on a pipe that never
-    // delivers EOF, wedging the host's persistent shell session. /dev/null
-    // answers with EOF immediately. A real TTY stdin is preserved so
-    // interactive `lean-ctx -c` (prompts, sudo) keeps working — and only in
-    // the non-TTY case do we detach the child into its own process group,
-    // so the timeout kill can reap grandchildren without stealing Ctrl+C
-    // from interactive users.
-    let isolate = !io::stdin().is_terminal();
-    if isolate {
-        // #806: use Stdio::piped() instead of Stdio::null() so callers that
-        // legitimately pipe data (e.g. `printf 'prompt' | lean-ctx -c 'claude
-        // --print'`) can deliver it. A relay thread copies parent stdin →
-        // child stdin and propagates EOF. The #720 hang is still prevented by
-        // wait_with_limits' process-group timeout kill — not by nulling stdin.
-        cmd.stdin(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt as _;
-            cmd.process_group(0);
-        }
-    }
-    super::reentry::mark_child(&mut cmd);
-    super::platform::apply_utf8_locale(&mut cmd);
-    super::platform::apply_profile_free_env(&mut cmd);
-    let child = cmd.spawn();
-
-    let mut child = match child {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("lean-ctx: failed to execute: {e}");
-            #[cfg(windows)]
-            if let Some(ref tmp) = ps_tmp_path {
-                let _ = std::fs::remove_file(tmp);
-            }
-            return 127;
-        }
-    };
-
-    // #806: stdin relay — forward parent stdin to the child's piped stdin.
-    // The thread exits when: (a) parent stdin reaches EOF (pipe closed), or
-    // (b) the child dies and the next write returns BrokenPipe.
-    // No explicit join: wait_with_limits returns → exec_buffered returns →
-    // process exits → OS reaps the relay thread.
-    if isolate && let Some(child_stdin) = child.stdin.take() {
-        std::thread::Builder::new()
-            .name("stdin-relay".into())
-            .spawn(move || {
-                use std::io::Write;
-                let mut child_w = child_stdin;
-                let mut parent_r = io::stdin().lock();
-                let mut buf = [0u8; 8192];
-                loop {
-                    match parent_r.read(&mut buf) {
-                        Ok(0) => break,
-                        Ok(n) => {
-                            if child_w.write_all(&buf[..n]).is_err() {
-                                break;
-                            }
-                        }
-                        Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {}
-                        Err(_) => break,
-                    }
-                }
-                drop(child_w);
-            })
-            .ok();
-    }
-
-    let (max_bytes, timeout) = exec_limits(command);
-    let output = wait_with_limits(child, max_bytes, timeout, isolate);
-
-    let duration_ms = start.elapsed().as_millis();
-    let exit_code = output.status.code().unwrap_or(1);
-    let stdout =
-        super::platform::resolve_carriage_returns(&super::platform::decode_output(&output.stdout));
-    let stderr =
-        super::platform::resolve_carriage_returns(&super::platform::decode_output(&output.stderr));
-
-    let full_output = combine_streams(&stdout, &stderr, exit_code);
-    let input_tokens = count_tokens(&full_output);
-
-    // Structured diagnostics (#499): failing cargo/tsc/eslint runs mark their
-    // files as context-priority; succeeding runs clear them.
-    crate::core::diagnostics_store::record_from_shell(command, &full_output, exit_code);
-
-    // Gotcha learning: a failing build/test pushes a pending error; the next
-    // green run of the same command base correlates the fix into a gotcha.
-    crate::core::gotcha_tracker::record_shell_outcome(command, &full_output, exit_code);
-
-    let (compressed, output_tokens) =
-        super::compress::compress_and_measure(command, &stdout, &stderr, exit_code);
-
-    crate::core::tool_lifecycle::record_shell_command(input_tokens, output_tokens);
-
-    if !compressed.is_empty() {
-        let _ = io::stdout().write_all(compressed.as_bytes());
-        if !compressed.ends_with('\n') {
-            let _ = io::stdout().write_all(b"\n");
-        }
-    }
-    // Shared tee policy (#811): identical decision on the CLI and MCP paths —
-    // `Failures` keys off the real exit code, not a substring in the output.
-    let should_tee = super::tee_policy::should_tee(
-        &cfg.tee_mode,
-        exit_code,
-        full_output.trim().is_empty(),
-        super::tee_policy::output_was_elided(&full_output, &compressed),
-        input_tokens,
-        output_tokens,
-    );
-    if should_tee
-        && let Some(path) = super::redact::save_tee(command, &full_output)
-        && !matches!(std::env::var("LEAN_CTX_QUIET"), Ok(v) if v.trim() == "1")
-    {
-        eprintln!("[lean-ctx: full output -> {path} (redacted, 24h TTL)]");
-    }
-
-    let threshold = cfg.slow_command_threshold_ms;
-    if threshold > 0 && duration_ms >= threshold as u128 {
-        slow_log::record(command, duration_ms, exit_code);
-    }
-
-    #[cfg(windows)]
-    if let Some(ref tmp) = ps_tmp_path {
-        let _ = std::fs::remove_file(tmp);
-    }
-
-    exit_code
-}
+// Buffered command execution and output transformation live in `pipeline`.
 
 #[cfg(test)]
 mod exec_tests {
