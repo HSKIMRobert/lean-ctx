@@ -1225,17 +1225,34 @@ fn finalize_call_result(
 }
 
 /// #1090: exit 1 with non-empty stdout is not an error for grep/diff/test.
-/// Only treat non-zero exits as tool errors when the output is empty or the
-/// exit code is >= 2. This prevents Claude Code's PostToolUseFailure hook
-/// from firing on successful grep/diff/test commands.
+/// #1086/#1089: exit 124 (timeout) with captured partial output is returned
+/// as a success with a timeout marker, not as an error. The partial output is
+/// often enough to answer the question; treating it as a failure causes the
+/// client to retry the entire pipeline.
 fn is_shell_error(outcome: crate::server::tool_trait::ShellOutcome, output: &str) -> bool {
     match outcome {
         crate::server::tool_trait::ShellOutcome::Exit(0) => false,
         crate::server::tool_trait::ShellOutcome::Exit(1) => {
             output.trim().is_empty() || output.trim().starts_with("[exit:")
         }
+        crate::server::tool_trait::ShellOutcome::Exit(124) => {
+            // Timeout with partial output: return as success so the client
+            // sees the captured data. The ERROR marker in the text body still
+            // signals the timeout to the agent.
+            !has_partial_output_before_timeout(output)
+        }
         crate::server::tool_trait::ShellOutcome::Exit(_)
         | crate::server::tool_trait::ShellOutcome::Blocked => true,
+    }
+}
+
+/// True when the output contains real content before the timeout marker.
+fn has_partial_output_before_timeout(output: &str) -> bool {
+    if let Some(idx) = output.find("ERROR: command timed out after") {
+        let before = output[..idx].trim();
+        !before.is_empty()
+    } else {
+        false
     }
 }
 
