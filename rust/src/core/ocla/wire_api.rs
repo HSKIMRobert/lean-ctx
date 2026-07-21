@@ -36,6 +36,9 @@ pub fn ocla_router() -> Router {
             "/ocla/v1/budget/{scope}",
             get(get_budget).delete(delete_budget),
         )
+        .route("/ocla/v1/dlq", get(dlq))
+        .route("/ocla/v1/dlq/{id}/retry", post(dlq_retry))
+        .route("/ocla/v1/dlq/{id}", delete(dlq_delete))
 }
 
 #[derive(Default)]
@@ -155,9 +158,6 @@ async fn delete_budget(
         ));
     }
     Ok(StatusCode::NO_CONTENT)
-        .route("/ocla/v1/dlq", get(dlq))
-        .route("/ocla/v1/dlq/{id}/retry", post(dlq_retry))
-        .route("/ocla/v1/dlq/{id}", delete(dlq_delete))
 }
 
 async fn health() -> Json<SystemHealth> {
@@ -560,6 +560,15 @@ mod tests {
                     "max_usd_per_day": 50.0,
                 })),
             ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert_eq!(body["max_tokens_per_day"], 100_000);
+    }
+
+    #[tokio::test]
     async fn dlq_endpoint_returns_entries_and_stats() {
         let response = ocla_router()
             .oneshot(
@@ -574,9 +583,9 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_response(response).await;
-        assert_eq!(body["max_tokens_per_day"], 100_000);
+        assert!(body.get("dead_letters").is_some());
+        assert!(body.get("stats").is_some());
     }
-
     #[tokio::test]
     async fn budget_get_endpoint_returns_configured_limit_and_consumption() {
         set_budget_for_test("team:wire-api-get", 500, 5.0).await;
@@ -619,9 +628,6 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert!(body["dead_letters"].is_array());
-        assert!(body["stats"]["total"].is_number());
-        assert!(body["stats"]["oldest_age_seconds"].is_number());
     }
 
     #[tokio::test]

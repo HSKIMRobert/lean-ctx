@@ -10,18 +10,20 @@ pub(super) fn extract_or_generate_trace_id(headers: &HeaderMap) -> String {
         .get(TRACE_ID_HEADER)
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| {
-            OclaRequestContext::new(
-                String::new(),
-                String::new(),
-                String::new(),
-                String::new(),
-                None,
-                None,
-            )
-            .trace_id
-        })
+        .map_or_else(
+            || {
+                OclaRequestContext::new(
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                    None,
+                    None,
+                )
+                .trace_id
+            },
+            str::to_owned,
+        )
 }
 
 pub(super) fn inject_trace_id(response: &mut Response, trace_id: &str) {

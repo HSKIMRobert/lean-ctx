@@ -463,6 +463,9 @@ pub fn ocla_openapi_spec() -> Value {
                         "204": {"description": "Budget limit removed"},
                         "400": error_response("Budget scope is invalid"),
                         "404": error_response("Budget limit was not found")
+                    }
+                }
+            },
             "/ocla/v1/dlq": {
                 "get": {
                     "operationId": "getOclaDlq",
