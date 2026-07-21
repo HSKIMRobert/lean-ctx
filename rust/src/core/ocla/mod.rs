@@ -13,6 +13,7 @@ pub mod health;
 pub mod openapi;
 pub mod registry;
 pub mod response_cache;
+pub mod routing_experiment;
 pub mod routing_quality;
 pub mod sidecar;
 pub mod tracing;
