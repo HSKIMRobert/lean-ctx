@@ -19,6 +19,7 @@ ALLOWLIST=(
   rust/src/core/shell_allowlist/mod.rs
   rust/src/core/shell_allowlist/tests.rs
   rust/src/shell/exec.rs
+  rust/src/proxy/forward.rs
 )
 
 cd "$(dirname "$0")/.."
