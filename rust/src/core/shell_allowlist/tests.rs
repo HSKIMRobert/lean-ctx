@@ -1,7 +1,6 @@
 //! Tests for the shell allowlist. Extracted from `shell_allowlist/mod.rs`;
 //! `super::*` resolves to the `shell_allowlist` module.
 
-
 #[path = "comment_strip_tests.rs"]
 mod comment_strip_tests;
 
@@ -342,7 +341,6 @@ fn strip_leaves_unquoted_heredoc_body_intact() {
     let cmd = "cat <<EOF\n$(x)\nEOF";
     assert_eq!(strip_quoted_heredoc_bodies(cmd), cmd);
 }
-
 
 #[test]
 fn heredoc_delims_variants() {

@@ -623,7 +623,10 @@ mod batch_grouping_tests {
             ("dry_run".into(), json!(true)),
         ]);
         let edit_args = build_unique_edit_args(&args).expect("validation passes");
-        assert!(edit_args.contains_key("old_string"), "args mapped correctly");
+        assert!(
+            edit_args.contains_key("old_string"),
+            "args mapped correctly"
+        );
         assert!(
             args.get("dry_run").and_then(|v| v.as_bool()) == Some(true),
             "dry_run flag preserved in original args"
