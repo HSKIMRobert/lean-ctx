@@ -231,6 +231,48 @@ fn envelope_batch_response_schema() -> Value {
     })
 }
 
+fn budget_request_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["scope", "max_tokens_per_day", "max_usd_per_day"],
+        "properties": {
+            "scope": {
+                "type": "string",
+                "pattern": "^(org|team|user):.+$",
+                "minLength": 5
+            },
+            "max_tokens_per_day": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "max_usd_per_day": {"type": "number", "minimum": 0}
+        }
+    })
+}
+
+fn budget_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": [
+            "scope", "max_tokens_per_day", "max_usd_per_day",
+            "consumed_tokens", "consumed_usd"
+        ],
+        "properties": {
+            "scope": {"type": "string"},
+            "max_tokens_per_day": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "max_usd_per_day": {"type": "number", "minimum": 0},
+            "consumed_tokens": {"type": "integer", "minimum": 0, "maximum": u64::MAX},
+            "consumed_usd": {"type": "number", "minimum": 0}
+        }
+    })
+}
+
+fn budget_scope_parameter() -> Value {
+    json!({
+        "name": "scope",
+        "in": "path",
+        "required": true,
+        "schema": {"type": "string", "pattern": "^(org|team|user):.+$"}
+    })
+}
+
 /// Builds the CI-visible OpenAPI 3.1 document for the OCLA OSS surface.
 #[must_use]
 pub fn ocla_openapi_spec() -> Value {
@@ -337,6 +379,42 @@ pub fn ocla_openapi_spec() -> Value {
                         "503": error_response("Ledger is unavailable or invalid")
                     }
                 }
+            },
+            "/ocla/v1/budget": {
+                "post": {
+                    "operationId": "setOclaBudget",
+                    "summary": "Set a daily OCLA budget limit",
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": schema_ref("BudgetRequest")}}
+                    },
+                    "responses": {
+                        "200": {"description": "Budget limit set", "content": {"application/json": {"schema": schema_ref("BudgetResponse")}}},
+                        "400": error_response("Budget request is invalid")
+                    }
+                }
+            },
+            "/ocla/v1/budget/{scope}": {
+                "get": {
+                    "operationId": "getOclaBudget",
+                    "summary": "Read a daily OCLA budget limit and consumption",
+                    "parameters": [budget_scope_parameter()],
+                    "responses": {
+                        "200": {"description": "Budget limit and consumption", "content": {"application/json": {"schema": schema_ref("BudgetResponse")}}},
+                        "400": error_response("Budget scope is invalid"),
+                        "404": error_response("Budget limit was not found")
+                    }
+                },
+                "delete": {
+                    "operationId": "deleteOclaBudget",
+                    "summary": "Remove a daily OCLA budget limit",
+                    "parameters": [budget_scope_parameter()],
+                    "responses": {
+                        "204": {"description": "Budget limit removed"},
+                        "400": error_response("Budget scope is invalid"),
+                        "404": error_response("Budget limit was not found")
+                    }
+                }
             }
         },
         "components": {
@@ -348,6 +426,8 @@ pub fn ocla_openapi_spec() -> Value {
                 "MetricsResponse": metrics_response_schema(),
                 "OclaMetric": metric_schema(),
                 "EnvelopeBatchResponse": envelope_batch_response_schema(),
+                "BudgetRequest": budget_request_schema(),
+                "BudgetResponse": budget_response_schema(),
                 "HealthResponse": {
                     "type": "object",
                     "required": ["status", "api_version"],
@@ -416,11 +496,15 @@ mod tests {
         assert!(paths.contains_key("/ocla/v1/envelope"));
         assert!(paths.contains_key("/ocla/v1/envelope/batch"));
         assert!(paths.contains_key("/ocla/v1/ledger/summary"));
+        assert!(paths.contains_key("/ocla/v1/budget"));
+        assert!(paths.contains_key("/ocla/v1/budget/{scope}"));
         assert!(spec["components"]["schemas"]["CanonicalTokenEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentsResponse"].is_object());
         assert!(spec["components"]["schemas"]["MetricsResponse"].is_object());
         assert!(spec["components"]["schemas"]["EnvelopeBatchResponse"].is_object());
+        assert!(spec["components"]["schemas"]["BudgetRequest"].is_object());
+        assert!(spec["components"]["schemas"]["BudgetResponse"].is_object());
         assert_eq!(
             spec["paths"]["/ocla/v1/envelope"]["post"]["parameters"][0]["name"],
             "Idempotency-Key"
