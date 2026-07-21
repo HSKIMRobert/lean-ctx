@@ -83,6 +83,7 @@ fn savings_event_schema() -> Value {
             "saved_usd": {"type": "number"},
             "repo_hash": {"type": "string"},
             "agent_id": {"type": "string"},
+            "trace_id": {"type": ["string", "null"]},
             "prev_hash": {"type": "string"},
             "entry_hash": {"type": "string"},
             "version": {"type": "string"},
