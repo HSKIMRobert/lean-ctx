@@ -152,6 +152,84 @@ fn ledger_summary_schema() -> Value {
     })
 }
 
+fn idempotency_key_parameter() -> Value {
+    json!({
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Client-supplied key used to make envelope submission idempotent.",
+        "schema": {"type": "string", "minLength": 1}
+    })
+}
+
+fn agent_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["agent_id", "status"],
+        "properties": {
+            "agent_id": {"type": "string", "minLength": 1},
+            "status": {"type": "string", "enum": ["active", "idle", "offline"]},
+            "last_seen": {"type": ["string", "null"]},
+            "capabilities": {"type": "array", "items": {"type": "string"}}
+        }
+    })
+}
+
+fn agents_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["api_version", "agents"],
+        "properties": {
+            "api_version": {"const": OCLA_API_VERSION},
+            "agents": {"type": "array", "items": schema_ref("OclaAgent")}
+        }
+    })
+}
+
+fn metric_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["name", "value_milli"],
+        "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "value_milli": {"type": "integer"},
+            "dimensions": {"type": "object", "additionalProperties": {"type": "string"}}
+        }
+    })
+}
+
+fn metrics_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["api_version", "metrics"],
+        "properties": {
+            "api_version": {"const": OCLA_API_VERSION},
+            "metrics": {"type": "array", "items": schema_ref("OclaMetric")}
+        }
+    })
+}
+
+fn envelope_batch_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["api_version", "accepted", "rejected", "envelopes"],
+        "properties": {
+            "api_version": {"const": OCLA_API_VERSION},
+            "accepted": {"type": "integer", "minimum": 0},
+            "rejected": {"type": "integer", "minimum": 0},
+            "envelopes": {
+                "type": "array",
+                "items": {
+                    "oneOf": [
+                        schema_ref("CanonicalTokenEnvelopeV1"),
+                        schema_ref("AgentEnvelopeV1")
+                    ]
+                }
+            }
+        }
+    })
+}
+
 /// Builds the CI-visible OpenAPI 3.1 document for the OCLA OSS surface.
 #[must_use]
 pub fn ocla_openapi_spec() -> Value {
@@ -193,10 +271,31 @@ pub fn ocla_openapi_spec() -> Value {
                     }
                 }
             },
+            "/ocla/v1/agents": {
+                "get": {
+                    "operationId": "oclaAgents",
+                    "summary": "List connected OCLA agents",
+                    "responses": {
+                        "200": {"description": "Connected agents", "content": {"application/json": {"schema": schema_ref("AgentsResponse")}}},
+                        "503": error_response("Agent registry is unavailable")
+                    }
+                }
+            },
+            "/ocla/v1/metrics": {
+                "get": {
+                    "operationId": "oclaMetrics",
+                    "summary": "Read OCLA metrics",
+                    "responses": {
+                        "200": {"description": "Current OCLA metrics", "content": {"application/json": {"schema": schema_ref("MetricsResponse")}}},
+                        "503": error_response("Metrics exporter is unavailable")
+                    }
+                }
+            },
             "/ocla/v1/envelope": {
                 "post": {
                     "operationId": "submitOclaEnvelope",
                     "summary": "Validate and accept a payload-free OCLA envelope",
+                    "parameters": [idempotency_key_parameter()],
                     "requestBody": {"required": true, "content": {"application/json": {"schema": envelope_request}}},
                     "responses": {
                         "200": {"description": "Envelope accepted", "content": {"application/json": {"schema": envelope_request}}},
@@ -204,7 +303,27 @@ pub fn ocla_openapi_spec() -> Value {
                     }
                 }
             },
-            "/ocla/v1/ledger": {
+            "/ocla/v1/envelope/batch": {
+                "post": {
+                    "operationId": "submitOclaEnvelopeBatch",
+                    "summary": "Validate and accept multiple OCLA envelopes",
+                    "parameters": [idempotency_key_parameter()],
+                    "requestBody": {
+                        "required": true,
+                        "content": {"application/json": {"schema": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 1000,
+                            "items": envelope_request
+                        }}}
+                    },
+                    "responses": {
+                        "200": {"description": "Envelope batch accepted", "content": {"application/json": {"schema": schema_ref("EnvelopeBatchResponse")}}},
+                        "400": error_response("One or more envelopes failed validation")
+                    }
+                }
+            },
+            "/ocla/v1/ledger/summary": {
                 "get": {
                     "operationId": "getOclaLedger",
                     "summary": "Read the verified local savings ledger",
@@ -223,6 +342,11 @@ pub fn ocla_openapi_spec() -> Value {
             "schemas": {
                 "CanonicalTokenEnvelopeV1": canonical_envelope_schema(),
                 "AgentEnvelopeV1": agent_envelope_schema(),
+                "AgentsResponse": agents_response_schema(),
+                "OclaAgent": agent_schema(),
+                "MetricsResponse": metrics_response_schema(),
+                "OclaMetric": metric_schema(),
+                "EnvelopeBatchResponse": envelope_batch_response_schema(),
                 "HealthResponse": {
                     "type": "object",
                     "required": ["status", "api_version"],
@@ -286,9 +410,23 @@ mod tests {
         let paths = spec["paths"].as_object().expect("paths object");
         assert!(paths.contains_key("/ocla/v1/health"));
         assert!(paths.contains_key("/ocla/v1/capabilities"));
+        assert!(paths.contains_key("/ocla/v1/agents"));
+        assert!(paths.contains_key("/ocla/v1/metrics"));
         assert!(paths.contains_key("/ocla/v1/envelope"));
-        assert!(paths.contains_key("/ocla/v1/ledger"));
+        assert!(paths.contains_key("/ocla/v1/envelope/batch"));
+        assert!(paths.contains_key("/ocla/v1/ledger/summary"));
         assert!(spec["components"]["schemas"]["CanonicalTokenEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentEnvelopeV1"].is_object());
+        assert!(spec["components"]["schemas"]["AgentsResponse"].is_object());
+        assert!(spec["components"]["schemas"]["MetricsResponse"].is_object());
+        assert!(spec["components"]["schemas"]["EnvelopeBatchResponse"].is_object());
+        assert_eq!(
+            spec["paths"]["/ocla/v1/envelope"]["post"]["parameters"][0]["name"],
+            "Idempotency-Key"
+        );
+        assert_eq!(
+            spec["paths"]["/ocla/v1/envelope/batch"]["post"]["parameters"][0]["name"],
+            "Idempotency-Key"
+        );
     }
 }
