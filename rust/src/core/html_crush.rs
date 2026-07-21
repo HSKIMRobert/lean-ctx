@@ -1,4 +1,4 @@
-#![allow(clippy::all, dead_code, unreachable_pub)]
+#![allow(clippy::too_many_lines, clippy::collapsible_if)]
 //! Deterministic HTML content extractor — extracts article/main content from
 //! web pages, converts to clean markdown, discards boilerplate (#1124).
 //!
@@ -1013,5 +1013,70 @@ mod tests {
         let r1 = crush_if_beneficial(&html);
         let r2 = crush_if_beneficial(&html);
         assert_eq!(r1.as_ref().map(|r| &r.text), r2.as_ref().map(|r| &r.text));
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    #[test]
+    fn handles_malformed_html_gracefully() {
+        let broken = "<html><body><div><p>Unclosed paragraph<div>Nested wrong</p></div>";
+        let result = extract_article(broken);
+        assert!(result.contains("Unclosed paragraph") || result.contains("Nested wrong"));
+    }
+
+    #[test]
+    fn handles_empty_html() {
+        let empty = "<html><body></body></html>";
+        assert!(crush_if_beneficial(empty).is_none());
+    }
+
+    #[test]
+    fn handles_unicode_content() {
+        let html = "<html><body><article><h1>\u{65E5}\u{672C}\u{8A9E}</h1><p>\u{00DC}nic\u{00F6}d\u{00E9} with emojis \u{1F680}</p></article></body></html>";
+        let result = extract_article(html);
+        assert!(result.contains("\u{65E5}\u{672C}\u{8A9E}"));
+        assert!(result.contains("\u{1F680}"));
+    }
+
+    #[test]
+    fn handles_deeply_nested_structures() {
+        let mut html = String::from("<html><body><article>");
+        for i in 0..50 {
+            html.push_str(&format!("<div><p>Level {}</p>", i));
+        }
+        for _ in 0..50 {
+            html.push_str("</div>");
+        }
+        html.push_str("</article></body></html>");
+        let result = extract_article(&html);
+        assert!(result.contains("Level 0"));
+        assert!(result.contains("Level 49"));
+    }
+
+    #[test]
+    fn handles_script_and_style_exclusion() {
+        let html = "<html><body><article><script>var x = 'not content';</script><style>.foo{}</style><p>Real content.</p></article></body></html>";
+        let result = extract_article(html);
+        assert!(result.contains("Real content."));
+        assert!(!result.contains("not content"));
+        assert!(!result.contains(".foo"));
+    }
+
+    #[test]
+    fn handles_entities_correctly() {
+        let html =
+            "<html><body><article><p>5 &gt; 3 &amp;&amp; 2 &lt; 4</p></article></body></html>";
+        let result = extract_article(html);
+        assert!(result.contains("5 > 3 && 2 < 4"));
+    }
+
+    #[test]
+    fn handles_empty_article() {
+        let html = "<html><body><article>   \n\t  </article></body></html>";
+        let result = extract_article(html);
+        assert!(result.trim().is_empty());
     }
 }

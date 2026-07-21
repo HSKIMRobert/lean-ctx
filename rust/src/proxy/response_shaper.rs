@@ -1,4 +1,3 @@
-#![allow(dead_code, clippy::all)]
 //! Response shaping (#1125): reduces LLM output verbosity at the proxy layer
 //! to save future context tokens.
 //!
@@ -9,12 +8,13 @@
 //!
 //! Determinism (#498): same response bytes → same shaped output. All pattern
 //! matching is deterministic (static regex set, no randomness).
+#![allow(dead_code)]
 
 use regex::Regex;
 use std::sync::LazyLock;
 
 /// Result of shaping a response.
-pub(super) struct ShapingResult {
+pub(crate) struct ShapingResult {
     pub bytes: Vec<u8>,
     pub tokens_saved: usize,
 }
@@ -371,5 +371,44 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&json).unwrap();
         assert!(shape_response(&bytes, ShapingMode::Off).is_none());
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    #[test]
+    fn handles_empty_response() {
+        assert!(shape_response(b"{}", ShapingMode::Gentle).is_none());
+    }
+
+    #[test]
+    fn handles_invalid_json() {
+        assert!(shape_response(b"not json", ShapingMode::Gentle).is_none());
+    }
+
+    #[test]
+    fn never_modifies_error_responses() {
+        let json = serde_json::json!({
+            "choices": [{"message": {"role": "assistant",
+                "content": "Sure, I'll check.\n\nerror[E0308]: mismatched types\n\nLet me know!"
+            }}]
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        assert!(shape_response(&bytes, ShapingMode::Aggressive).is_none());
+    }
+
+    #[test]
+    fn aggressive_saves_more_than_gentle() {
+        let json = serde_json::json!({
+            "choices": [{"message": {"role": "assistant",
+                "content": "Sure, I'll fix that for you.\n\nI have successfully updated the function.\nThe changes ensure correctness.\nThis means it works now.\n\nWould you like me to do more?"
+            }}]
+        });
+        let bytes = serde_json::to_vec(&json).unwrap();
+        let gentle = shape_response(&bytes, ShapingMode::Gentle);
+        let aggressive = shape_response(&bytes, ShapingMode::Aggressive);
+        assert!(aggressive.unwrap().tokens_saved >= gentle.unwrap().tokens_saved);
     }
 }

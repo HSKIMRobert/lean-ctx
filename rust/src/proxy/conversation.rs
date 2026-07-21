@@ -1,4 +1,4 @@
-#![allow(dead_code, unreachable_pub, clippy::all)]
+#![allow(clippy::cast_precision_loss)]
 //! Conversation history compression (#1123): reduces token cost of long
 //! multi-turn sessions by scoring and tiering messages.
 //!
@@ -9,6 +9,7 @@
 //!
 //! Determinism (#498): same messages array → same compression decisions.
 //! Scoring is a pure function of (message_content, position, total_messages).
+#![allow(dead_code)]
 
 use serde_json::Value;
 

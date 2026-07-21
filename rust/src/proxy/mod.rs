@@ -67,6 +67,7 @@ pub mod routing;
 pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
+pub(crate) mod shaping_hook;
 pub mod sse_keepalive;
 #[cfg(test)]
 mod stats_tests;
