@@ -62,6 +62,7 @@ pub mod prose_ranker;
 pub mod providers;
 pub mod response_optimizer;
 pub mod routing;
+pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
 pub mod sse_keepalive;
