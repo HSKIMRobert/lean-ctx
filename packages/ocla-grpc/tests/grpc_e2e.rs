@@ -45,6 +45,7 @@ fn context(value: lean_ctx_client::OclaRequestContext) -> RequestContext {
         agent_id: value.agent_id,
         content_ref: value.content_ref,
         tenant_id: value.tenant_id,
+        trace_id: None,
     }
 }
 
@@ -104,6 +105,8 @@ async fn assert_rejection(
     assert_eq!(result.rejection, expected as i32);
     assert_eq!(result.api_version, "ocla/v1");
 }
+
+// Placeholder: add CheckBudget RPC conformance coverage when the main ledger is shared.
 
 #[tokio::test]
 async fn real_loopback_grpc_verifies_health_and_contract_boundaries() {
