@@ -240,6 +240,12 @@ pub(crate) fn agent_mcp_targets(
             crate::core::editor_registry::qoderwork_mcp_path(home),
             ConfigType::McpJson,
         ),
+        "qodercli" => push(
+            &mut targets,
+            "Qoder CLI",
+            crate::core::editor_registry::qodercli_settings_path(home),
+            ConfigType::QoderSettings,
+        ),
         "cline" => push(
             &mut targets,
             "Cline",
@@ -501,6 +507,12 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
             crate::core::editor_registry::qoderwork_mcp_path(&home),
             ConfigType::McpJson,
         ),
+        "qodercli" => push(
+            &mut targets,
+            "Qoder CLI",
+            crate::core::editor_registry::qodercli_settings_path(&home),
+            ConfigType::QoderSettings,
+        ),
         "cline" => push(
             &mut targets,
             "Cline",
@@ -631,4 +643,40 @@ pub fn disable_agent_mcp(agent: &str, overwrite_invalid: bool) -> Result<(), Str
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod qodercli_tests {
+    use super::*;
+
+    #[test]
+    fn qodercli_agent_target_uses_settings_json() {
+        let home = std::path::Path::new("/home/tester");
+        let targets = agent_mcp_targets("qodercli", home).unwrap();
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].name, "Qoder CLI");
+        assert_eq!(targets[0].config_path, home.join(".qoder/settings.json"));
+    }
+
+    #[test]
+    fn qodercli_agent_target_uses_qoder_settings_writer() {
+        let home = std::path::Path::new("/home/tester");
+        let targets = agent_mcp_targets("qodercli", home).unwrap();
+
+        assert_eq!(targets[0].agent_key, "qodercli");
+        assert_eq!(targets[0].config_type, ConfigType::QoderSettings);
+    }
+
+    #[test]
+    fn qodercli_agent_target_is_separate_from_qoder_ide_targets() {
+        let home = std::path::Path::new("/home/tester");
+        let cli = agent_mcp_targets("qodercli", home).unwrap();
+        let ide = agent_mcp_targets("qoder", home).unwrap();
+
+        assert!(
+            ide.iter()
+                .all(|target| target.config_path != cli[0].config_path)
+        );
+    }
 }
