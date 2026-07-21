@@ -427,6 +427,10 @@ mod verbatim_output_tests {
     fn sed_awk_file_dumps_are_verbatim() {
         assert!(is_verbatim_output("sed -n '1,50p' build_windows.ps1"));
         assert!(is_verbatim_output("sed -n '/start/,/end/p' file.rs"));
+        // #1084: semicolon-separated multi-range selectors must stay verbatim
+        assert!(is_verbatim_output(
+            "sed -n '236,270p;780,800p' custom_components/solvis_control/const.py"
+        ));
         assert!(is_verbatim_output("sed 's/foo/bar/' file.txt"));
         assert!(is_verbatim_output("awk '{print}' file.txt"));
         assert!(is_verbatim_output("awk -F, '{print $1}' data.csv"));
