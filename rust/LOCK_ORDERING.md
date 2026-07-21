@@ -78,6 +78,9 @@ All `std::sync::Mutex` unless noted otherwise.
 | L65 | `SESSIONS` | `proxy/sticky_tools.rs:17` | `OnceLock<Mutex<HashSet<u64>>>` (fn-local static) | CCR active conversation tracking; capacity-bounded (`MAX_TRACKED`), oldest-first eviction on overflow; independent leaf lock, never nested |
 | L66 | `JOBS` | `server/background_shell.rs:26` | `LazyLock<Mutex<HashMap<String, Job>>>` | Content-addressed background shell jobs; lock is held only to insert, inspect, or remove a job, then released before executing or joining its worker thread; independent leaf lock, never nested |
 | L67 | `BUILD_GATE` | `core/graph_provider.rs:659` | `LazyLock<Mutex<()>>` | Serializes synchronous graph-index builds; acquired with `try_lock()` and held only while the spawned builder is awaited, never nested with another static lock |
+| L68 | `BUDGET_STORE` | `core/ocla/wire_api.rs:54` | `OnceLock<Mutex<BudgetStore>>` | OCLA budget enforcement store; tracks per-scope daily token/USD budgets; independent leaf lock, never nested |
+| L69 | `DASHBOARD_PROJECT` | `core/runtime_flags.rs:10` | `OnceLock<Mutex<Option<String>>>` | Caches the active project name for dashboard display; independent leaf lock, never nested |
+| L70 | `ALLOW_PATHS` | `core/runtime_flags.rs:11` | `OnceLock<Mutex<Vec<PathBuf>>>` | Runtime-configured additional allowed paths for PathJail; independent leaf lock, never nested |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -270,3 +273,4 @@ across any other lock acquisition.
 3. Assign a lock number (append to Section 1) and document the acquisition order here.
 4. If nesting is required, document the outer → inner relationship in Section 3.
 5. Run `cargo check --all-features` to verify `Send`/`Sync` bounds.
+
