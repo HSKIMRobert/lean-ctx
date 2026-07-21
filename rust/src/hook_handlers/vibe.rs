@@ -210,7 +210,14 @@ mod tests {
         .unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         let ti = &v["hook_specific_output"]["tool_input"];
-        assert_eq!(ti["command"], "lean-ctx -c 'git status'");
+        // `wrap_single_command` quotes with `"..."` on Windows (cmd) and
+        // `'...'` on POSIX shells, so the expected wrapping is platform-aware.
+        let expected = if cfg!(windows) {
+            "lean-ctx -c \"git status\""
+        } else {
+            "lean-ctx -c 'git status'"
+        };
+        assert_eq!(ti["command"], expected);
         assert_eq!(ti["timeout"], 42, "non-command fields must be preserved");
     }
 
