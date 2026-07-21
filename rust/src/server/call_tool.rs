@@ -1282,22 +1282,45 @@ mod shell_outcome_tests {
     }
 
     #[test]
-    fn nonzero_exit_sets_is_error_and_structured_exit_code() {
+    fn nonzero_exit_with_output_is_not_error() {
+        // #1090: exit 1 with command output (before [exit:] footer) is NOT
+        // a tool error — grep/diff/test exit 1 with results is normal.
         let r = finalize_call_result("boom\n[exit:1]", Some(ShellOutcome::Exit(1)));
-        assert_eq!(
+        assert_ne!(
             r.is_error,
             Some(true),
-            "non-zero exit must set isError (#389)"
+            "exit 1 with output must NOT set isError (#1090)"
         );
         assert_eq!(
             r.structured_content,
             Some(serde_json::json!({ "exitCode": 1 })),
-            "guards must be able to read exitCode without text parsing"
+            "structuredContent still reports the exit code"
+        );
+    }
+
+    #[test]
+    fn exit_1_without_output_is_error() {
+        // Exit 1 with only the [exit:] footer (no command output) IS an error.
+        let r = finalize_call_result("[exit:1]", Some(ShellOutcome::Exit(1)));
+        assert_eq!(
+            r.is_error,
+            Some(true),
+            "exit 1 with no command output must set isError"
+        );
+    }
+
+    #[test]
+    fn exit_2_is_always_error() {
+        let r = finalize_call_result("error output", Some(ShellOutcome::Exit(2)));
+        assert_eq!(
+            r.is_error,
+            Some(true),
+            "exit >= 2 must always set isError (#389)"
         );
         assert_eq!(
-            text_of(&r),
-            "boom\n[exit:1]",
-            "text content must be preserved"
+            r.structured_content,
+            Some(serde_json::json!({ "exitCode": 2 })),
+            "guards must be able to read exitCode without text parsing"
         );
     }
 
