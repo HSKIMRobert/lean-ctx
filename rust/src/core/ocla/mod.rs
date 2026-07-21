@@ -6,6 +6,7 @@
 
 pub mod budget;
 pub mod builtin;
+pub mod capsule;
 pub mod content_port;
 pub mod grpc_bridge;
 pub mod health;
