@@ -260,6 +260,57 @@ fn dlq_retry_response_schema() -> Value {
     })
 }
 
+fn health_status_schema() -> Value {
+    json!({
+        "oneOf": [
+            {"const": "healthy"},
+            {
+                "type": "object",
+                "required": ["degraded"],
+                "properties": {"degraded": {"type": "string"}}
+            },
+            {
+                "type": "object",
+                "required": ["unhealthy"],
+                "properties": {"unhealthy": {"type": "string"}}
+            }
+        ]
+    })
+}
+
+fn health_component_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["name", "status", "latency_ms"],
+        "properties": {
+            "name": {"type": "string"},
+            "status": health_status_schema(),
+            "latency_ms": {"type": ["integer", "null"], "minimum": 0},
+            "details": {
+                "type": "object",
+                "required": ["total", "oldest_age_secs"],
+                "properties": {
+                    "total": {"type": "integer", "minimum": 0},
+                    "oldest_age_secs": {"type": "integer", "minimum": 0}
+                }
+            }
+        }
+    })
+}
+
+fn health_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["overall", "components", "uptime_seconds", "version"],
+        "properties": {
+            "overall": health_status_schema(),
+            "components": {"type": "array", "items": health_component_schema()},
+            "uptime_seconds": {"type": "integer", "minimum": 0},
+            "version": {"type": "string", "const": OCLA_API_VERSION}
+        }
+    })
+}
+
 fn envelope_batch_response_schema() -> Value {
     json!({
         "type": "object",
@@ -513,11 +564,7 @@ pub fn ocla_openapi_spec() -> Value {
                 "DlqStats": dlq_stats_schema(),
                 "DlqResponse": dlq_response_schema(),
                 "DlqRetryResponse": dlq_retry_response_schema(),
-                "HealthResponse": {
-                    "type": "object",
-                    "required": ["status", "api_version"],
-                    "properties": {"status": {"const": "ok"}, "api_version": {"const": OCLA_API_VERSION}}
-                },
+                "HealthResponse": health_response_schema(),
                 "CapabilitiesResponse": {
                     "type": "object",
                     "required": ["api_version", "capabilities"],
@@ -597,6 +644,9 @@ mod tests {
         assert!(spec["components"]["schemas"]["DlqStats"].is_object());
         assert!(spec["components"]["schemas"]["DlqResponse"].is_object());
         assert!(spec["components"]["schemas"]["DlqRetryResponse"].is_object());
+        assert!(spec["components"]["schemas"]["HealthResponse"].is_object());
+        let serialized = serde_json::to_string(&spec).expect("serialize OpenAPI spec");
+        serde_json::from_str::<Value>(&serialized).expect("OpenAPI spec is valid JSON");
         assert_eq!(
             spec["paths"]["/ocla/v1/envelope"]["post"]["parameters"][0]["name"],
             "Idempotency-Key"
