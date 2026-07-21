@@ -43,6 +43,7 @@ pub mod rule_scorer;
 #[cfg(feature = "experimental")]
 pub mod rule_staleness;
 pub mod rules_canonical;
+pub mod rules_validation;
 pub mod rules_channel;
 pub mod rules_overhead;
 pub mod rules_sections;
