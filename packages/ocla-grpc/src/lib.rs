@@ -25,8 +25,8 @@ pub mod proto {
 
 use proto::ocla_verifier_server::{OclaVerifier, OclaVerifierServer};
 use proto::{
-    AgentEnvelope, CanonicalTokenEnvelope, Direction, Rejection, RequestContext, Surface,
-    VerificationResult,
+    AgentEnvelope, BudgetCheckRequest, BudgetCheckResponse, CanonicalTokenEnvelope, Direction,
+    Rejection, RequestContext, Surface, VerificationResult,
 };
 
 /// Maximum accepted encoded gRPC request size.
@@ -94,6 +94,34 @@ impl OclaVerifier for OclaVerifierService {
         let _permit = self.permit()?;
         Ok(Response::new(verify_agent(request.into_inner())))
     }
+
+    async fn check_budget(
+        &self,
+        request: Request<BudgetCheckRequest>,
+    ) -> Result<Response<BudgetCheckResponse>, Status> {
+        let _permit = self.permit()?;
+        let request = request.into_inner();
+        parse_budget_scope(&request.scope).map_err(Status::invalid_argument)?;
+        Ok(Response::new(BudgetCheckResponse {
+            allowed: true,
+            remaining_tokens: 0,
+            remaining_usd: 0.0,
+            reason: "budget ledger is managed by the main crate".into(),
+        }))
+    }
+}
+
+fn parse_budget_scope(scope: &str) -> Result<(), &'static str> {
+    let (kind, name) = scope
+        .split_once(':')
+        .ok_or("scope must use org:name, team:name, or user:name")?;
+    if name.is_empty() || name.contains(':') {
+        return Err("scope name must be non-empty and contain no ':'");
+    }
+    if !matches!(kind, "org" | "team" | "user") {
+        return Err("scope must use org:name, team:name, or user:name");
+    }
+    Ok(())
 }
 
 /// Parse a listener address and enforce the unauthenticated v1 loopback boundary.
