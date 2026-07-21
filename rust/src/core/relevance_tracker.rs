@@ -1,4 +1,4 @@
-#![allow(dead_code, unreachable_pub, clippy::all)]
+#![allow(clippy::cast_precision_loss)]
 //! Proactive context expansion (#1122): automatically injects previously
 //! compressed data when it becomes relevant to the current request.
 //!
@@ -53,6 +53,12 @@ pub struct RelevanceTracker {
     seq_counter: u64,
     budget_tokens: usize,
     threshold: f64,
+}
+
+impl Default for RelevanceTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RelevanceTracker {
@@ -407,5 +413,36 @@ mod tests {
     fn empty_tracker_returns_no_matches() {
         let tracker = RelevanceTracker::new();
         assert!(tracker.find_matches("anything").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+
+    #[test]
+    fn handles_empty_content_registration() {
+        let mut tracker = RelevanceTracker::new();
+        tracker.register("empty.log".into(), "", "ctx_shell", 0, 0);
+        assert!(tracker.find_matches("anything").is_empty());
+    }
+
+    #[test]
+    fn stopwords_are_excluded() {
+        let keywords = extract_keywords("the and for are but not this that with from");
+        assert!(keywords.is_empty());
+    }
+
+    #[test]
+    fn bm25_handles_empty_inputs() {
+        assert_eq!(bm25_score(&[], &["test".into()]), 0.0);
+        assert_eq!(bm25_score(&["test".into()], &[]), 0.0);
+        assert_eq!(bm25_score(&[], &[]), 0.0);
+    }
+
+    #[test]
+    fn default_impl_works() {
+        let tracker = RelevanceTracker::default();
+        assert!(tracker.find_matches("test").is_empty());
     }
 }

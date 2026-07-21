@@ -407,7 +407,9 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
     // output verbatim. Never let the generic terse/dedup/truncate fallbacks
     // below reshape it — they would corrupt commit subjects/hashes or drop
     // commits the caller explicitly requested (`git log --oneline -40`).
-    if has_structural_output(command) || patterns::has_vcs_owner(command) {
+    if !is_chained_command(command)
+        && (has_structural_output(command) || patterns::has_vcs_owner(command))
+    {
         let cl = command.to_ascii_lowercase();
         if let Some(compressed) = patterns::try_specific_pattern(&cl, output)
             && !compressed.trim().is_empty()
@@ -420,7 +422,8 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
         return output.to_string();
     }
 
-    if let Some(mut compressed) = patterns::compress_output(command, output)
+    if !is_chained_command(command)
+        && let Some(mut compressed) = patterns::compress_output(command, output)
         && !compressed.trim().is_empty()
     {
         let level = crate::core::config::CompressionLevel::effective(&cfg);
@@ -928,6 +931,30 @@ fn flush_progress_run(out: &mut Vec<String>, kind: Option<ProgressKind>, lines: 
 fn maybe_fold_progress(output: &str, original_tokens: usize) -> Option<String> {
     let folded = fold_repetitive_progress(output)?;
     (count_tokens(&folded) < original_tokens).then_some(folded)
+}
+
+/// Detects shell command chains (`&&`, `;`) outside of quotes.
+///
+/// Chained commands must skip pattern-based compression because each pattern
+/// matcher assumes a single command's output shape — applying the first
+/// segment's pattern to the whole chain silently drops later segments (#1130).
+pub(crate) fn is_chained_command(command: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let bytes = command.as_bytes();
+    let len = bytes.len();
+    for i in 0..len {
+        match bytes[i] {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'&' if !in_single && !in_double && i + 1 < len && bytes[i + 1] == b'&' => {
+                return true;
+            }
+            b';' if !in_single && !in_double => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 pub fn compress_if_beneficial_pub(command: &str, output: &str) -> String {
