@@ -6,6 +6,7 @@ package leanctx.ocla.v1;
 service OclaVerifier {
   rpc VerifyTokenEnvelope(CanonicalTokenEnvelope) returns (VerificationResult);
   rpc VerifyAgentEnvelope(AgentEnvelope) returns (VerificationResult);
+  rpc CheckBudget(BudgetCheckRequest) returns (BudgetCheckResponse);
 }
 
 message RequestContext {
@@ -14,6 +15,20 @@ message RequestContext {
   string agent_id = 3;
   string content_ref = 4;
   optional string tenant_id = 5;
+  optional string trace_id = 6;
+}
+
+message BudgetCheckRequest {
+  string scope = 1;
+  uint64 tokens = 2;
+  double usd = 3;
+}
+
+message BudgetCheckResponse {
+  bool allowed = 1;
+  uint64 remaining_tokens = 2;
+  double remaining_usd = 3;
+  string reason = 4;
 }
 
 enum Surface {
