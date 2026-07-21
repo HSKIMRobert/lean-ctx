@@ -287,7 +287,15 @@ impl McpTool for CtxShellTool {
             // Foreground runs still detach onto a pollable job if they outlast
             // the soft cap, so the MCP host's ~120s abort never strands the
             // result behind an unresolvable task id (#1106).
-            let soft_cap = std::time::Duration::from_millis(foreground_soft_cap_ms());
+            // #1106: honour explicit timeout_ms — if the caller requested a
+            // longer wait, raise the foreground cap so long builds (clippy, fmt)
+            // finish inline instead of being pushed to background+poll.
+            let default_cap = foreground_soft_cap_ms();
+            let effective_cap = match timeout_ms {
+                Some(t) if t > default_cap => t,
+                _ => default_cap,
+            };
+            let soft_cap = std::time::Duration::from_millis(effective_cap);
             let (raw_output, exit_code) =
                 match crate::server::background_shell::run_foreground_or_detach(
                     cmd_clone.clone(),
