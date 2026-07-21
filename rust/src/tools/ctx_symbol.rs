@@ -26,7 +26,7 @@ pub fn handle(
     if matches.is_empty() {
         return (
             format!(
-                "Symbol '{name}' not found in index ({} symbols indexed). \
+                "Symbol '{name}' not found in index ({} symbols indexed, root={project_root}). \
                  Try ctx_search(pattern=\"{name}\") for a broader search.",
                 gp.symbol_count()
             ),

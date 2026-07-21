@@ -346,13 +346,36 @@ fn handle_semantic(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolO
     Ok(semantic_output(result))
 }
 
+/// #1108: when `path` or `file` is an absolute path under a different project,
+/// resolve that project's root for the graph lookup. Falls back to the session
+/// project_root when no cross-project path is given.
+fn resolve_symbol_root(args: &Map<String, Value>, session_root: &str) -> String {
+    let candidate = get_str(args, "path")
+        .or_else(|| get_str(args, "file"))
+        .filter(|p| std::path::Path::new(p.as_str()).is_absolute());
+
+    if let Some(abs_path) = candidate {
+        if let Some(detected) = crate::core::protocol::detect_project_root(&abs_path) {
+            if detected != session_root {
+                return detected;
+            }
+        }
+    }
+    session_root.to_string()
+}
+
 /// `action=symbol` — one symbol's body. A `handle` (`path#name@Lline`) resolves
 /// deterministically (exact, no fuzzy/disambiguation); otherwise `name` runs the
 /// fuzzy lookup. Both route to the shared `ctx_symbol` core.
 fn handle_symbol(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutput, ErrorData> {
+    // #1108: resolve graph root from `path` when given, instead of always
+    // using the sticky session project_root. This enables cross-repo symbol
+    // lookup in multi-project MCP sessions.
+    let effective_root = resolve_symbol_root(args, &ctx.project_root);
+
     if let Some(handle) = get_str(args, "handle") {
         let (result, original) =
-            crate::tools::ctx_symbol::render_by_handle(&handle, &ctx.project_root);
+            crate::tools::ctx_symbol::render_by_handle(&handle, &effective_root);
         let sent = crate::core::tokens::count_tokens(&result);
         return Ok(ToolOutput {
             text: result,
@@ -372,12 +395,8 @@ fn handle_symbol(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOut
     let file = get_str(args, "file");
     let kind = get_str(args, "kind");
 
-    let (result, original) = crate::tools::ctx_symbol::handle(
-        &name,
-        file.as_deref(),
-        kind.as_deref(),
-        &ctx.project_root,
-    );
+    let (result, original) =
+        crate::tools::ctx_symbol::handle(&name, file.as_deref(), kind.as_deref(), &effective_root);
     let sent = crate::core::tokens::count_tokens(&result);
     Ok(ToolOutput {
         text: result,
