@@ -48,6 +48,7 @@ mod lineage;
 pub mod metrics;
 pub mod model_router;
 pub mod models_api;
+pub mod ocla_cache_bridge;
 pub mod openai;
 pub mod openai_responses;
 pub mod openai_responses_ws;
