@@ -646,6 +646,7 @@ mod tests {
     #[test]
     fn overview_header_surfaces_persisted_call_edges() {
         use crate::core::call_graph::{CallEdge, CallGraph};
+        use crate::core::graph_index::{FileEntry, ProjectIndex};
 
         let _lock = crate::core::data_dir::test_env_lock();
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -661,6 +662,23 @@ mod tests {
         )
         .unwrap();
         let root_str = root.to_str().unwrap();
+
+        // Pre-build a ProjectIndex so open_existing finds it immediately
+        // without needing the static BUILD_GATE (which parallel tests may hold).
+        let mut idx = ProjectIndex::new(root_str);
+        idx.files.insert(
+            "src/main.rs".to_string(),
+            FileEntry {
+                path: "src/main.rs".to_string(),
+                hash: "h".to_string(),
+                language: "rs".to_string(),
+                line_count: 2,
+                token_count: 10,
+                exports: vec![],
+                summary: String::new(),
+            },
+        );
+        idx.save().expect("save pre-built index");
 
         let mut graph = CallGraph::new(root_str);
         graph.edges.push(CallEdge {
