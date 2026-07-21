@@ -343,11 +343,11 @@ mod tests {
         for i in 0..turns {
             messages.push(make_message(
                 "user",
-                &format!("Question {} about the codebase: {}", i, "x".repeat(200)),
+                &format!("Question {} about the codebase: {}", i, "x".repeat(2000)),
             ));
             messages.push(make_message(
                 "assistant",
-                &format!("Answer {}: Here's what I found. {}", i, "y".repeat(300)),
+                &format!("Answer {}: Here's what I found. {}", i, "y".repeat(3000)),
             ));
         }
         messages
@@ -394,7 +394,7 @@ mod tests {
             "assistant",
             "error[E0308]: mismatched types\n  --> src/main.rs:5:5",
         );
-        let score = score_message(&msg, 5, 100, &[]);
+        let score = score_message(&msg, 80, 100, &[]);
         assert!(
             score > SUMMARIZE_SCORE,
             "Error message should score above summarize threshold"
