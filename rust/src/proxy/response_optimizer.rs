@@ -717,7 +717,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "response:test".into(),
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             },
             response_ref: "blake3:response-optimizer-test".into(),
             original_tokens: 1_000,

@@ -88,7 +88,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             },
             response_ref: "resp:abc".into(),
             original_tokens: original,

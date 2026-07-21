@@ -32,7 +32,7 @@ pub(super) fn classify_and_store_proxy_intent(
             agent_id: "proxy".to_string(),
             content_ref,
             tenant_id: None,
-            trace_id: String::new(),
+            trace_id: "tr-unit".into(),
         }
     });
     let request = crate::core::ocla::types::IntentRequest {

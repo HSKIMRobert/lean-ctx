@@ -149,7 +149,7 @@ mod http {
                 .await
                 .expect("response");
             assert_eq!(response.status(), StatusCode::OK);
-            let body = to_bytes(response.into_body(), 1024).await.expect("body");
+            let body = to_bytes(response.into_body(), 4096).await.expect("body");
             assert!(body.windows(2).any(|window| window == b"ok"));
         }
     }
