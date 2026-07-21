@@ -18,7 +18,7 @@ impl McpTool for CtxShellTool {
         tool_def(
             "ctx_shell",
             "WORKFLOW: preferred — auto-compresses output (build/test/log).\n\
-             raw=true for verbatim output.\n\
+              raw=true for verbatim output; inline=true for moderately-sized verbatim output.\n\
              [exit:N] on errors (lossless).\n\
              POLICY (by design): allowlisted read-only path; ctx_execute is the trusted script path.\n\
              A [BLOCKED] command is permanent — escalate to ctx_execute(language=\"shell\"), do not retry here.\n\
@@ -28,6 +28,7 @@ impl McpTool for CtxShellTool {
                 "properties": {
                     "command": { "type": "string", "description": "Shell command" },
                     "raw": { "type": "boolean", "description": "Skip compression (verbatim)" },
+                    "inline": { "type": "boolean", "description": "Return verbatim output inline up to archive.inline_max_bytes; larger output uses the archive/firewall" },
                     "cwd": { "type": "string", "description": "Working dir (persists across calls)" },
                     "timeout_ms": { "type": "integer", "description": "Per-call timeout in ms (max 3600000). Overridden by LEAN_CTX_SHELL_TIMEOUT_MS." },
                     "env": { "type": "object", "description": "Extra env vars", "additionalProperties": { "type": "string" } },
@@ -325,7 +326,8 @@ impl McpTool for CtxShellTool {
 
             let output = redact_shell_output_secrets(&raw_output);
 
-            let (result_out, original, saved, tee_hint) = if raw {
+            let inline = get_bool(args, "inline").unwrap_or(false);
+            let (result_out, original, saved, tee_hint) = if raw || inline {
                 let tokens = crate::core::tokens::count_tokens(&output);
                 (output, tokens, 0, String::new())
             } else {
