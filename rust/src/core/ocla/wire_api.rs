@@ -19,6 +19,9 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/health", get(health))
         .route("/ocla/v1/capabilities", get(capabilities))
         .route("/ocla/v1/envelope", post(envelope))
+        .route("/ocla/v1/envelope/batch", post(envelope_batch))
+        .route("/ocla/v1/agents", get(agents))
+        .route("/ocla/v1/metrics", get(metrics))
         .route("/ocla/v1/ledger/summary", get(ledger_summary))
 }
 
@@ -62,6 +65,68 @@ async fn envelope(
     body: String,
 ) -> Result<Json<CanonicalTokenEnvelopeV1>, (StatusCode, Json<Value>)> {
     decode_envelope(&body).map(Json).map_err(invalid_request)
+}
+
+#[derive(Serialize)]
+struct BatchEnvelopeResult {
+    valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    envelope: Option<CanonicalTokenEnvelopeV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn envelope_batch(Json(envelopes): Json<Vec<Value>>) -> Json<Vec<BatchEnvelopeResult>> {
+    let results = envelopes
+        .into_iter()
+        .map(|envelope| match serde_json::to_string(&envelope) {
+            Ok(json) => match decode_envelope(&json) {
+                Ok(envelope) => BatchEnvelopeResult {
+                    valid: true,
+                    envelope: Some(envelope),
+                    error: None,
+                },
+                Err(error) => BatchEnvelopeResult {
+                    valid: false,
+                    envelope: None,
+                    error: Some(error.to_string()),
+                },
+            },
+            Err(error) => BatchEnvelopeResult {
+                valid: false,
+                envelope: None,
+                error: Some(error.to_string()),
+            },
+        })
+        .collect();
+    Json(results)
+}
+
+#[derive(Serialize)]
+struct AgentsResponse {
+    agents: Vec<Value>,
+}
+
+async fn agents() -> Json<AgentsResponse> {
+    Json(AgentsResponse { agents: Vec::new() })
+}
+
+#[derive(Serialize)]
+struct MetricsResponse {
+    total_events: usize,
+    saved_tokens: u64,
+    saved_usd: f64,
+    trait_adoption_count: usize,
+}
+
+async fn metrics() -> Json<MetricsResponse> {
+    let summary = crate::core::savings_ledger::summary();
+    Json(MetricsResponse {
+        total_events: summary.total_events,
+        saved_tokens: summary.saved_tokens,
+        saved_usd: summary.saved_usd,
+        trait_adoption_count: OclaCapabilityKind::ALL.len(),
+    })
 }
 
 #[derive(Serialize)]
@@ -230,5 +295,67 @@ mod tests {
         assert!(body.get("events").is_some());
         assert!(body.get("tokens").is_some());
         assert!(body.get("usd").is_some());
+    }
+
+    #[tokio::test]
+    async fn agents_endpoint_returns_registered_agents_schema() {
+        let response = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/ocla/v1/agents")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_response(response).await, json!({"agents": []}));
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_returns_key_ocla_metrics() {
+        let response = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/ocla/v1/metrics")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert!(body.get("total_events").is_some());
+        assert!(body.get("saved_tokens").is_some());
+        assert!(body.get("saved_usd").is_some());
+        assert_eq!(body["trait_adoption_count"], 14);
+    }
+
+    #[tokio::test]
+    async fn envelope_batch_endpoint_reports_valid_and_invalid_items() {
+        let body = json!([valid_envelope(), {"schema_version": 99}]);
+        let response = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/envelope/batch")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let results = json_response(response).await;
+        assert_eq!(results.as_array().expect("results").len(), 2);
+        assert_eq!(results[0]["valid"], true);
+        assert_eq!(results[0]["envelope"], json!(valid_envelope()));
+        assert_eq!(results[1]["valid"], false);
+        assert!(results[1].get("error").is_some());
     }
 }
