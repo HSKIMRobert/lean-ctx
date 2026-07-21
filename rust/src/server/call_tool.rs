@@ -1212,9 +1212,9 @@ fn finalize_call_result(
     result_text: String,
     shell_outcome: Option<crate::server::tool_trait::ShellOutcome>,
 ) -> CallToolResult {
-    let mut result = CallToolResult::success(vec![ContentBlock::text(result_text)]);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(result_text.clone())]);
     if let Some(outcome) = shell_outcome {
-        if outcome.is_error() {
+        if is_shell_error(outcome, &result_text) {
             result.is_error = Some(true);
         }
         if let Some(structured) = outcome.structured() {
@@ -1222,6 +1222,21 @@ fn finalize_call_result(
         }
     }
     result
+}
+
+/// #1090: exit 1 with non-empty stdout is not an error for grep/diff/test.
+/// Only treat non-zero exits as tool errors when the output is empty or the
+/// exit code is >= 2. This prevents Claude Code's PostToolUseFailure hook
+/// from firing on successful grep/diff/test commands.
+fn is_shell_error(outcome: crate::server::tool_trait::ShellOutcome, output: &str) -> bool {
+    match outcome {
+        crate::server::tool_trait::ShellOutcome::Exit(0) => false,
+        crate::server::tool_trait::ShellOutcome::Exit(1) => {
+            output.trim().is_empty() || output.trim().starts_with("[exit:")
+        }
+        crate::server::tool_trait::ShellOutcome::Exit(_) => true,
+        crate::server::tool_trait::ShellOutcome::Blocked => true,
+    }
 }
 
 #[cfg(test)]
