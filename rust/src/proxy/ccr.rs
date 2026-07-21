@@ -96,6 +96,7 @@ pub(crate) fn persist(content: &str) -> Option<String> {
 /// Conversation messages may be short, so unlike tool-output tees this path has
 /// no minimum-size gate. The returned basename is sufficient for `ctx_expand` and
 /// avoids putting machine-specific absolute paths into provider prompts.
+#[allow(dead_code)]
 pub(crate) fn persist_conversation(content: &str) -> Option<String> {
     let path = persist_with_min(content, "conv", 1)?;
     Path::new(&path)

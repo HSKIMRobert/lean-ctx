@@ -116,13 +116,16 @@ fn collect_push_files(
     ignore_patterns: &[String],
 ) -> Result<Vec<PathBuf>, String> {
     if !root.exists() {
-        return Err(format!("{root:?} does not exist"));
+        return Err(format!("{} does not exist", root.display()));
     }
     if root.is_file() {
         return Ok(vec![root.to_path_buf()]);
     }
     if !root.is_dir() {
-        return Err(format!("{root:?} is not a regular file or directory"));
+        return Err(format!(
+            "{} is not a regular file or directory",
+            root.display()
+        ));
     }
 
     let root_string = root.to_string_lossy().into_owned();
@@ -164,7 +167,7 @@ fn collect_push_files(
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
         .filter(|entry| !entry.path_is_symlink())
-        .map(|entry| entry.into_path())
+        .map(ignore::DirEntry::into_path)
         .collect::<Vec<_>>();
     files.sort();
     Ok(files)

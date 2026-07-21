@@ -64,6 +64,7 @@ pub(crate) fn install_codex_env_at(config_dir: &Path, port: u16, quiet: bool) {
     install_codex_env_at_mode(config_dir, port, quiet, CodexProxyMode::ApiKey, false);
 }
 
+#[allow(dead_code)]
 pub(crate) fn install_codex_env_at_mode(
     config_dir: &Path,
     port: u16,
@@ -132,7 +133,7 @@ fn install_codex_env_at_path(
         return;
     }
 
-    let existing = std::fs::read_to_string(&config_path).unwrap_or_default();
+    let existing = std::fs::read_to_string(config_path).unwrap_or_default();
     let updated = render_codex_config(&existing, &entries, provider_block.as_deref());
 
     if updated == existing {
@@ -149,7 +150,7 @@ fn install_codex_env_at_path(
         return;
     }
 
-    let _ = std::fs::write(&config_path, &updated);
+    let _ = std::fs::write(config_path, &updated);
     if !quiet {
         match mode {
             CodexProxyMode::ApiKey => {

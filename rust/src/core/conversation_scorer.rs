@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Pure message-importance scoring for proxy conversation compression (#1123).
 //!
 //! Scoring depends only on the supplied message array and positions. It does
