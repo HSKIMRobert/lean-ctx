@@ -8,15 +8,12 @@ use axum::{
 use std::borrow::Cow;
 
 use super::ProxyState;
-use super::codec::{decode_gzip_bounded, decode_zstd_bounded, encode_gzip, encode_zstd};
+use super::codec::{
+    RequestBodyEncoding, decode_gzip_bounded, decode_zstd_bounded, encode_gzip, encode_zstd,
+    is_retryable_status, request_body_encoding, retry_backoff,
+};
 use super::connector::schedule_provider_connector;
-
-const INTENT_MESSAGE_CAP: usize = 2000;
-
-#[derive(Clone, Debug)]
-struct ProxyIntentClassification {
-    _decision: crate::core::ocla::types::IntentDecision,
-}
+use super::intent::classify_and_store_proxy_intent;
 
 /// Header set by Headroom when it has already compressed the request.
 const HEADROOM_COMPRESSED_HEADER: &str = "x-headroom-compressed";
@@ -310,101 +307,6 @@ pub async fn forward_request(
     .await
 }
 
-fn classify_and_store_proxy_intent(
-    parts: &mut Parts,
-    parsed: Option<&serde_json::Value>,
-    lineage: Option<&crate::core::ocla::types::OclaRequestContext>,
-    body_bytes: &[u8],
-) -> Option<ProxyIntentClassification> {
-    let model = parsed
-        .and_then(|value| value.get("model"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .or_else(|| super::usage::gemini_model_from_path(parts.uri.path()))
-        .unwrap_or_else(|| "unknown".to_string());
-    let message = parsed.and_then(proxy_intent_message);
-    let candidate = match message.as_deref() {
-        Some(message) => format!("model={model}; message={message}"),
-        None => format!("model={model}"),
-    };
-    let context = lineage.cloned().unwrap_or_else(|| {
-        let content_ref = format!("blake3:{}", blake3::hash(body_bytes).to_hex());
-        crate::core::ocla::types::OclaRequestContext {
-            request_id: format!("proxy-intent:{content_ref}"),
-            session_id: "proxy".to_string(),
-            agent_id: "proxy".to_string(),
-            content_ref,
-            tenant_id: None,
-        }
-    });
-    let request = crate::core::ocla::types::IntentRequest {
-        context,
-        candidate_intents: vec![candidate],
-    };
-    let decision = match crate::core::ocla::OclaRegistry::global()
-        .intent_classifier
-        .classify_intent(request)
-    {
-        Ok(decision) => decision,
-        Err(error) => {
-            tracing::warn!("lean-ctx proxy intent classifier unavailable: {error:?}");
-            return None;
-        }
-    };
-    let classification = ProxyIntentClassification {
-        _decision: decision,
-    };
-    // Preserve the pre-forward decision for downstream post-forward routing
-    // and accounting hooks without classifying the request a second time.
-    parts.extensions.insert(classification.clone());
-    Some(classification)
-}
-
-fn proxy_intent_message(parsed: &serde_json::Value) -> Option<String> {
-    let items = parsed.get("messages").or_else(|| parsed.get("input"))?;
-    if let Some(text) = items.as_str() {
-        return bounded_intent_text(text);
-    }
-    let last_user = items
-        .as_array()?
-        .iter()
-        .rev()
-        .find(|item| item.get("role").and_then(serde_json::Value::as_str) == Some("user"))?;
-    let content = last_user.get("content")?;
-    if let Some(text) = content.as_str() {
-        return bounded_intent_text(text);
-    }
-    let mut message = String::new();
-    for part in content.as_array()? {
-        if matches!(
-            part.get("type").and_then(serde_json::Value::as_str),
-            Some("text" | "input_text")
-        ) && let Some(text) = part.get("text").and_then(serde_json::Value::as_str)
-        {
-            if !message.is_empty() {
-                message.push(' ');
-            }
-            message.push_str(text);
-            if message.len() >= INTENT_MESSAGE_CAP {
-                break;
-            }
-        }
-    }
-    bounded_intent_text(&message)
-}
-
-fn bounded_intent_text(text: &str) -> Option<String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let mut end = trimmed.len().min(INTENT_MESSAGE_CAP);
-    while !trimmed.is_char_boundary(end) {
-        end -= 1;
-    }
-    Some(trimmed[..end].to_string())
-}
-
 /// Requested model for the policy gate (enterprise#25): from the JSON body
 /// (Anthropic/OpenAI dialects) or the URL path (Gemini). Encrypted-passthrough
 /// or unparseable bodies yield `None` — the ceiling governs what the gateway
@@ -524,14 +426,6 @@ struct PreparedRequestBody {
     preserve_content_encoding: bool,
     /// Routing decision applied to the body (enterprise#13); `None` = passthrough.
     route: Option<super::routing::RouteDecision>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RequestBodyEncoding {
-    Identity,
-    Gzip,
-    Zstd,
-    Passthrough,
 }
 
 fn prepare_request_body(
@@ -745,43 +639,6 @@ pub(super) fn is_allowed_request_header(name: &str) -> bool {
 fn should_forward_request_header(name: &str, preserve_content_encoding: bool) -> bool {
     is_allowed_request_header(name)
         || (preserve_content_encoding && name.eq_ignore_ascii_case("content-encoding"))
-}
-
-fn request_body_encoding(parts: &Parts) -> RequestBodyEncoding {
-    let Some(value) = parts
-        .headers
-        .get(axum::http::header::CONTENT_ENCODING)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return RequestBodyEncoding::Identity;
-    };
-
-    let encodings = value
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty() && !part.eq_ignore_ascii_case("identity"))
-        .collect::<Vec<_>>();
-    match encodings.as_slice() {
-        [] => RequestBodyEncoding::Identity,
-        [encoding] if encoding.eq_ignore_ascii_case("gzip") => RequestBodyEncoding::Gzip,
-        [encoding] if encoding.eq_ignore_ascii_case("zstd") => RequestBodyEncoding::Zstd,
-        _ => RequestBodyEncoding::Passthrough,
-    }
-}
-
-/// 504 are excluded — the model may have already consumed/billed the call.
-fn is_retryable_status(status: reqwest::StatusCode) -> bool {
-    matches!(status.as_u16(), 429 | 502 | 503)
-}
-
-/// Short jittered backoff before the single retry: enough for a load balancer
-/// to fail over or a rate-limit window to move, never long enough to stack up
-/// under load (fail-open rule — the client's own retry logic stays primary).
-async fn retry_backoff() {
-    let mut buf = [0u8; 2];
-    let jitter_ms =
-        getrandom::fill(&mut buf).map_or(100, |()| u64::from(u16::from_le_bytes(buf)) % 200);
-    tokio::time::sleep(std::time::Duration::from_millis(150 + jitter_ms)).await;
 }
 
 async fn send_upstream(
@@ -1031,6 +888,7 @@ fn xlat_response_bytes(resp_bytes: &[u8], _status: StatusCode) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use super::intent::ProxyIntentClassification;
     use super::*;
     use crate::core::ocla::registry::with_test_registry;
     use crate::core::ocla::traits::{IntentClassifier, OclaService};

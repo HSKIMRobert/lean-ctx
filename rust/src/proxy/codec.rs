@@ -48,3 +48,44 @@ pub(super) fn read_bounded<R: Read>(reader: R, max_bytes: usize) -> Result<Vec<u
     }
     Ok(out)
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RequestBodyEncoding {
+    Identity,
+    Gzip,
+    Zstd,
+    Passthrough,
+}
+
+pub(super) fn request_body_encoding(parts: &axum::http::request::Parts) -> RequestBodyEncoding {
+    let Some(value) = parts
+        .headers
+        .get(axum::http::header::CONTENT_ENCODING)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return RequestBodyEncoding::Identity;
+    };
+
+    let encodings = value
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !part.eq_ignore_ascii_case("identity"))
+        .collect::<Vec<_>>();
+    match encodings.as_slice() {
+        [] => RequestBodyEncoding::Identity,
+        [encoding] if encoding.eq_ignore_ascii_case("gzip") => RequestBodyEncoding::Gzip,
+        [encoding] if encoding.eq_ignore_ascii_case("zstd") => RequestBodyEncoding::Zstd,
+        _ => RequestBodyEncoding::Passthrough,
+    }
+}
+
+pub(super) fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 429 | 502 | 503)
+}
+
+pub(super) async fn retry_backoff() {
+    let mut buf = [0u8; 2];
+    let jitter_ms =
+        getrandom::fill(&mut buf).map_or(100, |()| u64::from(u16::from_le_bytes(buf)) % 200);
+    tokio::time::sleep(std::time::Duration::from_millis(150 + jitter_ms)).await;
+}

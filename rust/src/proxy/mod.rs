@@ -42,6 +42,7 @@ pub mod google;
 pub mod history_prune;
 pub mod holdout;
 pub mod image_compression;
+mod intent;
 pub mod introspect;
 mod lineage;
 pub mod metrics;
