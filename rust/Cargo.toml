@@ -309,6 +309,7 @@ ort = { version = "=2.0.0-rc.12", optional = true, default-features = false, fea
 ] }
 ndarray = { version = "0.17", optional = true }
 axum = { version = "0.8", optional = true, features = ["ws"] }
+tower = "0.5"
 # Upstream WebSocket client for the Codex ChatGPT remote-control passthrough
 # (#597): tunnels `/backend-api` WS upgrades through to wss://chatgpt.com so
 # Codex Desktop remote-control pairing works while the subscription opt-in routes
@@ -471,7 +472,6 @@ jsonschema = { version = "0.46", default-features = false }
 proptest = "1.11"
 serial_test = "3.5"
 tempfile = "3.27"
-tower = "0.5"
 wat = "1.252"
 
 [[bench]]

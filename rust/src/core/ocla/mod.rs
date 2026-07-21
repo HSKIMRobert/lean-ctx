@@ -14,6 +14,8 @@ pub mod unified_ledger;
 pub mod wire;
 #[cfg(feature = "http-server")]
 pub mod wire_api;
+#[cfg(feature = "http-server")]
+pub mod wire_middleware;
 pub mod wire_stream;
 
 pub use registry::OclaRegistry;
