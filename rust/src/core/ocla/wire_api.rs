@@ -8,6 +8,7 @@ use axum::{
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::health::{SystemHealth, check_system_health};
 use super::{
     CanonicalTokenEnvelopeV1, OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaRegistry,
 };
@@ -25,8 +26,8 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/ledger/summary", get(ledger_summary))
 }
 
-async fn health() -> Json<Value> {
-    Json(json!({"status": "ok", "version": OCLA_API_VERSION}))
+async fn health() -> Json<SystemHealth> {
+    Json(check_system_health())
 }
 
 #[derive(Serialize)]
@@ -199,7 +200,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_endpoint_returns_status_and_version() {
+    async fn health_endpoint_returns_full_report() {
         let response = ocla_router()
             .oneshot(
                 Request::builder()
@@ -212,10 +213,11 @@ mod tests {
             .expect("response");
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            json_response(response).await,
-            json!({"status": "ok", "version": OCLA_API_VERSION})
-        );
+        let body = json_response(response).await;
+        assert_eq!(body["version"], OCLA_API_VERSION);
+        assert_eq!(body["components"].as_array().expect("components").len(), 17);
+        assert!(body.get("overall").is_some());
+        assert!(body.get("uptime_seconds").is_some());
     }
 
     #[tokio::test]
