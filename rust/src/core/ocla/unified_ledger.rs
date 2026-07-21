@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -30,6 +31,16 @@ pub struct UnifiedSavingsEventV2 {
     pub attribution_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+}
+
+/// Comparison of the legacy and unified savings ledgers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReconciliationReport {
+    pub matched: usize,
+    pub unmatched_legacy: usize,
+    pub unmatched_unified: usize,
+    pub token_drift: i64,
+    pub double_bookings: Vec<String>,
 }
 
 /// Unified ledger contract for P5 migration and eventual legacy replacement.
@@ -80,6 +91,60 @@ impl FileUnifiedLedger {
             .collect();
         let _ = file.unlock();
         result
+    }
+
+    fn read_legacy_events(&self) -> Vec<SavingsEvent> {
+        let events_path = self.path.with_file_name("events.jsonl");
+        if events_path.exists() {
+            crate::core::savings_ledger::store::load(&events_path)
+        } else {
+            crate::core::savings_ledger::store::load(&self.path.with_file_name("ledger.jsonl"))
+        }
+    }
+
+    /// Compares legacy and unified entries by hash and reports accounting drift.
+    pub fn reconcile(&self) -> OclaResult<ReconciliationReport> {
+        let legacy = self.read_legacy_events();
+        let unified = self.read_events()?;
+        let mut counts: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+
+        let legacy_tokens: u64 = legacy.iter().map(|event| event.saved_tokens).sum();
+        for event in &legacy {
+            counts.entry(event.entry_hash.clone()).or_default().0 += 1;
+        }
+
+        let unified_tokens: u64 = unified.iter().map(|event| event.saved_tokens).sum();
+        for event in &unified {
+            counts.entry(event.event_hash.clone()).or_default().1 += 1;
+        }
+
+        let matched = counts
+            .values()
+            .map(|(legacy_count, unified_count)| (*legacy_count).min(*unified_count))
+            .sum();
+        let double_bookings = counts
+            .into_iter()
+            .filter_map(|(hash, (legacy_count, unified_count))| {
+                (legacy_count > 1 || unified_count > 1).then_some(hash)
+            })
+            .collect();
+
+        let token_delta = i128::from(unified_tokens) - i128::from(legacy_tokens);
+        let token_drift = i64::try_from(token_delta).unwrap_or_else(|_| {
+            if token_delta.is_negative() {
+                i64::MIN
+            } else {
+                i64::MAX
+            }
+        });
+
+        Ok(ReconciliationReport {
+            matched,
+            unmatched_legacy: legacy.len() - matched,
+            unmatched_unified: unified.len() - matched,
+            token_drift,
+            double_bookings,
+        })
     }
 
     pub(crate) fn from_savings_event(event: &SavingsEvent) -> OclaResult<UnifiedSavingsEventV2> {
@@ -291,5 +356,75 @@ mod tests {
             60
         );
         let _ = fs::remove_file(path);
+    }
+
+    fn legacy_event(saved_tokens: u64) -> SavingsEvent {
+        serde_json::from_value(serde_json::json!({
+            "ts": "2026-06-01T00:00:00+00:00",
+            "tool": "ctx_read",
+            "mechanism": "compression",
+            "model_id": "test-model",
+            "tokenizer": "o200k_base",
+            "baseline_tokens": 100,
+            "actual_tokens": 100 - saved_tokens,
+            "saved_tokens": saved_tokens,
+            "bounce_adjustment": 0,
+            "unit_price_per_m_usd": 2.5,
+            "saved_usd": saved_tokens as f64 * 2.5 / 1_000_000.0,
+            "repo_hash": "repo",
+            "agent_id": "agent",
+            "prev_hash": "",
+            "entry_hash": "",
+            "version": "test"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn reconcile_matches_legacy_and_unified_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let savings = dir.path().join("savings");
+        let legacy_path = savings.join("events.jsonl");
+        let unified_path = savings.join("unified_ledger.jsonl");
+        let legacy =
+            crate::core::savings_ledger::store::append(&legacy_path, legacy_event(60)).unwrap();
+        let ledger = FileUnifiedLedger::new(unified_path);
+        ledger
+            .record_unified(FileUnifiedLedger::from_savings_event(&legacy).unwrap())
+            .unwrap();
+
+        assert_eq!(
+            ledger.reconcile().unwrap(),
+            ReconciliationReport {
+                matched: 1,
+                unmatched_legacy: 0,
+                unmatched_unified: 0,
+                token_drift: 0,
+                double_bookings: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn reconcile_reports_drift_and_double_bookings() {
+        let dir = tempfile::tempdir().unwrap();
+        let savings = dir.path().join("savings");
+        let legacy_path = savings.join("events.jsonl");
+        let unified_path = savings.join("unified_ledger.jsonl");
+        let legacy =
+            crate::core::savings_ledger::store::append(&legacy_path, legacy_event(60)).unwrap();
+        let ledger = FileUnifiedLedger::new(unified_path);
+        let unified = FileUnifiedLedger::from_savings_event(&legacy).unwrap();
+        ledger.record_unified(unified.clone()).unwrap();
+        let mut duplicate = unified;
+        duplicate.prev_hash = duplicate.event_hash.clone();
+        ledger.record_unified(duplicate).unwrap();
+
+        let report = ledger.reconcile().unwrap();
+        assert_eq!(report.matched, 1);
+        assert_eq!(report.unmatched_legacy, 0);
+        assert_eq!(report.unmatched_unified, 1);
+        assert_eq!(report.token_drift, 60);
+        assert_eq!(report.double_bookings, vec![legacy.entry_hash]);
     }
 }
