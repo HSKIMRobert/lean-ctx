@@ -47,6 +47,7 @@ fn classify_read_mode(
             agent_id: "ctx_intent".to_string(),
             content_ref: format!("query:{}", crate::core::hasher::hash_str(query)),
             tenant_id: None,
+            trace_id: String::new(),
         },
         candidate_intents,
     };
