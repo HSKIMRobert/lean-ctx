@@ -210,6 +210,56 @@ fn metrics_response_schema() -> Value {
     })
 }
 
+fn dlq_entry_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": [
+            "id", "original_message", "target_agent", "error", "attempts",
+            "first_failed_at", "last_failed_at"
+        ],
+        "properties": {
+            "id": {"type": "string", "minLength": 1},
+            "original_message": {"type": "string"},
+            "target_agent": {"type": "string"},
+            "error": {"type": "string"},
+            "attempts": {"type": "integer", "minimum": 0, "maximum": 255},
+            "first_failed_at": {"type": "string"},
+            "last_failed_at": {"type": "string"}
+        }
+    })
+}
+
+fn dlq_stats_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["total", "oldest_age_seconds", "by_target_agent"],
+        "properties": {
+            "total": {"type": "integer", "minimum": 0},
+            "oldest_age_seconds": {"type": "integer", "minimum": 0},
+            "by_target_agent": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}
+        }
+    })
+}
+
+fn dlq_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["dead_letters", "stats"],
+        "properties": {
+            "dead_letters": {"type": "array", "items": schema_ref("DeadLetter")},
+            "stats": schema_ref("DlqStats")
+        }
+    })
+}
+
+fn dlq_retry_response_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["id", "retried"],
+        "properties": {"id": {"type": "string"}, "retried": {"const": true}}
+    })
+}
+
 fn envelope_batch_response_schema() -> Value {
     json!({
         "type": "object",
@@ -337,6 +387,37 @@ pub fn ocla_openapi_spec() -> Value {
                         "503": error_response("Ledger is unavailable or invalid")
                     }
                 }
+            },
+            "/ocla/v1/dlq": {
+                "get": {
+                    "operationId": "getOclaDlq",
+                    "summary": "List dead letters and queue statistics",
+                    "responses": {
+                        "200": {"description": "Dead-letter queue snapshot", "content": {"application/json": {"schema": schema_ref("DlqResponse")}}}
+                    }
+                }
+            },
+            "/ocla/v1/dlq/{id}/retry": {
+                "post": {
+                    "operationId": "retryOclaDeadLetter",
+                    "summary": "Retry delivery of a dead letter",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "minLength": 1}}],
+                    "responses": {
+                        "200": {"description": "Dead letter retried", "content": {"application/json": {"schema": schema_ref("DlqRetryResponse")}}},
+                        "400": error_response("Dead letter retry failed")
+                    }
+                }
+            },
+            "/ocla/v1/dlq/{id}": {
+                "delete": {
+                    "operationId": "deleteOclaDeadLetter",
+                    "summary": "Remove a dead letter without retrying",
+                    "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "string", "minLength": 1}}],
+                    "responses": {
+                        "204": {"description": "Dead letter removed"},
+                        "404": error_response("Dead letter was not found")
+                    }
+                }
             }
         },
         "components": {
@@ -348,6 +429,10 @@ pub fn ocla_openapi_spec() -> Value {
                 "MetricsResponse": metrics_response_schema(),
                 "OclaMetric": metric_schema(),
                 "EnvelopeBatchResponse": envelope_batch_response_schema(),
+                "DeadLetter": dlq_entry_schema(),
+                "DlqStats": dlq_stats_schema(),
+                "DlqResponse": dlq_response_schema(),
+                "DlqRetryResponse": dlq_retry_response_schema(),
                 "HealthResponse": {
                     "type": "object",
                     "required": ["status", "api_version"],
@@ -416,11 +501,18 @@ mod tests {
         assert!(paths.contains_key("/ocla/v1/envelope"));
         assert!(paths.contains_key("/ocla/v1/envelope/batch"));
         assert!(paths.contains_key("/ocla/v1/ledger/summary"));
+        assert!(paths.contains_key("/ocla/v1/dlq"));
+        assert!(paths.contains_key("/ocla/v1/dlq/{id}/retry"));
+        assert!(paths.contains_key("/ocla/v1/dlq/{id}"));
         assert!(spec["components"]["schemas"]["CanonicalTokenEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentsResponse"].is_object());
         assert!(spec["components"]["schemas"]["MetricsResponse"].is_object());
         assert!(spec["components"]["schemas"]["EnvelopeBatchResponse"].is_object());
+        assert!(spec["components"]["schemas"]["DeadLetter"].is_object());
+        assert!(spec["components"]["schemas"]["DlqStats"].is_object());
+        assert!(spec["components"]["schemas"]["DlqResponse"].is_object());
+        assert!(spec["components"]["schemas"]["DlqRetryResponse"].is_object());
         assert_eq!(
             spec["paths"]["/ocla/v1/envelope"]["post"]["parameters"][0]["name"],
             "Idempotency-Key"

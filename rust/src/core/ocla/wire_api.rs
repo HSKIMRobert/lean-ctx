@@ -2,8 +2,9 @@
 
 use axum::{
     Json, Router,
+    extract::Path,
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -12,6 +13,7 @@ use super::health::{SystemHealth, check_system_health};
 use super::{
     CanonicalTokenEnvelopeV1, OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaRegistry,
 };
+use crate::core::a2a::dlq::{DeadLetter, DlqStats};
 use crate::core::ocla::wire::decode_envelope;
 
 /// Builds the stateless OCLA REST router for merging into an Axum application.
@@ -24,6 +26,9 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/agents", get(agents))
         .route("/ocla/v1/metrics", get(metrics))
         .route("/ocla/v1/ledger/summary", get(ledger_summary))
+        .route("/ocla/v1/dlq", get(dlq))
+        .route("/ocla/v1/dlq/{id}/retry", post(dlq_retry))
+        .route("/ocla/v1/dlq/{id}", delete(dlq_delete))
 }
 
 async fn health() -> Json<SystemHealth> {
@@ -146,6 +151,38 @@ async fn ledger_summary() -> Json<LedgerSummaryResponse> {
     })
 }
 
+#[derive(Serialize)]
+struct DlqResponse {
+    dead_letters: Vec<DeadLetter>,
+    stats: DlqStats,
+}
+
+async fn dlq() -> Json<DlqResponse> {
+    let queue = super::health::dead_letter_queue();
+    Json(DlqResponse {
+        dead_letters: queue.peek_all(),
+        stats: queue.stats(),
+    })
+}
+
+async fn dlq_retry(Path(id): Path<String>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    super::health::dead_letter_queue()
+        .retry(&id)
+        .map(|()| Json(json!({"id": id, "retried": true})))
+        .map_err(invalid_request)
+}
+
+async fn dlq_delete(Path(id): Path<String>) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    if super::health::dead_letter_queue().dequeue(&id).is_some() {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("dead letter not found: {id}")})),
+        ))
+    }
+}
+
 fn invalid_request(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
     (
         StatusCode::BAD_REQUEST,
@@ -216,7 +253,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_response(response).await;
         assert_eq!(body["version"], OCLA_API_VERSION);
-        assert_eq!(body["components"].as_array().expect("components").len(), 17);
+        assert_eq!(body["components"].as_array().expect("components").len(), 18);
         assert!(body.get("overall").is_some());
         assert!(body.get("uptime_seconds").is_some());
     }
@@ -360,5 +397,53 @@ mod tests {
         assert_eq!(results[0]["envelope"], json!(valid_envelope()));
         assert_eq!(results[1]["valid"], false);
         assert!(results[1].get("error").is_some());
+    }
+
+    #[tokio::test]
+    async fn dlq_endpoint_returns_entries_and_stats() {
+        let response = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/ocla/v1/dlq")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert!(body["dead_letters"].is_array());
+        assert!(body["stats"]["total"].is_number());
+        assert!(body["stats"]["oldest_age_seconds"].is_number());
+    }
+
+    #[tokio::test]
+    async fn dlq_retry_and_delete_return_not_found_for_missing_id() {
+        let retry = ocla_router()
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/dlq/missing/retry")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(retry.status(), StatusCode::BAD_REQUEST);
+
+        let delete = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri("/ocla/v1/dlq/missing")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(delete.status(), StatusCode::NOT_FOUND);
     }
 }

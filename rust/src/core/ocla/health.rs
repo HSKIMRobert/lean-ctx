@@ -5,17 +5,32 @@ use std::time::Instant;
 
 use serde::Serialize;
 
+use crate::core::a2a::dlq::DeadLetterQueue;
+
 use super::registry::OclaRegistry;
 use super::types::{OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaCapabilityStatus};
 use super::unified_ledger::{FileUnifiedLedger, UnifiedLedger};
 
 static STARTED_AT: OnceLock<Instant> = OnceLock::new();
+static DLQ: OnceLock<DeadLetterQueue> = OnceLock::new();
+
+pub(crate) fn dead_letter_queue() -> &'static DeadLetterQueue {
+    DLQ.get_or_init(DeadLetterQueue::new)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DlqHealthDetails {
+    pub total: usize,
+    pub oldest_age_secs: u64,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ComponentHealth {
     pub name: String,
     pub status: HealthStatus,
     pub latency_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<DlqHealthDetails>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -38,7 +53,7 @@ pub struct SystemHealth {
 pub fn check_system_health() -> SystemHealth {
     let started_at = STARTED_AT.get_or_init(Instant::now);
     let registry = OclaRegistry::global();
-    let mut components = Vec::with_capacity(OclaCapabilityKind::ALL.len() + 3);
+    let mut components = Vec::with_capacity(OclaCapabilityKind::ALL.len() + 4);
 
     components.push(poll_capability("observation_hook", || {
         registry.observation_hook.capability()
@@ -86,6 +101,7 @@ pub fn check_system_health() -> SystemHealth {
     components.push(check_a2a_bus());
     components.push(check_ledger());
     components.push(check_budget());
+    components.push(check_dlq(dead_letter_queue()));
 
     let overall = aggregate_statuses(&components);
     SystemHealth {
@@ -115,6 +131,7 @@ where
         name: name.to_string(),
         status,
         latency_ms: Some(started_at.elapsed().as_millis() as u64),
+        details: None,
     }
 }
 
@@ -129,6 +146,7 @@ fn check_a2a_bus() -> ComponentHealth {
         name: "a2a_bus".into(),
         status,
         latency_ms: Some(started_at.elapsed().as_millis() as u64),
+        details: None,
     }
 }
 
@@ -143,6 +161,7 @@ fn check_ledger() -> ComponentHealth {
         name: "ledger".into(),
         status,
         latency_ms: Some(started_at.elapsed().as_millis() as u64),
+        details: None,
     }
 }
 
@@ -162,6 +181,28 @@ fn check_budget() -> ComponentHealth {
         name: "budget".into(),
         status,
         latency_ms: Some(started_at.elapsed().as_millis() as u64),
+        details: None,
+    }
+}
+
+fn check_dlq(queue: &DeadLetterQueue) -> ComponentHealth {
+    let started_at = Instant::now();
+    let stats = queue.stats();
+    let status = if stats.total > 500 {
+        HealthStatus::Unhealthy(format!("DLQ contains {} entries", stats.total))
+    } else if stats.total > 100 {
+        HealthStatus::Degraded(format!("DLQ contains {} entries", stats.total))
+    } else {
+        HealthStatus::Healthy
+    };
+    ComponentHealth {
+        name: "dlq".into(),
+        status,
+        latency_ms: Some(started_at.elapsed().as_millis() as u64),
+        details: Some(DlqHealthDetails {
+            total: stats.total,
+            oldest_age_secs: stats.oldest_age_seconds,
+        }),
     }
 }
 
@@ -196,6 +237,7 @@ mod tests {
             name: "test".into(),
             status,
             latency_ms: None,
+            details: None,
         }
     }
 
@@ -247,7 +289,47 @@ mod tests {
     #[test]
     fn system_health_reports_all_components() {
         let report = check_system_health();
-        assert_eq!(report.components.len(), 17);
+        assert_eq!(report.components.len(), 18);
         assert_eq!(report.version, OCLA_API_VERSION);
+    }
+
+    #[test]
+    fn dlq_health_thresholds_and_details_are_reported() {
+        let queue = DeadLetterQueue::new();
+        let healthy = check_dlq(&queue);
+        assert_eq!(healthy.status, HealthStatus::Healthy);
+        assert_eq!(healthy.details.as_ref().expect("details").total, 0);
+
+        for index in 0..101 {
+            queue.enqueue(crate::core::a2a::dlq::DeadLetter {
+                id: index.to_string(),
+                original_message: "message".into(),
+                target_agent: "agent".into(),
+                error: "error".into(),
+                attempts: 1,
+                first_failed_at: "2026-01-01T00:00:00Z".into(),
+                last_failed_at: "2026-01-01T00:00:00Z".into(),
+            });
+        }
+        assert!(matches!(
+            check_dlq(&queue).status,
+            HealthStatus::Degraded(_)
+        ));
+
+        for index in 101..501 {
+            queue.enqueue(crate::core::a2a::dlq::DeadLetter {
+                id: index.to_string(),
+                original_message: "message".into(),
+                target_agent: "agent".into(),
+                error: "error".into(),
+                attempts: 1,
+                first_failed_at: "2026-01-01T00:00:00Z".into(),
+                last_failed_at: "2026-01-01T00:00:00Z".into(),
+            });
+        }
+        assert!(matches!(
+            check_dlq(&queue).status,
+            HealthStatus::Unhealthy(_)
+        ));
     }
 }
