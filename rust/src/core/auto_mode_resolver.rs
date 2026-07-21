@@ -274,6 +274,7 @@ fn resolve_adaptive(ctx: &AutoModeContext) -> Option<ResolvedMode> {
             agent_id: "lean-ctx".to_string(),
             content_ref: ctx.path.to_string(),
             tenant_id: None,
+            trace_id: String::new(),
         },
         config_ref: predicted.clone(),
         objective_ref: ctx.task.unwrap_or_default().to_string(),

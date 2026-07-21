@@ -37,6 +37,7 @@ pub(super) fn from_trusted_headers(
         agent_id,
         content_ref: content_ref_v1(exact_bounded_body),
         tenant_id: None,
+        trace_id: String::new(),
     })
 }
 

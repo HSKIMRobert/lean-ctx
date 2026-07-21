@@ -19,6 +19,7 @@ pub struct OclaRequestContext {
     pub agent_id: String,
     pub content_ref: String,
     pub tenant_id: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub trace_id: String,
 }
 
