@@ -179,7 +179,7 @@ fn test_full_pipeline() {
     let cache = ResponseCache::new(4, Duration::from_secs(30));
     let key = ResponseCacheKey::new("integration-model", 42, 0.0, 128);
     cache.put(
-        key,
+        key.clone(),
         CachedResponse {
             body: b"cached response".to_vec(),
             tokens: 40,
