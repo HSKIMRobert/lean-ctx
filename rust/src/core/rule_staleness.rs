@@ -7,7 +7,7 @@
 //!
 //! Determinism (#498): same rules + same filesystem → same staleness report.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// A staleness finding for a single rule.
 #[derive(Debug, Clone)]
@@ -66,7 +66,7 @@ pub fn audit_rules(
                 rule_id: id.clone(),
                 rule_path: rule_path.clone(),
                 reason: StalenessReason::EmptyOrTrivial,
-                evidence: format!("Only {} meaningful characters", meaningful_chars),
+                evidence: format!("Only {meaningful_chars} meaningful characters"),
             });
         }
 
@@ -83,7 +83,7 @@ pub fn audit_rules(
                     rule_id: id.clone(),
                     rule_path: rule_path.clone(),
                     reason,
-                    evidence: format!("`{}` does not exist", file_ref),
+                    evidence: format!("`{file_ref}` does not exist"),
                 });
             }
         }
@@ -201,7 +201,7 @@ fn looks_like_real_path(s: &str) -> bool {
     if s.contains("**") || s.starts_with("*.") {
         return false; // glob pattern, not a real path
     }
-    if s.starts_with("$") || s.starts_with("~") {
+    if s.starts_with('$') || s.starts_with('~') {
         return false; // variable or home dir
     }
     true
@@ -224,7 +224,7 @@ fn extract_deprecation_indicators(content: &str) -> Vec<String> {
 
     for (phrase, desc) in &deprecated_phrases {
         if lower.contains(phrase) {
-            indicators.push(format!("{}: found `{}`", desc, phrase));
+            indicators.push(format!("{desc}: found `{phrase}`"));
         }
     }
 
@@ -250,7 +250,7 @@ pub fn format_report(report: &AuditReport) -> String {
     for finding in &report.findings {
         if finding.rule_id != current_rule {
             out.push_str(&format!("\n{} ({})\n", finding.rule_id, finding.rule_path));
-            current_rule = finding.rule_id.clone();
+            finding.rule_id.clone_into(&mut current_rule);
         }
         out.push_str(&format!("  ⚠ {}: {}\n", finding.reason, finding.evidence));
     }

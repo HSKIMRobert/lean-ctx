@@ -9,9 +9,8 @@
 
 use std::collections::BTreeMap;
 
-const DEFAULT_BUDGET_TOKENS: usize = 800;
-const DEFAULT_THRESHOLD: f64 = 0.15;
 const CHARS_PER_TOKEN: usize = 4;
+const DEFAULT_THRESHOLD: f64 = 0.15;
 
 /// A parsed agent rule with metadata.
 #[derive(Debug, Clone)]
@@ -231,7 +230,7 @@ fn extract_path_globs(content: &str) -> Vec<String> {
         let trimmed = line.trim();
         // YAML frontmatter: paths: ["*.rs", "src/**"]
         if trimmed.starts_with("paths:") || trimmed.starts_with("globs:") {
-            let after_colon = trimmed.split_once(':').map(|(_, v)| v.trim()).unwrap_or("");
+            let after_colon = trimmed.split_once(':').map_or("", |(_, v)| v.trim());
             for part in after_colon
                 .trim_matches(|c| c == '[' || c == ']')
                 .split(',')
@@ -264,7 +263,7 @@ pub fn extract_rule_keywords(content: &str) -> Vec<String> {
     }
 
     let mut terms: Vec<(String, usize)> = tf.into_iter().collect();
-    terms.sort_by(|a, b| b.1.cmp(&a.1));
+    terms.sort_by_key(|t| std::cmp::Reverse(t.1));
     terms.truncate(30);
     terms.into_iter().map(|(k, _)| k).collect()
 }

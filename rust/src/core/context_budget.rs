@@ -6,10 +6,9 @@
 //!
 //! Determinism (#498): same rules + same context + same budget → same output.
 
-use super::rule_scorer::{AgentRule, BudgetAllocation, ScoredRule, SessionContext};
+use super::rule_scorer::{AgentRule, BudgetAllocation, SessionContext};
 
 const DEFAULT_MAX_CONFIG_TOKENS: usize = 800;
-const REBALANCE_HYSTERESIS: f64 = 0.1;
 
 /// Configuration for context budget enforcement.
 #[derive(Debug, Clone)]

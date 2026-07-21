@@ -323,12 +323,20 @@ impl Default for UpdatesConfig {
 #[serde(default)]
 pub struct ContextConfig {
     pub budget_tokens: usize,
+    pub diet_max_config_tokens: usize,
+    pub diet_relevance_threshold: f64,
+    pub diet_rebalance_on_change: bool,
+    pub diet_staleness_enabled: bool,
 }
 
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
             budget_tokens: 8000,
+            diet_max_config_tokens: 800,
+            diet_relevance_threshold: 0.15,
+            diet_rebalance_on_change: true,
+            diet_staleness_enabled: true,
         }
     }
 }

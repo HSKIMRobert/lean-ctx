@@ -1848,6 +1848,7 @@ mod context_budget_tests {
         let cfg = Config {
             context: ContextConfig {
                 budget_tokens: 5000,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1861,6 +1862,7 @@ mod context_budget_tests {
         let cfg = Config {
             context: ContextConfig {
                 budget_tokens: 5000,
+                ..Default::default()
             },
             ..Default::default()
         };
