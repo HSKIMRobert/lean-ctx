@@ -193,7 +193,18 @@ struct Rule {
 /// references, and documentation placeholders are never redacted. Quoted
 /// string values stay protected — they ARE literal values.
 pub(crate) fn is_benign_secret_value(value: &str) -> bool {
-    is_non_secret_literal(value) || is_identifier_reference(value) || is_placeholder_value(value)
+    is_comparison_operator_residue(value)
+        || is_non_secret_literal(value)
+        || is_identifier_reference(value)
+        || is_placeholder_value(value)
+}
+
+/// #1095: when the regex `key=` consumes one `=` from `==`, the captured
+/// "value" is a bare `=` (or `==`, `!=`). A comparison operator is never
+/// a secret; redacting it corrupts source semantics.
+fn is_comparison_operator_residue(value: &str) -> bool {
+    let v = value.trim();
+    matches!(v, "=" | "==" | "!=" | "<=" | ">=" | "===" | "!==")
 }
 
 /// The single source of truth for secret patterns. `shell::redact` delegates
@@ -647,6 +658,20 @@ mod tests {
                 out.contains("[REDACTED"),
                 "must redact real secret: {input} -> {out}"
             );
+        }
+    }
+
+    /// GH #1095: `token == ""` in Go source must not be redacted — the regex
+    /// consumes the first `=` leaving group 2 = `=` (comparison residue).
+    #[test]
+    fn keeps_comparison_operators_in_source() {
+        for s in [
+            r#"if token == "" {"#,
+            r#"if token, err = checkPulsares(); token == "" || err != nil {"#,
+            r#"if password != "" {"#,
+            r#"assert secret == expected_value"#,
+        ] {
+            assert_eq!(redact_text(s), s, "comparison operator corrupted: {s}");
         }
     }
 }
