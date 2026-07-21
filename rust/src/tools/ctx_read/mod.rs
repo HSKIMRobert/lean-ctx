@@ -12,6 +12,7 @@ use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 // `pub(crate)`: the conformance suite renders modes directly for its
 // accuracy invariants (GL#441).
+mod kernel;
 pub(crate) mod render;
 pub(crate) use render::*;
 /// Type-safe read-mode vocabulary (#528): single source of truth for which
@@ -343,25 +344,7 @@ pub fn handle_with_task(
     task: Option<&str>,
 ) -> String {
     let mut result = handle_with_options(cache, path, mode, false, crp_mode, task);
-
-    // Context Kernel: enrich read with cross-store context when task is available
-    {
-        if let (Some(task_str), Some(project_root)) =
-            (task, crate::core::config::Config::find_project_root())
-        {
-            let kernel_budget = 200;
-            if let Some(enrichment) = crate::core::context_kernel::bridge::kernel_enrich(
-                task_str,
-                &project_root,
-                kernel_budget,
-            ) && !enrichment.blocks.is_empty()
-            {
-                result.push_str("\n--- kernel context ---\n");
-                result.push_str(&enrichment.blocks);
-            }
-        }
-    }
-
+    kernel::enrich_with_kernel(&mut result, task);
     result
 }
 
