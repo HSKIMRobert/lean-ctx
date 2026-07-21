@@ -2,12 +2,18 @@
 
 use axum::{
     Json, Router,
+    extract::Path,
     http::StatusCode,
     routing::{get, post},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
+use super::budget::{BudgetLedger, BudgetLimit, BudgetScope};
 use super::health::{SystemHealth, check_system_health};
 use super::{
     CanonicalTokenEnvelopeV1, OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaRegistry,
@@ -24,6 +30,130 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/agents", get(agents))
         .route("/ocla/v1/metrics", get(metrics))
         .route("/ocla/v1/ledger/summary", get(ledger_summary))
+        .route("/ocla/v1/budget", post(set_budget))
+        .route(
+            "/ocla/v1/budget/{scope}",
+            get(get_budget).delete(delete_budget),
+        )
+}
+
+#[derive(Default)]
+struct BudgetStore {
+    ledger: BudgetLedger,
+    limits: HashMap<BudgetScope, BudgetLimit>,
+}
+
+static BUDGET_STORE: OnceLock<Mutex<BudgetStore>> = OnceLock::new();
+
+fn budget_store() -> &'static Mutex<BudgetStore> {
+    BUDGET_STORE.get_or_init(|| Mutex::new(BudgetStore::default()))
+}
+
+#[derive(Debug, Deserialize)]
+struct SetBudgetRequest {
+    scope: String,
+    max_tokens_per_day: u64,
+    max_usd_per_day: f64,
+}
+
+#[derive(Serialize)]
+struct BudgetResponse {
+    scope: String,
+    max_tokens_per_day: u64,
+    max_usd_per_day: f64,
+    consumed_tokens: u64,
+    consumed_usd: f64,
+}
+
+fn parse_budget_scope(raw: &str) -> Result<BudgetScope, String> {
+    let (kind, name) = raw
+        .split_once(':')
+        .ok_or_else(|| "scope must use org:name, team:name, or user:name".to_string())?;
+    if name.is_empty() || name.contains(':') {
+        return Err("scope name must be non-empty and contain no ':'".to_string());
+    }
+    match kind {
+        "org" => Ok(BudgetScope::Org(name.to_string())),
+        "team" => Ok(BudgetScope::Team(name.to_string())),
+        "user" => Ok(BudgetScope::User(name.to_string())),
+        _ => Err("scope must use org:name, team:name, or user:name".to_string()),
+    }
+}
+
+fn budget_scope_name(scope: &BudgetScope) -> String {
+    match scope {
+        BudgetScope::Org(name) => format!("org:{name}"),
+        BudgetScope::Team(name) => format!("team:{name}"),
+        BudgetScope::User(name) => format!("user:{name}"),
+    }
+}
+
+fn budget_response(
+    scope: &BudgetScope,
+    limit: &BudgetLimit,
+    ledger: &BudgetLedger,
+) -> BudgetResponse {
+    BudgetResponse {
+        scope: budget_scope_name(scope),
+        max_tokens_per_day: limit.max_tokens_per_day,
+        max_usd_per_day: limit.max_usd_per_day,
+        consumed_tokens: ledger.consumed_tokens(scope),
+        consumed_usd: ledger.consumed_usd(scope),
+    }
+}
+
+async fn set_budget(
+    Json(request): Json<SetBudgetRequest>,
+) -> Result<Json<BudgetResponse>, (StatusCode, Json<Value>)> {
+    if !request.max_usd_per_day.is_finite() || request.max_usd_per_day < 0.0 {
+        return Err(invalid_request(
+            "max_usd_per_day must be finite and non-negative",
+        ));
+    }
+    let scope = parse_budget_scope(&request.scope).map_err(invalid_request)?;
+    let limit = BudgetLimit {
+        scope: scope.clone(),
+        max_tokens_per_day: request.max_tokens_per_day,
+        max_usd_per_day: request.max_usd_per_day,
+    };
+    let mut store = budget_store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    store.ledger.set_limit(limit.clone());
+    store.limits.insert(scope.clone(), limit.clone());
+    Ok(Json(budget_response(&scope, &limit, &store.ledger)))
+}
+
+async fn get_budget(
+    Path(raw_scope): Path<String>,
+) -> Result<Json<BudgetResponse>, (StatusCode, Json<Value>)> {
+    let scope = parse_budget_scope(&raw_scope).map_err(invalid_request)?;
+    let store = budget_store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(limit) = store.limits.get(&scope) else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "budget not found"})),
+        ));
+    };
+    Ok(Json(budget_response(&scope, limit, &store.ledger)))
+}
+
+async fn delete_budget(
+    Path(raw_scope): Path<String>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let scope = parse_budget_scope(&raw_scope).map_err(invalid_request)?;
+    let mut store = budget_store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if store.limits.remove(&scope).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "budget not found"})),
+        ));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn health() -> Json<SystemHealth> {
@@ -169,7 +299,7 @@ mod tests {
             agent_id: "agent-1".into(),
             content_ref: "blake3:content".into(),
             tenant_id: None,
-            trace_id: String::new(),
+            trace_id: "trace-1".into(),
         }
     }
 
@@ -198,6 +328,26 @@ mod tests {
             .await
             .expect("response body");
         serde_json::from_slice(&body).expect("JSON response")
+    }
+
+    fn budget_request(method: &str, uri: &str, body: Option<Value>) -> Request<Body> {
+        Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+            .expect("request")
+    }
+
+    async fn set_budget_for_test(scope: &str, tokens: u64, usd: f64) {
+        ocla_router()
+            .oneshot(budget_request(
+                "POST",
+                "/ocla/v1/budget",
+                Some(json!({"scope": scope, "max_tokens_per_day": tokens, "max_usd_per_day": usd})),
+            ))
+            .await
+            .expect("response");
     }
 
     #[tokio::test]
@@ -360,5 +510,69 @@ mod tests {
         assert_eq!(results[0]["envelope"], json!(valid_envelope()));
         assert_eq!(results[1]["valid"], false);
         assert!(results[1].get("error").is_some());
+    }
+
+    #[tokio::test]
+    async fn budget_post_endpoint_sets_and_returns_limit() {
+        let response = ocla_router()
+            .oneshot(budget_request(
+                "POST",
+                "/ocla/v1/budget",
+                Some(json!({
+                    "scope": "org:wire-api-set",
+                    "max_tokens_per_day": 100_000,
+                    "max_usd_per_day": 50.0,
+                })),
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert_eq!(body["max_tokens_per_day"], 100_000);
+    }
+
+    #[tokio::test]
+    async fn budget_get_endpoint_returns_configured_limit_and_consumption() {
+        set_budget_for_test("team:wire-api-get", 500, 5.0).await;
+
+        let response = ocla_router()
+            .oneshot(budget_request(
+                "GET",
+                "/ocla/v1/budget/team:wire-api-get",
+                None,
+            ))
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert_eq!(body["max_tokens_per_day"], 500);
+        assert_eq!(body["max_usd_per_day"], 5.0);
+    }
+
+    #[tokio::test]
+    async fn budget_delete_endpoint_removes_limit() {
+        set_budget_for_test("user:wire-api-delete", 25, 1.0).await;
+
+        let response = ocla_router()
+            .oneshot(budget_request(
+                "DELETE",
+                "/ocla/v1/budget/user:wire-api-delete",
+                None,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+        let response = ocla_router()
+            .oneshot(budget_request(
+                "GET",
+                "/ocla/v1/budget/user:wire-api-delete",
+                None,
+            ))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 }
