@@ -144,6 +144,7 @@ impl Config {
         override_if_some!(proxy.openai_upstream);
         override_if_some!(proxy.chatgpt_upstream);
         override_if_some!(proxy.gemini_upstream);
+        override_if_key_present!("response_shaping", response_shaping);
         override_if_false!(autonomy.enabled);
         override_if_false!(autonomy.auto_preload);
         override_if_false!(autonomy.auto_dedup);

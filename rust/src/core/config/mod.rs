@@ -19,6 +19,7 @@ mod proxy;
 mod read_dedup;
 pub(crate) mod read_redirect;
 mod render;
+mod response_shaping;
 pub mod risk;
 pub mod schema;
 mod sections;
@@ -45,6 +46,10 @@ pub use proxy::{
 };
 pub use read_dedup::ReadDedup;
 pub use read_redirect::ReadRedirect;
+pub use response_shaping::{
+    CodeRepetitionConfig, ConfirmationConfig, NarrationConfig, PreambleConfig,
+    ResponseShapingConfig,
+};
 pub use shell_activation::ShellActivation;
 
 /// Default BM25 cache cap from config (also used by `bm25_index` heuristics).
@@ -130,6 +135,9 @@ pub struct Config {
     pub providers: ProvidersConfig,
     #[serde(default)]
     pub proxy: ProxyConfig,
+    /// Proxy-layer response shaping (`[response_shaping]`, #1125).
+    #[serde(default)]
+    pub response_shaping: ResponseShapingConfig,
     /// Whether the API proxy is enabled. Tri-state:
     /// - None: undecided (fresh install, will prompt on interactive setup)
     /// - Some(true): user opted in, proxy managed by lean-ctx
@@ -737,6 +745,7 @@ impl Default for Config {
             autonomy: AutonomyConfig::default(),
             providers: ProvidersConfig::default(),
             proxy: ProxyConfig::default(),
+            response_shaping: ResponseShapingConfig::default(),
             proxy_enabled: None,
             proxy_port: None,
             proxy_timeout_ms: None,
