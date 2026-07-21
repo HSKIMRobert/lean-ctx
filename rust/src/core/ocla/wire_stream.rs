@@ -109,7 +109,7 @@ mod tests {
                 agent_id: "agent-1".into(),
                 content_ref: "blake3:content".into(),
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             },
             surface: TokenEnvelopeSurface::Proxy,
             direction: TokenFlowDirection::Input,

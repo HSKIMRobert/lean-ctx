@@ -118,7 +118,7 @@ pub fn route_request(
                 agent_id: "proxy-routing".into(),
                 content_ref,
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             },
             candidate_models: vec![requested.clone()],
             maximum_cost_micros: None,

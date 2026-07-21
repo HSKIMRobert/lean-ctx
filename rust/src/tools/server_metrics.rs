@@ -165,7 +165,7 @@ impl LeanCtxServer {
                 agent_id,
                 content_ref: path.map_or_else(|| format!("tool:{tool}"), |p| format!("file:{p}")),
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             };
             drop(session_r);
             let observation = crate::core::ocla::Observation {
@@ -740,7 +740,7 @@ mod activity_score_tests {
             agent_id: "agent-1".into(),
             content_ref: "tool:ctx_read".into(),
             tenant_id: None,
-            trace_id: String::new(),
+            trace_id: "tr-unit".into(),
         };
         let points = super::ocla_metric_points(&context, "ctx_read", 750, 125, 42);
         assert_eq!(points.len(), 3);

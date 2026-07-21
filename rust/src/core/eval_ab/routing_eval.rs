@@ -325,7 +325,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
-                trace_id: String::new(),
+                trace_id: "tr-unit".into(),
             },
             experiment_ref: suite.to_string_lossy().into_owned(),
             cohort_ref: "cohort:treatment".into(),

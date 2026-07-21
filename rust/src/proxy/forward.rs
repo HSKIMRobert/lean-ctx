@@ -1104,7 +1104,7 @@ mod tests {
             agent_id: "agent-1".into(),
             content_ref: "blake3:abc".into(),
             tenant_id: None,
-            trace_id: String::new(),
+            trace_id: "tr-unit".into(),
         };
         let wire = wire_context(
             &parts,

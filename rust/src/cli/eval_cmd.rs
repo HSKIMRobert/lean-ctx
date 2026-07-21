@@ -236,7 +236,7 @@ fn cmd_routing(args: &[String]) {
             agent_id: crate::core::agent_identity::current_agent_id().to_string(),
             content_ref: suite_path.to_string_lossy().into_owned(),
             tenant_id: None,
-            trace_id: String::new(),
+            trace_id: "tr-unit".into(),
         },
         experiment_ref: suite_path.to_string_lossy().into_owned(),
         cohort_ref: "cohort:routing-eval".into(),
