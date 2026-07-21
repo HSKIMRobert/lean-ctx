@@ -12,7 +12,7 @@ use super::wire::MAX_OCLA_WIRE_BYTES;
 #[serde(tag = "type", content = "data")]
 #[serde(rename_all = "snake_case")]
 pub enum StreamFrame {
-    Data(CanonicalTokenEnvelopeV1),
+    Data(Box<CanonicalTokenEnvelopeV1>),
     Heartbeat,
     Cancel,
     Done,
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn data_frame_roundtrips_with_a_trailing_newline() {
-        let original = StreamFrame::Data(envelope());
+        let original = StreamFrame::Data(Box::new(envelope()));
         let encoded = encode_frame(&original).expect("encode data frame");
 
         assert!(encoded.ends_with('\n'));
@@ -188,6 +188,6 @@ mod tests {
         let mut invalid = envelope();
         invalid.token_balance.delivered_tokens = 81;
 
-        assert!(encode_frame(&StreamFrame::Data(invalid)).is_err());
+        assert!(encode_frame(&StreamFrame::Data(Box::new(invalid))).is_err());
     }
 }

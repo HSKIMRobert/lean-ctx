@@ -589,12 +589,12 @@ fn emit_settlement_change(entry_hash: &str, status: &SettlementStatus) {
 pub fn approve_event(
     path: &Path,
     entry_hash: &str,
-    approval: CustomerApproval,
+    approval: &CustomerApproval,
 ) -> std::io::Result<SavingsEvent> {
     let event = update_event(path, entry_hash, |event| {
         event.customer_approval = Some(approval.clone());
     })?;
-    emit_approval_change(&event.entry_hash, &approval);
+    emit_approval_change(&event.entry_hash, approval);
     Ok(event)
 }
 
@@ -602,12 +602,12 @@ pub fn approve_event(
 pub fn settle_event(
     path: &Path,
     entry_hash: &str,
-    status: SettlementStatus,
+    status: &SettlementStatus,
 ) -> std::io::Result<SavingsEvent> {
     let event = update_event(path, entry_hash, |event| {
         event.settlement_status = Some(status.clone());
     })?;
-    emit_settlement_change(&event.entry_hash, &status);
+    emit_settlement_change(&event.entry_hash, status);
     Ok(event)
 }
 

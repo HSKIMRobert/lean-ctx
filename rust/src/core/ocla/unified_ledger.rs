@@ -50,7 +50,7 @@ pub(crate) struct FileUnifiedLedger {
 impl FileUnifiedLedger {
     pub(crate) fn from_data_dir() -> OclaResult<Self> {
         let data_dir = crate::core::data_dir::lean_ctx_data_dir()
-            .map_err(|error| OclaError::InvalidRequest(error.to_string()))?;
+            .map_err(|error| OclaError::InvalidRequest(error.clone()))?;
         Ok(Self::new(data_dir.join("savings/unified_ledger.jsonl")))
     }
 
@@ -69,15 +69,13 @@ impl FileUnifiedLedger {
             Err(error) => return Err(Self::io_error(error)),
         };
         file.lock_shared().map_err(Self::io_error)?;
-        let result = (|| {
-            BufReader::new(&file)
-                .lines()
-                .map(|line| {
-                    let line = line.map_err(Self::io_error)?;
-                    serde_json::from_str(&line).map_err(Self::io_error)
-                })
-                .collect()
-        })();
+        let result = BufReader::new(&file)
+            .lines()
+            .map(|line| {
+                let line = line.map_err(Self::io_error)?;
+                serde_json::from_str(&line).map_err(Self::io_error)
+            })
+            .collect();
         let _ = file.unlock();
         result
     }
