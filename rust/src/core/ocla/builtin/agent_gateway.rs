@@ -124,6 +124,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
+                trace_id: String::new(),
             },
             from_agent_id: "agent-a".into(),
             to_agent_id: "agent-b".into(),

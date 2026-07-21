@@ -81,6 +81,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
+                trace_id: String::new(),
             },
             connector_id: connector.into(),
             payload_ref: "payload:abc".into(),

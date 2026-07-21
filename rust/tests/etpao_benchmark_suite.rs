@@ -135,6 +135,6 @@ fn combined_etpao() {
     assert_eq!(combined_tokens, 3_175);
     assert!(
         improvement > 0.20,
-        "combined improvement: {improvement:.2%}"
+        "combined improvement: {improvement:.2}%"
     );
 }

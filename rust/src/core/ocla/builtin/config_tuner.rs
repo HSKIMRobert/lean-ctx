@@ -86,6 +86,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
+                trace_id: String::new(),
             },
             config_ref: config.into(),
             objective_ref: "minimize_tokens".into(),

@@ -845,6 +845,7 @@ mod tests {
                     agent_id: "agent-1".into(),
                     content_ref: "blake3:content".into(),
                     tenant_id: None,
+                    trace_id: String::new(),
                 }),
                 ..Default::default()
             })),

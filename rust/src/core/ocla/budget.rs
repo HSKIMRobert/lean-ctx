@@ -86,7 +86,7 @@ impl BudgetLedger {
                 )));
             }
             if tokens > limit.max_tokens_per_day.saturating_sub(consumed.tokens)
-                || consumed.usd + usd > limit.max_usd_per_day
+                || consumed.usd + usd >= limit.max_usd_per_day
             {
                 return Err(OclaError::InvalidRequest(format!(
                     "budget exceeded for {current:?}"

@@ -261,6 +261,7 @@ mod tests {
                 agent_id: "agent-test".into(),
                 content_ref: "ref:test".into(),
                 tenant_id: None,
+                trace_id: String::new(),
             },
             candidate_models: candidates.iter().map(|s| (*s).to_string()).collect(),
             maximum_cost_micros: None,

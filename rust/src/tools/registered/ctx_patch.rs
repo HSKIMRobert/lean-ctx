@@ -155,8 +155,12 @@ fn delegate_replace_unique(
         build_unique_edit_args(args).map_err(|message| ErrorData::invalid_params(message, None))?;
 
     if get_bool(args, "dry_run").unwrap_or(false) {
-        let old_text = get_str(args, "old_text").unwrap_or_default();
-        let new_text = get_str(args, "new_text").unwrap_or_default();
+        let old_text = get_str(args, "old_text")
+            .or_else(|| get_str(args, "old_string"))
+            .unwrap_or_default();
+        let new_text = get_str(args, "new_text")
+            .or_else(|| get_str(args, "new_string"))
+            .unwrap_or_default();
         let path = get_str(args, "path").unwrap_or_default();
         return Ok(ToolOutput::simple(format!(
             "DRY RUN: replace_unique would replace {old_text:?} with {new_text:?} in {path}"
@@ -168,10 +172,14 @@ fn delegate_replace_unique(
 
 fn build_unique_edit_args(args: &Map<String, Value>) -> Result<Map<String, Value>, String> {
     let old_text = get_str(args, "old_text")
+        .or_else(|| get_str(args, "old_string"))
         .filter(|text| !text.is_empty())
-        .ok_or_else(|| "replace_unique requires non-empty old_text".to_string())?;
-    let new_text =
-        get_str(args, "new_text").ok_or_else(|| "replace_unique requires new_text".to_string())?;
+        .ok_or_else(|| {
+            "replace_unique requires non-empty old_text (old_string also accepted)".to_string()
+        })?;
+    let new_text = get_str(args, "new_text")
+        .or_else(|| get_str(args, "new_string"))
+        .ok_or_else(|| "replace_unique requires new_text (new_string also accepted)".to_string())?;
 
     let mut edit_args = args.clone();
     edit_args.insert("old_string".into(), Value::String(old_text));

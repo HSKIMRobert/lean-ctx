@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 /// Maximum number of responses retained by a response cache.
 pub const MAX_ENTRIES: usize = 512;
 /// Default lifetime for a cached response.
-pub const DEFAULT_TTL: Duration = Duration::from_secs(5 * 60);
+pub const DEFAULT_TTL: Duration = Duration::from_mins(5);
 
 /// Stable cache key derived from response-defining request fields.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

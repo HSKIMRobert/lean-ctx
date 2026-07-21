@@ -949,7 +949,7 @@ impl LeanCtxServer {
             // Stable header (#498): no interval interpolation — dynamic
             // text in repeated markers degrades provider prompt caching.
             let combined = format!("{result_text}\n\n--- AUTO CHECKPOINT ---\n{checkpoint}");
-            return Ok(finalize_call_result(combined, shell_outcome));
+            return Ok(finalize_call_result(&combined, shell_outcome));
         }
 
         // #1020: tool-calls.log is now written on the dispatch path
@@ -993,7 +993,7 @@ impl LeanCtxServer {
             result_text = pre_compression;
         }
 
-        Ok(finalize_call_result(result_text, shell_outcome))
+        Ok(finalize_call_result(&result_text, shell_outcome))
     }
 
     fn guard_role_and_policy(name: &str) -> Option<CallToolResult> {
@@ -1209,12 +1209,12 @@ fn roots_list_failure_is_permanent(e: &rmcp::ServiceError) -> bool {
 /// so clients no longer have to regex-parse the `[exit:N]` text footer. The
 /// text content is identical in both cases — only the metadata changes.
 fn finalize_call_result(
-    result_text: String,
+    result_text: &str,
     shell_outcome: Option<crate::server::tool_trait::ShellOutcome>,
 ) -> CallToolResult {
-    let mut result = CallToolResult::success(vec![ContentBlock::text(result_text.clone())]);
+    let mut result = CallToolResult::success(vec![ContentBlock::text(result_text.to_owned())]);
     if let Some(outcome) = shell_outcome {
-        if is_shell_error(outcome, &result_text) {
+        if is_shell_error(outcome, result_text) {
             result.is_error = Some(true);
         }
         if let Some(structured) = outcome.structured() {
@@ -1234,8 +1234,8 @@ fn is_shell_error(outcome: crate::server::tool_trait::ShellOutcome, output: &str
         crate::server::tool_trait::ShellOutcome::Exit(1) => {
             output.trim().is_empty() || output.trim().starts_with("[exit:")
         }
-        crate::server::tool_trait::ShellOutcome::Exit(_) => true,
-        crate::server::tool_trait::ShellOutcome::Blocked => true,
+        crate::server::tool_trait::ShellOutcome::Exit(_)
+        | crate::server::tool_trait::ShellOutcome::Blocked => true,
     }
 }
 
@@ -1255,7 +1255,7 @@ mod shell_outcome_tests {
 
     #[test]
     fn success_exit_is_not_an_error() {
-        let r = finalize_call_result("ok".into(), Some(ShellOutcome::Exit(0)));
+        let r = finalize_call_result("ok", Some(ShellOutcome::Exit(0)));
         assert_ne!(r.is_error, Some(true), "exit 0 must not set isError");
         assert!(
             r.structured_content.is_none(),
@@ -1266,7 +1266,7 @@ mod shell_outcome_tests {
 
     #[test]
     fn nonzero_exit_sets_is_error_and_structured_exit_code() {
-        let r = finalize_call_result("boom\n[exit:1]".into(), Some(ShellOutcome::Exit(1)));
+        let r = finalize_call_result("boom\n[exit:1]", Some(ShellOutcome::Exit(1)));
         assert_eq!(
             r.is_error,
             Some(true),
@@ -1288,7 +1288,7 @@ mod shell_outcome_tests {
     fn negative_exit_codes_are_reported() {
         // Signal terminations are mapped to negative/128+n codes by execute();
         // whatever the value, non-zero must surface as an error.
-        let r = finalize_call_result("killed".into(), Some(ShellOutcome::Exit(-1)));
+        let r = finalize_call_result("killed", Some(ShellOutcome::Exit(-1)));
         assert_eq!(r.is_error, Some(true));
         assert_eq!(
             r.structured_content,
@@ -1298,7 +1298,7 @@ mod shell_outcome_tests {
 
     #[test]
     fn blocked_command_sets_is_error_and_blocked_marker() {
-        let r = finalize_call_result("[BLOCKED] nope".into(), Some(ShellOutcome::Blocked));
+        let r = finalize_call_result("[BLOCKED] nope", Some(ShellOutcome::Blocked));
         assert_eq!(
             r.is_error,
             Some(true),
@@ -1312,7 +1312,7 @@ mod shell_outcome_tests {
 
     #[test]
     fn non_shell_tools_are_unaffected() {
-        let r = finalize_call_result("file contents".into(), None);
+        let r = finalize_call_result("file contents", None);
         assert_ne!(r.is_error, Some(true));
         assert!(r.structured_content.is_none());
     }

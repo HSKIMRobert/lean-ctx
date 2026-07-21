@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, ErrorKind, Seek, SeekFrom, Write};
@@ -93,6 +94,7 @@ impl FileUnifiedLedger {
         result
     }
 
+    #[cfg(test)]
     fn read_legacy_events(&self) -> Vec<SavingsEvent> {
         let events_path = self.path.with_file_name("events.jsonl");
         if events_path.exists() {
@@ -102,8 +104,9 @@ impl FileUnifiedLedger {
         }
     }
 
+    #[cfg(test)]
     /// Compares legacy and unified entries by hash and reports accounting drift.
-    pub fn reconcile(&self) -> OclaResult<ReconciliationReport> {
+    pub(crate) fn reconcile(&self) -> OclaResult<ReconciliationReport> {
         let legacy = self.read_legacy_events();
         let unified = self.read_events()?;
         let mut counts: BTreeMap<String, (usize, usize)> = BTreeMap::new();

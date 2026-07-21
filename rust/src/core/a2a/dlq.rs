@@ -42,7 +42,7 @@ impl DeadLetterQueue {
         let mut entries = self
             .entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if entries.len() == MAX_ENTRIES {
             entries.remove(0);
         }
@@ -53,7 +53,7 @@ impl DeadLetterQueue {
         let mut entries = self
             .entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let position = entries.iter().position(|letter| letter.id == id)?;
         Some(entries.remove(position))
     }
@@ -62,7 +62,7 @@ impl DeadLetterQueue {
     pub fn peek_all(&self) -> Vec<DeadLetter> {
         self.entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -70,7 +70,7 @@ impl DeadLetterQueue {
         let Some(letter) = self
             .entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .find(|letter| letter.id == id)
             .cloned()
@@ -89,7 +89,7 @@ impl DeadLetterQueue {
                 let mut entries = self
                     .entries
                     .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(current) = entries.iter_mut().find(|current| current.id == id) {
                     current.attempts = current.attempts.saturating_add(1);
                     current.last_failed_at = Utc::now().to_rfc3339();
@@ -104,7 +104,7 @@ impl DeadLetterQueue {
         let entries = self
             .entries
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let now = Utc::now();
         let mut oldest_age_seconds = 0;
         let mut by_target_agent = BTreeMap::new();
