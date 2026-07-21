@@ -10,13 +10,13 @@ FROZEN_LIMIT=2000
 
 # Legacy files awaiting their split. Paths relative to repo root.
 # R12: all 8 files split below 1500 LOC — allowlist is now empty.
-ALLOWLIST=()
+ALLOWLIST=(
+)
 
 cd "$(dirname "$0")/.."
 
 is_allowed() {
   local f=$1
-  local a
   for a in "${ALLOWLIST[@]+"${ALLOWLIST[@]}"}"; do
     [[ "$f" == "$a" ]] && return 0
   done
@@ -52,7 +52,7 @@ for a in "${ALLOWLIST[@]+"${ALLOWLIST[@]}"}"; do
 done
 
 if ((fail == 0)); then
-  n=${#ALLOWLIST[@]}
-  echo "LOC gate OK: all non-allowlisted Rust files <= $LIMIT lines ($n legacy files frozen <= $FROZEN_LIMIT)"
+  count=${#ALLOWLIST[@]+"${#ALLOWLIST[@]}"}
+  echo "LOC gate OK: all non-allowlisted Rust files <= $LIMIT lines (${count:-0} legacy files frozen <= $FROZEN_LIMIT)"
 fi
 exit "$fail"

@@ -110,8 +110,13 @@ fn sole_codex_profile(codex_dir: &Path) -> Option<String> {
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();
-            (path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
-                .then(|| path.file_stem()?.to_str()?.to_string())
+            if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
         })
         .filter(|stem| stem != "config" && valid_codex_profile_name(stem));
     let profile = profiles.next()?;

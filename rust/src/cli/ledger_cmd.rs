@@ -231,7 +231,7 @@ fn push_files_via_daemon(files: &[PathBuf]) -> Option<PushSummary> {
     };
     let first_output = read(first)?;
     let mut summary = PushSummary::default();
-    for output in std::iter::once(first_output).chain(files[1..].iter().filter_map(read)) {
+    for output in std::iter::once(first_output).chain(files[1..].iter().filter_map(|p| read(p))) {
         if output.trim_start().starts_with("ERROR:") {
             summary.skipped += 1;
         } else {
