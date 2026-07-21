@@ -285,8 +285,45 @@ fn scenario_compress_if_beneficial_skips_git_push_output() {
 #[test]
 fn scenario_compress_if_beneficial_still_compresses_git_status() {
     let command = "git status";
-    let output = "On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n\n\tmodified:   src/main.rs\n\tmodified:   src/lib.rs\n\tmodified:   src/utils.rs\n\tmodified:   src/config.rs\n\tmodified:   src/server.rs\n\nno changes added to commit (use \"git add\" and/or \"git commit -a\")\n";
-    let result = lean_ctx::shell::compress::compress_if_beneficial_pub(command, output);
+    // Output must exceed the 200-token verbatim floor (#1129).
+    let lines = vec![
+        "On branch feature/large-refactor",
+        "Your branch is ahead of 'origin/feature/large-refactor' by 3 commits.",
+        "  (use \"git push\" to publish your local commits)",
+        "",
+        "Changes to be committed:",
+        "  (use \"git restore --staged <file>...\" to unstage)",
+        "\tnew file:   src/core/graph_index/edges.rs",
+        "\tnew file:   src/core/graph_index/file_id.rs",
+        "\tmodified:   src/core/graph_provider.rs",
+        "\tmodified:   src/core/graph_index/mod.rs",
+        "\tmodified:   src/core/property_graph.rs",
+        "\tmodified:   src/core/index_orchestrator.rs",
+        "",
+        "Changes not staged for commit:",
+        "  (use \"git add <file>...\" to update what will be committed)",
+        "  (use \"git restore <file>...\" to discard changes in working directory)",
+        "\tmodified:   src/tools/ctx_overview.rs",
+        "\tmodified:   src/tools/ctx_read/mod.rs",
+        "\tmodified:   src/tools/ctx_read/render.rs",
+        "\tmodified:   src/tools/ctx_search.rs",
+        "\tmodified:   src/tools/ctx_compose.rs",
+        "\tmodified:   src/shell/compress/engine.rs",
+        "\tmodified:   src/shell/compress/tests.rs",
+        "\tmodified:   src/core/rules_canonical.rs",
+        "\tmodified:   src/core/rules_sections.rs",
+        "\tmodified:   src/core/context_budget.rs",
+        "",
+        "Untracked files:",
+        "  (use \"git add <file>...\" to include in what will be committed)",
+        "\tsrc/core/graph_index/tests.rs",
+        "\tsrc/tools/ctx_graph_primitives.rs",
+        "\tdocs/architecture/property-graph-migration.md",
+        "",
+        "no changes added to commit (use \"git add\" and/or \"git commit -a\")",
+    ];
+    let output = lines.join("\n") + "\n";
+    let result = lean_ctx::shell::compress::compress_if_beneficial_pub(command, &output);
     assert!(
         result.len() < output.len(),
         "git status should still be compressed (was {} → {} bytes)",
