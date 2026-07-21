@@ -669,7 +669,7 @@ mod tests {
             r#"if token == "" {"#,
             r#"if token, err = checkPulsares(); token == "" || err != nil {"#,
             r#"if password != "" {"#,
-            r#"assert secret == expected_value"#,
+            r"assert secret == expected_value",
         ] {
             assert_eq!(redact_text(s), s, "comparison operator corrupted: {s}");
         }

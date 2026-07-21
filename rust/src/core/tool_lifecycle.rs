@@ -514,6 +514,34 @@ fn project_ocla_compression(path: &str, source_tokens: u64, output_tokens: u64) 
     };
     let _ = reg.compression_provider.compress(request);
 }
+
+/// Project a realized read-savings event into the OCLA SavingsLedger.
+/// Best-effort: silently drops if the provider is unavailable. Canonical
+/// production callsite for the savings-evidence capability.
+fn project_ocla_savings(path: &str, original_tokens: u64, output_tokens: u64) {
+    use crate::core::ocla::OclaRegistry;
+    use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
+
+    let context = OclaRequestContext {
+        request_id: format!("cli-read-{}", path.len()),
+        session_id: SessionState::load_latest()
+            .map_or_else(|| "cli-read".to_string(), |session| session.id),
+        agent_id: "lean-ctx".to_string(),
+        content_ref: format!("file:{path}"),
+        tenant_id: None,
+        trace_id: String::new(),
+    };
+    let evidence = SavingsEvidence {
+        context,
+        original_tokens,
+        delivered_tokens: output_tokens,
+        quality_ref: None,
+        evidence_ref: format!("read:{path}:{original_tokens}:{output_tokens}"),
+    };
+    let _ = OclaRegistry::global()
+        .savings_ledger
+        .record_savings(evidence);
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,28 +760,4 @@ mod tests {
         assert_eq!(item.output_tokens, 120);
         assert!(item.duration_us > 0, "a real duration must be recorded");
     }
-}
-fn project_ocla_savings(path: &str, original_tokens: u64, output_tokens: u64) {
-    use crate::core::ocla::OclaRegistry;
-    use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
-
-    let context = OclaRequestContext {
-        request_id: format!("cli-read-{}", path.len()),
-        session_id: SessionState::load_latest()
-            .map_or_else(|| "cli-read".to_string(), |session| session.id),
-        agent_id: "lean-ctx".to_string(),
-        content_ref: format!("file:{path}"),
-        tenant_id: None,
-        trace_id: "tr-unit".into(),
-    };
-    let evidence = SavingsEvidence {
-        context,
-        original_tokens,
-        delivered_tokens: output_tokens,
-        quality_ref: None,
-        evidence_ref: format!("read:{path}:{original_tokens}:{output_tokens}"),
-    };
-    let _ = OclaRegistry::global()
-        .savings_ledger
-        .record_savings(evidence);
 }

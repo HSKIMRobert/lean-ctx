@@ -636,7 +636,7 @@ mod batch_grouping_tests {
             "args mapped correctly"
         );
         assert!(
-            args.get("dry_run").and_then(|v| v.as_bool()) == Some(true),
+            args.get("dry_run").and_then(Value::as_bool) == Some(true),
             "dry_run flag preserved in original args"
         );
     }

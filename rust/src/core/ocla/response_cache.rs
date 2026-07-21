@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn cache_hit_and_miss_update_stats() {
-        let cache = ResponseCache::new(4, Duration::from_secs(60));
+        let cache = ResponseCache::new(4, Duration::from_mins(1));
         let key = cache_key("model-a");
         cache.put(key, response(b"answer", Instant::now(), Duration::ZERO));
 
@@ -223,14 +223,14 @@ mod tests {
 
     #[test]
     fn expired_entries_count_as_misses() {
-        let cache = ResponseCache::with_ttl(Duration::from_secs(60));
+        let cache = ResponseCache::with_ttl(Duration::from_mins(1));
         let key = cache_key("model-a");
         cache.put(
             key,
             response(
                 b"old",
-                Instant::now() - Duration::from_secs(61),
-                Duration::from_secs(60),
+                Instant::now().checked_sub(Duration::from_secs(61)).unwrap(),
+                Duration::from_mins(1),
             ),
         );
 
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn lru_eviction_removes_least_recently_used_entry() {
-        let cache = ResponseCache::new(2, Duration::from_secs(60));
+        let cache = ResponseCache::new(2, Duration::from_mins(1));
         let first = cache_key("first");
         let second = cache_key("second");
         let third = cache_key("third");
@@ -265,7 +265,7 @@ mod tests {
 
     #[test]
     fn capacity_is_hard_capped() {
-        let cache = ResponseCache::new(MAX_ENTRIES + 1, Duration::from_secs(60));
+        let cache = ResponseCache::new(MAX_ENTRIES + 1, Duration::from_mins(1));
         for index in 0..=MAX_ENTRIES {
             cache.put(
                 ResponseCacheKey { hash: index as u64 },
@@ -284,7 +284,9 @@ mod tests {
             key,
             response(
                 b"answer",
-                Instant::now() - Duration::from_secs(301),
+                Instant::now()
+                    .checked_sub(Duration::from_secs(301))
+                    .unwrap(),
                 Duration::ZERO,
             ),
         );

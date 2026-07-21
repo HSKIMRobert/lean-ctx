@@ -91,7 +91,7 @@ fn with_routing_etpao() {
 #[test]
 fn with_cache_etpao() {
     let requests = requests();
-    let mut cache = ResponseCache::new(16, Duration::from_secs(60));
+    let mut cache = ResponseCache::new(16, Duration::from_mins(1));
     let mut cache_hits = 0_u64;
     let cached_tokens: u64 = requests
         .iter()
@@ -116,7 +116,7 @@ fn with_cache_etpao() {
 #[test]
 fn combined_etpao() {
     let requests = requests();
-    let mut cache = ResponseCache::new(16, Duration::from_secs(60));
+    let mut cache = ResponseCache::new(16, Duration::from_mins(1));
     let combined_tokens: u64 = requests
         .iter()
         .map(|request| {

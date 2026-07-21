@@ -258,12 +258,11 @@ mod tests {
         });
         let mut service = ocla_middleware().service(service);
         let request = |key| {
-            let request = Request::builder()
+            Request::builder()
                 .method(Method::POST)
                 .header("Idempotency-Key", key)
                 .body(Body::empty())
-                .expect("request");
-            request
+                .expect("request")
         };
 
         for key in ["same-key", "same-key", "new-key"] {
