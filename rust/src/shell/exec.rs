@@ -305,9 +305,25 @@ fn env_u64(var: &str) -> Option<u64> {
         .filter(|n| *n > 0)
 }
 
+/// #1113: detect shell loop constructs that are intentionally long-running.
+/// Matches `while true`, `while :`, `while sleep`, `for … in`, and similar
+/// patterns used for poll loops and background monitors.
+fn is_loop_command(lower: &str) -> bool {
+    let trimmed = lower.trim_start();
+    trimmed.starts_with("while ")
+        || trimmed.starts_with("until ")
+        || (trimmed.starts_with("for ") && trimmed.contains(" in "))
+}
+
 fn is_heavy_command(command: &str) -> bool {
     let cmd = command.trim();
     let lower = cmd.to_lowercase();
+    // #1113: shell loops (`while true; do ... done`, `for i in ...`) are
+    // intentionally long-running poll/monitor scripts. Killing them at 120s
+    // breaks CI watchers and background monitors.
+    if is_loop_command(&lower) {
+        return true;
+    }
     static HEAVY_PREFIXES: &[&str] = &[
         "cargo build",
         "cargo test",
