@@ -118,10 +118,7 @@ mod golden_workloads {
             ],
         };
         let kernel = ContextKernel::new(vec![Box::new(knowledge), Box::new(memory)]);
-        let plan = kernel.plan(&retrieval_ctx(
-            "auth middleware bypass debug sequence",
-            300,
-        ));
+        let plan = kernel.plan(&retrieval_ctx("auth middleware bypass debug sequence", 300));
 
         assert!(
             plan.selected
