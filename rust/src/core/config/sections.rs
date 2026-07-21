@@ -138,6 +138,9 @@ pub struct ArchiveConfig {
     /// Minimum output tokens before the ephemeral firewall replaces an inline tool
     /// result with a summary + retrieval ref. Outputs below this stay fully inline.
     pub ephemeral_min_tokens: usize,
+    /// Maximum output size that `ctx_shell(inline=true)` returns verbatim before
+    /// the archive/firewall path takes over.
+    pub inline_max_bytes: usize,
 }
 
 impl Default for ArchiveConfig {
@@ -149,6 +152,7 @@ impl Default for ArchiveConfig {
             max_disk_mb: 500,
             ephemeral: true,
             ephemeral_min_tokens: 2000,
+            inline_max_bytes: 32 * 1024,
         }
     }
 }
@@ -168,6 +172,15 @@ impl ArchiveConfig {
             return n;
         }
         self.ephemeral_min_tokens
+    }
+
+    pub fn inline_max_bytes_effective(&self) -> usize {
+        if let Ok(v) = std::env::var("LEAN_CTX_INLINE_MAX_BYTES")
+            && let Ok(n) = v.trim().parse::<usize>()
+        {
+            return n;
+        }
+        self.inline_max_bytes
     }
 }
 

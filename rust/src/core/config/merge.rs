@@ -184,6 +184,7 @@ impl Config {
             default.archive.ephemeral_min_tokens,
             archive.ephemeral_min_tokens
         );
+        override_if_ne!(default.archive.inline_max_bytes, archive.inline_max_bytes);
         override_if_ne!(
             default.memory.knowledge.max_facts,
             memory.knowledge.max_facts
