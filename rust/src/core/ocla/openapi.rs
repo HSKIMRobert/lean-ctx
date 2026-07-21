@@ -384,7 +384,7 @@ pub fn ocla_openapi_spec() -> Value {
         ]
     });
 
-    json!({
+    let mut spec = json!({
         "openapi": "3.1.0",
         "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
         "info": {
@@ -547,7 +547,8 @@ pub fn ocla_openapi_spec() -> Value {
                         "404": error_response("Dead letter was not found")
                     }
                 }
-            }
+            },
+
         },
         "components": {
             "schemas": {
@@ -565,6 +566,7 @@ pub fn ocla_openapi_spec() -> Value {
                 "DlqResponse": dlq_response_schema(),
                 "DlqRetryResponse": dlq_retry_response_schema(),
                 "HealthResponse": health_response_schema(),
+
                 "CapabilitiesResponse": {
                     "type": "object",
                     "required": ["api_version", "capabilities"],
@@ -594,7 +596,30 @@ pub fn ocla_openapi_spec() -> Value {
                 }
             }
         }
-    })
+    });
+    if let Some(paths) = spec["paths"].as_object_mut() {
+        paths.insert("/ocla/v1/capsule".into(), capsule_register_path());
+        paths.insert("/ocla/v1/capsule/{ref}".into(), capsule_resolve_path());
+        paths.insert("/ocla/v1/capsule/{ref}/fork".into(), capsule_fork_path());
+    }
+    if let Some(schemas) = spec["components"]["schemas"].as_object_mut() {
+        schemas.insert("CapsuleRegisterResponse".into(), json!({"type": "object", "required": ["capsule_ref"], "properties": {"capsule_ref": {"type": "string", "pattern": "^capsule:[0-9a-f]{64}$"}}}));
+        schemas.insert("CapsuleResolveResponse".into(), json!({"type": "object", "required": ["capsule_ref", "data"], "properties": {"capsule_ref": {"type": "string"}, "data": {"type": "string"}}}));
+        schemas.insert("CapsuleForkRequest".into(), json!({"type": "object", "required": ["budget_tokens"], "properties": {"budget_tokens": {"type": "integer", "minimum": 0}}}));
+    }
+    spec
+}
+
+fn capsule_register_path() -> Value {
+    json!({"post": {"operationId": "registerCapsule", "summary": "Register a new content-addressed capsule", "requestBody": {"required": true, "content": {"text/plain": {"schema": {"type": "string"}}}}, "responses": {"201": {"description": "Capsule registered", "content": {"application/json": {"schema": schema_ref("CapsuleRegisterResponse")}}}}}})
+}
+
+fn capsule_resolve_path() -> Value {
+    json!({"get": {"operationId": "resolveCapsule", "summary": "Resolve a capsule to its materialized data", "parameters": [{"name": "ref", "in": "path", "required": true, "schema": {"type": "string"}}], "responses": {"200": {"description": "Capsule data", "content": {"application/json": {"schema": schema_ref("CapsuleResolveResponse")}}}, "404": error_response("Capsule not found")}}})
+}
+
+fn capsule_fork_path() -> Value {
+    json!({"post": {"operationId": "forkCapsule", "summary": "Create a CoW fork of an existing capsule", "parameters": [{"name": "ref", "in": "path", "required": true, "schema": {"type": "string"}}], "requestBody": {"required": true, "content": {"application/json": {"schema": schema_ref("CapsuleForkRequest")}}}, "responses": {"201": {"description": "Fork created", "content": {"application/json": {"schema": schema_ref("CapsuleRegisterResponse")}}}, "404": error_response("Parent capsule not found")}}})
 }
 
 #[cfg(test)]
@@ -633,6 +658,9 @@ mod tests {
         assert!(paths.contains_key("/ocla/v1/dlq"));
         assert!(paths.contains_key("/ocla/v1/dlq/{id}/retry"));
         assert!(paths.contains_key("/ocla/v1/dlq/{id}"));
+        assert!(paths.contains_key("/ocla/v1/capsule"));
+        assert!(paths.contains_key("/ocla/v1/capsule/{ref}"));
+        assert!(paths.contains_key("/ocla/v1/capsule/{ref}/fork"));
         assert!(spec["components"]["schemas"]["CanonicalTokenEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentEnvelopeV1"].is_object());
         assert!(spec["components"]["schemas"]["AgentsResponse"].is_object());
@@ -645,6 +673,9 @@ mod tests {
         assert!(spec["components"]["schemas"]["DlqResponse"].is_object());
         assert!(spec["components"]["schemas"]["DlqRetryResponse"].is_object());
         assert!(spec["components"]["schemas"]["HealthResponse"].is_object());
+        assert!(spec["components"]["schemas"]["CapsuleRegisterResponse"].is_object());
+        assert!(spec["components"]["schemas"]["CapsuleResolveResponse"].is_object());
+        assert!(spec["components"]["schemas"]["CapsuleForkRequest"].is_object());
         let serialized = serde_json::to_string(&spec).expect("serialize OpenAPI spec");
         serde_json::from_str::<Value>(&serialized).expect("OpenAPI spec is valid JSON");
         assert_eq!(

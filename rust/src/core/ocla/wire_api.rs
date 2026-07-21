@@ -14,6 +14,7 @@ use std::{
 };
 
 use super::budget::{BudgetLedger, BudgetLimit, BudgetScope};
+use super::capsule::CapsuleStore;
 use super::health::{SystemHealth, check_system_health};
 use super::{
     CanonicalTokenEnvelopeV1, OCLA_API_VERSION, OclaCapability, OclaCapabilityKind, OclaRegistry,
@@ -39,6 +40,9 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/dlq", get(dlq))
         .route("/ocla/v1/dlq/{id}/retry", post(dlq_retry))
         .route("/ocla/v1/dlq/{id}", delete(dlq_delete))
+        .route("/ocla/v1/capsule", post(capsule_register))
+        .route("/ocla/v1/capsule/{ref}", get(capsule_resolve))
+        .route("/ocla/v1/capsule/{ref}/fork", post(capsule_fork))
 }
 
 #[derive(Default)]
@@ -317,6 +321,54 @@ fn invalid_request(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
         StatusCode::BAD_REQUEST,
         Json(json!({"error": error.to_string()})),
     )
+}
+
+static CAPSULE_STORE: OnceLock<CapsuleStore> = OnceLock::new();
+
+fn capsule_store() -> &'static CapsuleStore {
+    CAPSULE_STORE.get_or_init(CapsuleStore::new)
+}
+
+async fn capsule_register(body: String) -> (StatusCode, Json<Value>) {
+    let capsule_ref = capsule_store().register(body.as_bytes());
+    (
+        StatusCode::CREATED,
+        Json(json!({"capsule_ref": capsule_ref})),
+    )
+}
+
+async fn capsule_resolve(Path(capsule_ref): Path<String>) -> (StatusCode, Json<Value>) {
+    match capsule_store().resolve(&capsule_ref) {
+        Ok(data) => {
+            let text = String::from_utf8_lossy(&data);
+            (
+                StatusCode::OK,
+                Json(json!({"capsule_ref": capsule_ref, "data": text})),
+            )
+        }
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "capsule not found"})),
+        ),
+    }
+}
+
+#[derive(Deserialize)]
+struct ForkRequest {
+    budget_tokens: u64,
+}
+
+async fn capsule_fork(
+    Path(capsule_ref): Path<String>,
+    Json(req): Json<ForkRequest>,
+) -> (StatusCode, Json<Value>) {
+    match capsule_store().fork(&capsule_ref, req.budget_tokens) {
+        Ok(child_ref) => (StatusCode::CREATED, Json(json!({"capsule_ref": child_ref}))),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "parent capsule not found"})),
+        ),
+    }
 }
 
 #[cfg(test)]
