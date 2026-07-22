@@ -33,4 +33,3 @@ pub mod recovery;
 pub mod result_fusion;
 pub mod shadow;
 pub mod types;
-
