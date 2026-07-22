@@ -113,8 +113,8 @@ pub fn format_request_summary(ctx: &RequestContext) -> String {
     format!(
         "[{}] user={} team={} budget={}",
         coverage_class::coverage_label(ctx.coverage),
-        ctx.identity.user_id,
-        ctx.identity.team_id,
+        ctx.identity.user_id.as_deref().unwrap_or("-"),
+        ctx.identity.team_id.as_deref().unwrap_or("-"),
         ctx.broker_budget.context_tokens
     )
 }
@@ -179,8 +179,8 @@ mod tests {
     #[test]
     fn format_summary_includes_identity() {
         let ctx = build_request_context(&[], false, true, false);
-        let expected_user = format!("user={}", ctx.identity.user_id);
-        let expected_team = format!("team={}", ctx.identity.team_id);
+        let expected_user = format!("user={}", ctx.identity.user_id.as_deref().unwrap_or("-"));
+        let expected_team = format!("team={}", ctx.identity.team_id.as_deref().unwrap_or("-"));
         let summary = format_request_summary(&ctx);
         assert!(summary.contains(&expected_user));
         assert!(summary.contains(&expected_team));
