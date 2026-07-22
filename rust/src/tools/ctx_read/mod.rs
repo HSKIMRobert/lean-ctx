@@ -12,8 +12,8 @@ use crate::core::tokens::count_tokens;
 use crate::tools::CrpMode;
 // `pub(crate)`: the conformance suite renders modes directly for its
 // accuracy invariants (GL#441).
-mod kernel;
 pub mod dedup_hook;
+mod kernel;
 pub(crate) mod render;
 pub(crate) use render::*;
 /// Type-safe read-mode vocabulary (#528): single source of truth for which

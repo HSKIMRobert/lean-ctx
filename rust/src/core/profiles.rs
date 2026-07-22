@@ -778,10 +778,7 @@ fn merge_profiles(parent: Profile, child: Profile) -> Profile {
             .compression
             .terse_mode
             .or(parent.compression.terse_mode),
-        adaptive: child
-            .compression
-            .adaptive
-            .or(parent.compression.adaptive),
+        adaptive: child.compression.adaptive.or(parent.compression.adaptive),
     };
     let translation = TranslationConfig {
         enabled: child.translation.enabled.or(parent.translation.enabled),
