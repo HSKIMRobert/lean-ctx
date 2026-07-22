@@ -449,6 +449,9 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
 
+
+            // R28: Kernel schema optimization — budget-aware description compression.
+            let tools = crate::server::schema_hook::optimize_tools(tools, &client);
             // #1008: When ctx_patch is hidden for this client, scrub references
             // from other tools' descriptions so the LLM never sees the name and
             // won't attempt to call it. Replace with ctx_edit (visible alternative).

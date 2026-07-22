@@ -582,6 +582,16 @@ fn handle_with_options_resolved_preread(
         }
     }
 
+    // R28: Kernel content dedup — detect re-reads of unchanged content.
+    if let Some(stub) = dedup_hook::maybe_dedup(path, &result.content, mode) {
+        let stub_tokens = count_tokens(&stub);
+        if stub_tokens < result.output_tokens {
+            result.content = stub;
+            result.output_tokens = stub_tokens;
+            result.is_cache_hit = true;
+        }
+    }
+
     if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
         let original_tokens = cache.get(path).map_or(0, |e| e.original_tokens);
         bt.record_read(
