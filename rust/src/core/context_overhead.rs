@@ -121,7 +121,7 @@ pub fn tool_tokens(t: &rmcp::model::Tool) -> usize {
 /// Estimated per-turn overhead of native IDE tools (Read, Grep, Shell, Glob,
 /// Write, StrReplace) — lean-ctx replaces these 1:1, so only the delta above
 /// this baseline is attributable lean-ctx overhead.
-const NATIVE_BASELINE_TOKENS_PER_TURN: u64 = 2400;
+pub(crate) const NATIVE_BASELINE_TOKENS_PER_TURN: u64 = 2400;
 
 /// Conservative provider prompt-cache hit rate. Anthropic achieves ~90% on
 /// stable prefixes (#498), OpenAI ~50%. Default 75% cross-provider estimate.

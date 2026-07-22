@@ -138,7 +138,12 @@ impl LeanCtxServer {
         );
 
         let output_tokens = original.saturating_sub(saved);
-        crate::core::stats::record(tool, original, output_tokens);
+        crate::core::stats::record_at_turn(
+            tool,
+            original,
+            output_tokens,
+            crate::core::context_overhead::observed_turns(),
+        );
         // MCP shell savings are measured (raw vs compressed output), so they are
         // ledger-grade (GL #479 D2). Reads are ledgered by the ctx_read /
         // ctx_multi_read callers (#685, decoupled from the heatmap) and ctx_search

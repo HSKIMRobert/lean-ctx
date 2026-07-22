@@ -64,7 +64,7 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
          Tokens: {input} in → {out} out  | saved {saved}  ({rate:.1}%)\n\
          Gain: {avoided} avoided  | tool spend {spend}  | ROI {roi}\n\
          Impact: {energy} grid energy avoided  | {co2} CO₂e (est.)\n\
-         Pricing: model={model_key} ({match_kind:?}) in=${in_m:.2}/M out=${out_m:.2}/M\n",
+         Pricing: model={model_key} ({match_kind:?}) input=${in_m:.2}/M cache_write=${cw_m:.2}/M cache_read=${cr_m:.2}/M output=${out_m:.2}/M\n",
         bridge_line = bridge.summary_line(),
         total = s.score.total,
         comp = s.score.compression,
@@ -76,8 +76,45 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
         model_key = s.model.model_key,
         match_kind = s.model.match_kind,
         in_m = s.model.cost.input_per_m,
+        cw_m = s.model.cost.cache_write_per_m,
+        cr_m = s.model.cost.cache_read_per_m,
         out_m = s.model.cost.output_per_m,
     );
+
+    let streams = s.stream_savings;
+    report.push_str(&format!(
+        "\nStream                 | Tokens Saved | Rate       | USD Saved\n\
+         -----------------------+--------------+------------+----------\n\
+         First inject/cache_write | {:>12} | ${:>7.2}/M | {:>9}\n\
+         Re-read/cache_read       | {:>12} | ${:>7.2}/M | {:>9}\n\
+         New input                | {:>12} | ${:>7.2}/M | {:>9}\n\
+         Output                   | {:>12} | ${:>7.2}/M | {:>9}\n\
+         lean-ctx overhead+bounce | {:>12} | mixed      | {:>9}\n\
+         Net bill impact          |              |            | {:>9}\n",
+        format_tokens(streams.first_inject_tokens_saved),
+        s.model.cost.cache_write_per_m,
+        format_usd(streams.cache_write_usd_saved),
+        format_tokens(streams.reread_tokens_saved),
+        s.model.cost.cache_read_per_m,
+        format_usd(streams.cache_read_usd_saved),
+        format_tokens(streams.input_tokens_saved),
+        s.model.cost.input_per_m,
+        format_usd(streams.input_usd_saved),
+        format_tokens(streams.output_tokens_saved),
+        s.model.cost.output_per_m,
+        format_usd(streams.output_usd_saved),
+        format!(
+            "-{}",
+            format_tokens(
+                streams
+                    .first_inject_overhead_tokens
+                    .saturating_add(streams.reread_overhead_tokens)
+                    .saturating_add(streams.bounce_tokens)
+            )
+        ),
+        format_usd(-streams.overhead_usd),
+        format_usd(streams.net_usd_saved),
+    ));
 
     // Net-of-injection honesty line (#361): reconcile the meter to the bill.
     // On a non-caching rail the fixed per-turn injection is re-billed every
@@ -713,6 +750,23 @@ mod tests {
     }
 
     #[test]
+    fn summary_reports_bill_weighted_token_stream_table() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        let out = handle("status", None, Some("gpt-5"), Some(5));
+        for label in [
+            "Stream                 | Tokens Saved | Rate       | USD Saved",
+            "First inject/cache_write",
+            "Re-read/cache_read",
+            "New input",
+            "Output",
+            "lean-ctx overhead+bounce",
+            "Net bill impact",
+        ] {
+            assert!(out.contains(label), "missing stream row {label:?}:\n{out}");
+        }
+    }
+
+    #[test]
     fn truncation_is_char_boundary_safe() {
         // GitHub #386: byte-indexed truncation panicked mid-codepoint when
         // paths/agent ids contained multibyte characters. Sweep every cut
@@ -771,6 +825,23 @@ mod tests {
             summary["model"].get("model_key").is_some(),
             "summary.model.model_key missing"
         );
+        let streams = summary
+            .get("stream_savings")
+            .expect("summary.stream_savings");
+        for k in [
+            "first_inject_tokens_saved",
+            "reread_tokens_saved",
+            "cache_write_usd_saved",
+            "cache_read_usd_saved",
+            "gross_usd_saved",
+            "overhead_usd",
+            "net_usd_saved",
+        ] {
+            assert!(
+                streams.get(k).is_some(),
+                "summary.stream_savings.{k} missing"
+            );
+        }
 
         let score = summary.get("score").expect("score");
         for k in [

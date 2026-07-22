@@ -2,6 +2,7 @@ pub mod bridge_status;
 pub mod gain_score;
 pub mod live_pricing;
 pub mod model_pricing;
+pub mod stream_savings;
 pub mod task_classifier;
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::a2a::cost_attribution::CostStore;
 use crate::core::gain::gain_score::GainScore;
 use crate::core::gain::model_pricing::{ModelPricing, ModelQuote};
+use crate::core::gain::stream_savings::StreamSavings;
 use crate::core::gain::task_classifier::{TaskCategory, TaskClassifier};
 use crate::core::heatmap::HeatMap;
 use crate::core::stats::StatsStore;
@@ -75,6 +77,9 @@ pub struct GainSummary {
     #[serde(default)]
     pub over_budget: bool,
     pub avoided_usd: f64,
+    /// Bill-weighted savings split by provider token stream (#1191).
+    #[serde(default)]
+    pub stream_savings: StreamSavings,
     /// Estimated grid energy avoided (Wh) by keeping `tokens_saved` out of context.
     pub energy_wh: f64,
     /// Estimated CO₂-equivalent avoided (grams), derived from `energy_wh`.
@@ -136,7 +141,23 @@ impl GainEngine {
         let effective_tokens_saved = effective.saved_tokens();
         let effective_compression_pct = effective.compression_pct();
         let total_reduction_pct = self.stats.total_reduction_pct();
-        let avoided_usd = quote.cost.estimate_usd(effective_tokens_saved, 0, 0, 0);
+        let turns = crate::core::context_overhead::observed_turns();
+        let (first_inject, reread) = self.stats.stream_savings(turns);
+        let injected_overhead_tokens_per_turn =
+            crate::core::context_overhead::ContextOverhead::cached().total_tokens() as u64;
+        let bounce_tokens = crate::core::bounce_tracker::global()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .total_wasted_tokens() as u64;
+        let stream_savings = StreamSavings::calculate(
+            first_inject,
+            reread,
+            injected_overhead_tokens_per_turn,
+            turns,
+            bounce_tokens,
+            quote.cost,
+        );
+        let avoided_usd = stream_savings.net_usd_saved;
         let tool_spend_usd = self.costs.total_cost().max(0.0);
         let roi = if tool_spend_usd > 0.0 {
             Some(avoided_usd / tool_spend_usd)
@@ -160,13 +181,10 @@ impl GainEngine {
                     .to_string(),
             )
         };
-        let injected_overhead_tokens_per_turn =
-            crate::core::context_overhead::ContextOverhead::cached().total_tokens() as u64;
         // Reconcile to the real bill: the proxy is the only component that sees
         // every provider turn, so its persisted request count is the honest
         // multiplier for the per-turn injection tax (GitHub #361). The math is
         // shared with the verified savings ledger/ROI (#685).
-        let turns = crate::core::context_overhead::observed_turns();
         let (injected_overhead_total_tokens, net_tokens_saved) =
             crate::core::context_overhead::net_of_injection(
                 effective_tokens_saved,
@@ -199,6 +217,7 @@ impl GainEngine {
             injected_overhead_budget_tokens,
             over_budget,
             avoided_usd,
+            stream_savings,
             energy_wh: crate::core::energy::wh_for_tokens(effective_tokens_saved),
             co2_grams: crate::core::energy::co2_grams_for_tokens(effective_tokens_saved),
             tool_spend_usd,

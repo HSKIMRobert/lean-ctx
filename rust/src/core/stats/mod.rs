@@ -132,17 +132,31 @@ pub fn adjust_savings(command: &str, over_report_delta: i64) {
     let Some((store, baseline, last_flush)) = guard.as_mut() else {
         return;
     };
+    let cmd_key = format::normalize_command(command);
+    let stream_tracked = classify_command(&cmd_key) == TrafficClass::Compressible;
     if over_report_delta > 0 {
         let adj = over_report_delta as u64;
         store.total_output_tokens = store.total_output_tokens.saturating_add(adj);
-        if let Some(cmd) = store.commands.get_mut(command) {
+        if let Some(cmd) = store.commands.get_mut(&cmd_key) {
             cmd.output_tokens = cmd.output_tokens.saturating_add(adj);
+        }
+        if stream_tracked {
+            store.first_inject_tokens_saved = store.first_inject_tokens_saved.saturating_sub(adj);
+            store.active_tool_result_tokens_saved =
+                store.active_tool_result_tokens_saved.saturating_sub(adj);
         }
     } else {
         let adj = over_report_delta.unsigned_abs();
         store.total_output_tokens = store.total_output_tokens.saturating_sub(adj);
-        if let Some(cmd) = store.commands.get_mut(command) {
+        if let Some(cmd) = store.commands.get_mut(&cmd_key) {
             cmd.output_tokens = cmd.output_tokens.saturating_sub(adj);
+        }
+        if stream_tracked {
+            store.first_inject_tokens_saved = store.first_inject_tokens_saved.saturating_add(adj);
+            if store.last_tool_result_turn > 0 {
+                store.active_tool_result_tokens_saved =
+                    store.active_tool_result_tokens_saved.saturating_add(adj);
+            }
         }
     }
     if let Some(merged) = io::merge_and_save(store, baseline) {
@@ -153,6 +167,12 @@ pub fn adjust_savings(command: &str, over_report_delta: i64) {
 }
 
 pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
+    record_at_turn(command, input_tokens, output_tokens, 0);
+}
+
+/// Records a tool result against an observed provider turn. `turn == 0` keeps
+/// daemon-free callers honest: first injection is known, re-read count is not.
+pub fn record_at_turn(command: &str, input_tokens: usize, output_tokens: usize, turn: u64) {
     let mut guard = STATS_BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -181,6 +201,10 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     store.last_use = Some(timestamp);
 
     let cmd_key = format::normalize_command(command);
+    if classify_command(&cmd_key) == TrafficClass::Compressible {
+        let saved = input_tokens.saturating_sub(output_tokens) as u64;
+        store.record_tool_result_savings(saved, turn);
+    }
     store
         .command_classes
         .insert(cmd_key.clone(), classify_command(&cmd_key));
@@ -526,6 +550,43 @@ mod tests {
         assert_eq!(merged.total_commands, 35);
         assert_eq!(merged.total_input_tokens, 1100);
         assert_eq!(merged.total_output_tokens, 700);
+    }
+
+    #[test]
+    fn apply_deltas_merges_stream_counters_without_replaying_baseline() {
+        let mut baseline = StatsStore {
+            first_inject_tokens_saved: 1_000,
+            reread_tokens_saved: 2_000,
+            active_tool_result_tokens_saved: 500,
+            last_tool_result_turn: 8,
+            stream_tracked_results: 2,
+            ..StatsStore::default()
+        };
+        let mut current = baseline.clone();
+        current.first_inject_tokens_saved = 1_400;
+        current.reread_tokens_saved = 2_900;
+        current.active_tool_result_tokens_saved = 700;
+        current.last_tool_result_turn = 10;
+        current.stream_tracked_results = 3;
+        let disk = StatsStore {
+            first_inject_tokens_saved: 5_000,
+            reread_tokens_saved: 7_000,
+            active_tool_result_tokens_saved: 1_000,
+            last_tool_result_turn: 9,
+            stream_tracked_results: 10,
+            ..StatsStore::default()
+        };
+
+        let merged = io::apply_deltas(&disk, &current, &baseline);
+        assert_eq!(merged.first_inject_tokens_saved, 5_400);
+        assert_eq!(merged.reread_tokens_saved, 7_900);
+        assert_eq!(merged.active_tool_result_tokens_saved, 1_200);
+        assert_eq!(merged.last_tool_result_turn, 10);
+        assert_eq!(merged.stream_tracked_results, 11);
+
+        baseline.first_inject_tokens_saved = current.first_inject_tokens_saved;
+        let no_replay = io::apply_deltas(&merged, &current, &baseline);
+        assert_eq!(no_replay.first_inject_tokens_saved, 5_400);
     }
 
     #[test]

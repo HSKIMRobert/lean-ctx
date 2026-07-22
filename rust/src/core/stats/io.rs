@@ -169,6 +169,29 @@ pub(super) fn apply_deltas(
     merged.total_commands = merged.total_commands.saturating_add(delta_commands);
     merged.total_input_tokens = merged.total_input_tokens.saturating_add(delta_input);
     merged.total_output_tokens = merged.total_output_tokens.saturating_add(delta_output);
+    merged.first_inject_tokens_saved = merged.first_inject_tokens_saved.saturating_add(
+        current
+            .first_inject_tokens_saved
+            .saturating_sub(baseline.first_inject_tokens_saved),
+    );
+    merged.reread_tokens_saved = merged.reread_tokens_saved.saturating_add(
+        current
+            .reread_tokens_saved
+            .saturating_sub(baseline.reread_tokens_saved),
+    );
+    merged.active_tool_result_tokens_saved = merged.active_tool_result_tokens_saved.saturating_add(
+        current
+            .active_tool_result_tokens_saved
+            .saturating_sub(baseline.active_tool_result_tokens_saved),
+    );
+    merged.last_tool_result_turn = merged
+        .last_tool_result_turn
+        .max(current.last_tool_result_turn);
+    merged.stream_tracked_results = merged.stream_tracked_results.saturating_add(
+        current
+            .stream_tracked_results
+            .saturating_sub(baseline.stream_tracked_results),
+    );
 
     for (cmd, stats) in &current.commands {
         let base = baseline.commands.get(cmd);

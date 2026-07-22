@@ -17,6 +17,22 @@ pub struct StatsStore {
     /// not have this map; callers infer classifications from the command key.
     #[serde(default)]
     pub command_classes: HashMap<String, TrafficClass>,
+    /// Savings when a compressed tool result first enters provider context.
+    #[serde(default)]
+    pub first_inject_tokens_saved: u64,
+    /// Savings from previously injected tool results carried into later turns.
+    #[serde(default)]
+    pub reread_tokens_saved: u64,
+    /// Savings still resident in the active transcript and eligible for re-read.
+    #[serde(default)]
+    pub active_tool_result_tokens_saved: u64,
+    /// Last provider turn for which active tool-result re-reads were accrued.
+    #[serde(default)]
+    pub last_tool_result_turn: u64,
+    /// Number of results recorded with stream-aware accounting. Zero identifies
+    /// legacy stats files whose aggregate savings need a display-time fallback.
+    #[serde(default)]
+    pub stream_tracked_results: u64,
 }
 
 /// Whether a recorded command's output is controlled by compression.
@@ -49,6 +65,41 @@ impl CompressionTotals {
 }
 
 impl StatsStore {
+    /// Records one tool result at the provider turn that caused it. Advancing
+    /// turns prices every already-resident result as a cache re-read; results
+    /// emitted in the same turn are not spuriously re-billed against each other.
+    pub(crate) fn record_tool_result_savings(&mut self, saved: u64, turn: u64) {
+        if turn > 0 && self.last_tool_result_turn > 0 && turn > self.last_tool_result_turn {
+            let elapsed = turn - self.last_tool_result_turn;
+            self.reread_tokens_saved = self
+                .reread_tokens_saved
+                .saturating_add(self.active_tool_result_tokens_saved.saturating_mul(elapsed));
+        }
+        if turn > 0 {
+            self.last_tool_result_turn = self.last_tool_result_turn.max(turn);
+            self.active_tool_result_tokens_saved =
+                self.active_tool_result_tokens_saved.saturating_add(saved);
+        }
+        self.first_inject_tokens_saved = self.first_inject_tokens_saved.saturating_add(saved);
+        self.stream_tracked_results = self.stream_tracked_results.saturating_add(1);
+    }
+
+    /// Stream totals through `observed_turn`, including re-reads since the last
+    /// tool result. Legacy stores fall back to measured compressible savings.
+    pub(crate) fn stream_savings(&self, observed_turn: u64) -> (u64, u64) {
+        if self.stream_tracked_results == 0 {
+            return (self.compression_totals().saved_tokens(), 0);
+        }
+        let pending_turns = observed_turn.saturating_sub(self.last_tool_result_turn);
+        let pending = self
+            .active_tool_result_tokens_saved
+            .saturating_mul(pending_turns);
+        (
+            self.first_inject_tokens_saved,
+            self.reread_tokens_saved.saturating_add(pending),
+        )
+    }
+
     /// Computes effective compression from tagged command rows.
     pub(crate) fn compression_totals(&self) -> CompressionTotals {
         self.commands
@@ -318,5 +369,68 @@ mod tests {
         assert_eq!(totals.saved_tokens(), 0);
         assert_eq!(totals.compression_pct(), 0.0);
         assert_eq!(StatsStore::default().total_reduction_pct(), 0.0);
+    }
+
+    #[test]
+    fn first_result_is_first_inject_only() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(1_000, 7);
+        assert_eq!(store.stream_savings(7), (1_000, 0));
+        assert_eq!(store.last_tool_result_turn, 7);
+    }
+
+    #[test]
+    fn next_turn_rereads_all_prior_results() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(1_000, 7);
+        store.record_tool_result_savings(500, 8);
+        assert_eq!(store.stream_savings(8), (1_500, 1_000));
+    }
+
+    #[test]
+    fn parallel_results_on_same_turn_do_not_reread_each_other() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(1_000, 7);
+        store.record_tool_result_savings(500, 7);
+        assert_eq!(store.stream_savings(7), (1_500, 0));
+        assert_eq!(store.stream_savings(8), (1_500, 1_500));
+    }
+
+    #[test]
+    fn skipped_turns_multiply_resident_savings() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(2_000, 3);
+        assert_eq!(store.stream_savings(6), (2_000, 6_000));
+    }
+
+    #[test]
+    fn daemon_free_result_never_guesses_rereads() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(2_000, 0);
+        assert_eq!(store.stream_savings(100), (2_000, 0));
+        assert_eq!(store.active_tool_result_tokens_saved, 0);
+    }
+
+    #[test]
+    fn legacy_stats_fall_back_to_effective_compression() {
+        let mut store = StatsStore::default();
+        store.commands.insert(
+            "ctx_read".into(),
+            super::CommandStats {
+                count: 1,
+                input_tokens: 10_000,
+                output_tokens: 2_500,
+            },
+        );
+        assert_eq!(store.stream_savings(50), (7_500, 0));
+    }
+
+    #[test]
+    fn stream_counters_saturate_instead_of_wrapping() {
+        let mut store = StatsStore::default();
+        store.record_tool_result_savings(u64::MAX, 1);
+        store.record_tool_result_savings(u64::MAX, u64::MAX);
+        assert_eq!(store.first_inject_tokens_saved, u64::MAX);
+        assert_eq!(store.reread_tokens_saved, u64::MAX);
     }
 }
