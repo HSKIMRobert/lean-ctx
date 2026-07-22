@@ -31,8 +31,8 @@ pub mod multi_agent_e2e;
 pub mod orchestrator;
 pub mod outcome_signal;
 pub mod policy;
-pub mod proxy_bridge;
 pub mod providers;
+pub mod proxy_bridge;
 pub mod quality_e2e;
 pub mod recovery;
 pub mod result_fusion;
@@ -40,4 +40,3 @@ pub mod shadow;
 pub mod tool_surface;
 pub mod types;
 pub mod wiring_e2e;
-

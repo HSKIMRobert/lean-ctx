@@ -112,13 +112,17 @@ pub fn process_proxy_request(data: &ProxyRequestData) -> ProxyKernelResult {
         .saturating_add(data.reasoning_tokens);
     lock_identity_ledger().record(&context.identity, consumed, data.tokens_saved, accepted);
 
+    let coverage = context.coverage;
+    let optimization_level = client_wiring::optimization_level(&context);
+    let kernel_budget = context.broker_budget;
+
     ProxyKernelResult {
         identity: context.identity,
-        coverage: context.coverage,
-        coverage_label: coverage_class::coverage_label(context.coverage),
-        is_addressable: coverage_class::is_addressable(context.coverage),
-        optimization_level: client_wiring::optimization_level(&context),
-        kernel_budget: context.broker_budget,
+        coverage,
+        coverage_label: coverage_class::coverage_label(coverage),
+        is_addressable: coverage_class::is_addressable(coverage),
+        optimization_level,
+        kernel_budget,
         outcome_signal: outcome,
     }
 }
