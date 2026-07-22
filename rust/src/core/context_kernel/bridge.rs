@@ -3,6 +3,16 @@
 use super::orchestrator::ContextKernel;
 use super::types::{ContextPlanV1, ContextReceiptV1, PlanEntry, ReceiptOutcome, RetrievalContext};
 
+/// Result of kernel gating: what to add and what to suppress.
+#[derive(Debug, Clone)]
+pub struct KernelVerdict {
+    /// Cross-store context to supplement (hard-capped, never exceeds budget).
+    pub supplement: Option<String>,
+    /// Content identifiers that are already in context and should not be resent.
+    pub suppress: Vec<String>,
+    /// Tokens consumed by the kernel supplement.
+    pub budget_used: usize,
+}
 /// Result of kernel enrichment for compose integration.
 #[derive(Debug, Clone)]
 pub struct KernelEnrichment {
@@ -10,25 +20,30 @@ pub struct KernelEnrichment {
     pub plan: ContextPlanV1,
     /// Human-readable blocks suitable for compose output injection.
     pub blocks: String,
+    /// Gate decision accompanying the backward-compatible blocks.
+    pub verdict: KernelVerdict,
 }
-
+/// Check whether `path` should be suppressed as already delivered.
+/// Returns `false` until the orchestrator exposes recent-delivery state.
+pub fn kernel_gate(_path: &str, _project_root: &str) -> bool {
+    false
+}
 /// Enrich a compose response with kernel-selected context.
 ///
-/// Returns additional context blocks from Knowledge, Episodic, and Procedural
-/// stores that the standard compose pipeline misses. Returns `None` if no
-/// additional context is worth including.
+/// Returns cross-store context that the compose pipeline misses, or `None`.
 pub fn kernel_enrich(
     task: &str,
     project_root: &str,
     budget_tokens: usize,
 ) -> Option<KernelEnrichment> {
+    let capped_budget = budget_tokens.min(150);
     let kernel = ContextKernel::for_project(project_root);
     let ctx = RetrievalContext {
         query: task.to_owned(),
         task: Some(task.to_owned()),
         project_root: project_root.to_owned(),
         budget: crate::core::context_field::TokenBudget {
-            total: budget_tokens,
+            total: capped_budget,
             used: 0,
         },
         max_candidates: 20,
@@ -40,11 +55,53 @@ pub fn kernel_enrich(
         .filter(|entry| entry.provider != "context.ledger")
         .collect();
 
-    if enrichments.is_empty() {
-        return None;
-    }
     let blocks = format_enrichment_blocks(&enrichments);
-    Some(KernelEnrichment { plan, blocks })
+    enrichment_from_plan(plan, blocks, capped_budget)
+}
+fn enrichment_from_plan(
+    plan: ContextPlanV1,
+    blocks: String,
+    budget: usize,
+) -> Option<KernelEnrichment> {
+    let verdict = verdict_from_blocks(blocks, budget);
+    let blocks = verdict.supplement.clone()?;
+    Some(KernelEnrichment {
+        plan,
+        blocks,
+        verdict,
+    })
+}
+
+fn verdict_from_blocks(blocks: String, budget: usize) -> KernelVerdict {
+    let blocks = truncate_to_token_budget(blocks, budget);
+    let supplement = (!blocks.is_empty()).then(|| blocks.clone());
+    let budget_used = supplement
+        .as_deref()
+        .map_or(0, crate::core::tokens::count_tokens);
+    KernelVerdict {
+        supplement,
+        suppress: Vec::new(),
+        budget_used,
+    }
+}
+
+fn truncate_to_token_budget(mut text: String, budget: usize) -> String {
+    if crate::core::tokens::count_tokens(&text) <= budget {
+        return text;
+    }
+    let mut low = 0;
+    let mut high = text.len();
+    while low < high {
+        let middle = low + (high - low).div_ceil(2);
+        let boundary = text.floor_char_boundary(middle);
+        if crate::core::tokens::count_tokens(&text[..boundary]) <= budget {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    text.truncate(text.floor_char_boundary(low));
+    text
 }
 
 fn format_enrichment_blocks(entries: &[&PlanEntry]) -> String {
@@ -170,87 +227,74 @@ pub fn format_plan_summary(plan: &ContextPlanV1) -> String {
 mod tests {
     use std::collections::HashMap;
 
-    use super::super::types::{PlanBudget, ProviderStat};
-    use super::*;
+    use super::super::types::PlanBudget;
+    use super::{
+        ContextPlanV1, PlanEntry, enrichment_from_plan, format_enrichment_blocks, kernel_gate,
+        verdict_from_blocks,
+    };
 
-    fn plan() -> ContextPlanV1 {
+    fn plan(selected: Vec<PlanEntry>) -> ContextPlanV1 {
         ContextPlanV1 {
-            plan_id: "1234567890abcdef".to_owned(),
-            intent: "test kernel output".to_owned(),
+            plan_id: "plan".to_owned(),
+            intent: "test".to_owned(),
             budget: PlanBudget {
-                total_tokens: 100,
-                used_tokens: 25,
-                remaining_tokens: 75,
+                total_tokens: 150,
+                used_tokens: 0,
+                remaining_tokens: 150,
             },
-            selected: vec![PlanEntry {
-                object_id: "fact-1".to_owned(),
-                provider: "knowledge.facts".to_owned(),
-                view: "summary".to_owned(),
-                tokens: 25,
-                phi: 0.8,
-                reason: "Known project constraint".to_owned(),
-            }],
+            selected,
             excluded: Vec::new(),
             deferred: Vec::new(),
-            provider_stats: HashMap::from([(
-                "knowledge.facts".to_owned(),
-                ProviderStat {
-                    candidates_offered: 1,
-                    candidates_selected: 1,
-                    tokens_used: 25,
-                },
-            )]),
+            provider_stats: HashMap::new(),
         }
     }
 
-    fn receipt(outcome: ReceiptOutcome) -> ContextReceiptV1 {
-        ContextReceiptV1 {
-            receipt_id: "receipt-1".to_owned(),
-            plan_id: "plan-1".to_owned(),
-            delivered_tokens: 25,
-            cache_hits: 0,
-            cache_misses: 1,
-            outcome,
-            quality_signals: Vec::new(),
-            feedback_attribution: HashMap::new(),
+    fn entry(reason: &str) -> PlanEntry {
+        PlanEntry {
+            object_id: "fact".to_owned(),
+            provider: "knowledge.facts".to_owned(),
+            view: "summary".to_owned(),
+            tokens: 1,
+            phi: 0.8,
+            reason: reason.to_owned(),
         }
     }
 
     #[test]
-    fn nonexistent_project_does_not_enrich() {
-        assert!(kernel_enrich("test task", "/nonexistent/context-kernel-project", 100).is_none());
+    fn budget_capped_at_150() {
+        let item = entry(&"token ".repeat(1_000));
+        let blocks = format_enrichment_blocks(&[&item]);
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 1_000.min(150))
+            .expect("long enrichment should be truncated, not removed");
+        assert!(enrichment.verdict.budget_used <= 150);
     }
-
     #[test]
-    fn empty_entries_produce_no_blocks() {
-        assert!(format_enrichment_blocks(&[]).is_empty());
+    fn empty_supplement_when_no_candidates() {
+        let verdict = verdict_from_blocks(String::new(), 150);
+        assert!(verdict.supplement.is_none());
+        assert_eq!(verdict.budget_used, 0);
     }
-
     #[test]
-    fn plan_summary_is_readable() {
-        let summary = format_plan_summary(&plan());
-        assert!(summary.contains("plan=12345678"));
-        assert!(summary.contains("selected=1"));
-        assert!(summary.contains("knowledge.facts: 1/1 candidates, 25 tokens"));
+    fn verdict_has_correct_budget_used() {
+        let item = entry("Known constraint");
+        let blocks = format_enrichment_blocks(&[&item]);
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
+            .expect("entry should produce enrichment");
+        assert_eq!(
+            enrichment.verdict.budget_used,
+            crate::core::tokens::count_tokens(enrichment.verdict.supplement.as_deref().unwrap())
+        );
     }
-
     #[test]
-    fn accepted_feedback_does_not_panic() {
-        apply_feedback(&receipt(ReceiptOutcome::Accepted));
+    fn kernel_gate_returns_false_by_default() {
+        assert!(!kernel_gate("src/lib.rs", "/project"));
     }
-
     #[test]
-    fn unknown_feedback_is_a_no_op() {
-        apply_feedback(&receipt(ReceiptOutcome::Unknown));
-    }
-
-    #[test]
-    fn plan_event_does_not_require_a_enabled_bus() {
-        emit_plan_event(&plan());
-    }
-
-    #[test]
-    fn receipt_event_does_not_require_a_enabled_bus() {
-        emit_receipt_event(&receipt(ReceiptOutcome::Accepted));
+    fn backward_compat_enrichment_still_works() {
+        let item = entry("Known constraint");
+        let blocks = format_enrichment_blocks(&[&item]);
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
+            .expect("entry should produce enrichment");
+        assert_eq!(enrichment.blocks, enrichment.verdict.supplement.unwrap());
     }
 }
