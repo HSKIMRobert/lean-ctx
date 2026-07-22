@@ -570,6 +570,7 @@ pub fn cmd_benchmark(args: &[String]) {
         "--help" | "-h" => {
             println!("Usage: lean-ctx benchmark run [path] [--json]");
             println!("       lean-ctx benchmark report [path]");
+            println!("       lean-ctx benchmark replay <sessions.json> [--output report.md]");
             println!("       lean-ctx benchmark eval [path] [--json]");
             println!("       lean-ctx benchmark eval-ab [path] [--suite file.ndjson] [--json]");
             println!("       lean-ctx benchmark compare [--repo path] [--output file.md]");
@@ -699,6 +700,32 @@ pub fn cmd_benchmark(args: &[String]) {
             let result = benchmark::run_project_benchmark(path);
             println!("{}", benchmark::format_markdown(&result));
         }
+        "replay" => {
+            let Some(input) = args.get(1).filter(|arg| !arg.starts_with("--")) else {
+                eprintln!("Usage: lean-ctx benchmark replay <sessions.json> [--output report.md]");
+                std::process::exit(1);
+            };
+            let result = crate::core::quality_benchmark::load_replay(std::path::Path::new(input))
+                .and_then(|suite| crate::core::quality_benchmark::replay(&suite));
+            match result {
+                Ok(report) => {
+                    let markdown = crate::core::quality_benchmark::format_markdown(&report);
+                    if let Some(output) = parse_flag_value(args, "--output") {
+                        if let Err(error) = std::fs::write(&output, markdown) {
+                            eprintln!("Failed to write benchmark report to {output}: {error}");
+                            std::process::exit(1);
+                        }
+                        eprintln!("Wrote compression quality report to {output}");
+                    } else {
+                        print!("{markdown}");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("Benchmark replay failed: {error:#}");
+                    std::process::exit(1);
+                }
+            }
+        }
         "compare" => {
             let repo = parse_flag_value(args, "--repo").unwrap_or_else(|| ".".to_string());
             let output = parse_flag_value(args, "--output");
@@ -724,6 +751,7 @@ pub fn cmd_benchmark(args: &[String]) {
             } else {
                 eprintln!("Usage: lean-ctx benchmark run [path] [--json]");
                 eprintln!("       lean-ctx benchmark report [path]");
+                eprintln!("       lean-ctx benchmark replay <sessions.json> [--output report.md]");
                 eprintln!("       lean-ctx benchmark eval [path] [--json]");
                 eprintln!(
                     "       lean-ctx benchmark eval-ab [path] [--suite file.ndjson] [--json]"

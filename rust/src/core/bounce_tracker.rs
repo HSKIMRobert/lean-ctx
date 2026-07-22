@@ -175,6 +175,26 @@ impl BounceTracker {
         self.detect_bounce(&norm, seq);
     }
 
+    /// Records an explicit archive/context expansion as a quality bounce.
+    ///
+    /// Unlike a full file re-read, `ctx_expand` may address a content handle
+    /// rather than a path, so it cannot always be inferred by `detect_bounce`.
+    /// Benchmark replay uses this method to keep the quality proxy on the same
+    /// tracker as ordinary compressed-then-full bounces.
+    pub fn record_expansion(&mut self, source: Option<&str>, wasted_tokens: usize) {
+        self.total_bounces = self.total_bounces.saturating_add(1);
+        self.total_wasted_tokens = self.total_wasted_tokens.saturating_add(wasted_tokens);
+
+        if let Some(path) = source {
+            let ext = extension_of(path);
+            if !ext.is_empty() {
+                let stats = self.per_extension.entry(ext).or_default();
+                stats.bounces = stats.bounces.saturating_add(1);
+                stats.wasted_tokens = stats.wasted_tokens.saturating_add(wasted_tokens);
+            }
+        }
+    }
+
     pub fn record_edit(&mut self, path: &str) {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         self.recently_edited.insert(norm, self.seq_counter);
@@ -354,6 +374,14 @@ mod tests {
         bt.record_shell_file_access("config.yml");
         assert_eq!(bt.total_bounces(), 1);
         assert_eq!(bt.total_wasted_tokens(), 30);
+    }
+
+    #[test]
+    fn explicit_expansion_tracks_quality_and_waste() {
+        let mut bt = BounceTracker::new();
+        bt.record_expansion(Some("src/main.rs"), 125);
+        assert_eq!(bt.total_bounces(), 1);
+        assert_eq!(bt.total_wasted_tokens(), 125);
     }
 
     #[test]

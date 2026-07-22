@@ -415,6 +415,7 @@ pub mod immune_detector;
 pub mod mcp_catalog;
 pub mod ocla;
 pub mod ocla_bus;
+pub mod quality_benchmark;
 pub mod qubo_select;
 pub mod work_graph;
 
