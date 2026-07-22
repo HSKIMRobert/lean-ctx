@@ -6,18 +6,13 @@ use super::policy::ContextPolicy;
 use super::types::{ContextPlanV1, PlanEntry};
 
 /// Determines whether policy violations are observed or enforced.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum KernelMode {
+    #[default]
     Shadow,
     Enforce,
     Explain,
-}
-
-impl Default for KernelMode {
-    fn default() -> Self {
-        Self::Shadow
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -27,10 +22,10 @@ struct KernelModeConfig {
 
 /// Resolves the kernel mode from the environment, then the global config.
 pub fn resolve_mode(_project_root: &str) -> KernelMode {
-    if let Ok(value) = std::env::var("LEANCTX_KERNEL_MODE") {
-        if let Some(mode) = parse_mode(&value) {
-            return mode;
-        }
+    if let Ok(value) = std::env::var("LEANCTX_KERNEL_MODE")
+        && let Some(mode) = parse_mode(&value)
+    {
+        return mode;
     }
 
     crate::core::paths::config_dir_member("config.toml")

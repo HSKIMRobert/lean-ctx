@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn learning_updates_provider_weights() {
         let initial_weights: HashMap<String, f64> =
-            HashMap::from([("files".to_owned(), 1.0), ("knowledge".to_owned(), 1.0)]);
+            HashMap::from([("files".to_owned(), 0.5), ("knowledge".to_owned(), 0.5)]);
         let receipt = ContextReceiptV1 {
             receipt_id: "receipt:learning".to_owned(),
             plan_id: "plan:learning".to_owned(),

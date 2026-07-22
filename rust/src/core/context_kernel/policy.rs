@@ -76,8 +76,7 @@ impl PolicyFilter {
 
     /// Returns whether a candidate satisfies sensitivity and source rules.
     pub fn is_allowed(&self, candidate: &ContextObjectV1) -> bool {
-        if sensitivity_rank(&candidate.sensitivity)
-            > sensitivity_rank(&self.policy.max_sensitivity)
+        if sensitivity_rank(&candidate.sensitivity) > sensitivity_rank(&self.policy.max_sensitivity)
         {
             return false;
         }
@@ -95,6 +94,29 @@ impl PolicyFilter {
     }
 }
 
+impl ContextPolicy {
+    /// Returns the reason a plan entry violates this policy, or `None` if compliant.
+    pub fn violation_reason(&self, entry: &super::types::PlanEntry) -> Option<String> {
+        if let Some(ref allowed) = self.allowed_sources
+            && !allowed.contains(&entry.provider)
+        {
+            return Some(format!(
+                "provider '{}' not in allowed sources",
+                entry.provider
+            ));
+        }
+        if self.blocked_sources.contains(&entry.provider) {
+            return Some(format!("provider '{}' is blocked", entry.provider));
+        }
+        None
+    }
+}
+
+impl Default for ContextPolicy {
+    fn default() -> Self {
+        PolicyFilter::default_policy()
+    }
+}
 fn sensitivity_rank(level: &SensitivityLevel) -> u8 {
     match level {
         SensitivityLevel::Public => 0,
@@ -198,10 +220,6 @@ mod tests {
         context_policy.blocked_sources = vec!["knowledge".to_owned()];
         let filter = PolicyFilter::new(context_policy);
 
-        assert!(!filter.is_allowed(&candidate(
-            "knowledge",
-            SensitivityLevel::Internal,
-            10,
-        )));
+        assert!(!filter.is_allowed(&candidate("knowledge", SensitivityLevel::Internal, 10,)));
     }
 }
