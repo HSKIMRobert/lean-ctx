@@ -135,13 +135,13 @@ mod tests {
     use crate::core::context_kernel::proxy_bridge::{self, ProxyRequestData};
     use crate::core::context_kernel::{receipt_chain, usage_normalizer};
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn isolated() -> MutexGuard<'static, ()> {
-        let guard = TEST_LOCK
+        let guard = crate::core::context_kernel::kernel_config::KERNEL_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_evidence();
+        crate::core::context_kernel::proxy_bridge::reset_state();
+        crate::core::context_kernel::mcp_bridge::reset_mcp_state();
         guard
     }
 
@@ -224,6 +224,8 @@ mod tests {
         process_proxy();
         process_mcp_evidence(&mcp_data(1));
         reset_evidence();
+        crate::core::context_kernel::proxy_bridge::reset_state();
+        crate::core::context_kernel::mcp_bridge::reset_mcp_state();
         assert_eq!(evidence_summary(), EvidenceSummary::default());
         assert!(kernel_config::is_enabled());
     }

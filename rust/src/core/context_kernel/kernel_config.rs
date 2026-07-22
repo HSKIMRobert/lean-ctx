@@ -124,6 +124,9 @@ pub fn from_env() -> KernelFeatures {
     }
 }
 
+/// Global test lock for all kernel modules sharing global state.
+#[cfg(test)]
+pub static KERNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(test)]
 mod tests {
     use super::{
@@ -132,10 +135,8 @@ mod tests {
     };
     use std::sync::{Mutex, MutexGuard};
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn setup() -> MutexGuard<'static, ()> {
-        let guard = TEST_LOCK
+        let guard = super::KERNEL_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_features();
