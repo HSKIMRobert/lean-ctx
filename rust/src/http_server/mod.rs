@@ -42,6 +42,7 @@ mod handlers;
 use handlers::*;
 
 pub mod context_views;
+pub mod kernel_api;
 pub mod roi_webhook;
 pub mod savings_ingest;
 pub mod savings_summary;
