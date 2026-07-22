@@ -195,6 +195,33 @@ fn strip_json_whitespace(json: &str) -> String {
     compact
 }
 
+/// Bridge: optimize MCP tool schemas for the current request profile.
+///
+/// Called by the MCP server to reduce tool schema tokens based on
+/// the client's efficiency profile and broker decisions.
+#[must_use]
+pub fn optimize_for_request(
+    headers: &[(String, String)],
+    schemas: &[ToolSchema],
+) -> SurfaceReduction {
+    let profile = super::client_profile::detect_from_headers(headers);
+    let optimizer = ToolSurfaceOptimizer::from_profile(&profile);
+    optimizer.optimize(schemas)
+}
+
+/// Returns the token savings from tool surface optimization.
+#[must_use]
+pub const fn tool_savings_tokens(reduction: &SurfaceReduction) -> usize {
+    reduction.tokens_saved
+}
+
+/// Returns true if tool surface optimization would save significant tokens.
+#[must_use]
+pub fn should_optimize_tools(headers: &[(String, String)], tool_count: usize) -> bool {
+    let profile = super::client_profile::detect_from_headers(headers);
+    tool_count > profile.tool_budget.max_tools
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +320,25 @@ mod tests {
         let reduction = ToolSurfaceOptimizer::new(1, 100).optimize(&schemas);
         assert_eq!(reduction.tokens_saved, 75);
         assert!((reduction.savings_pct - 75.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn optimize_for_request_reduces() {
+        let schemas = (0..20)
+            .map(|index| schema(&format!("tool-{index}"), 1, 1_000, ToolCategory::Core))
+            .collect::<Vec<_>>();
+        let reduction = optimize_for_request(&[], &schemas);
+        assert!(reduction.reduced_count < schemas.len());
+        assert!(tool_savings_tokens(&reduction) > 0);
+    }
+
+    #[test]
+    fn should_optimize_over_budget() {
+        assert!(should_optimize_tools(&[], 65));
+    }
+
+    #[test]
+    fn should_optimize_under_budget() {
+        assert!(!should_optimize_tools(&[], 3));
     }
 }
