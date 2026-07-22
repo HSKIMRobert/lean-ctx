@@ -167,6 +167,8 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         proxy_bridge::reset_state();
         mcp_bridge::reset_mcp_state();
+        crate::core::context_kernel::usage_normalizer::reset_usage();
+        crate::core::context_kernel::receipt_chain::reset_chain();
         guard
     }
 

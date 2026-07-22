@@ -89,7 +89,7 @@ mod tests {
 
         let envelope = token_envelope::from_mcp_call(&call);
         assert_eq!(envelope.provider, ProviderKind::Unknown);
-        assert_eq!(envelope.model, "ctx_read");
+        assert!(envelope.model.is_empty(), "MCP calls have no model");
 
         usage_normalizer::record_envelope(&envelope);
         assert_eq!(usage_normalizer::session_usage().total_requests, 1);
