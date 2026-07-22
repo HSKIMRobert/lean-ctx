@@ -27,6 +27,11 @@ pub mod identity_resolver;
 pub mod invalidation;
 pub mod knowledge_health;
 pub mod learning;
+pub mod mcp_bridge;
+pub mod mcp_coverage;
+pub mod mcp_e2e;
+pub mod mcp_receipt;
+pub mod mcp_schema_opt;
 pub mod multi_agent_e2e;
 pub mod orchestrator;
 pub mod outcome_signal;
@@ -40,3 +45,4 @@ pub mod shadow;
 pub mod tool_surface;
 pub mod types;
 pub mod wiring_e2e;
+
