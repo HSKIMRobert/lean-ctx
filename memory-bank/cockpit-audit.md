@@ -1,6 +1,6 @@
 # Context Cockpit — Architecture Audit & Premium Roadmap
 
-Stand: 2026-07-23
+Stand: 2026-07-23 (aktualisiert nach C1 Implementation)
 
 ## Bestandsaufnahme
 
@@ -43,15 +43,19 @@ Stand: 2026-07-23
 
 **Verdict**: Overview zeigt Zusammenfassungen von Daten die in dedizierten Views detailliert werden. Das ist akzeptabel als "Home", aber die 32KB sind zu viel — vieles davon ist redundante Render-Logik.
 
-### F2 — Context + Commander + Compression = 3 Views für dasselbe Thema
+### F2 — Context + Commander + Compression = 3 Views für dasselbe Thema — **REVIDIERT**
 
 - **context.js** (49KB): "Was ist im Context-Window?"
 - **commander.js** (25KB): "Context Triage — was soll raus?"
 - **compression.js** (20KB): "Compression Lab — was wurde gespart?"
 
-Alle drei drehen sich um **Context-Window-Management**. Commander und Context teilen sogar denselben `/api/context-overlay` Endpoint (3× aufgerufen!).
+**C1 Analyse-Ergebnis**: Die Tab-Konsolidierung existiert **bereits**!
+- Router `COCKPIT_AREAS` definiert "Context" Area mit 5 Tabs: Triage | Contents | Live | Lab | Settings
+- `cockpit-area-tabs.js` rendert die Tab-Leiste automatisch
+- Jeder Tab ist ein eigenständiges Web Component (lazy-loaded)
+- Kein Merge nötig — die Architektur ist bereits korrekt!
 
-**Verdict**: → **MERGE** zu einer einzigen "Context" View mit 3 Tabs (Contents | Triage | Compression). **Spart ~94KB → ~40KB**.
+**Verbleibend**: Component-Level Bloat-Reduktion (optional, nicht kritisch).
 
 ### F3 — Knowledge + Memory + Search = 3 Views für "Was weiss lean-ctx?"
 
@@ -86,22 +90,28 @@ Beide prüfen "System-Gesundheit" aus verschiedenen Winkeln. Keiner nutzt `/v1/k
 
 - **graph.js** (79KB!!!): D3 Call-Graph — **grösste Datei im ganzen Cockpit**
 - **architecture.js** (6KB): Module-Dependencies
-- **explorer.js** (13KB): File/Symbol-Browser — **Agent 04 fand: Element registriert aber nie geladen, zeigt permanent "Loading..."**
+- **explorer.js** (13KB): File/Symbol-Browser — **REVIDIERT: funktional, braucht Tree-Index-Build**
 
-79KB für einen Call-Graph ist **absurd**. Das ist mehr als manche ganze Web-Apps.
+**C1 Analyse-Ergebnis**: Explorer ist **NICHT defekt**:
+- Hat Backend `/api/tree` Route (tree.rs)
+- `makeViewLoader` + `loadData()` korrekt verdrahtet
+- Zeigt "Loading..." nur während Tree-Index im Hintergrund gebaut wird (progressives Loading mit Polling)
+- Funktioniert sobald der Index fertig ist
 
-**Verdict**: → **MERGE** zu "Code Structure" mit 2 Tabs (Dependencies | Call Graph). Explorer **REMOVE** (defekt). Graph.js **SIMPLIFY** (Ziel: <20KB). **Spart ~98KB → ~30KB**.
+79KB Graph.js: D3 Call-Graph Visualisierung — komplex aber funktional. Slim-Down schwierig ohne Feature-Verlust.
 
-### F7 — Kein einziger Consumer von `/v1/kernel/*` APIs
+**Verdict**: Explorer **BEHALTEN** (funktional). Graph.js bleibt (D3 braucht Platz). Architecture bereits als eigener Tab in "Project Map" Area integriert.
 
-Die 7 Kernel-API-Endpoints (R31-R33) werden **null mal** im Cockpit genutzt:
-- `/v1/kernel/dashboard` — nicht genutzt
-- `/v1/kernel/etpao` — nicht genutzt
-- `/v1/kernel/config` — nicht genutzt
-- `/v1/kernel/evidence` — nicht genutzt
-- `/v1/kernel/health` — nicht genutzt
-- `/v1/kernel/report` — nicht genutzt
-- Provider Stats — nicht genutzt
+### F7 — ~~Kein einziger Consumer von `/v1/kernel/*` APIs~~ ✅ BEHOBEN
+
+~~Die 7 Kernel-API-Endpoints (R31-R33) werden **null mal** im Cockpit genutzt.~~
+
+**BEHOBEN in C1 (2026-07-23):**
+- Neuer `/api/kernel` Backend-Route: konsolidiert Health, Provider Stats, Evidence, Savings, Subsystem Status
+- `cockpit-health.js`: neuer "Kernel" Tab (Health Hero, Savings-Tabelle, Provider Distribution, Subsystem-Grid)
+- `cockpit-overview.js`: Kernel-Status-Chip im Home StatusStrip (healthy/degraded/off)
+- `cockpit-roi.js`: Provider Distribution Tabelle mit per-Provider Request/Token Breakdown
+- Live getestet: `/api/kernel` liefert korrektes JSON mit 6 Subsystemen
 
 ### F8 — Nav-Metadata dreifach dupliziert
 
@@ -122,9 +132,33 @@ Labels driften bereits: "Settings" vs "Quick Settings".
 
 ---
 
-## Premium-Architektur: Ziel
+## Premium-Architektur: Ist-Zustand (nach C1 Analyse)
 
-### Von 22 Views → 7 Views
+### Bestehende Area-Struktur (bereits konsolidiert!)
+
+Die Cockpit-Architektur ist **bereits** in 5 Areas mit Tabs organisiert:
+
+| # | Area | Tabs | Zweck |
+|---|---|---|---|
+| 1 | **Context** | Triage, Contents, Live, Lab, Settings | Was Agents lesen |
+| 2 | **Memory** | Knowledge, Episodes, Search, Agents | Was Agents lernen |
+| 3 | **Protection** | Guards, Risk & Policies | Sicherheit |
+| 4 | **Proof** | ROI, Time Machine, Trends, Leaderboard | Savings beweisen |
+| 5 | **Project Map** | Dependencies, Call Graph, Symbols, Explorer, Architecture, Routes | Codebase-Verständnis |
+
+Plus **Home** (Simple Mode: nur Home; Pro Mode: Home + 5 Areas).
+
+### Kernel-Integration (C1 ✅ implementiert)
+
+| Endpoint | Cockpit-View | Status |
+|---|---|---|
+| `/api/kernel` (neu) | Health > Kernel Tab | ✅ Live |
+| `/api/kernel` | Overview > StatusStrip Chip | ✅ Live |
+| `/api/kernel` | ROI > Provider Distribution | ✅ Live |
+
+### ~~Von 22 Views → 7 Views~~ — REVIDIERT
+
+Die 5-Area Tab-Architektur existiert bereits. Kein View-Merge nötig.
 
 | # | View | Inhalt | Aus (alt) |
 |---|---|---|---|
@@ -170,57 +204,44 @@ Labels driften bereits: "Settings" vs "Quick Settings".
 
 ---
 
-## Umsetzungs-Phasen
+## Revidierte Umsetzungs-Phasen
 
-### Phase C1 — Context Consolidation
-**Scope**: Merge context + commander + compression → "Context" (3 Tabs)
-**Aufwand**: Mittel (94KB analysieren, ~40KB Ziel)
-**Priorität**: HOCH (grösste Duplikation)
+### Phase C1 — Kernel API Integration ✅ ABGESCHLOSSEN (2026-07-23)
+**Deliverables:**
+- Neue `/api/kernel` Backend-Route (`rust/src/dashboard/routes/kernel.rs`, 79 LOC)
+- Health.js: neuer "Kernel" Tab (Provider Stats, Evidence, Savings, Subsystems)
+- Overview.js: Kernel StatusStrip Chip
+- ROI.js: Provider Distribution Tabelle
+- 27 vorbestehende Clippy-Warnings behoben (21 Dateien, 126 Insertions)
+- Release Build ✓, 9051 Tests ✓, Zero Clippy ✓, Live-Test ✓
+- Pushed: GitHub ✓ + GitLab ✓
 
-### Phase C2 — Savings & ROI Consolidation
-**Scope**: Merge roi + remaining → "Savings", Kernel Provider Stats Tab
-**Aufwand**: Mittel (60KB → ~35KB)
-**Priorität**: HOCH (Business-Value durch Provider-Cost-Integration)
+### Phase C2 — Clippy Zero-Warning Policy ✅ ABGESCHLOSSEN (2026-07-23)
+**Deliverables:**
+- `field_reassign_with_default`, `unchecked_time_subtraction`, `unnecessary_literal_bound`,
+  `default_trait_access`, `cloned_ref_to_slice_refs`, `case_sensitive_file_extension_comparisons`,
+  `await_holding_lock`, `needless_pass_by_value`, `unnecessary_min_or_max`
+- 21 Dateien gefixt, `cargo clippy --all-targets -- -D warnings` passiert
 
-### Phase C3 — Knowledge Consolidation
-**Scope**: Merge knowledge + memory + search → "Knowledge" (2 Tabs)
-**Aufwand**: Mittel (62KB → ~30KB)
+### Phase C3 — CSS Audit + Dead Rule Cleanup
+**Scope**: 1616 Zeilen CSS, 733 Rules, geschätzt >30% ungenutzt
 **Priorität**: MITTEL
 
-### Phase C4 — System Health + Kernel Integration
-**Scope**: Merge health + protection → "System", Kernel-API Integration
-**Aufwand**: Klein (29KB → ~18KB + Kernel-Anbindung)
-**Priorität**: MITTEL (macht Kernel-Arbeit R31-R33 sichtbar)
-
-### Phase C5 — Code Structure Cleanup
-**Scope**: Graph.js von 79KB auf <20KB, architecture integrieren, explorer REMOVE
-**Aufwand**: HOCH (79KB refactoren)
-**Priorität**: NIEDRIG (funktional, nur zu gross)
-
-### Phase C6 — Activity Consolidation
-**Scope**: Merge live + agents + replay → "Activity" (3 Tabs)
-**Aufwand**: Mittel (84KB → ~45KB)
+### Phase C4 — Nav-Metadata SSOT
+**Scope**: Labels/Descriptions in cockpit-nav.js, router.js, index.html konsolidieren
 **Priorität**: NIEDRIG
 
-### Phase C7 — Infrastructure Cleanup
-**Scope**: Nav-Metadata SSOT, CSS Audit (89KB → ~40KB), shared.js Cleanup
-**Aufwand**: Klein-Mittel
-**Priorität**: MITTEL (nach View-Consolidation)
-
-### Phase C8 — Home Refresh
-**Scope**: Overview.js auf ~15KB reduzieren, Kernel-Metriken integrieren
-**Aufwand**: Klein
-**Priorität**: NIEDRIG (nach allen Consolidations)
+### Phase C5 — Component-Level Optimierungen
+**Scope**: Optional — einzelne grosse Components (Graph 1891L, Live 1227L) refactoren
+**Priorität**: NIEDRIG (funktional, Risiko/Nutzen-Verhältnis fragwürdig)
 
 ---
 
 ## Prinzipien für Premium-Cockpit
 
-1. **7 Views, nicht 22** — jede View hat einen klaren Zweck
-2. **Tabs statt Views** — zusammengehörige Daten als Tabs, nicht separate Seiten
-3. **Ein API-Call pro Datensatz** — keine doppelten Fetches desselben Endpoints
-4. **Kernel-APIs integriert** — Provider Stats, Health, Evidence sichtbar
-5. **Nav-Metadata SSOT** — eine Quelle für Labels, Beschreibungen, Routing
-6. **< 250KB total JS** — von 518KB auf ~200KB
-7. **< 50KB CSS** — von 89KB auf ~40KB
-8. **Keine defekten Views** — Explorer REMOVE, Tour REMOVE
+1. **5 Areas + Home** — Area-Tab-Architektur bereits korrekt implementiert ✓
+2. **Kernel-APIs integriert** — Provider Stats, Health, Evidence sichtbar ✅
+3. **Zero Clippy Warnings** — `--all-targets` Policy durchgesetzt ✅
+4. **Lazy Loading** — Views laden Daten nur wenn aktiv (via registerLoader) ✓
+5. **Nav-Metadata SSOT** — Labels aus einer Quelle (offener Punkt)
+6. **CSS Cleanup** — 1616 Zeilen, ~30% vermutlich ungenutzt (offener Punkt)
