@@ -160,9 +160,11 @@ mod tests {
     #[test]
     fn update_persists() {
         let _guard = setup();
-        let mut changed = KernelFeatures::default();
-        changed.content_dedup = false;
-        changed.max_kernel_budget = 77;
+        let changed = KernelFeatures {
+            content_dedup: false,
+            max_kernel_budget: 77,
+            ..KernelFeatures::default()
+        };
         update_features(changed);
         let current = features();
         assert!(!current.content_dedup);
@@ -172,8 +174,11 @@ mod tests {
     #[test]
     fn is_enabled_master_switch() {
         let _guard = setup();
-        let mut changed = KernelFeatures::default();
-        changed.enabled = false;
+        let changed = KernelFeatures {
+            enabled: false,
+            dedup_capacity: 1,
+            ..KernelFeatures::default()
+        };
         update_features(changed);
         assert!(!is_enabled());
         assert!(!is_feature_enabled("content_dedup"));
@@ -188,8 +193,10 @@ mod tests {
     #[test]
     fn disabled_named_feature_is_false() {
         let _guard = setup();
-        let mut changed = KernelFeatures::default();
-        changed.schema_optimization = false;
+        let changed = KernelFeatures {
+            schema_optimization: false,
+            ..KernelFeatures::default()
+        };
         update_features(changed);
         assert!(!is_feature_enabled("schema_optimization"));
     }
@@ -226,9 +233,11 @@ mod tests {
     #[test]
     fn reset_restores_defaults() {
         let _guard = setup();
-        let mut changed = KernelFeatures::default();
-        changed.enabled = false;
-        changed.dedup_capacity = 1;
+        let changed = KernelFeatures {
+            enabled: false,
+            dedup_capacity: 1,
+            ..KernelFeatures::default()
+        };
         update_features(changed);
         reset_features();
         let current = features();

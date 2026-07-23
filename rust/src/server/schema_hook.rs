@@ -63,8 +63,10 @@ mod tests {
     #[test]
     fn disabled_returns_same_count() {
         let _guard = setup();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         let tools = vec![("tool".to_owned(), "description".to_owned(), 1)];
 

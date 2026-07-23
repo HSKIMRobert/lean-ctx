@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn errors_are_always_signalled() {
         let msg = message("tool", "command failed with error: permission denied");
-        let score = score_message(&msg, 0, &[msg.clone()]);
+        let score = score_message(&msg, 0, std::slice::from_ref(&msg));
         assert_eq!(score.error_signal, 1.0);
         assert!(is_error_message(&msg));
     }

@@ -107,8 +107,10 @@ mod tests {
     #[test]
     fn kernel_disabled_all_hooks_noop() {
         let _guard = isolated();
-        let mut features = kernel_config::KernelFeatures::default();
-        features.enabled = false;
+        let features = kernel_config::KernelFeatures {
+            enabled: false,
+            ..kernel_config::KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         let content = long_content();
 

@@ -121,14 +121,18 @@ mod tests {
     use crate::core::context_kernel::token_envelope::ProviderKind;
 
     fn stats() -> [ProviderStat; 2] {
-        let mut open_ai = ProviderStat::default();
-        open_ai.provider = ProviderKind::OpenAi;
-        open_ai.request_count = 42;
-        open_ai.total_input = 125_400;
-        let mut anthropic = ProviderStat::default();
-        anthropic.provider = ProviderKind::Anthropic;
-        anthropic.request_count = 18;
-        anthropic.total_input = 54_000;
+        let open_ai = ProviderStat {
+            provider: ProviderKind::OpenAi,
+            request_count: 42,
+            total_input: 125_400,
+            ..ProviderStat::default()
+        };
+        let anthropic = ProviderStat {
+            provider: ProviderKind::Anthropic,
+            request_count: 18,
+            total_input: 54_000,
+            ..ProviderStat::default()
+        };
         [open_ai, anthropic]
     }
 

@@ -88,11 +88,13 @@ mod tests {
         let started = Instant::now();
         let mut token_total = 0;
         for index in 0..5_000 {
-            let mut envelope = TokenEnvelope::default();
-            envelope.model = "benchmark-model".to_owned();
-            envelope.input_tokens = index;
-            envelope.output_tokens = 10;
-            envelope.cache_read_tokens = 5;
+            let envelope = TokenEnvelope {
+                model: "benchmark-model".to_owned(),
+                input_tokens: index,
+                output_tokens: 10,
+                cache_read_tokens: 5,
+                ..TokenEnvelope::default()
+            };
             token_total += std::hint::black_box(envelope).input_tokens;
         }
         assert!(started.elapsed() < Duration::from_millis(50));

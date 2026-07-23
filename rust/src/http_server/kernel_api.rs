@@ -136,6 +136,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn config_roundtrip() {
         let _guard = kernel_config::KERNEL_TEST_LOCK
             .lock()

@@ -103,8 +103,10 @@ mod tests {
     #[test]
     fn kernel_disabled_no_recording() {
         let _guard = reset_all();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         process_proxy_requests(5);
@@ -148,8 +150,10 @@ mod tests {
     #[test]
     fn selective_feature_disable() {
         let _guard = reset_all();
-        let mut features = KernelFeatures::default();
-        features.receipt_chain = false;
+        let features = KernelFeatures {
+            receipt_chain: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         process_proxy_requests(3);
@@ -171,8 +175,10 @@ mod tests {
     #[test]
     fn config_max_budget_respected() {
         let _guard = reset_all();
-        let mut features = KernelFeatures::default();
-        features.max_kernel_budget = 50;
+        let features = KernelFeatures {
+            max_kernel_budget: 50,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         assert_eq!(kernel_config::features().max_kernel_budget, 50);
@@ -181,8 +187,10 @@ mod tests {
     #[test]
     fn dedup_disabled_always_full() {
         let _guard = reset_all();
-        let mut features = KernelFeatures::default();
-        features.content_dedup = false;
+        let features = KernelFeatures {
+            content_dedup: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         for _ in 0..10 {
