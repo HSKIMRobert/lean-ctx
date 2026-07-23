@@ -88,8 +88,10 @@ mod tests {
     #[test]
     fn reinitialize_updates() {
         let _guard = isolated();
-        let mut changed = super::super::kernel_config::KernelFeatures::default();
-        changed.content_dedup = false;
+        let changed = super::super::kernel_config::KernelFeatures {
+            content_dedup: false,
+            ..super::super::kernel_config::KernelFeatures::default()
+        };
         super::super::kernel_config::update_features(changed);
         reinitialize();
         assert_eq!(

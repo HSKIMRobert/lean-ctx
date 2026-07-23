@@ -321,7 +321,7 @@ mod tests {
     use super::super::types::{Freshness, SensitivityLevel, SideEffectPolicy};
     use std::collections::HashMap;
 
-    use crate::core::context_field::{ContextItemId, TokenBudget, ViewCosts};
+    use crate::core::context_field::{ContextItemId, Provenance, TokenBudget, ViewCosts};
 
     use super::*;
 
@@ -330,6 +330,7 @@ mod tests {
     }
 
     impl CandidateProvider for MockProvider {
+        #[allow(clippy::unnecessary_literal_bound)]
         fn provider_id(&self) -> &str {
             "test.mock"
         }
@@ -373,7 +374,7 @@ mod tests {
             sensitivity: SensitivityLevel::Internal,
             token_estimate: 50,
             view_costs: ViewCosts::from_full_tokens(50),
-            provenance: Default::default(),
+            provenance: Provenance::default(),
             semantic_fingerprint: None,
             metadata: HashMap::new(),
         }

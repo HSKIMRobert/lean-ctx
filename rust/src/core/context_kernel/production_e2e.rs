@@ -128,13 +128,18 @@ mod tests {
     #[test]
     fn config_controls_dedup() {
         let _guard = isolated();
-        let mut features = kernel_config::KernelFeatures::default();
-        features.content_dedup = false;
+        let features = kernel_config::KernelFeatures {
+            content_dedup: false,
+            ..kernel_config::KernelFeatures::default()
+        };
         kernel_config::update_features(features.clone());
 
         assert!(!ctx_read_dedup::should_dedup("default"));
 
-        features.content_dedup = true;
+        let features = kernel_config::KernelFeatures {
+            content_dedup: true,
+            ..kernel_config::KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         assert!(ctx_read_dedup::should_dedup("default"));
@@ -195,8 +200,10 @@ mod tests {
     #[test]
     fn disabled_kernel_no_effects() {
         let _guard = isolated();
-        let mut features = kernel_config::KernelFeatures::default();
-        features.enabled = false;
+        let features = kernel_config::KernelFeatures {
+            enabled: false,
+            ..kernel_config::KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", LONG_CONTENT), None);

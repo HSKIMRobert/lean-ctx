@@ -124,8 +124,10 @@ mod tests {
     fn disabled_kernel_safe() {
         let _guard = isolated();
         startup::initialize();
-        let mut features = kernel_config::KernelFeatures::default();
-        features.enabled = false;
+        let features = kernel_config::KernelFeatures {
+            enabled: false,
+            ..kernel_config::KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         let original = tools(10);
 

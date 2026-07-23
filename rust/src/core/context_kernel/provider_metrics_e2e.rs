@@ -18,6 +18,7 @@ mod tests {
         guard
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn record(url: &str, expected: ProviderKind, model: &str, usage: Value) {
         let provider = detect_provider(url);
         assert_eq!(provider, expected);

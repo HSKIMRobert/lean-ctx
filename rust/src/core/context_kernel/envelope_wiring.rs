@@ -195,8 +195,10 @@ mod tests {
     #[test]
     fn disabled_kernel_skips() {
         let _guard = isolated();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         process_proxy();
         assert_eq!(evidence_summary(), EvidenceSummary::default());

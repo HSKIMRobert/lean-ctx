@@ -111,8 +111,10 @@ mod tests {
     #[test]
     fn disabled_kernel_always_maintains() {
         let _guard = setup();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         assert_eq!(compression_advice(0.9), KernelCompressionAdvice::Maintain);
     }

@@ -82,8 +82,10 @@ mod tests {
     #[test]
     fn should_dedup_respects_config() {
         let _guard = isolated();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         update_features(features);
         assert!(!should_dedup("full"));
     }
