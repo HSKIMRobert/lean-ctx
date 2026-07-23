@@ -658,3 +658,19 @@ fn topbar_uses_explicit_editor_presence_not_transport_alias() {
     assert!(!function.contains("total_active"));
     assert!(function.contains("Sessions \\u2014"));
 }
+
+#[test]
+fn pulse_refresh_targets_only_the_active_view() {
+    let coordinator = COCKPIT_INDEX_HTML
+        .split_once("function refreshActiveView()")
+        .expect("targeted refresh helper")
+        .1
+        .split_once("if (window.LctxRouter && window.LctxRouter.init)")
+        .expect("router initialization")
+        .0;
+
+    assert!(coordinator.contains("router.navigateTo(router.getActiveViewId())"));
+    assert_eq!(coordinator.matches("refreshActiveView();").count(), 3);
+    assert!(coordinator.contains("hasPendingUpdate"));
+    assert!(!coordinator.contains("CustomEvent('lctx:refresh')"));
+}
