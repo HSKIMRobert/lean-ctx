@@ -125,6 +125,7 @@ mod tests {
                 (
                     format!("tool-{index}"),
                     "Read files and return complete file contents with metadata".to_owned(),
+                    0_usize,
                 )
             })
             .collect();
