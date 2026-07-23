@@ -80,6 +80,7 @@ jobs:
           echo "$CARGO_HOME/bin" >> $GITHUB_PATH
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
 
       # ---- Windows: MSYS2 + GNU target + jemalloc -------------------------
@@ -172,6 +173,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Run clippy
         working-directory: rust
@@ -199,6 +201,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Check build without ORT-backed features
         working-directory: rust
@@ -291,6 +294,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: clients/rust/lean-ctx-client -> target
       - name: Format
         working-directory: clients/rust/lean-ctx-client
@@ -323,6 +327,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Format
         working-directory: rust
@@ -402,6 +407,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: |
             rust -> target
             clients/rust/lean-ctx-client -> target
@@ -443,6 +449,7 @@ jobs:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Free disk space
         run: |
@@ -494,6 +501,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Run adversarial compression tests
         working-directory: rust
@@ -509,6 +517,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Compile benchmarks
         working-directory: rust
@@ -533,6 +542,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Build lean-ctx
         working-directory: rust
@@ -636,6 +646,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: rust -> target
       - name: Check docs compile
         working-directory: rust
