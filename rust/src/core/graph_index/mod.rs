@@ -728,7 +728,7 @@ fn scan_inner(project_root: &str) -> (ProjectIndex, HashMap<String, String>) {
     let project_root = normalize_project_root(project_root);
 
     if !is_safe_scan_root(&project_root) {
-        tracing::warn!("[graph_index: scan aborted for unsafe root {project_root}]");
+        tracing::debug!("[graph_index: scan aborted for unsafe root {project_root}]");
         return (ProjectIndex::new(&project_root), HashMap::new());
     }
 
