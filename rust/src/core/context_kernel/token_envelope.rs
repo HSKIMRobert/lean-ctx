@@ -13,6 +13,10 @@ pub enum ProviderKind {
     Gemini,
     /// OpenRouter gateway.
     OpenRouter,
+    /// Amazon Bedrock.
+    Bedrock,
+    /// Azure OpenAI Service.
+    Azure,
     /// Locally hosted model.
     Local,
     /// Unknown or unavailable provider.
@@ -83,6 +87,8 @@ pub fn parse_provider(label: &str) -> ProviderKind {
         "anthropic" => ProviderKind::Anthropic,
         "gemini" | "google" => ProviderKind::Gemini,
         "openrouter" => ProviderKind::OpenRouter,
+        "bedrock" => ProviderKind::Bedrock,
+        "azure" | "azure_openai" => ProviderKind::Azure,
         "local" => ProviderKind::Local,
         _ => ProviderKind::Unknown,
     }
