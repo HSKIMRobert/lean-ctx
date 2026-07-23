@@ -57,7 +57,7 @@ Enforced by `.gitignore` (never committed) **and** `.github-ignore` +
 - **The website** — `website/` (deployed from the `deploy` branch to GitLab
   only; never pushed to `github`).
 - **Secrets** — anything matching a credential pattern (see
-  [`secret_scan_artifacts`](../../rust/tests/secret_scan_artifacts.rs) and the CI
+  [`secret_scan_artifacts`](../../rust/tests/secret_scan_artifacts.rs) *(planned, not yet created)* and the CI
   secret scan).
 
 ## Enforcement layers (defense in depth)
