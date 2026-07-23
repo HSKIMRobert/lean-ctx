@@ -818,6 +818,14 @@ function bootCockpit() {
     if (sb) sb.textContent = sessionBarLabel(sess);
   }
 
+  function refreshActiveView() {
+    var router = window.LctxRouter;
+    if (!router || typeof router.getActiveViewId !== 'function' ||
+        typeof router.navigateTo !== 'function') return false;
+    router.navigateTo(router.getActiveViewId());
+    return true;
+  }
+
   window.checkPulse = async function checkPulse() {
     var refreshBtn = document.getElementById('refreshBtn');
     try {
@@ -832,7 +840,7 @@ function bootCockpit() {
         // stayed static until a reload. When hidden, just flag the button; the
         // visibilitychange handler catches up the moment the tab is focused.
         if (document.visibilityState === 'visible') {
-          document.dispatchEvent(new CustomEvent('lctx:refresh'));
+          refreshActiveView();
           if (refreshBtn) refreshBtn.classList.remove('has-update');
         } else if (refreshBtn) {
           refreshBtn.classList.add('has-update');
@@ -890,11 +898,8 @@ function bootCockpit() {
       refreshBtn.classList.add('spinning');
       refreshBtn.classList.remove('has-update');
       setTimeout(function () { refreshBtn.classList.remove('spinning'); }, 600);
-      document.dispatchEvent(new CustomEvent('lctx:refresh'));
+      refreshActiveView();
       pollCockpit();
-      if (window.LctxRouter && window.LctxRouter.getActiveViewId) {
-        window.LctxRouter.navigateTo(window.LctxRouter.getActiveViewId());
-      }
     });
   }
 
@@ -918,8 +923,9 @@ function bootCockpit() {
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState !== 'visible') return;
     var rb = document.getElementById('refreshBtn');
+    var hasPendingUpdate = !!(rb && rb.classList.contains('has-update'));
     if (rb) rb.classList.remove('has-update');
-    document.dispatchEvent(new CustomEvent('lctx:refresh'));
+    if (hasPendingUpdate) refreshActiveView();
     pollCockpit();
   });
 
