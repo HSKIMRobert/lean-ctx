@@ -44,7 +44,7 @@ Erweitert den Usage-Scanner für Azure und Bedrock, bridged zu ProviderKind.
 
 **Tests (≥6):**
 1. `kind_from_anthropic_label` → Anthropic
-2. `kind_from_openai_label` → OpenAi  
+2. `kind_from_openai_label` → OpenAi
 3. `kind_from_bedrock_label` → Bedrock
 4. `kind_from_azure_label` → Azure
 5. `real_usage_converts` — full RealUsage → TokenEnvelope with all fields
