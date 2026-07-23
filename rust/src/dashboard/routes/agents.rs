@@ -55,12 +55,9 @@ pub(super) fn handle(
 }
 
 fn build_agents_json() -> String {
-    let registry = crate::core::agents::AgentRegistry::mutate_locked(|registry| {
-        registry.cleanup_stale(24);
-        registry.cleanup_stale_logical_sessions(crate::core::agents::LOGICAL_SESSION_TTL_SECONDS);
-    })
-    .map(|(registry, ())| registry)
-    .unwrap_or_default();
+    let mut registry = crate::core::agents::AgentRegistry::load_or_create();
+    registry.cleanup_stale(24);
+    registry.cleanup_stale_logical_sessions(crate::core::agents::LOGICAL_SESSION_TTL_SECONDS);
 
     let transports: Vec<serde_json::Value> = registry
         .agents
@@ -338,6 +335,23 @@ mod tests {
         assert!(
             (-1..=1).contains(&age_min),
             "a just-written event must be ~0 minutes old, got {age_min}"
+        );
+    }
+
+    #[test]
+    fn agents_route_does_not_wait_for_registry_writer() {
+        let isolated = crate::core::data_dir::isolated_data_dir();
+        let agents_dir = isolated.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).expect("agents dir");
+        std::fs::write(agents_dir.join("registry.lock"), b"held").expect("registry lock");
+
+        let started = std::time::Instant::now();
+        let (status, _, _) = handle("/api/agents", "", "GET", "").expect("agents route");
+
+        assert_eq!(status, "200 OK");
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "read-only agents route must not wait for a registry writer"
         );
     }
 
