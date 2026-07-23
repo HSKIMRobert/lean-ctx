@@ -35,7 +35,7 @@ let cachedBinaryPath: string | null = null;
  * Resolves the lean-ctx binary. An explicit `leanctx.binaryPath` setting always wins.
  * Otherwise we probe the common install locations, because GUI-launched editors
  * (VS Code, Cursor, VSCodium) frequently inherit a stripped PATH that omits
- * `~/.cargo/bin` and Homebrew — the usual reason "lean-ctx not found" despite a
+ * `~/.local/bin`, `~/.cargo/bin`, and Homebrew — the usual reason "lean-ctx not found" despite a
  * working terminal. The first responsive candidate is cached for the session.
  */
 function getBinaryPath(): string {
@@ -57,6 +57,7 @@ function getBinaryPath(): string {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
   const candidates = [
     "lean-ctx",
+    home ? `${home}/.local/bin/lean-ctx` : "",
     home ? `${home}/.cargo/bin/lean-ctx` : "",
     "/opt/homebrew/bin/lean-ctx",
     "/usr/local/bin/lean-ctx",
