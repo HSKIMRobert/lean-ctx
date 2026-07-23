@@ -288,6 +288,3 @@ across any other lock acquisition.
 3. Assign a lock number (append to Section 1) and document the acquisition order here.
 4. If nesting is required, document the outer → inner relationship in Section 3.
 5. Run `cargo check --all-features` to verify `Send`/`Sync` bounds.
-
-
-
