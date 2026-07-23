@@ -138,6 +138,14 @@ impl LeanCtxServer {
                 tracing::warn!("lean-ctx: failed to persist cost attribution: {e}");
             }
 
+            // R29: Dispatch-level evidence for kernel health + adaptive signals.
+            crate::core::context_kernel::evidence_wiring::record_from_tool_dispatch(
+                &name_owned,
+                input_token_count as usize,
+                output_token_count_u64 as usize,
+                0, // savings tracked separately per-tool
+            );
+
             // Context Kernel: record MCP tool call for ETPAO and receipt tracking.
             crate::core::context_kernel::mcp_bridge::record_mcp_call(
                 &crate::core::context_kernel::mcp_bridge::McpCallData {
