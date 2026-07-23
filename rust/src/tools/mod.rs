@@ -77,6 +77,7 @@ pub(crate) mod edit_recovery;
 pub(crate) mod graph_meta;
 pub(crate) mod knowledge_shared;
 pub(crate) mod output_format;
+pub mod search_kernel;
 pub mod registered;
 pub(crate) mod walk_guard;
 
