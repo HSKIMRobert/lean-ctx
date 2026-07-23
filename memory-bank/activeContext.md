@@ -1,31 +1,36 @@
 # Active Context
 
-Stand: 2026-07-23T14:30+02:00
+Stand: 2026-07-23T16:00+02:00
 
 ## Aktueller Fokus
 
-Cockpit Architecture Audit abgeschlossen. Premium-Consolidation-Roadmap erstellt.
+Cockpit Kernel-Integration abgeschlossen. Clippy Zero-Warning Policy durchgesetzt.
 
 ## Letzte Änderungen
 
-### R31-R33 (Provider Pipeline)
-- ProviderKind +Bedrock/Azure, provider_parity, envelope_bridge, usage_parity
-- Response-Path Wiring: usage_meter::record → envelope → kernel pipeline
-- 478 Kernel-Tests, 0 Clippy
+### Cockpit Kernel-Integration (C1) ✅
+- **Architektur-Erkenntnis**: Die 5-Area Tab-Struktur existierte bereits! Kein View-Merge nötig.
+- `/api/kernel` Backend-Route (79 LOC): konsolidiert Health, Provider Stats, Evidence, Savings, Subsystems
+- `cockpit-health.js`: neuer "Kernel" Tab im Protection > Guards Bereich
+- `cockpit-overview.js`: Kernel-Status-Chip im Home StatusStrip
+- `cockpit-roi.js`: Provider Distribution Tabelle im Proof > ROI Bereich
+- Live-Test ✓: JSON Response mit 6 Subsystemen, korrekte Daten
 
-### Cockpit Audit (Findings)
-- **22 Views → 7** geplant (Context, Knowledge, Savings, System, Code, Activity, Home)
-- **518KB JS → ~200KB** Ziel
-- **10 kritische Findings** dokumentiert (F1-F10)
-- **8 Umsetzungs-Phasen** definiert (C1-C8)
-- Hauptprobleme: Massive Duplikation, kein Kernel-API Consumer, 79KB Graph-View, defekter Explorer
+### Clippy Zero-Warning Policy (C2) ✅
+- 27 vorbestehende Warnings in 21 Dateien behoben
+- `cargo clippy --all-targets -- -D warnings` passiert sauber
+- 9051 Tests ✓ (1 flaky pre-existing: prefix_replay)
+
+### Explorer-Analyse (revidiert)
+- Explorer ist **funktional** — braucht Tree-Index-Build, nicht "defekt"
+- Graph.js (1891L): D3-basiert, Slim-Down ohne Feature-Verlust schwierig
 
 ## Architektur-Status
 
 ### OCLA: P0-P9, P11 = 100%
-### Context Kernel: 32 Runden, 478+ Tests
-### Provider Pipeline: detect → envelope → bridge → stats → dashboard ✓
-### Cockpit: Audit done, Consolidation pending (C1-C8)
+### Context Kernel: 33 Runden, 478+ Tests
+### Provider Pipeline: detect → envelope → bridge → stats → dashboard → cockpit ✅
+### Cockpit: 5 Areas + Home, Kernel-API integriert, Zero Clippy ✅
 
 ## Nächste Schritte
 
@@ -38,3 +43,4 @@ Cockpit Architecture Audit abgeschlossen. Premium-Consolidation-Roadmap erstellt
 
 - `memory-bank/cockpit-audit.md` — Vollständiger Audit-Report
 - `memory-bank/progress.md` — R31-R33 Fortschritt
+
