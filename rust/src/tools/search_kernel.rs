@@ -31,7 +31,6 @@ fn query_hash(query: &str) -> u64 {
 }
 
 /// Records search evidence and remembers the query for repetition detection.
-/// Records search evidence and remembers the query for repetition detection.
 pub fn record_search(query: &str, result_count: usize, tokens: usize) {
     if !crate::core::context_kernel::kernel_config::is_enabled() {
         return;
@@ -40,7 +39,9 @@ pub fn record_search(query: &str, result_count: usize, tokens: usize) {
     QUERY_TOKENS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(query_hash(query), tokens);
+        .entry(query_hash(query))
+        .and_modify(|c| *c += 1)
+        .or_insert(1);
     TOTAL_SEARCHES.fetch_add(1, Ordering::Relaxed);
     TOTAL_TOKENS.fetch_add(tokens, Ordering::Relaxed);
 }
@@ -51,7 +52,8 @@ pub fn is_repeated_query(query: &str) -> bool {
     QUERY_TOKENS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .contains_key(&query_hash(query))
+        .get(&query_hash(query))
+        .is_some_and(|&c| c > 1)
 }
 
 /// Returns cumulative search activity for the current session.
