@@ -382,6 +382,20 @@ fn should_passthrough_rules_files() {
 }
 
 #[test]
+fn should_passthrough_claude_auto_memory() {
+    assert!(should_passthrough(
+        "/home/jules/.claude/projects/-home-jules-Projects-blockposters/memory/MEMORY.md"
+    ));
+    assert!(should_passthrough(
+        "/home/jules/.claude/projects/-home-jules-Projects-blockposters/memory/debugging.md"
+    ));
+    assert!(
+        !should_passthrough("/home/jules/.claude/projects/-home-jules-Projects-blockposters/abc.jsonl"),
+        "session transcripts must not passthrough as memory"
+    );
+}
+
+#[test]
 fn wrap_single() {
     let r = wrap_single_command("git status", "lean-ctx");
     assert_eq!(r, expect_wrapped("git status", "lean-ctx"));

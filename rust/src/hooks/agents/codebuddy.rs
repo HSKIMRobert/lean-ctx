@@ -38,7 +38,9 @@ pub(crate) fn install_codebuddy_permissions_deny_replace(home: &std::path::Path)
         return;
     };
 
-    let deny_tools = ["Read", "Grep", "Glob", "Bash"];
+    // Read kept available for edit gate + auto memory (shared Claude hook
+    // contract, GH #1228). Grep/Glob/Bash stay denied in Replace mode.
+    let deny_tools = ["Grep", "Glob", "Bash"];
     let mut changed = false;
     for tool in deny_tools {
         let val = serde_json::Value::String(tool.to_string());
@@ -48,12 +50,20 @@ pub(crate) fn install_codebuddy_permissions_deny_replace(home: &std::path::Path)
         }
     }
 
+    let read_val = serde_json::Value::String("Read".to_string());
+    if let Some(pos) = arr.iter().position(|v| v == &read_val) {
+        arr.remove(pos);
+        changed = true;
+    }
+
     if changed {
         if let Ok(out) = serde_json::to_string_pretty(&json) {
             let _ = std::fs::write(&settings_path, out);
         }
         if !mcp_server_quiet_mode() {
-            eprintln!("  \x1b[32m✓\x1b[0m CodeBuddy permissions.deny installed (Replace mode)");
+            eprintln!(
+                "  \x1b[32m✓\x1b[0m CodeBuddy permissions.deny installed (Replace mode; Read kept for auto memory)"
+            );
         }
     }
 }
@@ -144,7 +154,7 @@ fn install_codebuddy_mcp_server(home: &std::path::Path) {
 /// markers broke detection and caused duplicate blocks (GH #549).
 pub(crate) const CODEBUDDY_MD_BLOCK_START: &str = crate::core::rules_canonical::AGENTS_BLOCK_START;
 const CODEBUDDY_MD_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
-const CODEBUDDY_MD_BLOCK_VERSION: &str = "lean-ctx-codebuddy-v3";
+const CODEBUDDY_MD_BLOCK_VERSION: &str = "lean-ctx-codebuddy-v4";
 
 // v2 (GH #637 / GL #1138): MCP-aware guidance, mirroring the Claude v4 block.
 // CodeBuddy is a Claude Code fork with the same path-keyed read-before-write
@@ -154,21 +164,24 @@ const CODEBUDDY_MD_BLOCK_VERSION: &str = "lean-ctx-codebuddy-v3";
 // v3 (#1008 / GL #1144): anchored editing routes to `ctx_patch` (now advertised
 // in the lazy core for CodeBuddy); `ctx_edit` demoted to a legacy power-profile
 // mention. Native Read → Edit stays fully supported (v2 guard semantics).
+//
+// v4 (#1228): stop denying native Read — auto memory + edit gate need it.
 const CODEBUDDY_MD_BLOCK_CONTENT_REPLACE: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-codebuddy-v3 -->
-## lean-ctx — Replace Mode (native tools denied)
+<!-- lean-ctx-codebuddy-v4 -->
+## lean-ctx — Replace Mode (native Grep/Glob/Bash denied by policy)
 
-Native Read/Grep/Glob/Bash are denied by policy. Use ONLY `ctx_*` MCP tools:
-- `ctx_read` for ALL file reads (cached, 10 modes, re-reads ~13 tokens)
-- `ctx_shell` for ALL shell commands (95+ compression patterns)
+Native Grep/Glob/Bash are denied by policy. Prefer `ctx_*` MCP tools for project work:
+- `ctx_read` for exploration reads (cached, 10 modes, re-reads ~13 tokens)
+- `ctx_shell` for shell commands (95+ compression patterns)
 - `ctx_search` instead of Grep/rg (compact results)
 - `ctx_tree` instead of ls/find (compact directory maps)
 - `ctx_glob` instead of Glob (file pattern matching)
-- Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files).
+- Project edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors; `op=create` for new files).
 
-Write and Delete — use native tools normally.
-Do NOT attempt native Read, Grep, Glob, or Bash — they will be denied.
+Native `Read` stays available for the edit gate and for auto memory under
+`~/.claude/projects/<slug>/memory/`. Use native Read/Edit there; do NOT call
+MCP `resources/read` with file:// URIs. Write and Delete — use native tools normally.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
@@ -176,7 +189,7 @@ Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 
 const CODEBUDDY_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-codebuddy-v3 -->
+<!-- lean-ctx-codebuddy-v4 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
@@ -187,7 +200,9 @@ When the `ctx_*` MCP tools are listed in this session, prefer them over native e
 - Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). `ctx_edit` (str_replace) is the legacy power-profile fallback.
 
 Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a
-prior native Read of the same file path. Write, Delete, Glob — use normally.
+prior native Read of the same file path. Auto memory under
+`~/.claude/projects/<slug>/memory/` also uses native Read/Edit (not MCP resources).
+Write, Delete, Glob — use normally.
 If no `ctx_*` tools are listed in this session, use the native tools throughout.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.

@@ -370,6 +370,40 @@ fn is_under_prefix(path: &Path, prefix: &Path) -> bool {
     path.starts_with(prefix)
 }
 
+/// True for Claude Code / CodeBuddy auto-memory files under
+/// `~/.claude/projects/<slug>/memory/` (and the CodeBuddy twin).
+///
+/// Auto memory uses the host's native Read/Edit/Write on these paths
+/// (code.claude.com/docs/en/memory). Replace-mode PathJail must not force
+/// agents to shell out or hit MCP `resources/read` with file URIs (GH #1228).
+/// Scoped to the `memory/` subdirectory only — session transcripts and
+/// credentials under `projects/<slug>/` stay jailed.
+pub fn is_harness_auto_memory_path(path: &Path) -> bool {
+    let lower = path.to_string_lossy().replace('\\', "/").to_lowercase();
+    for marker in ["/.claude/projects/", "/.codebuddy/projects/"] {
+        if let Some(idx) = lower.find(marker) {
+            let after = &lower[idx + marker.len()..];
+            let mut parts = after.split('/');
+            let Some(_slug) = parts.next() else {
+                continue;
+            };
+            if parts.next() == Some("memory") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn path_allowed_by_jail(base: &Path, root: &Path, allow: &[PathBuf]) -> bool {
+    let allowed = is_under_prefix(base, root)
+        || allow.iter().any(|p| is_under_prefix(base, p))
+        || is_harness_auto_memory_path(base);
+    #[cfg(windows)]
+    let allowed = allowed || is_under_prefix_windows(base, root);
+    allowed
+}
+
 /// Heuristic canonicalize — honours the #356 TCC guard. Used by the
 /// jail-disabled bypass and by external callers (session/startup/server roots)
 /// that must not pop a privacy prompt on their own initiative.
@@ -539,11 +573,7 @@ pub fn jail_path_with_roots(
             }
         })?;
 
-        let allowed =
-            is_under_prefix(&base, &root) || allow.iter().any(|p| is_under_prefix(&base, p));
-
-        #[cfg(windows)]
-        let allowed = allowed || is_under_prefix_windows(&base, &root);
+        let allowed = path_allowed_by_jail(&base, &root, &allow);
 
         if !allowed {
             let mut hint = if crate::core::protocol::meta_visible() {
@@ -604,10 +634,7 @@ pub fn jail_path_with_roots(
         // and re-check to close TOCTOU window (symlink created between check and use).
         if out.exists() {
             let final_canon = canonicalize_secure(&out);
-            let final_ok = is_under_prefix(&final_canon, &root)
-                || allow.iter().any(|p| is_under_prefix(&final_canon, p));
-            #[cfg(windows)]
-            let final_ok = final_ok || is_under_prefix_windows(&final_canon, &root);
+            let final_ok = path_allowed_by_jail(&final_canon, &root, &allow);
             if !final_ok {
                 return Err(PathJailError::PostCanonicalizeEscape {
                     path: candidate.to_path_buf(),
@@ -1156,6 +1183,41 @@ mod tests {
 
         // Empty entries are ignored (no accidental allow-all).
         assert!(jail_path_with_roots(&outside, &root, &[String::new()]).is_err());
+    }
+
+    /// GH #1228: Claude Code auto-memory under `…/.claude/projects/<slug>/memory/`
+    /// must be readable/writable via ctx_* without a manual extra_roots edit.
+    #[cfg(not(feature = "no-jail"))]
+    #[test]
+    fn harness_auto_memory_path_is_allowed_without_extra_roots() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("project");
+        let memory = tmp
+            .path()
+            .join(".claude")
+            .join("projects")
+            .join("-tmp-project")
+            .join("memory");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&memory).unwrap();
+        let mem_file = memory.join("MEMORY.md");
+        std::fs::write(&mem_file, "# index\n").unwrap();
+
+        assert!(is_harness_auto_memory_path(&mem_file));
+        assert!(is_harness_auto_memory_path(&memory));
+        assert!(!is_harness_auto_memory_path(
+            &tmp.path()
+                .join(".claude")
+                .join("projects")
+                .join("-tmp-project")
+                .join("session.jsonl")
+        ));
+
+        assert!(
+            jail_path_with_roots(&mem_file, &root, &[]).is_ok(),
+            "auto-memory file must pass PathJail without extra_roots"
+        );
     }
 
     /// #820: lean-ctx state dir (tee files) is implicitly allowed by the jail.

@@ -89,8 +89,13 @@ fn install_claude_mcp_server(home: &std::path::Path) {
     }
 }
 
-/// In Replace mode, add Read/Grep/Glob/Bash to Claude Code's `permissions.deny`
-/// so native tools are completely unavailable and the agent must use ctx_* MCP tools.
+/// In Replace mode, deny Grep/Glob via Claude Code's `permissions.deny` so
+/// search/listing go through `ctx_*`. Native `Read` is intentionally NOT denied:
+/// Claude Code's read-before-write edit gate and auto memory
+/// (`~/.claude/projects/<slug>/memory/`) both require native Read (GH #637,
+/// #1091, #1228). Deny always wins over allow, so a bare `Read` deny cannot
+/// carve out memory paths — remove it instead and steer exploration via
+/// CLAUDE.md + hooks.
 pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
     let settings_path = home.join(".claude").join("settings.json");
 
@@ -125,7 +130,8 @@ pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
 
     // Bash intentionally NOT denied: permissions.deny blocks globally including
     // plugin commands (codex-companion etc.). PreToolUse hook handles agent Bash. (GH #799)
-    let deny_tools = ["Read", "Grep", "Glob"];
+    // Read intentionally NOT denied: auto memory + edit gate need native Read (#1228).
+    let deny_tools = ["Grep", "Glob"];
     let mut changed = false;
     for tool in deny_tools {
         let val = serde_json::Value::String(tool.to_string());
@@ -135,11 +141,14 @@ pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
         }
     }
 
-    // Remove stale "Bash" entry left by older versions (GH #799).
-    let bash_val = serde_json::Value::String("Bash".to_string());
-    if let Some(pos) = arr.iter().position(|v| v == &bash_val) {
-        arr.remove(pos);
-        changed = true;
+    // Remove stale bare "Read" / "Bash" entries left by older versions
+    // (GH #799 Bash; GH #1228 Read).
+    for stale in ["Read", "Bash"] {
+        let stale_val = serde_json::Value::String(stale.to_string());
+        if let Some(pos) = arr.iter().position(|v| v == &stale_val) {
+            arr.remove(pos);
+            changed = true;
+        }
     }
 
     if changed {
@@ -148,7 +157,7 @@ pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
         }
         if !mcp_server_quiet_mode() {
             eprintln!(
-                "  \x1b[32m✓\x1b[0m Claude Code: denied native Read/Grep/Glob (Replace mode)"
+                "  \x1b[32m✓\x1b[0m Claude Code: denied native Grep/Glob (Replace mode; Read kept for edit gate + auto memory)"
             );
         }
     }
@@ -165,7 +174,7 @@ pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
 /// appended a duplicate (GH #549).
 pub(crate) const CLAUDE_MD_BLOCK_START: &str = crate::core::rules_canonical::AGENTS_BLOCK_START;
 const CLAUDE_MD_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
-const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v7";
+const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v8";
 
 // v3 (GL #555): self-contained, no `@rules/lean-ctx.md` import. Claude Code
 // expands `@` imports inline at launch ("imports do not reduce context usage"
@@ -190,9 +199,14 @@ const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v7";
 // a prior native `Read` (denied), and native `Write` only succeeds for
 // brand-new files, so `ctx_patch` is the actual edit path. The MCP block is
 // unchanged; the shared version tag bumps so existing blocks get rewritten.
+//
+// v8 (#1228): stop denying native Read in Replace mode. Auto memory under
+// `~/.claude/projects/<slug>/memory/` and the edit gate both need native Read;
+// a bare permissions.deny Read cannot carve out exceptions (deny wins). Grep/
+// Glob stay denied. Agents must not use MCP resources/read with file:// URIs.
 const CLAUDE_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v7 -->
+<!-- lean-ctx-claude-v8 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
@@ -203,7 +217,9 @@ When the `ctx_*` MCP tools are listed in this session, prefer them over native e
 - Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files). `ctx_edit` (str_replace) is the legacy power-profile fallback.
 
 Native `Read` → `Edit`/`StrReplace` stays fully supported — the edit gate requires a
-prior native Read of the same file path. Write, Delete, Glob — use normally.
+prior native Read of the same file path. Auto memory under
+`~/.claude/projects/<slug>/memory/` also uses native Read/Edit (not MCP resources).
+Write, Delete, Glob — use normally.
 If no `ctx_*` tools are listed in this session, use the native tools throughout.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
@@ -212,19 +228,21 @@ Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 
 const CLAUDE_MD_BLOCK_CONTENT_REPLACE: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v7 -->
-## lean-ctx — Replace Mode (native tools denied)
+<!-- lean-ctx-claude-v8 -->
+## lean-ctx — Replace Mode (native Grep/Glob denied by policy)
 
-Native Read/Grep/Glob/Bash are denied by policy. Use ONLY `ctx_*` MCP tools:
-- `ctx_read` for ALL file reads (cached, 10 modes, re-reads ~13 tokens)
-- `ctx_shell` for ALL shell commands (95+ compression patterns)
+Native Grep/Glob are denied by policy. Prefer `ctx_*` MCP tools for project work:
+- `ctx_read` for exploration reads (cached, 10 modes, re-reads ~13 tokens)
+- `ctx_shell` for shell commands (95+ compression patterns)
 - `ctx_search` instead of Grep/rg (compact results)
 - `ctx_tree` instead of ls/find (compact directory maps)
 - `ctx_glob` instead of Glob (file pattern matching)
-- Edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors, never echo old text; `op=create` for new files).
+- Project edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors; `op=create` for new files).
 
-`ctx_patch` is the edit path: native `Edit` needs a prior native `Read` (denied), and native `Write` only succeeds for brand-new files. Use `op=create` for new files; native Delete is fine.
-Do NOT attempt native Read, Grep, Glob, or Bash — they will be denied.
+Native `Read` stays available for the edit gate and for Claude auto memory
+(`~/.claude/projects/<slug>/memory/` — MEMORY.md and topic files). Use native
+Read/Edit there; do NOT call MCP `resources/read` with file:// URIs (lean-ctx
+resources are `lean-ctx://context/*` only). Native Delete is fine.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
@@ -1055,7 +1073,8 @@ mod tests {
             .and_then(|d| d.as_array())
             .unwrap();
 
-        assert!(deny.contains(&serde_json::json!("Read")));
+        // GH #1228: bare Read must not be denied (auto memory + edit gate).
+        assert!(!deny.contains(&serde_json::json!("Read")));
         assert!(deny.contains(&serde_json::json!("Grep")));
         assert!(deny.contains(&serde_json::json!("Glob")));
         // Bash must NOT be in permissions.deny — it blocks plugins (GH #799)
@@ -1084,12 +1103,17 @@ mod tests {
             .unwrap();
 
         // Each tool should appear exactly once
-        let read_count = deny.iter().filter(|v| v.as_str() == Some("Read")).count();
-        assert_eq!(read_count, 1, "idempotent: Read must appear exactly once");
+        let grep_count = deny.iter().filter(|v| v.as_str() == Some("Grep")).count();
+        assert_eq!(grep_count, 1, "idempotent: Grep must appear exactly once");
+        assert_eq!(
+            deny.iter().filter(|v| v.as_str() == Some("Read")).count(),
+            0,
+            "Read must stay off the deny list"
+        );
     }
 
     #[test]
-    fn replace_mode_removes_stale_bash_deny() {
+    fn replace_mode_removes_stale_read_and_bash_deny() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
         std::fs::create_dir_all(home.join(".claude")).unwrap();
@@ -1111,7 +1135,10 @@ mod tests {
             .and_then(|d| d.as_array())
             .unwrap();
 
-        assert!(deny.contains(&serde_json::json!("Read")));
+        assert!(
+            !deny.contains(&serde_json::json!("Read")),
+            "stale Read must be removed (GH #1228)"
+        );
         assert!(deny.contains(&serde_json::json!("Grep")));
         assert!(deny.contains(&serde_json::json!("Glob")));
         assert!(
