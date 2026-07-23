@@ -50,6 +50,31 @@ pub fn read_resource(
     }
 }
 
+/// Agent-facing explanation when `resources/read` is called with an unknown URI.
+///
+/// GH #1228: agents denied native Read for auto memory often retry via MCP
+/// `resources/read` with `file://…/memory/MEMORY.md` and get a bare
+/// "Unknown resource". Point them at the real surfaces instead.
+pub fn unknown_resource_message(uri: &str) -> String {
+    let looks_like_file = uri.starts_with("file:")
+        || uri.starts_with('/')
+        || (uri.len() > 2 && uri.as_bytes()[1] == b':' && uri.as_bytes()[0].is_ascii_alphabetic())
+        || uri.contains("/.claude/projects/")
+        || uri.contains("\\memory\\")
+        || uri.contains("/memory/");
+
+    if looks_like_file {
+        format!(
+            "Unknown resource: {uri}. lean-ctx MCP resources are lean-ctx://context/* only \
+             (summary/pinned/pressure/plan/bounce) — not arbitrary files. \
+             For project files use ctx_read / ctx_patch. \
+             For Claude auto memory (~/.claude/projects/<slug>/memory/) use native Read/Edit."
+        )
+    } else {
+        format!("Unknown resource: {uri}")
+    }
+}
+
 fn make_resource(uri: &str, name: &str, desc: &str) -> Resource {
     Resource::new(uri, name)
         .with_description(desc)
@@ -182,5 +207,22 @@ mod tests {
         let ledger = crate::core::context_ledger::ContextLedger::new();
         let result = read_resource(URI_BOUNCE, &ledger);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn unknown_file_uri_message_guides_to_ctx_read_and_native_memory() {
+        let msg = unknown_resource_message(
+            "file:///home/jules/.claude/projects/-home-jules-Projects-blockposters/memory/MEMORY.md",
+        );
+        assert!(msg.contains("lean-ctx://context/*"), "{msg}");
+        assert!(msg.contains("ctx_read"), "{msg}");
+        assert!(msg.contains("native Read/Edit"), "{msg}");
+        assert!(msg.contains("auto memory"), "{msg}");
+    }
+
+    #[test]
+    fn unknown_lean_ctx_uri_stays_short() {
+        let msg = unknown_resource_message("lean-ctx://unknown");
+        assert_eq!(msg, "Unknown resource: lean-ctx://unknown");
     }
 }
