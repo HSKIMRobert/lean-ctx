@@ -52,6 +52,14 @@ fn should_allow(tool_name: &str, file_path: Option<&str>) -> bool {
         return true;
     }
 
+    // GH #1228: Claude/CodeBuddy auto memory must use native Read/Edit even
+    // when Replace-mode deny hooks are installed.
+    if file_path.is_some_and(|p| {
+        crate::core::pathjail::is_harness_auto_memory_path(std::path::Path::new(p))
+    }) {
+        return true;
+    }
+
     if is_replace_mode_disabled() {
         return true;
     }
@@ -415,5 +423,17 @@ mod tests {
     fn extract_write_content_no_content_returns_none() {
         let payload = r#"{"tool_name":"Write","input":{"path":"test.md"}}"#;
         assert!(extract_write_content(payload).is_none());
+    }
+
+    #[test]
+    fn should_allow_claude_auto_memory_paths() {
+        assert!(should_allow(
+            "Read",
+            Some("/home/jules/.claude/projects/-slug/memory/MEMORY.md")
+        ));
+        assert!(
+            !should_allow("Read", Some("/home/jules/project/src/main.rs")),
+            "ordinary project files stay denied under replace deny hooks"
+        );
     }
 }

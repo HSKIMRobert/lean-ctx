@@ -539,7 +539,7 @@ impl ServerHandler for LeanCtxServer {
         match resources::read_resource(&request.uri, &ledger) {
             Some(contents) => Ok(rmcp::model::ReadResourceResult::new(contents)),
             None => Err(rmcp::ErrorData::resource_not_found(
-                format!("Unknown resource: {}", request.uri),
+                resources::unknown_resource_message(&request.uri),
                 None,
             )),
         }

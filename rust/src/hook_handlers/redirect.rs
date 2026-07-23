@@ -631,6 +631,12 @@ pub(super) fn should_passthrough(path: &str) -> bool {
         return true;
     }
 
+    // GH #1228: Claude Code / CodeBuddy auto-memory must stay on native Read
+    // (edit gate + memory index). Never redirect these into a ctx_read temp.
+    if crate::core::pathjail::is_harness_auto_memory_path(std::path::Path::new(path)) {
+        return true;
+    }
+
     std::path::Path::new(&p)
         .extension()
         .and_then(|ext| ext.to_str())
