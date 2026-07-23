@@ -595,6 +595,8 @@ fn handle_with_options_resolved_preread(
         }
     }
 
+    // R30: Feed bounce-tracker signal into adaptive compression bridge.
+    crate::core::context_kernel::adaptive_hook::update_from_bounce_tracker();
     if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
         let original_tokens = cache.get(path).map_or(0, |e| e.original_tokens);
         bt.record_read(

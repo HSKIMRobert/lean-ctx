@@ -129,7 +129,7 @@ impl LeanCtxServer {
             store.record_tool_call(
                 &agent_key,
                 &client_name,
-                &name_owned,
+                &name_owned.clone(),
                 input_token_count,
                 output_token_count_u64,
                 0,
@@ -140,7 +140,7 @@ impl LeanCtxServer {
 
             // R29: Dispatch-level evidence for kernel health + adaptive signals.
             crate::core::context_kernel::evidence_wiring::record_from_tool_dispatch(
-                &name_owned,
+                &name_owned.clone(),
                 input_token_count as usize,
                 output_token_count_u64 as usize,
                 0, // savings tracked separately per-tool
@@ -168,12 +168,19 @@ impl LeanCtxServer {
             crate::core::context_kernel::envelope_wiring::process_mcp_evidence(&mcp_call_data);
             crate::core::context_kernel::mcp_receipt::record_receipt(
                 crate::core::context_kernel::mcp_receipt::McpReceipt {
-                    tool: name_owned,
+                    tool: name_owned.clone(),
                     tokens_in: input_token_count as usize,
                     tokens_out: output_token_count_u64 as usize,
                     kernel_overhead: 0,
                     accepted: true,
                 },
+            );
+
+            // R30: Response evidence — output token tracking.
+            crate::core::context_kernel::response_evidence::record_response(
+                &name_owned.clone(),
+                output_token_count_u64 as usize,
+                false,
             );
         });
     }

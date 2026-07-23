@@ -87,6 +87,18 @@ pub async fn reset_state() -> Json<&'static str> {
     Json("ok")
 }
 
+/// Returns the aggregated Context Kernel health report.
+#[allow(clippy::unused_async)]
+pub async fn health() -> Json<serde_json::Value> {
+    let json_str = crate::core::context_kernel::health_api::health_json();
+    Json(serde_json::from_str(&json_str).unwrap_or_else(|error| {
+        serde_json::json!({
+            "error": "invalid health snapshot",
+            "detail": error.to_string(),
+        })
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{body::to_bytes, response::IntoResponse};
