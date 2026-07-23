@@ -208,10 +208,11 @@
             : 'Fix ran with warnings \u2014 re-checking\u2026';
           status.className = 'doctor-fix-status ' + (ok ? 'ok' : 'warn');
         }
-        // Other cards (settings/provenance) may have changed too.
-        try {
-          window.dispatchEvent(new CustomEvent('lctx:refresh'));
-        } catch (_) {}
+        var router = window.LctxRouter;
+        if (router && typeof router.getActiveViewId === 'function' &&
+            typeof router.navigateTo === 'function') {
+          router.navigateTo(router.getActiveViewId());
+        }
         return refresh(true);
       })
       .catch(function (e) {
