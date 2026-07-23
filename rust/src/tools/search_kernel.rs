@@ -31,7 +31,11 @@ fn query_hash(query: &str) -> u64 {
 }
 
 /// Records search evidence and remembers the query for repetition detection.
+/// Records search evidence and remembers the query for repetition detection.
 pub fn record_search(query: &str, result_count: usize, tokens: usize) {
+    if !crate::core::context_kernel::kernel_config::is_enabled() {
+        return;
+    }
     evidence_hook::record_tool_call("ctx_search", result_count, tokens);
     QUERY_TOKENS
         .lock()

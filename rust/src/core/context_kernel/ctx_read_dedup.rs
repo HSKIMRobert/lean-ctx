@@ -74,6 +74,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_features();
+        crate::core::context_kernel::dedup_wiring::reset_dedup();
         reset();
         guard
     }

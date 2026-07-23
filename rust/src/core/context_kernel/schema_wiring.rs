@@ -167,17 +167,15 @@ pub fn reset_schema_state() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::MutexGuard;
 
     use super::{
         optimize_tool_list_with_feature, reset_schema_state, schema_savings,
         should_optimize_with_feature,
     };
 
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
     fn setup() -> MutexGuard<'static, ()> {
-        let guard = TEST_LOCK
+        let guard = crate::core::context_kernel::kernel_config::KERNEL_TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_schema_state();

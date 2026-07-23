@@ -8,20 +8,15 @@ static BOUNCE_RATE_BITS: AtomicU64 = AtomicU64::new(0.0_f64.to_bits());
 static SIGNALS_RECEIVED: AtomicUsize = AtomicUsize::new(0);
 
 /// Kernel-level recommendation for adjusting compression depth.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 pub enum KernelCompressionAdvice {
     /// No change to current compression.
+    #[default]
     Maintain,
     /// Reduce compression because users are bouncing too often.
     Reduce,
     /// Increase compression because users accept compressed output.
     Increase,
-}
-
-impl Default for KernelCompressionAdvice {
-    fn default() -> Self {
-        Self::Maintain
-    }
 }
 
 /// Snapshot of the kernel's adaptive compression signal state.

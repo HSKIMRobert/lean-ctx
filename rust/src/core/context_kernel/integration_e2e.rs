@@ -24,12 +24,14 @@ mod tests {
         evidence_wiring::reset();
         adaptive_bridge::reset();
         search_kernel::reset();
+        super::super::usage_normalizer::reset_usage();
+        super::super::receipt_chain::reset_chain();
         guard
     }
 
     fn tools(count: usize) -> Vec<(String, String, usize)> {
         (0..count)
-            .map(|index| (format!("tool_{index}"), "description ".repeat(200), 3))
+            .map(|index| (format!("tool_{index}"), "description that is very detailed and thorough and explains every aspect of the tool functionality ".repeat(50), 3))
             .collect()
     }
 
@@ -47,7 +49,13 @@ mod tests {
             evidence_wiring::record_from_tool_dispatch(&format!("tool_{index}"), 100, 40, 60);
         }
         for _ in 0..2 {
-            evidence_wiring::record_from_proxy_dispatch(200, 80, 120, Some("gpt-5"), Some("openai"));
+            evidence_wiring::record_from_proxy_dispatch(
+                200,
+                80,
+                120,
+                Some("gpt-5"),
+                Some("openai"),
+            );
         }
 
         let report = health::kernel_health();
@@ -115,12 +123,13 @@ mod tests {
     #[test]
     fn disabled_kernel_safe() {
         let _guard = isolated();
+        startup::initialize();
         let mut features = kernel_config::KernelFeatures::default();
         features.enabled = false;
         kernel_config::update_features(features);
         let original = tools(10);
 
-        startup::initialize();
+        // Initialize first (loads config), then disable kernel.
         assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", "content"), None);
         assert_eq!(
             list_tools_opt::optimize_descriptions(original.clone(), "cursor"),
