@@ -19,8 +19,8 @@
 //! sections (the slow `open()` runs outside the lock), which keeps [`clear`]
 //! callable from the synchronous config/catalog paths.
 
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -42,14 +42,47 @@ fn pool() -> &'static Mutex<HashMap<u64, Entry>> {
     POOL.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Stable identity for a resolved transport: same wiring → same key → same
-/// pooled session. Derived from the transport's `Debug` form so every field
-/// (command/args/env/binary pin/capabilities, or url/headers) is captured.
+/// Stable identity for a resolved transport: same wiring -> same key -> same
+/// pooled session. Secret values are replaced by memento fingerprints.
 #[must_use]
 pub fn key(transport: &ResolvedTransport) -> u64 {
     let mut h = DefaultHasher::new();
-    format!("{transport:?}").hash(&mut h);
+    pool_identity(transport).hash(&mut h);
     h.finish()
+}
+
+#[must_use]
+fn pool_identity(transport: &ResolvedTransport) -> String {
+    match transport {
+        ResolvedTransport::Stdio {
+            command,
+            args,
+            env,
+            binary_sha256,
+            capabilities,
+        } => format!(
+            "stdio|command={command:?}|args={args:?}|env={env:?}|binary_sha256={binary_sha256:?}|capabilities={capabilities:?}"
+        ),
+        ResolvedTransport::Http {
+            url,
+            headers,
+            secret_fingerprints,
+        } => format!(
+            "http|url={url:?}|headers={:?}|secrets={secret_fingerprints:?}",
+            public_values(headers, secret_fingerprints)
+        ),
+    }
+}
+
+fn public_values(
+    values: &BTreeMap<String, String>,
+    secret_fingerprints: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    values
+        .iter()
+        .filter(|(name, _)| !secret_fingerprints.contains_key(*name))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
 }
 
 /// A live session for `transport`, reusing a pooled one when present + fresh, or
@@ -138,6 +171,67 @@ mod tests {
             key(&stdio("b")),
             "different command → different key"
         );
+    }
+
+    #[test]
+    fn http_key_identity_uses_secret_fingerprint_not_raw_value() {
+        let mut headers = BTreeMap::new();
+        headers.insert("Authorization".into(), "Bearer raw-token-one".into());
+        let mut secrets = BTreeMap::new();
+        secrets.insert("Authorization".into(), "fp-one".into());
+        let first = ResolvedTransport::Http {
+            url: "https://gitlab.example/mcp".into(),
+            headers: headers.clone(),
+            secret_fingerprints: secrets.clone(),
+        };
+        assert!(!pool_identity(&first).contains("raw-token-one"));
+        headers.insert("Authorization".into(), "Bearer raw-token-two".into());
+        let same_fingerprint = ResolvedTransport::Http {
+            url: "https://gitlab.example/mcp".into(),
+            headers,
+            secret_fingerprints: secrets.clone(),
+        };
+        assert_eq!(key(&first), key(&same_fingerprint));
+        secrets.insert("Authorization".into(), "fp-two".into());
+        let rotated = ResolvedTransport::Http {
+            url: "https://gitlab.example/mcp".into(),
+            headers: BTreeMap::from([("Authorization".into(), "Bearer raw-token-two".into())]),
+            secret_fingerprints: secrets,
+        };
+        assert_ne!(key(&first), key(&rotated));
+    }
+
+    #[test]
+    fn key_changes_when_secret_format_changes() {
+        use super::super::config::{GatewayServer, SecretMementoRef, TransportKind};
+        use super::super::memento::SecretMementoStore;
+
+        let store = SecretMementoStore::global();
+        store.put("mcp/test/pool-format", "token");
+        let mut server = GatewayServer {
+            name: "remote".into(),
+            transport: TransportKind::Http,
+            url: "https://example.com/mcp".into(),
+            secret_headers: BTreeMap::from([(
+                "Authorization".into(),
+                SecretMementoRef {
+                    id: "mcp/test/pool-format".into(),
+                    format: String::new(),
+                },
+            )]),
+            ..Default::default()
+        };
+
+        let raw = server.resolve().expect("resolve raw secret");
+        server
+            .secret_headers
+            .get_mut("Authorization")
+            .expect("secret header")
+            .format = "Bearer {secret}".into();
+        let bearer = server.resolve().expect("resolve formatted secret");
+        store.remove("mcp/test/pool-format");
+
+        assert_ne!(key(&raw), key(&bearer));
     }
 
     #[test]
