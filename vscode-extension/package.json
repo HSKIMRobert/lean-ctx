@@ -115,7 +115,7 @@
         "leanctx.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the lean-ctx binary. Leave empty to auto-detect (PATH, ~/.cargo/bin, Homebrew)."
+          "description": "Path to the lean-ctx binary. Leave empty to auto-detect (PATH, ~/.local/bin, ~/.cargo/bin, Homebrew)."
         },
         "leanctx.refreshInterval": {
           "type": "number",

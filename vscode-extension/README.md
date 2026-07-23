@@ -63,7 +63,7 @@ npm run watch
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `leanctx.binaryPath` | `""` (auto-detect) | Path to the lean-ctx binary. Empty → auto-detect on `PATH`, `~/.cargo/bin`, Homebrew |
+| `leanctx.binaryPath` | `""` (auto-detect) | Path to the lean-ctx binary. Empty → auto-detect on `PATH`, `~/.local/bin`, `~/.cargo/bin`, Homebrew |
 | `leanctx.refreshInterval` | `30` | Status bar refresh interval (seconds) |
 
 ## Commands
