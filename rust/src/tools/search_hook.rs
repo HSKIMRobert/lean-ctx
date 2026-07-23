@@ -88,8 +88,10 @@ mod tests {
     #[test]
     fn disabled_kernel_noop() {
         let _guard = isolated();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
         on_search("same", "regex", 1, 10);
         assert!(maybe_warn_repeat("same").is_none());

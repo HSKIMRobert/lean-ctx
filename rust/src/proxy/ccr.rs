@@ -459,6 +459,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn conversation_handle_is_compact_and_deterministic() {
         let _lock = crate::core::data_dir::test_env_lock();
         let a = persist_conversation("{\"role\":\"user\",\"content\":\"hello\"}")

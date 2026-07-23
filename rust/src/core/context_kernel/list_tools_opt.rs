@@ -98,8 +98,10 @@ mod tests {
     fn disabled_returns_unchanged() {
         let _guard = setup();
         let original = tools();
-        let mut features = KernelFeatures::default();
-        features.enabled = false;
+        let features = KernelFeatures {
+            enabled: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         assert_eq!(optimize_descriptions(original.clone(), "cursor"), original);
@@ -151,8 +153,10 @@ mod tests {
     fn disabled_feature_returns_unchanged() {
         let _guard = setup();
         let original = tools();
-        let mut features = KernelFeatures::default();
-        features.schema_optimization = false;
+        let features = KernelFeatures {
+            schema_optimization: false,
+            ..KernelFeatures::default()
+        };
         kernel_config::update_features(features);
 
         assert_eq!(optimize_descriptions(original.clone(), "cursor"), original);

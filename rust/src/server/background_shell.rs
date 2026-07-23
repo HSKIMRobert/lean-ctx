@@ -266,7 +266,10 @@ mod tests {
                         output: "x".repeat(1024),
                         exit_code: 0,
                     },
-                    finished_at: Some(now - Duration::from_secs((index + 1) as u64)),
+                    finished_at: Some(
+                        now.checked_sub(Duration::from_secs((index + 1) as u64))
+                            .unwrap(),
+                    ),
                 },
             );
         }
@@ -278,7 +281,10 @@ mod tests {
                     output: "expired".to_string(),
                     exit_code: 0,
                 },
-                finished_at: Some(now - super::COMPLETED_JOB_TTL - Duration::from_secs(1)),
+                finished_at: Some(
+                    now.checked_sub(super::COMPLETED_JOB_TTL + Duration::from_secs(1))
+                        .unwrap(),
+                ),
             },
         );
 
@@ -302,7 +308,10 @@ mod tests {
                         output: "x".repeat(8),
                         exit_code: 0,
                     },
-                    finished_at: Some(now - Duration::from_secs((3 - index) as u64)),
+                    finished_at: Some(
+                        now.checked_sub(Duration::from_secs((3 - index) as u64))
+                            .unwrap(),
+                    ),
                 },
             );
         }

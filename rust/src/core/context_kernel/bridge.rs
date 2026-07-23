@@ -264,7 +264,7 @@ mod tests {
     fn budget_capped_at_150() {
         let item = entry(&"token ".repeat(1_000));
         let blocks = format_enrichment_blocks(&[&item]);
-        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 1_000.min(150))
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
             .expect("long enrichment should be truncated, not removed");
         assert!(enrichment.verdict.budget_used <= 150);
     }
