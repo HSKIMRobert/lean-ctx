@@ -133,14 +133,16 @@ async fn writer_blocks_readers_but_they_recover() {
 
     // Writer holds lock for 1s
     let lock_w = lock.clone();
+    let (writer_ready_tx, writer_ready_rx) = tokio::sync::oneshot::channel();
     let writer = tokio::task::spawn_blocking(move || {
         if let Some(mut guard) = lean_ctx::server::bounded_lock::write(&lock_w, "blocking_writer") {
             *guard = 42;
+            let _ = writer_ready_tx.send(());
             std::thread::sleep(Duration::from_secs(1));
         }
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    writer_ready_rx.await.expect("writer acquired lock");
 
     // Readers that start while writer holds lock
     let mut readers = Vec::new();
@@ -174,14 +176,16 @@ async fn session_read_lock_retry_pattern_works() {
 
     // Agent A: holds write lock for 2s (simulates record_tool_receipt)
     let session_a = session.clone();
+    let (writer_ready_tx, writer_ready_rx) = tokio::sync::oneshot::channel();
     let writer = tokio::spawn(async move {
         let mut guard = session_a.write().await;
         *guard = "task: updated".into();
+        let _ = writer_ready_tx.send(());
         tokio::time::sleep(Duration::from_secs(2)).await;
         drop(guard);
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    writer_ready_rx.await.expect("writer acquired session lock");
 
     // Agent B: uses retry pattern (same as our ctx_read fix)
     let session_b = session.clone();
@@ -375,14 +379,18 @@ fn zombie_thread_does_not_permanently_block_subsequent_readers() {
     // Zombie: acquires lock, sleeps for 1s (simulates slow I/O)
     let lock_z = lock.clone();
     let cancel_z = cancel.clone();
+    let (zombie_ready_tx, zombie_ready_rx) = std::sync::mpsc::sync_channel(1);
     let zombie = std::thread::spawn(move || {
         let _guard = lock_z.lock().unwrap();
+        let _ = zombie_ready_tx.send(());
         while !cancel_z.load(std::sync::atomic::Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(50));
         }
     });
 
-    std::thread::sleep(Duration::from_millis(50));
+    zombie_ready_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("zombie acquired lock");
 
     // New reader: should timeout, not hang forever
     let lock_r = lock.clone();
