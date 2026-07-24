@@ -129,28 +129,20 @@ pub fn overlay_prefix(prefix_bytes: &[u8], delta_messages: &[Value]) -> Option<V
 }
 
 #[cfg(test)]
-pub fn clear() {
-    if let Ok(mut guard) = store().lock() {
-        guard.clear();
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
-    fn sample_messages() -> Vec<Value> {
+    fn unique_messages(tag: &str) -> Vec<Value> {
         vec![
-            json!({"role": "user", "content": "hello"}),
-            json!({"role": "assistant", "content": "hi there"}),
+            json!({"role": "user", "content": format!("hello-{tag}")}),
+            json!({"role": "assistant", "content": format!("hi-{tag}")}),
         ]
     }
 
     #[test]
     fn append_only_detection_works() {
-        clear();
-        let msgs = sample_messages();
+        let msgs = unique_messages("append");
         let conv = conversation_id(None, &msgs);
         let forwarded = serde_json::to_vec(&msgs).unwrap();
 
@@ -166,8 +158,7 @@ mod tests {
 
     #[test]
     fn detection_fails_on_modified_prefix() {
-        clear();
-        let msgs = sample_messages();
+        let msgs = unique_messages("modified");
         let conv = conversation_id(None, &msgs);
         let forwarded = serde_json::to_vec(&msgs).unwrap();
         record_forwarded(conv, forwarded, &msgs, msgs.len());
@@ -180,8 +171,7 @@ mod tests {
 
     #[test]
     fn prefix_replay_is_byte_identical_across_turns() {
-        clear();
-        let msgs = sample_messages();
+        let msgs = unique_messages("replay");
         let conv = conversation_id(None, &msgs);
         let forwarded = serde_json::to_vec(&msgs).unwrap();
         record_forwarded(conv, forwarded.clone(), &msgs, msgs.len());
@@ -205,7 +195,7 @@ mod tests {
 
     #[test]
     fn overlay_with_empty_delta_returns_prefix() {
-        let msgs = sample_messages();
+        let msgs = unique_messages("overlay");
         let bytes = serde_json::to_vec(&msgs).unwrap();
         let result = overlay_prefix(&bytes, &[]).unwrap();
         assert_eq!(result, bytes);
@@ -214,7 +204,7 @@ mod tests {
     #[test]
     fn conversation_id_is_deterministic() {
         let sys = json!("You are helpful");
-        let msgs = sample_messages();
+        let msgs = unique_messages("deterministic");
         assert_eq!(
             conversation_id(Some(&sys), &msgs),
             conversation_id(Some(&sys), &msgs)
@@ -223,7 +213,6 @@ mod tests {
 
     #[test]
     fn max_tracked_evicts_oldest() {
-        clear();
         for i in 0..MAX_TRACKED + 10 {
             let msgs = vec![json!({"role": "user", "content": format!("msg {i}")})];
             let conv = conversation_id(None, &msgs);
