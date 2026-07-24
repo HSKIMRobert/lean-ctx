@@ -269,7 +269,7 @@ fn pipeline_archive_uses_redacted_output() {
 // ---------------------------------------------------------------------------
 #[test]
 fn ctx_search_has_pattern_length_limit() {
-    let src = include_str!("../../src/tools/ctx_search.rs");
+    let src = include_str!("../../src/tools/ctx_search/implementation.rs");
 
     assert!(
         src.contains("MAX_PATTERN_LEN"),
