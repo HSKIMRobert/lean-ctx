@@ -821,21 +821,6 @@ fn pricing_match_label(kind: crate::core::gain::model_pricing::PricingMatchKind)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::pricing_match_label;
-    use crate::core::gain::model_pricing::PricingMatchKind;
-
-    #[test]
-    fn pricing_match_labels_surface_estimates() {
-        assert_eq!(pricing_match_label(PricingMatchKind::Exact), "exact price");
-        assert_eq!(
-            pricing_match_label(PricingMatchKind::Fallback),
-            "fallback estimate"
-        );
-    }
-}
-
 fn contextual_tip(store: &StatsStore) -> Option<String> {
     let tips = build_tips(store);
     if tips.is_empty() {
@@ -941,7 +926,17 @@ pub fn gain_live() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::gain::model_pricing::PricingMatchKind;
     use crate::core::stats::{CommandStats, DayStats};
+
+    #[test]
+    fn pricing_match_labels_surface_estimates() {
+        assert_eq!(pricing_match_label(PricingMatchKind::Exact), "exact price");
+        assert_eq!(
+            pricing_match_label(PricingMatchKind::Fallback),
+            "fallback estimate"
+        );
+    }
     use std::collections::HashMap;
 
     fn sample_store() -> StatsStore {

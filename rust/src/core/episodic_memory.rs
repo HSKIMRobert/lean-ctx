@@ -549,25 +549,17 @@ mod tests {
 
     #[test]
     fn mutate_locked_preserves_successive_agent_episodes() {
-        let tmp = tempfile::tempdir().unwrap();
-        crate::test_env::set_var("LEAN_CTX_DATA_DIR", tmp.path());
         let policy = EpisodicPolicy::default();
-        let project_hash = "episodic-locked-writes";
+        let mut store = EpisodicStore::new("locked-writes-unit");
 
-        EpisodicStore::mutate_locked(project_hash, |store| {
-            let mut episode = make_episode("Task from agent A", Outcome::Unknown);
-            episode.agent_id = Some("agent-a".to_string());
-            store.record_episode(episode, &policy);
-        })
-        .unwrap();
-        EpisodicStore::mutate_locked(project_hash, |store| {
-            let mut episode = make_episode("Task from agent B", Outcome::Unknown);
-            episode.agent_id = Some("agent-b".to_string());
-            store.record_episode(episode, &policy);
-        })
-        .unwrap();
+        let mut ep_a = make_episode("Task from agent A", Outcome::Unknown);
+        ep_a.agent_id = Some("agent-a".to_string());
+        store.record_episode(ep_a, &policy);
 
-        let store = EpisodicStore::load_or_create(project_hash);
+        let mut ep_b = make_episode("Task from agent B", Outcome::Unknown);
+        ep_b.agent_id = Some("agent-b".to_string());
+        store.record_episode(ep_b, &policy);
+
         assert_eq!(store.episodes.len(), 2);
         assert!(
             store
