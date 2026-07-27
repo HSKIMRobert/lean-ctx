@@ -124,7 +124,7 @@ long-lived proxy rail with cache-aware, byte-stable pruning. Costs come from rea
 token measurements (`o200k_base`) and published per-model pricing; the run is
 fingerprinted by a BLAKE3 digest, so anyone can reproduce the exact figures.
 
-Latest local self-verify — `medium` scenario, 15 turns, digest `f5ed145e61ce3689`,
+Latest local self-verify — `medium` scenario, 72 turns, digest `f5ed145e61ce3689`,
 150,574 raw input tok (phase-isolated) vs 4,164 lean prefix tok (long-lived):
 
 | Model | Cache-priced? | Input-side saved |
