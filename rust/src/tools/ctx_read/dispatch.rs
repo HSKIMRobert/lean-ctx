@@ -407,6 +407,7 @@ pub(crate) fn try_stub_hit_readonly_scoped(
             return None;
         }
         cache.record_cache_hit(path);
+        crate::core::telemetry::global_metrics().record_cache(true);
         return Some(render_unchanged_stub(&file_ref, path, line_count));
     }
 
@@ -540,4 +541,32 @@ pub fn resolve_explicit_delta_mode(
         };
     }
     unchanged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn warm_stub_hit_records_central_telemetry() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("telemetry-hit.rs");
+        std::fs::write(&file, "fn telemetry_hit() {}\n").unwrap();
+        let path = file.to_string_lossy();
+        let mut cache = SessionCache::new();
+        cache.store(&path, "fn telemetry_hit() {}\n");
+        cache.mark_full_delivered(&path);
+
+        let metrics = crate::core::telemetry::global_metrics();
+        let before = metrics.cache_hits.load(Ordering::Relaxed);
+        let output = try_stub_hit_readonly_scoped(&cache, &path, None);
+        let after = metrics.cache_hits.load(Ordering::Relaxed);
+
+        assert!(output.is_some(), "warm re-read must use the stub cache");
+        assert!(
+            after >= before + 1,
+            "stub cache hit must increment central telemetry"
+        );
+    }
 }

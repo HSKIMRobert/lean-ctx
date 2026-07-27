@@ -241,6 +241,7 @@ pub(super) fn handle_with_options_inner(
     };
 
     let store_result = cache.store(path, &content);
+    crate::core::telemetry::global_metrics().record_cache(store_result.was_hit);
 
     // Skip expensive hint computation for line-range reads and first reads.
     // Hints are only useful from the 2nd read onwards when the file is contextually relevant.
@@ -433,6 +434,7 @@ pub(super) fn handle_full_with_auto_delta(
     let _mode_guard = crate::core::savings_footer::ModeGuard::new("full");
     let Ok(disk_content) = read_file_lossy(path) else {
         cache.record_cache_hit(path);
+        crate::core::telemetry::global_metrics().record_cache(true);
         if let Some(existing) = cache.get(path) {
             if !crate::core::protocol::meta_visible()
                 && let Some(cached) = existing.content()
@@ -475,6 +477,7 @@ pub(super) fn handle_full_with_auto_delta(
         .and_then(crate::core::cache::CacheEntry::content)
         .unwrap_or_default();
     let store_result = cache.store(path, &disk_content);
+    crate::core::telemetry::global_metrics().record_cache(store_result.was_hit);
 
     if store_result.was_hit {
         // #1128: no stub here. Whether an unchanged file may collapse to
@@ -551,7 +554,8 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
     } else {
         // No previous version cached — store content for future diffs but
         // return a short guidance message instead of dumping the full file.
-        cache.store(path, &new_content);
+        let store_result = cache.store(path, &new_content);
+        crate::core::telemetry::global_metrics().record_cache(store_result.was_hit);
         let msg = format!(
             "{file_ref}={short} [no cached version for diff — use mode=full first, then diff on re-read]"
         );
@@ -559,7 +563,8 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
         return (msg, sent);
     };
 
-    cache.store(path, &new_content);
+    let store_result = cache.store(path, &new_content);
+    crate::core::telemetry::global_metrics().record_cache(store_result.was_hit);
 
     let sent = count_tokens(&diff_output);
     let savings = protocol::format_savings(original_tokens, sent);
@@ -569,4 +574,30 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
         short
     };
     (format!("{head} [diff]\n{diff_output}\n{savings}"), sent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn fresh_full_read_records_central_cache_miss() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("telemetry-miss.rs");
+        std::fs::write(&file, "fn telemetry_miss() {}\n").unwrap();
+        let path = file.to_string_lossy();
+        let mut cache = SessionCache::new();
+        let metrics = crate::core::telemetry::global_metrics();
+        let before = metrics.cache_misses.load(Ordering::Relaxed);
+
+        let (output, _) = handle_full_with_auto_delta(&mut cache, &path, "F1", &path, "rs", None);
+        let after = metrics.cache_misses.load(Ordering::Relaxed);
+
+        assert!(output.contains("telemetry_miss"));
+        assert!(
+            after >= before + 1,
+            "fresh cache store must increment central miss telemetry"
+        );
+    }
 }
