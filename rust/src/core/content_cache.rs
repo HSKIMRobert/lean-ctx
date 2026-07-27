@@ -156,15 +156,18 @@ pub fn get(path: &Path, current: FileState) -> Option<Arc<str>> {
     // to being evicted.
     let Some(entry) = c.map.peek(path) else {
         c.misses += 1;
+        crate::core::telemetry::global_metrics().record_cache(false);
         return None;
     };
     if entry.state != current {
         // Stale version cached — drop it so we don't keep paying for it.
         c.remove_entry(path);
         c.misses += 1;
+        crate::core::telemetry::global_metrics().record_cache(false);
         return None;
     }
     c.hits += 1;
+    crate::core::telemetry::global_metrics().record_cache(true);
     // `get` promotes to MRU; present under the lock we still hold, but degrade
     // gracefully instead of panicking on the read hot path if that invariant
     // ever changes.
@@ -311,6 +314,67 @@ mod tests {
         insert(&p, state, Arc::from("fn main() {}\n"));
         let got = get(&p, state).expect("warm cache must hit");
         assert_eq!(&*got, "fn main() {}\n");
+    }
+
+    #[test]
+    fn miss_paths_update_local_and_central_stats() {
+        let _g = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        fresh_cache(1024 * 1024);
+        let dir = tempfile::tempdir().unwrap();
+        let p = write(dir.path(), "cold.rs", "cold\n");
+        let state = FileState::from_path(&p).unwrap();
+        let stale_state = FileState {
+            size_bytes: state.size_bytes + 1,
+            ..state
+        };
+        let local_before = stats();
+        let central = crate::core::telemetry::global_metrics();
+        let misses_before = central
+            .cache_misses
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        assert!(get(&p, state).is_none());
+        insert(&p, state, Arc::from("cold\n"));
+        assert!(get(&p, stale_state).is_none());
+
+        let local_after = stats();
+        assert!(local_after.misses >= local_before.misses + 2);
+        assert!(
+            central
+                .cache_misses
+                .load(std::sync::atomic::Ordering::Relaxed)
+                >= misses_before + 2
+        );
+    }
+
+    #[test]
+    fn warm_hit_updates_local_and_central_stats() {
+        let _g = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        fresh_cache(1024 * 1024);
+        let dir = tempfile::tempdir().unwrap();
+        let p = write(dir.path(), "warm.rs", "warm\n");
+        let state = FileState::from_path(&p).unwrap();
+        insert(&p, state, Arc::from("warm\n"));
+        let local_before = stats();
+        let central = crate::core::telemetry::global_metrics();
+        let hits_before = central
+            .cache_hits
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        assert!(get(&p, state).is_some());
+
+        let local_after = stats();
+        assert!(local_after.hits >= local_before.hits + 1);
+        assert!(
+            central
+                .cache_hits
+                .load(std::sync::atomic::Ordering::Relaxed)
+                >= hits_before + 1
+        );
     }
 
     #[test]
