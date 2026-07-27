@@ -94,6 +94,7 @@ pub fn record_file_read(
         session.touch_file(path, None, mode, original_tokens);
         if is_cache_hit {
             session.record_cache_hit();
+            crate::core::telemetry::global_metrics().record_cache(true);
         }
 
         if session.active_structured_intent.is_none() && session.files_touched.len() >= 2 {
