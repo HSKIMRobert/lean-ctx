@@ -277,16 +277,18 @@ impl CtxReadTool {
             mode = overridden;
         }
 
-        let (mut mode, degrade_warning) = if crate::tools::ctx_read::is_instruction_file(path) {
-            ("full".to_string(), None)
-        } else if mode == "raw" {
-            // #513: raw bypasses context-pressure degradation (which would
-            // otherwise downgrade to signatures under Block), exactly like
-            // instruction files — verbatim means verbatim.
-            ("raw".to_string(), None)
-        } else {
-            auto_degrade_read_mode(&mode)
-        };
+        let (instruction_mode, instruction_mode_note) = resolve_instruction_file_mode(path, &mode);
+        let (mut mode, degrade_warning) =
+            if instruction_mode_note.is_some() || instruction_mode != mode {
+                (instruction_mode, None)
+            } else if mode == "raw" || mode.starts_with("anchored") || mode.starts_with("lines:") {
+                // #513: raw bypasses context-pressure degradation (which would
+                // otherwise downgrade to signatures under Block), exactly like
+                // instruction files — explicit lossless modes mean lossless.
+                (mode, None)
+            } else {
+                auto_degrade_read_mode(&mode)
+            };
 
         // Delta-aware explicit re-reads (opt-in: config `delta_explicit`, env
         // LCTX_DELTA_EXPLICIT). Re-requesting full/lines:N-M content for a file
@@ -1139,6 +1141,9 @@ impl CtxReadTool {
         if let Some(ref w) = mode_override_note {
             warnings.push(w.as_str());
         }
+        if let Some(ref w) = instruction_mode_note {
+            warnings.push(w.as_str());
+        }
         let graph_suffix = graph_hint.map(|h| format!("\n{h}")).unwrap_or_default();
         // #977: notices (mode override, budget, degradation, delta) go BEFORE the
         // payload so client-side truncation of large outputs cannot hide them.
@@ -1214,6 +1219,23 @@ fn anchored_lines_mode(start: i64, limit: Option<i64>) -> String {
         Some(l) => format!("anchored:{start}-{}", start + l - 1),
         None => format!("anchored:{start}-999999"),
     }
+}
+
+fn resolve_instruction_file_mode(path: &str, mode: &str) -> (String, Option<String>) {
+    if !crate::tools::ctx_read::is_instruction_file(path)
+        || matches!(mode, "full" | "raw" | "anchored")
+        || mode.starts_with("anchored:")
+        || mode.starts_with("lines:")
+    {
+        return (mode.to_string(), None);
+    }
+
+    (
+        "full".to_string(),
+        Some(format!(
+            "[mode overridden: {mode} -> full, reason=instruction file requires complete content]"
+        )),
+    )
 }
 
 fn scoped_read_ranges(mode: &str) -> Option<Vec<crate::tools::ctx_read::mode::LineRange>> {

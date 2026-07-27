@@ -363,6 +363,30 @@ fn cross_source_hotspot_must_intersect_requested_range() {
 }
 
 #[test]
+fn instruction_files_preserve_explicit_lossless_modes() {
+    for mode in ["anchored", "anchored:10-20", "raw", "lines:10-20"] {
+        assert_eq!(
+            super::resolve_instruction_file_mode("/repo/AGENTS.md", mode),
+            (mode.to_string(), None)
+        );
+    }
+}
+
+#[test]
+fn instruction_file_fallback_explains_mode_override() {
+    let (mode, note) =
+        super::resolve_instruction_file_mode("/repo/skills/demo/SKILL.md", "signatures");
+    assert_eq!(mode, "full");
+    assert_eq!(
+        note.as_deref(),
+        Some(
+            "[mode overridden: signatures -> full, \
+             reason=instruction file requires complete content]"
+        )
+    );
+}
+
+#[test]
 fn offset_limit_overrides_explicit_map_to_lines() {
     // #811: line window always wins to prevent full-file materialization
     let mut mode = "map".to_string();
