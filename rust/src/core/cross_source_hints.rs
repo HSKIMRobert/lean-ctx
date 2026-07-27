@@ -26,6 +26,19 @@ pub fn hints_for_file(
     edges: &[IndexEdge],
     project_root: &str,
 ) -> Vec<CrossSourceHint> {
+    hints_for_file_matching(file_path, edges, project_root, |_| true)
+}
+
+/// Find cross-source hints, applying `include` before the five-item output cap.
+///
+/// Range-scoped reads use this to discard file-level and out-of-window hints
+/// without allowing higher-weight irrelevant hints to hide a relevant one.
+pub(crate) fn hints_for_file_matching(
+    file_path: &str,
+    edges: &[IndexEdge],
+    project_root: &str,
+    mut include: impl FnMut(&CrossSourceHint) -> bool,
+) -> Vec<CrossSourceHint> {
     let rel = crate::core::graph_index::graph_relative_key(file_path, project_root);
 
     let matches_path = |edge_path: &str| -> bool { edge_path == file_path || edge_path == rel };
@@ -53,6 +66,7 @@ pub fn hints_for_file(
         })
         .collect();
 
+    hints.retain(|hint| include(hint));
     hints.sort_by(|a, b| {
         b.weight
             .partial_cmp(&a.weight)
@@ -160,6 +174,32 @@ mod tests {
 
         let hints = hints_for_file("src/auth.rs", &edges, ROOT);
         assert_eq!(hints.len(), 5);
+    }
+
+    #[test]
+    fn range_filter_runs_before_output_limit() {
+        let mut edges: Vec<IndexEdge> = (0..5)
+            .map(|i| {
+                edge(
+                    "src/auth.rs",
+                    &format!("health://complexity/src/auth.rs#irrelevant_{i}"),
+                    "health_hotspot",
+                    10.0,
+                )
+            })
+            .collect();
+        edges.push(edge(
+            "src/auth.rs",
+            "health://complexity/src/auth.rs#requested",
+            "health_hotspot",
+            1.0,
+        ));
+
+        let hints = hints_for_file_matching("src/auth.rs", &edges, ROOT, |hint| {
+            hint.source_uri.ends_with("#requested")
+        });
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].source_uri.ends_with("#requested"));
     }
 
     #[test]
