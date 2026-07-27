@@ -597,9 +597,13 @@ class CockpitOverview extends HTMLElement {
     var vTotal = verif ? verif.total || 0 : 0;
     var vPassed = verif ? verif.pass || 0 : 0;
     var vPct = vTotal > 0 ? Math.round((vPassed / vTotal) * 100) : 0;
-    var vCol = vPct >= 80
-      ? 'var(--green)' : vPct >= 50
-        ? 'var(--yellow)' : 'var(--red)';
+    var vValue = vTotal > 0
+      ? vPct + '% <span class="status-chip-sub">(' + vPassed + '/' + vTotal + ')</span>'
+      : 'No runs <span class="status-chip-sub">(0/0)</span>';
+    var vCol = vTotal === 0
+      ? 'var(--muted)' : vPct >= 80
+        ? 'var(--green)' : vPct >= 50
+          ? 'var(--yellow)' : 'var(--red)';
 
     var gNodes = graph ? graph.node_count || 0 : 0;
     var gEdges = graph ? graph.edge_count || 0 : 0;
@@ -618,7 +622,7 @@ class CockpitOverview extends HTMLElement {
       chip('Session', '<span title="' + esc(taskDesc) + '">' + esc(shortTask) + '</span>', null, 'session_overview') +
       chip('Files touched', String(filesCount), null, null) +
       chip('Reliability', sloPct + '% <span class="status-chip-sub">(' + sloPassed + '/' + sloTotal + ')</span>', sloCol, 'slo_compliance') +
-      chip('Verification', vPct + '% <span class="status-chip-sub">(' + vPassed + '/' + vTotal + ')</span>', vCol, 'verification') +
+      chip('Verification', vValue, vCol, 'verification') +
       chip('Graph', gNodes + ' nodes \u00b7 ' + gEdges + ' edges', null, 'property_graph') +
       chip('Kernel', (this._data.kernel && this._data.kernel.enabled) ? this._data.kernel.health : 'off', (this._data.kernel && this._data.kernel.health === 'healthy') ? 'var(--green)' : (this._data.kernel && this._data.kernel.health === 'degraded') ? 'var(--yellow)' : 'var(--muted)', 'kernel_status') +
       (session && session.terse_mode ? chip('Terse', '<span class="tag tg">on</span>', null, null) : '') +
