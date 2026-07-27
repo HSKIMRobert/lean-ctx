@@ -20,20 +20,11 @@ pub fn plan_mode_tools() -> &'static [&'static str] {
     ]
 }
 
-fn claude_plan_permissions_for<'a>(
-    visible_tools: impl IntoIterator<Item = &'a str>,
-) -> Vec<String> {
-    let visible: std::collections::HashSet<&str> = visible_tools.into_iter().collect();
+fn claude_plan_permissions() -> Vec<String> {
     plan_mode_tools()
         .iter()
-        .filter(|tool| visible.contains(**tool))
         .map(|tool| format!("mcp__lean-ctx__{tool}"))
         .collect()
-}
-
-fn claude_plan_permissions() -> Vec<String> {
-    let advertised = crate::server::tool_visibility::advertised_tool_defs_default();
-    claude_plan_permissions_for(advertised.iter().map(|tool| tool.name.as_ref()))
 }
 
 fn vscode_plan_tool_ids() -> Vec<String> {
@@ -346,14 +337,16 @@ mod tests {
     }
 
     #[test]
-    fn claude_plan_permissions_respect_lean_tool_visibility() {
-        let permissions =
-            claude_plan_permissions_for(crate::tool_defs::CORE_TOOL_NAMES.iter().copied());
-
-        assert!(permissions.contains(&"mcp__lean-ctx__ctx_read".to_string()));
-        assert!(permissions.contains(&"mcp__lean-ctx__ctx_session".to_string()));
-        assert!(!permissions.contains(&"mcp__lean-ctx__ctx_overview".to_string()));
-        assert!(!permissions.contains(&"mcp__lean-ctx__ctx_plan".to_string()));
+    fn claude_plan_permissions_include_all_curated_tools() {
+        let permissions = claude_plan_permissions();
+        for tool in plan_mode_tools() {
+            let expected = format!("mcp__lean-ctx__{tool}");
+            assert!(
+                permissions.contains(&expected),
+                "missing permission: {expected}"
+            );
+        }
+        assert_eq!(permissions.len(), plan_mode_tools().len());
     }
 
     #[test]
