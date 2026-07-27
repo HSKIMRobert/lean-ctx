@@ -128,7 +128,7 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
             let hash = if line == 0 {
                 None
             } else {
-                Some(req_str(obj, "hash")?)
+                Some(req_anchor_hash(obj, "hash")?)
             };
             Ok(AnchorOp::InsertAfter {
                 line,
@@ -144,9 +144,13 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
                     let sl = req_line(obj, "start_line")
                         .map_err(|e| missing.push(e))
                         .ok();
-                    let sh = req_str(obj, "start_hash").map_err(|e| missing.push(e)).ok();
+                    let sh = req_anchor_hash(obj, "start_hash")
+                        .map_err(|e| missing.push(e))
+                        .ok();
                     let el = req_line(obj, "end_line").map_err(|e| missing.push(e)).ok();
-                    let eh = req_str(obj, "end_hash").map_err(|e| missing.push(e)).ok();
+                    let eh = req_anchor_hash(obj, "end_hash")
+                        .map_err(|e| missing.push(e))
+                        .ok();
                     if !missing.is_empty() {
                         return Err(format!(
                             "delete (range) requires start_line, start_hash, end_line, end_hash — {}",
@@ -162,7 +166,7 @@ fn parse_one(obj: &Map<String, Value>) -> Result<AnchorOp, String> {
                 }
             } else {
                 let line = req_line(obj, "line")?;
-                let hash = req_str(obj, "hash")?;
+                let hash = req_anchor_hash(obj, "hash")?;
                 Ok(AnchorOp::Delete {
                     start_line: line,
                     start_hash: hash.clone(),
@@ -201,6 +205,16 @@ fn get_str(obj: &Map<String, Value>, key: &str) -> Option<String> {
 
 fn req_str(obj: &Map<String, Value>, key: &str) -> Result<String, String> {
     get_str(obj, key).ok_or_else(|| format!("missing '{key}'"))
+}
+
+fn req_anchor_hash(obj: &Map<String, Value>, key: &str) -> Result<String, String> {
+    get_str(obj, key).ok_or_else(|| {
+        format!(
+            "missing '{key}': '{key}' is a line-content fingerprint from \
+             ctx_read mode=anchored; run ctx_read mode=anchored first, then copy \
+             the hash shown for the target line"
+        )
+    })
 }
 
 /// `new_text` must be *present* but may be empty (`""` = delete).
@@ -292,7 +306,8 @@ mod tests {
             json!({"op": "insert_after", "line": 5, "new_text": "x"}),
         ))
         .unwrap_err();
-        assert!(err.contains("hash"), "got: {err}");
+        assert!(err.contains("missing 'hash'"), "got: {err}");
+        assert!(err.contains("ctx_read mode=anchored"), "got: {err}");
     }
 
     #[test]
@@ -320,6 +335,15 @@ mod tests {
                 end_hash: "bb".into()
             }
         );
+    }
+
+    #[test]
+    fn delete_missing_hash_explains_how_to_get_anchor() {
+        let err = parse_ops(&obj(json!({"op": "delete", "line": 4}))).unwrap_err();
+
+        assert!(err.contains("missing 'hash'"), "got: {err}");
+        assert!(err.contains("line-content fingerprint"), "got: {err}");
+        assert!(err.contains("ctx_read mode=anchored"), "got: {err}");
     }
 
     #[test]
@@ -401,6 +425,7 @@ mod tests {
         assert!(err.contains("start_hash"), "must mention start_hash: {err}");
         assert!(err.contains("end_line"), "must mention end_line: {err}");
         assert!(err.contains("end_hash"), "must mention end_hash: {err}");
+        assert!(err.contains("ctx_read mode=anchored"), "got: {err}");
     }
 
     #[test]
