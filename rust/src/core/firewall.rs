@@ -10,11 +10,13 @@
 //! file reads keep their own read-mode system and are never firewalled.
 
 use crate::core::config::Config;
+use serde_json::{Map, Value, json};
 
 const HEAD_LINES: usize = 20;
 const TAIL_LINES: usize = 8;
 const LONG_LINE_HEAD_CHARS: usize = 800;
 const LONG_LINE_TAIL_CHARS: usize = 300;
+const JSON_PREVIEW_KEYS: usize = 32;
 
 /// Tools whose large outputs are eligible for the firewall. Explicit file reads are
 /// intentionally excluded — they have their own read-mode (`lines:`, `signatures`, …).
@@ -92,7 +94,11 @@ pub fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens: usize)
         "[Firewalled {tool} output — {chars} chars, {output_tokens} tok, {line_count} lines stored out-of-band]\n"
     ));
 
-    if line_count > HEAD_LINES + TAIL_LINES + 1 {
+    if let Some(preview) = json_structure_preview(full) {
+        out.push_str("--- JSON structural preview (complete summary; original archived) ---\n");
+        out.push_str(&preview);
+        out.push('\n');
+    } else if line_count > HEAD_LINES + TAIL_LINES + 1 {
         out.push_str("--- head ---\n");
         out.push_str(&lines[..HEAD_LINES].join("\n"));
         out.push_str(&format!(
@@ -135,6 +141,52 @@ pub fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens: usize)
         "JSON:    ctx_expand(id=\"{archive_id}\", json_keys=true)"
     ));
     out
+}
+
+fn json_structure_preview(full: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(full).ok()?;
+    let root = match value {
+        Value::Object(object) => {
+            let total = object.len();
+            let fields = object
+                .into_iter()
+                .take(JSON_PREVIEW_KEYS)
+                .map(|(key, value)| (key, json_value_shape(&value)))
+                .collect::<Map<_, _>>();
+            json!({
+                "type": "object",
+                "keys": total,
+                "fields": fields,
+                "omitted_keys": total.saturating_sub(JSON_PREVIEW_KEYS),
+            })
+        }
+        other => json_value_shape(&other),
+    };
+    serde_json::to_string(&json!({
+        "preview": "structural",
+        "root": root,
+    }))
+    .ok()
+}
+
+fn json_value_shape(value: &Value) -> Value {
+    match value {
+        Value::Null => json!({ "type": "null" }),
+        Value::Bool(_) => json!({ "type": "boolean" }),
+        Value::Number(_) => json!({ "type": "number" }),
+        Value::String(text) => json!({
+            "type": "string",
+            "chars": text.chars().count(),
+        }),
+        Value::Array(items) => json!({
+            "type": "array",
+            "items": items.len(),
+        }),
+        Value::Object(fields) => json!({
+            "type": "object",
+            "keys": fields.len(),
+        }),
+    }
 }
 
 #[cfg(test)]
@@ -267,5 +319,41 @@ mod tests {
         assert!(digest.contains("Firewalled ctx_search output"));
         assert!(digest.contains("truncated"));
         assert!(digest.len() < full.len());
+    }
+
+    #[test]
+    fn summarize_json_uses_complete_structural_document() {
+        let full = serde_json::to_string(&json!({
+            "body": "x".repeat(5000),
+            "files": [{"path": "src/a.rs"}, {"path": "src/b.rs"}],
+            "state": "MERGED",
+        }))
+        .unwrap();
+
+        let digest = summarize(&full, "json1", "ctx_shell", 2000);
+        assert!(!digest.contains("… (truncated) …"));
+        let preview = digest
+            .lines()
+            .find(|line| line.starts_with("{\"preview\":"))
+            .expect("structural preview JSON");
+        let parsed: Value = serde_json::from_str(preview).expect("preview remains valid JSON");
+        assert_eq!(parsed["root"]["fields"]["body"]["chars"], 5000);
+        assert_eq!(parsed["root"]["fields"]["files"]["items"], 2);
+        assert_eq!(parsed["root"]["keys"], 3);
+        assert!(digest.contains("original archived"));
+        assert!(digest.contains("ctx_expand(id=\"json1\", json_keys=true)"));
+    }
+
+    #[test]
+    fn json_structure_preview_caps_fields_at_valid_boundary() {
+        let object = (0..40)
+            .map(|index| (format!("key_{index:02}"), json!(index)))
+            .collect::<Map<_, _>>();
+        let full = serde_json::to_string(&object).unwrap();
+        let preview = json_structure_preview(&full).unwrap();
+        let parsed: Value = serde_json::from_str(&preview).unwrap();
+
+        assert_eq!(parsed["root"]["fields"].as_object().unwrap().len(), 32);
+        assert_eq!(parsed["root"]["omitted_keys"], 8);
     }
 }
