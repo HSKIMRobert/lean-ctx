@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::core::gain::model_pricing::{ModelQuote, PricingMatchKind};
+
 /// Persistent store for all-time token savings, command stats, and daily history.
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct StatsStore {
@@ -225,6 +227,8 @@ pub const DEFAULT_OUTPUT_PRICE_PER_M: f64 = 10.0;
 
 /// LLM pricing model for estimating dollar savings from token compression.
 pub struct CostModel {
+    pub model_key: String,
+    pub pricing_match_kind: PricingMatchKind,
     pub input_price_per_m: f64,
     pub output_price_per_m: f64,
     pub avg_verbose_output_per_call: u64,
@@ -233,12 +237,30 @@ pub struct CostModel {
 
 impl Default for CostModel {
     fn default() -> Self {
-        let env_model = std::env::var("LEAN_CTX_MODEL")
-            .or_else(|_| std::env::var("LCTX_MODEL"))
-            .ok();
         let pricing = crate::core::gain::model_pricing::ModelPricing::load();
-        let quote = pricing.quote(env_model.as_deref());
+        let quote = pricing.quote(resolved_gain_model().as_deref());
+        Self::from_quote(quote)
+    }
+}
+
+fn resolved_gain_model() -> Option<String> {
+    std::env::var("LEAN_CTX_MODEL")
+        .or_else(|_| std::env::var("LCTX_MODEL"))
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            crate::core::config::Config::load()
+                .cost
+                .model_for_client("cli")
+        })
+        .or_else(crate::proxy::usage_meter::persisted_dominant_model)
+}
+
+impl CostModel {
+    fn from_quote(quote: ModelQuote) -> Self {
         Self {
+            model_key: quote.model_key,
+            pricing_match_kind: quote.match_kind,
             input_price_per_m: quote.cost.input_per_m,
             output_price_per_m: quote.cost.output_per_m,
             avg_verbose_output_per_call: 180,
@@ -308,7 +330,8 @@ impl CostModel {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompressionTotals, StatsStore, TrafficClass, classify_command};
+    use super::{CompressionTotals, CostModel, StatsStore, TrafficClass, classify_command};
+    use crate::core::gain::model_pricing::PricingMatchKind;
 
     #[test]
     fn known_tools_are_classified_by_delivery_contract() {
@@ -318,6 +341,35 @@ mod tests {
         assert_eq!(classify_command("ctx_compose"), TrafficClass::Passthrough);
         assert_eq!(classify_command("ctx_glob"), TrafficClass::Passthrough);
         assert_eq!(classify_command("cli_full"), TrafficClass::Passthrough);
+    }
+
+    #[test]
+    fn cost_model_uses_resolved_model_pricing() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let old_lean_ctx_model = std::env::var("LEAN_CTX_MODEL").ok();
+        let old_lctx_model = std::env::var("LCTX_MODEL").ok();
+        unsafe {
+            std::env::set_var("LEAN_CTX_MODEL", "claude-opus-4.5");
+            std::env::remove_var("LCTX_MODEL");
+        }
+
+        let model = CostModel::default();
+
+        assert_eq!(model.model_key, "claude-opus-4.5");
+        assert_eq!(model.pricing_match_kind, PricingMatchKind::Exact);
+        assert_eq!(model.input_price_per_m, 5.0);
+        assert_eq!(model.output_price_per_m, 25.0);
+
+        unsafe {
+            match old_lean_ctx_model {
+                Some(value) => std::env::set_var("LEAN_CTX_MODEL", value),
+                None => std::env::remove_var("LEAN_CTX_MODEL"),
+            }
+            match old_lctx_model {
+                Some(value) => std::env::set_var("LCTX_MODEL", value),
+                None => std::env::remove_var("LCTX_MODEL"),
+            }
+        }
     }
 
     #[test]
