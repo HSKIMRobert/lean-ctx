@@ -101,12 +101,12 @@ All `std::sync::Mutex` unless noted otherwise.
 
 | # | Lock | File | Purpose |
 |---|------|------|---------|
-| E1 | `ENV_LOCK` | `dashboard/mod.rs:537` | Serialize env-var access in dashboard tests |
 | E2 | `ENV_LOCK` | `core/dense_backend.rs:412` | Serialize env-var access in dense-backend tests |
 | E3 | `ENV_LOCK` | `core/workspace_config.rs:101` | Serialize env-var access in workspace-config tests |
 | E4 | `LOCK` | `core/data_dir.rs:50` | Serialize data-dir creation |
 | E5 | `LOCK` | `core/tokens.rs:190` | Serialize tokenizer tests |
 | E6 | `LOCK` | `core/tokenizer_translation_driver.rs:248` | Serialize tokenizer-translation tests |
+| E7 | `TEST_ENV_MUTEX` | `core/data_dir.rs:161` | `OnceLock<Mutex<()>>` reentrant test env lock — serialize env-mutating tests across threads (`std::env::set_var` is not thread-safe); same thread may re-acquire without deadlocking |
 
 ---
 
