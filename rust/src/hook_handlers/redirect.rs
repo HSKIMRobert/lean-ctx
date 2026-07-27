@@ -594,8 +594,6 @@ pub(super) fn build_redirect_output(
     }
 
     serde_json::json!({
-        // Grok PreToolUse decision field.
-        "decision": "allow",
         // Cursor hook output format.
         "permission": "allow",
         "updated_input": updated_input.clone(),
