@@ -591,7 +591,7 @@ lean-ctx's **own cost is measured too**: the CI-measured fixed per-session
 footprint (advertised tool schemas + MCP instructions + wakeup briefing) is
 ~3.0K tokens and gated via `lean-ctx doctor overhead --gate`. And the
 long-lived proxy rail has a deterministic self-verify —
-`lean-ctx benchmark dual-arm --json` replays a 15-turn session and prices it per
+`lean-ctx benchmark dual-arm --json` replays a 72-turn session and prices it per
 model (digest `f5ed145e61ce3689`, 99.4% input-side saving on cache-priced rails;
 methodology: [bench/agent-task/r2](bench/agent-task/r2/README.md)).
 
