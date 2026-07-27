@@ -587,9 +587,9 @@ guessed.
 | `signatures` | **96.7%** | 14.0K | 96% |
 | Cached re-read | ~99.99% | ~13 tok | 100% |
 
-lean-ctx's **own cost is measured too**: the fixed per-session footprint it
-injects (advertised tool schemas + MCP instructions) is ~2.1K tokens and
-CI-gated via `lean-ctx doctor overhead --gate`, so it can only shrink. And the
+lean-ctx's **own cost is measured too**: the CI-measured fixed per-session
+footprint (advertised tool schemas + MCP instructions + wakeup briefing) is
+~3.0K tokens and gated via `lean-ctx doctor overhead --gate`. And the
 long-lived proxy rail has a deterministic self-verify —
 `lean-ctx benchmark dual-arm --json` replays a 15-turn session and prices it per
 model (digest `f5ed145e61ce3689`, 99.4% input-side saving on cache-priced rails;
