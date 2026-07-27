@@ -213,14 +213,16 @@ pub fn format_gain_hero_themed(t: &Theme) -> String {
 
 /// Renders the token savings dashboard at a specific animation tick (with footer).
 pub fn format_gain_themed_at(t: &Theme, tick: Option<u64>) -> String {
-    gain_dashboard(t, tick, true)
+    let store = crate::core::stats::load_for_display();
+    render_gain_dashboard_for_store(t, tick, true, &store)
 }
 
 /// The dashboard body without the trailing footer (tips / Context OS / hints).
 /// Used to compose `gain --deep`, where the extra themed sections must appear
 /// before the footer instead of in the middle of the output.
 pub fn format_gain_body() -> String {
-    gain_dashboard(&active_theme(), None, false)
+    let store = crate::core::stats::load_for_display();
+    render_gain_dashboard_for_store(&active_theme(), None, false, &store)
 }
 
 /// The standalone gain dashboard footer (contextual tip, Context OS, hints).
@@ -232,9 +234,12 @@ pub fn format_gain_footer() -> String {
 }
 
 #[allow(clippy::many_single_char_names)] // ANSI formatting: t=theme, r=reset, b=bold, d=dim
-fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
-    // Aggregate across split data dirs (#500) — see `format_gain_hero_themed`.
-    let store = crate::core::stats::load_for_display();
+fn render_gain_dashboard_for_store(
+    t: &Theme,
+    tick: Option<u64>,
+    with_footer: bool,
+    store: &StatsStore,
+) -> String {
     let mut out = Vec::new();
     let rst = theme::rst();
     let bold = theme::bold();
@@ -315,7 +320,7 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
         0.0
     };
     let cost_model = CostModel::default();
-    let cost = cost_model.calculate(&store);
+    let cost = cost_model.calculate(store);
     let total_saved = input_saved;
     let _days_active = store.daily.len();
 
@@ -398,6 +403,7 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
             "  {bar}  {sc_color}{bold}{}/100{rst}  Lv{} {dim}{}{rst}",
             score.total, lvl.level, lvl.title,
         )));
+        out.push(sec_line(""));
 
         if store.daily.len() >= 2 {
             let daily_savings: Vec<u64> = store
@@ -406,7 +412,7 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
                 .map(|d| d.input_tokens.saturating_sub(d.output_tokens))
                 .collect();
             let spark = t.gradient_sparkline(&daily_savings);
-            let trend_str = trend_string(&store, &c1, &t.warning.fg(), rst);
+            let trend_str = trend_string(store, &c1, &t.warning.fg(), rst);
             out.push(sec_line(&format!(
                 "  {dim}trend:{rst} {spark}  {trend_str}"
             )));
@@ -593,7 +599,7 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
                 format!("v{}", day.version)
             };
             out.push(sec_line(&format!(
-                "  {date_col} {:>4} cmds  {observed_col} {saved_col} {rate_col}  {day_bar}  {dim}{ver}{rst}",
+                "  {date_col} {:>4}  {observed_col} {saved_col} {rate_col}  {day_bar}  {dim}{ver}{rst}",
                 day.commands,
             )));
         }
@@ -607,7 +613,7 @@ fn gain_dashboard(t: &Theme, tick: Option<u64>, with_footer: bool) -> String {
     }
 
     if with_footer {
-        append_gain_footer(&mut out, t, &store);
+        append_gain_footer(&mut out, t, store);
     }
 
     out.join("\n")
@@ -901,5 +907,76 @@ pub fn gain_live() {
         let _ = std::io::stdout().flush();
 
         std::thread::sleep(interval);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::stats::{CommandStats, DayStats};
+    use std::collections::HashMap;
+
+    fn sample_store() -> StatsStore {
+        let mut commands = HashMap::new();
+        commands.insert(
+            "ctx_read".to_string(),
+            CommandStats {
+                count: 42,
+                input_tokens: 140_000,
+                output_tokens: 70_000,
+            },
+        );
+
+        let daily = (1..=14)
+            .map(|day| DayStats {
+                date: format!("2026-07-{day:02}"),
+                commands: day as u64,
+                input_tokens: 10_000 + day as u64 * 1_000,
+                output_tokens: 5_000,
+                version: "3.9.12".to_string(),
+            })
+            .collect();
+
+        StatsStore {
+            total_commands: 42,
+            total_input_tokens: 140_000,
+            total_output_tokens: 70_000,
+            commands,
+            daily,
+            first_inject_tokens_saved: 70_000,
+            active_tool_result_tokens_saved: 70_000,
+            last_tool_result_turn: 1,
+            stream_tracked_results: 1,
+            ..StatsStore::default()
+        }
+    }
+
+    #[test]
+    fn deep_dashboard_separates_score_bar_and_omits_recent_day_cmd_suffix() {
+        let theme = theme::load_theme("default");
+        let output = render_gain_dashboard_for_store(&theme, None, false, &sample_store());
+        let lines: Vec<&str> = output.lines().collect();
+        let score_line = lines
+            .iter()
+            .position(|line| line.contains("/100") && line.contains("Lv"))
+            .expect("score line");
+        assert!(!lines[score_line + 1].contains("trend:"));
+        assert!(lines[score_line + 2].contains("trend:"));
+
+        let recent_header = lines
+            .iter()
+            .position(|line| line.contains("RECENT DAYS"))
+            .expect("recent days header");
+        let recent_rows = lines
+            .iter()
+            .skip(recent_header + 2)
+            .take(7)
+            .filter(|line| line.contains("2026-07-"));
+        for row in recent_rows {
+            assert!(
+                !row.contains(" cmds"),
+                "row still contains cmds suffix: {row}"
+            );
+        }
     }
 }
