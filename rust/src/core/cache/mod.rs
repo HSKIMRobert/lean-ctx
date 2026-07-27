@@ -15,4 +15,6 @@ use std::time::{Instant, SystemTime};
 use validation::compute_md5;
 
 #[cfg(test)]
+pub(crate) mod pipeline_tests;
+#[cfg(test)]
 mod tests;
