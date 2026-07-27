@@ -25,6 +25,7 @@ Top-level configuration keys
 - `checkpoint_interval` (u32, default `15`) — Session checkpoint interval in minutes
 - `compression_aggressiveness` (f64, default `null` — env `LEAN_CTX_AGGRESSIVENESS`) — Global compression intensity 0.0 (lossless) – 1.0 (max), mapped onto read modes/entropy/IB. Empty = per-mode defaults
 - `compression_level` (enum: off | lite | standard | max, default `lite` — env `LEAN_CTX_COMPRESSION`) — Unified output-style level for the model's prose (not tool-output compression). lite=plain concise (default), standard/max=denser symbolic 'power modes'
+- `config_profile` (string, default `""` — env `LEAN_CTX_CONFIG_PROFILE`) — Named configuration overlay to merge from [profiles.<name>]
 - `content_defined_chunking` (bool, default `false`) — Enable Rabin-Karp chunking for cache-optimal output ordering
 - `crush_verbatim_json` (bool, default `false` — env `LEAN_CTX_CRUSH_VERBATIM_JSON`) — Opt-in: losslessly crush array-heavy JSON from verbatim data commands (gh api, jq, kubectl get -o json, curl). Off by default keeps them verbatim. Reshapes only when it at least halves the payload; fully reconstructible
 - `custom_aliases` (array, default `[]`) — Custom command aliases (array of {command, alias} entries)
@@ -56,6 +57,7 @@ Top-level configuration keys
 - `prefer_native_editor` (bool, default `false`) — Disable lean-ctx edit tools (ctx_edit, ctx_patch) so the host's native editor handles edits (#454)
 - `preserve_compact_formats` (string[], default `["toon"]`) — Already-compact output formats preserved verbatim instead of recompressed (e.g. ["toon"]). Set to [] to disable
 - `profile` (string, default `""`) — Persistent profile name. Checked after LEAN_CTX_PROFILE env var. Set via: lean-ctx config set profile passthrough
+- `profiles` (table, default `{}`) — Named partial configuration overlays; nested tables merge recursively over base settings
 - `project_root` (string?, default `null` — env `LEAN_CTX_PROJECT_ROOT`) — Explicit project root directory. Prevents accidental home-directory scans
 - `proxy_enabled` (bool?, default `null`) — Enable/disable the proxy layer. null = auto-detect, true = force on, false = force off
 - `proxy_loopback_open` (bool, default `false`) — Skip ALL proxy authentication on loopback binds. MCP/HTTP clients work without tokens. Ignored on non-loopback (gateway mode)
