@@ -1097,23 +1097,33 @@ impl CtxReadTool {
         let hints_suffix = {
             let graph_db =
                 crate::core::property_graph::graph_dir(&ctx.project_root).join("graph.db");
-            let edges = if graph_db.exists() {
-                crate::core::property_graph::CodeGraph::open(&ctx.project_root)
-                    .map(|g| g.all_cross_source_edges())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            if edges.is_empty() {
-                String::new()
-            } else {
-                let hints = crate::core::cross_source_hints::hints_for_file(
-                    path,
-                    &edges,
-                    &ctx.project_root,
-                );
-                crate::core::cross_source_hints::format_hints(&hints)
-            }
+            let graph = graph_db
+                .exists()
+                .then(|| crate::core::property_graph::CodeGraph::open(&ctx.project_root))
+                .transpose()
+                .ok()
+                .flatten();
+            graph.map_or_else(String::new, |graph| {
+                let edges = graph.all_cross_source_edges();
+                if edges.is_empty() {
+                    String::new()
+                } else {
+                    let ranges = scoped_read_ranges(&resolved_mode);
+                    let relative_path =
+                        crate::core::graph_index::graph_relative_key(path, &ctx.project_root);
+                    let hints = crate::core::cross_source_hints::hints_for_file_matching(
+                        path,
+                        &edges,
+                        &ctx.project_root,
+                        |hint| {
+                            ranges.as_ref().is_none_or(|ranges| {
+                                hint_intersects_ranges(hint, ranges, &graph, &relative_path)
+                            })
+                        },
+                    );
+                    crate::core::cross_source_hints::format_hints(&hints)
+                }
+            })
         };
 
         let mut warnings = Vec::new();
@@ -1204,6 +1214,47 @@ fn anchored_lines_mode(start: i64, limit: Option<i64>) -> String {
         Some(l) => format!("anchored:{start}-{}", start + l - 1),
         None => format!("anchored:{start}-999999"),
     }
+}
+
+fn scoped_read_ranges(mode: &str) -> Option<Vec<crate::tools::ctx_read::mode::LineRange>> {
+    use crate::tools::ctx_read::{ReadMode, mode::LineRange};
+
+    match mode.parse::<ReadMode>().ok()? {
+        ReadMode::Lines(range) | ReadMode::Anchored(Some(range)) => Some(vec![range]),
+        ReadMode::LinesMulti(payload) => Some(
+            payload
+                .split(',')
+                .filter_map(|part| {
+                    let (start, end) = part.split_once('-').unwrap_or((part, part));
+                    Some(LineRange::new(start.parse().ok()?, end.parse().ok()?))
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+fn hint_intersects_ranges(
+    hint: &crate::core::cross_source_hints::CrossSourceHint,
+    ranges: &[crate::tools::ctx_read::mode::LineRange],
+    graph: &crate::core::property_graph::CodeGraph,
+    relative_path: &str,
+) -> bool {
+    if hint.relation != "health_hotspot" {
+        return false;
+    }
+    let Some((_, symbol)) = hint.source_uri.rsplit_once('#') else {
+        return false;
+    };
+    let Ok(Some(node)) = graph.get_node_by_symbol(symbol, relative_path) else {
+        return false;
+    };
+    let (Some(start), Some(end)) = (node.line_start, node.line_end) else {
+        return false;
+    };
+    ranges
+        .iter()
+        .any(|range| start <= range.end as usize && end >= range.start as usize)
 }
 
 /// Apply a resolved line window to `mode`/`fresh`. Explicit `lines:N-M` and

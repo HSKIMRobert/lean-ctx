@@ -314,6 +314,55 @@ fn lines_mode_bounds_are_inclusive() {
 }
 
 #[test]
+fn scoped_ranges_cover_plain_anchored_and_multi_windows() {
+    let ranges = super::scoped_read_ranges("lines:40-59").unwrap();
+    assert_eq!((ranges[0].start, ranges[0].end), (40, 59));
+
+    let ranges = super::scoped_read_ranges("anchored:90-100").unwrap();
+    assert_eq!((ranges[0].start, ranges[0].end), (90, 100));
+
+    let ranges = super::scoped_read_ranges("lines:5,10-20").unwrap();
+    assert_eq!(
+        ranges
+            .iter()
+            .map(|range| (range.start, range.end))
+            .collect::<Vec<_>>(),
+        vec![(5, 5), (10, 20)]
+    );
+    assert!(super::scoped_read_ranges("full").is_none());
+}
+
+#[test]
+fn cross_source_hotspot_must_intersect_requested_range() {
+    use crate::core::cross_source_hints::CrossSourceHint;
+    use crate::core::property_graph::{CodeGraph, Node, NodeKind};
+    use crate::tools::ctx_read::mode::LineRange;
+
+    let graph = CodeGraph::open_in_memory().unwrap();
+    graph
+        .upsert_node(&Node::symbol("requested", "src/auth.rs", NodeKind::Symbol).with_lines(40, 80))
+        .unwrap();
+    let hint = CrossSourceHint {
+        source_uri: "health://complexity/src/auth.rs#requested".to_string(),
+        relation: "health_hotspot".to_string(),
+        weight: 20.0,
+    };
+
+    assert!(super::hint_intersects_ranges(
+        &hint,
+        &[LineRange::new(60, 70)],
+        &graph,
+        "src/auth.rs"
+    ));
+    assert!(!super::hint_intersects_ranges(
+        &hint,
+        &[LineRange::new(81, 90)],
+        &graph,
+        "src/auth.rs"
+    ));
+}
+
+#[test]
 fn offset_limit_overrides_explicit_map_to_lines() {
     // #811: line window always wins to prevent full-file materialization
     let mut mode = "map".to_string();
