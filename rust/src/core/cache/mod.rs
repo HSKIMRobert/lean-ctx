@@ -1,6 +1,7 @@
 mod entry;
 mod session;
 mod validation;
+pub mod warming;
 
 pub use entry::*;
 pub use session::*;
