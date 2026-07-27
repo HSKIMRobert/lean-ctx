@@ -226,6 +226,18 @@ pub fn verify_output(
     result
 }
 
+/// Run a deterministic end-to-end check of the output verifier.
+///
+/// This exercises path and identifier preservation with a known-good compact
+/// representation and records the result in the same counters as live output.
+pub fn run_self_check() -> VerificationResult {
+    const SOURCE: &str =
+        r#"fn lean_ctx_verification_probe() { include_str!("src/core/output_verification.rs"); }"#;
+    const COMPRESSED: &str = "fn lean_ctx_verification_probe() src/core/output_verification.rs";
+
+    verify_output(SOURCE, COMPRESSED, &VerificationConfig::default())
+}
+
 fn check_paths(source: &str, compressed: &str) -> (Vec<VerificationWarning>, usize) {
     let paths = extract_file_paths(source);
     let mut warnings = Vec::new();
@@ -602,6 +614,17 @@ mod tests {
         let snap = stats_snapshot();
         assert!(snap.pass_rate >= 0.0);
         assert!(snap.pass_rate <= 1.0);
+    }
+
+    #[test]
+    fn self_check_records_a_passing_run() {
+        let before = stats_snapshot().total;
+        let result = run_self_check();
+        let after = stats_snapshot();
+
+        assert!(result.pass);
+        assert!(result.warnings.is_empty());
+        assert!(after.total > before);
     }
 
     #[test]
