@@ -121,6 +121,13 @@ fn dual_rewrite_output_carries_claude_cursor_and_copilot_fields() {
     let out = build_dual_rewrite_output(Some(&tool_input), "lean-ctx read foo.txt");
     let p: serde_json::Value = serde_json::from_str(&out).expect("valid hook JSON");
 
+    // #1264: Claude validates the deprecated top-level `decision` field when
+    // present, and `"allow"` is not a valid value there. PreToolUse decisions
+    // belong under `hookSpecificOutput`.
+    assert!(
+        p.get("decision").is_none(),
+        "PreToolUse output must not emit the deprecated top-level decision"
+    );
     // Copilot CLI contract (top-level).
     assert_eq!(p["permissionDecision"], "allow");
     assert_eq!(p["modifiedArgs"]["command"], "lean-ctx read foo.txt");
@@ -139,6 +146,15 @@ fn dual_rewrite_output_carries_claude_cursor_and_copilot_fields() {
 }
 
 #[test]
+fn claude_allow_output_omits_deprecated_top_level_decision() {
+    let parsed: serde_json::Value =
+        serde_json::from_str(&build_dual_allow_output()).expect("valid hook JSON");
+
+    assert!(parsed.get("decision").is_none());
+    assert_eq!(parsed["hookSpecificOutput"]["permissionDecision"], "allow");
+}
+
+#[test]
 fn redirect_output_carries_copilot_modified_args() {
     // #551: the read/grep redirect must also surface modifiedArgs so Copilot CLI
     // swaps in the lean-ctx temp-file path instead of reading the original.
@@ -146,6 +162,7 @@ fn redirect_output_carries_copilot_modified_args() {
     let out = build_redirect_output(Some(&tool_input), "path", "/tmp/x.lctx", None);
     let p: serde_json::Value = serde_json::from_str(&out).expect("valid hook JSON");
 
+    assert!(p.get("decision").is_none());
     assert_eq!(p["permissionDecision"], "allow");
     assert_eq!(p["modifiedArgs"]["path"], "/tmp/x.lctx");
     assert_eq!(
