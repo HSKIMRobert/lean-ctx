@@ -161,3 +161,82 @@ mod roots_retry_tests {
         assert!(!roots_list_failure_is_permanent(&internal));
     }
 }
+
+#[cfg(test)]
+mod response_cache_tests {
+    use super::super::guarded::{cache_call_result, cached_call_result, response_cache_key};
+    use crate::core::ocla::response_cache::{CachedResponse, ResponseCache};
+    use rmcp::model::{CallToolResult, ContentBlock};
+    use serde_json::{Map, json};
+    use std::time::{Duration, Instant};
+
+    fn arguments() -> Map<String, serde_json::Value> {
+        Map::from_iter([("path".to_owned(), json!("src/lib.rs"))])
+    }
+
+    fn text_of(result: &CallToolResult) -> &str {
+        result.content[0]
+            .as_text()
+            .expect("cached result must be text")
+            .text
+            .as_str()
+    }
+
+    #[test]
+    fn only_deterministic_tools_receive_cache_keys() {
+        for tool in ["ctx_read", "ctx_search", "ctx_tree", "ctx_glob"] {
+            assert!(response_cache_key(tool, Some(&arguments()), "/project").is_some());
+        }
+        for tool in ["ctx_shell", "ctx_session", "ctx_knowledge", "ctx_call"] {
+            assert!(response_cache_key(tool, Some(&arguments()), "/project").is_none());
+        }
+    }
+
+    #[test]
+    fn cache_keys_include_arguments_and_project_scope() {
+        let base = response_cache_key("ctx_read", Some(&arguments()), "/project").unwrap();
+        let other_root = response_cache_key("ctx_read", Some(&arguments()), "/other").unwrap();
+        let other_args = Map::from_iter([("path".to_owned(), json!("src/main.rs"))]);
+        let other_path = response_cache_key("ctx_read", Some(&other_args), "/project").unwrap();
+
+        assert_ne!(base, other_root);
+        assert_ne!(base, other_path);
+        assert_eq!(
+            base,
+            response_cache_key("ctx_read", Some(&arguments()), "/project").unwrap()
+        );
+    }
+
+    #[test]
+    fn successful_text_response_round_trips_through_cache() {
+        let cache = ResponseCache::new(8, Duration::from_secs(60));
+        let key = response_cache_key("ctx_search", Some(&arguments()), "/project").unwrap();
+        let mut result = CallToolResult::success(vec![ContentBlock::text("search result")]);
+        result.structured_content = Some(json!({"matches": 1}));
+
+        cache_call_result(&cache, key.clone(), &result);
+
+        let cached = cached_call_result(&cache, &key).expect("response should be cached");
+        assert_eq!(text_of(&cached), "search result");
+        assert_eq!(cached.structured_content, Some(json!({"matches": 1})));
+        assert_ne!(cached.is_error, Some(true));
+    }
+
+    #[test]
+    fn expired_response_is_not_returned() {
+        let cache = ResponseCache::new(8, Duration::from_secs(1));
+        let key = response_cache_key("ctx_tree", Some(&arguments()), "/project").unwrap();
+        cache.put(
+            key.clone(),
+            CachedResponse {
+                body: b"stale".to_vec(),
+                status: 200,
+                tokens: 1,
+                created_at: Instant::now() - Duration::from_secs(2),
+                ttl: Duration::from_secs(1),
+            },
+        );
+
+        assert!(cached_call_result(&cache, &key).is_none());
+    }
+}
