@@ -1172,6 +1172,13 @@ fn try_read_project_root_from_graph(path: &std::path::Path) -> Option<String> {
 pub const SIMPLIFIED_TEMPLATE: &str = r#"# lean-ctx — Simplified Configuration
 # Full reference: https://leanctx.com/docs/configuration
 # For all settings: lean-ctx config init --full
+#
+# Optional named overlay. LEAN_CTX_CONFIG_PROFILE overrides this selection:
+# config_profile = "cloud"
+# [profiles.local]
+# compression_level = "lite"
+# [profiles.cloud]
+# compression_level = "standard"
 
 # ── High-Level Knobs ─────────────────────────────────────────────────
 # These auto-adjust advanced settings. Override individual values below

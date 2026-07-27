@@ -172,6 +172,14 @@ pub struct Config {
     /// Set via `lean-ctx config set profile passthrough` or editing config.toml.
     #[serde(default)]
     pub profile: Option<String>,
+    /// Named configuration overlay selected from `[profiles.<name>]`.
+    /// `LEAN_CTX_CONFIG_PROFILE` takes precedence over this persisted selector.
+    #[serde(default)]
+    pub config_profile: Option<String>,
+    /// Partial configuration overlays keyed by profile name. Each overlay is
+    /// recursively merged over the base configuration at load time.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub profiles: std::collections::BTreeMap<String, toml::Table>,
     /// Tool visibility profile: "minimal" (5), "standard" (15), or "power" (all).
     /// Override via LEAN_CTX_TOOL_PROFILE env var.
     /// Existing installs default to "power" (backward compat).

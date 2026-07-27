@@ -157,21 +157,38 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         ),
     );
     root.insert(
-            "profile".into(),
-            key(
-                "string",
-                serde_json::json!(cfg.profile.as_deref().unwrap_or("")),
-                "Persistent profile name. Checked after LEAN_CTX_PROFILE env var. Set via: lean-ctx config set profile passthrough",
-            ),
-        );
+        "profile".into(),
+        key(
+            "string",
+            serde_json::json!(cfg.profile.as_deref().unwrap_or("")),
+            "Persistent profile name. Checked after LEAN_CTX_PROFILE env var. Set via: lean-ctx config set profile passthrough",
+        ),
+    );
     root.insert(
-            "tool_profile".into(),
-            key_enum(
-                &["minimal", "standard", "power"],
-                cfg.tool_profile.as_deref().unwrap_or(""),
-                "Tool visibility profile: minimal (5 tools), standard (16), power (all). Override via LEAN_CTX_TOOL_PROFILE",
-            ),
-        );
+        "config_profile".into(),
+        key_with_env(
+            "string",
+            serde_json::json!(cfg.config_profile.as_deref().unwrap_or("")),
+            "Named configuration overlay to merge from [profiles.<name>]",
+            "LEAN_CTX_CONFIG_PROFILE",
+        ),
+    );
+    root.insert(
+        "profiles".into(),
+        key(
+            "table",
+            serde_json::json!({}),
+            "Named partial configuration overlays; nested tables merge recursively over base settings",
+        ),
+    );
+    root.insert(
+        "tool_profile".into(),
+        key_enum(
+            &["minimal", "standard", "power"],
+            cfg.tool_profile.as_deref().unwrap_or(""),
+            "Tool visibility profile: minimal (5 tools), standard (16), power (all). Override via LEAN_CTX_TOOL_PROFILE",
+        ),
+    );
     root.insert(
         "tools_enabled".into(),
         key(
