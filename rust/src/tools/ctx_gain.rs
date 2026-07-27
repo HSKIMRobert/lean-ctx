@@ -81,6 +81,11 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
         out_m = s.model.cost.output_per_m,
     );
 
+    if let Some(cache_performance) = format_cache_performance(engine) {
+        report.push('\n');
+        report.push_str(&cache_performance);
+    }
+
     let streams = s.stream_savings;
     report.push_str(&format!(
         "\nStream                 | Tokens Saved | Rate       | USD Saved\n\
@@ -153,6 +158,68 @@ fn format_summary(engine: &GainEngine, model: Option<&str>) -> String {
     }
 
     report
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CacheLayer<'a> {
+    name: &'a str,
+    description: &'a str,
+    hits: u64,
+    requests: u64,
+}
+
+fn format_cache_performance(engine: &GainEngine) -> Option<String> {
+    let content = crate::core::content_cache::stats();
+    let response = crate::core::ocla::response_cache::global_response_cache().stats();
+    let layers = [
+        CacheLayer {
+            name: "Read Cache:",
+            description: "SessionCache — file re-reads",
+            hits: engine.stats.cep.total_cache_hits,
+            requests: engine.stats.cep.total_cache_reads,
+        },
+        CacheLayer {
+            name: "Search Cache:",
+            description: "ContentCache — search index",
+            hits: content.hits,
+            requests: content.hits.saturating_add(content.misses),
+        },
+        CacheLayer {
+            name: "Response Cache:",
+            description: "OCLA — tool responses",
+            hits: response.hits,
+            requests: response.hits.saturating_add(response.misses),
+        },
+    ];
+    let overall_hit_rate = crate::core::telemetry::global_metrics()
+        .snapshot()
+        .cache_hit_rate;
+    format_cache_performance_layers(&layers, overall_hit_rate)
+}
+
+fn format_cache_performance_layers(
+    layers: &[CacheLayer<'_>],
+    overall_hit_rate: f64,
+) -> Option<String> {
+    let visible: Vec<_> = layers.iter().filter(|layer| layer.requests > 0).collect();
+    if visible.is_empty() {
+        return None;
+    }
+
+    let mut output = String::from("Cache Performance\n");
+    for layer in visible {
+        let hit_rate = layer.hits as f64 / layer.requests as f64 * 100.0;
+        output.push_str(&format!(
+            "  ├─ {:<15} {:>3.0}% ({})\n",
+            layer.name, hit_rate, layer.description
+        ));
+    }
+    output.push_str(&format!(
+        "  └─ {:<15} {:>3.0}% (weighted by request volume)\n",
+        "Overall:",
+        overall_hit_rate * 100.0
+    ));
+    Some(output)
 }
 
 fn format_score(engine: &GainEngine, model: Option<&str>) -> String {
@@ -883,5 +950,63 @@ mod tests {
                 assert!(h.get(k).is_some(), "heatmap.{k} missing");
             }
         }
+    }
+
+    #[test]
+    fn cache_performance_is_hidden_without_requests() {
+        let layers = [
+            CacheLayer {
+                name: "Read Cache:",
+                description: "SessionCache — file re-reads",
+                hits: 0,
+                requests: 0,
+            },
+            CacheLayer {
+                name: "Search Cache:",
+                description: "ContentCache — search index",
+                hits: 0,
+                requests: 0,
+            },
+        ];
+
+        assert!(format_cache_performance_layers(&layers, 0.0).is_none());
+    }
+
+    #[test]
+    fn cache_performance_aligns_visible_layers_and_omits_idle_layers() {
+        let layers = [
+            CacheLayer {
+                name: "Read Cache:",
+                description: "SessionCache — file re-reads",
+                hits: 72,
+                requests: 100,
+            },
+            CacheLayer {
+                name: "Search Cache:",
+                description: "ContentCache — search index",
+                hits: 17,
+                requests: 20,
+            },
+            CacheLayer {
+                name: "Response Cache:",
+                description: "OCLA — tool responses",
+                hits: 0,
+                requests: 0,
+            },
+        ];
+
+        let output =
+            format_cache_performance_layers(&layers, 0.45).expect("active layers are shown");
+        let rows: Vec<_> = output.lines().skip(1).collect();
+        assert_eq!(rows.len(), 3);
+        assert!(output.contains("Read Cache:      72% (SessionCache — file re-reads)"));
+        assert!(output.contains("Search Cache:    85% (ContentCache — search index)"));
+        assert!(!output.contains("Response Cache:"));
+        assert!(output.contains("Overall:         45% (weighted by request volume)"));
+        assert!(
+            rows.windows(2).all(|rows| {
+                rows[0].find('%').expect("rate") == rows[1].find('%').expect("rate")
+            })
+        );
     }
 }
