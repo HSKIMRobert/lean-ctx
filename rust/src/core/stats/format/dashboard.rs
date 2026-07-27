@@ -449,8 +449,11 @@ fn render_gain_dashboard_for_store(
 
     // -- COST BREAKDOWN section --
     let price_label = format!(
-        "@ ${:.2}/M input · ${:.2}/M output",
-        cost_model.input_price_per_m, cost_model.output_price_per_m,
+        "{} · @ ${:.2}/M input · ${:.2}/M output · {}",
+        cost_model.model_key,
+        cost_model.input_price_per_m,
+        cost_model.output_price_per_m,
+        pricing_match_label(cost_model.pricing_match_kind),
     );
     let cost_label = format!("COST BREAKDOWN ──── {price_label}");
     out.push(format!("  {}", t.box_top_labeled(w, &cost_label)));
@@ -805,6 +808,31 @@ fn trend_string(store: &StatsStore, up_color: &str, down_color: &str, rst: &str)
         format!("{up_color}+{change:.0}%{rst} vs last week")
     } else {
         format!("{down_color}{change:.0}%{rst} vs last week")
+    }
+}
+
+fn pricing_match_label(kind: crate::core::gain::model_pricing::PricingMatchKind) -> &'static str {
+    match kind {
+        crate::core::gain::model_pricing::PricingMatchKind::Exact => "exact price",
+        crate::core::gain::model_pricing::PricingMatchKind::Live => "live price",
+        crate::core::gain::model_pricing::PricingMatchKind::Alias => "alias price",
+        crate::core::gain::model_pricing::PricingMatchKind::Heuristic => "estimated price",
+        crate::core::gain::model_pricing::PricingMatchKind::Fallback => "fallback estimate",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pricing_match_label;
+    use crate::core::gain::model_pricing::PricingMatchKind;
+
+    #[test]
+    fn pricing_match_labels_surface_estimates() {
+        assert_eq!(pricing_match_label(PricingMatchKind::Exact), "exact price");
+        assert_eq!(
+            pricing_match_label(PricingMatchKind::Fallback),
+            "fallback estimate"
+        );
     }
 }
 
