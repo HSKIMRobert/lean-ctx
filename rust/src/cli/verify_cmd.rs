@@ -21,6 +21,8 @@ pub(crate) fn cmd_verify(args: &[String]) {
         }
     }
 
+    crate::core::output_verification::run_self_check();
+
     match crate::tools::ctx_verify::handle_stats(format.as_deref()) {
         Ok(out) => println!("{out}"),
         Err(e) => {
