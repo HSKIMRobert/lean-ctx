@@ -1,6 +1,92 @@
 #[allow(clippy::wildcard_imports)]
 use super::super::*;
 use super::dispatch_and_post_process;
+use crate::core::ocla::response_cache::{
+    CachedResponse, ResponseCache, ResponseCacheKey, global_response_cache,
+};
+use rmcp::model::{ContentBlock, Meta};
+use serde::Deserialize;
+use serde_json::{Map, Value};
+use std::time::{Duration, Instant};
+
+const CACHEABLE_TOOLS: [&str; 4] = ["ctx_read", "ctx_search", "ctx_tree", "ctx_glob"];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedCallToolResult {
+    content: Vec<ContentBlock>,
+    #[serde(default)]
+    structured_content: Option<Value>,
+    #[serde(default)]
+    is_error: Option<bool>,
+    #[serde(default, rename = "_meta")]
+    meta: Option<Meta>,
+}
+
+pub(super) fn response_cache_key(
+    tool_name: &str,
+    arguments: Option<&Map<String, Value>>,
+    project_root: &str,
+) -> Option<ResponseCacheKey> {
+    CACHEABLE_TOOLS.contains(&tool_name).then(|| {
+        let mut input = Vec::with_capacity(project_root.len() + 1);
+        input.extend_from_slice(project_root.as_bytes());
+        input.push(0);
+        input.extend_from_slice(
+            &serde_json::to_vec(&arguments).expect("JSON arguments must serialize"),
+        );
+        let digest = blake3::hash(&input);
+        let mut hash_bytes = [0; 8];
+        hash_bytes.copy_from_slice(&digest.as_bytes()[..8]);
+        let arguments_hash = u64::from_be_bytes(hash_bytes);
+        ResponseCacheKey::new(tool_name, arguments_hash, 0.0, 0)
+    })
+}
+
+pub(super) fn cached_call_result(
+    cache: &ResponseCache,
+    key: &ResponseCacheKey,
+) -> Option<CallToolResult> {
+    let response = cache.get(key);
+    crate::core::telemetry::global_metrics().record_cache(response.is_some());
+    response.and_then(|cached| {
+        serde_json::from_slice::<CachedCallToolResult>(&cached.body)
+            .ok()
+            .map(|cached| {
+                let mut result = CallToolResult::success(cached.content);
+                result.structured_content = cached.structured_content;
+                result.is_error = cached.is_error;
+                result.meta = cached.meta;
+                result
+            })
+    })
+}
+
+pub(super) fn cache_call_result(
+    cache: &ResponseCache,
+    key: ResponseCacheKey,
+    result: &CallToolResult,
+) {
+    if result.is_error == Some(true) {
+        return;
+    }
+    let Ok(body) = serde_json::to_vec(result) else {
+        return;
+    };
+    let tokens = crate::core::tokens::count_tokens(&String::from_utf8_lossy(&body))
+        .try_into()
+        .unwrap_or(u64::MAX);
+    cache.put(
+        key,
+        CachedResponse {
+            body,
+            status: 200,
+            tokens,
+            created_at: Instant::now(),
+            ttl: Duration::ZERO,
+        },
+    );
+}
 
 impl LeanCtxServer {
     pub(crate) async fn call_tool_guarded(
@@ -243,7 +329,22 @@ impl LeanCtxServer {
             crate::core::budget_tracker::BudgetTracker::global().record_shell();
         }
 
-        dispatch_and_post_process(
+        let project_root = self
+            .session
+            .read()
+            .await
+            .project_root
+            .clone()
+            .unwrap_or_default();
+        let cache_key = response_cache_key(name, args, &project_root);
+        if let Some(cached) = cache_key
+            .as_ref()
+            .and_then(|key| cached_call_result(global_response_cache(), key))
+        {
+            return Ok(cached);
+        }
+
+        let result = dispatch_and_post_process(
             self,
             name,
             args,
@@ -254,6 +355,10 @@ impl LeanCtxServer {
             throttle_warning,
             args_fp,
         )
-        .await
+        .await;
+        if let (Some(key), Ok(response)) = (cache_key, &result) {
+            cache_call_result(global_response_cache(), key, response);
+        }
+        result
     }
 }
