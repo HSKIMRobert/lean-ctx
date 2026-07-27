@@ -53,6 +53,8 @@ pub fn render_annotated_config(cfg: &Config, schema: &ConfigSchema) -> String {
             };
             if let Some(key_schema) = schema.lookup(&path) {
                 append_key_comment(&mut out, key_schema);
+            } else {
+                append_fallback_key_comment(&mut out, field);
             }
         }
 
@@ -136,6 +138,33 @@ fn append_key_comment(out: &mut String, key_schema: &KeySchema) {
     }
 }
 
+/// Documents fields that predate the schema registry. Keeping this fallback in
+/// the renderer guarantees that newly serialized parameters are never emitted
+/// without an explanation while their richer schema metadata is being added.
+fn append_fallback_key_comment(out: &mut String, field: &str) {
+    let comment = if let Some(name) = field
+        .strip_prefix("enable_")
+        .or_else(|| field.strip_suffix("_enabled"))
+    {
+        format!("Enables or disables {}.", humanize(name))
+    } else if let Some(name) = field.strip_prefix("max_") {
+        format!("Sets maximum {}.", humanize(name))
+    } else if let Some(name) = field.strip_suffix("_ms") {
+        format!("Sets {} in milliseconds.", humanize(name))
+    } else if let Some(name) = field.strip_suffix("_percent") {
+        format!("Sets {} as a percentage.", humanize(name))
+    } else {
+        format!("Configures {}.", humanize(field))
+    };
+    out.push_str("# ");
+    out.push_str(&comment);
+    out.push('\n');
+}
+
+fn humanize(field: &str) -> String {
+    field.replace(['_', '-'], " ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -205,5 +234,39 @@ mod tests {
             first.matches("# ").count() > 5,
             "rendered config must be annotated with comments"
         );
+    }
+
+    #[test]
+    fn every_generated_parameter_has_an_explainer_comment() {
+        let rendered = render_annotated_config(&Config::default(), &ConfigSchema::generate());
+        let mut previous_nonempty = "";
+
+        for line in rendered.lines() {
+            let trimmed = line.trim();
+            if leading_key(trimmed).is_some() {
+                assert!(
+                    previous_nonempty.starts_with('#'),
+                    "generated parameter lacks an explainer comment: {trimmed}"
+                );
+            }
+            if !trimmed.is_empty() {
+                previous_nonempty = trimmed;
+            }
+        }
+    }
+
+    #[test]
+    fn undocumented_schema_fields_get_readable_fallback_comments() {
+        let mut cfg = Config::default();
+        cfg.theme = "neon".to_string();
+        let schema = ConfigSchema {
+            version: 1,
+            sections: Default::default(),
+        };
+
+        let rendered = render_annotated_config(&cfg, &schema);
+
+        assert!(rendered.contains("# Sets maximum ram percent.\nmax_ram_percent = "));
+        assert!(rendered.contains("# Configures theme.\ntheme = \"neon\""));
     }
 }
