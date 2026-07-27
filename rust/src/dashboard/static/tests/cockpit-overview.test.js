@@ -66,4 +66,19 @@ if (!unsigned.includes('<span class="tag ty">unsigned</span>')) {
   throw new Error('unsigned ledger is still presented as verified');
 }
 
-console.log('PASS: Overview bridge reflects ledger verification state');
+overview._data = {
+  session: null,
+  slos: null,
+  verification: { total: 0, pass: 0 },
+  graphStats: null,
+  kernel: null,
+};
+const emptyVerification = overview._renderStatusStrip((value) => String(value));
+if (!emptyVerification.includes('No runs')) {
+  throw new Error('empty verification state is still presented as a percentage');
+}
+if (!emptyVerification.includes('style="color:var(--muted)"')) {
+  throw new Error('empty verification state is not neutral');
+}
+
+console.log('PASS: Overview reflects neutral and verified states honestly');
