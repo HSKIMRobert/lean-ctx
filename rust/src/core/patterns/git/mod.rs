@@ -95,6 +95,21 @@ fn compact_lines(text: &str, max: usize) -> String {
     )
 }
 
+/// `git show <revision>:<path>` prints a file blob, not commit metadata.
+///
+/// Treat blob output as source text and preserve it byte-for-byte. Applying the
+/// commit-oriented line compactor can splice an elision marker into code, making
+/// the result look like file content even though it is not.
+fn show_requests_blob(command: &str) -> bool {
+    command.split_whitespace().any(|arg| {
+        let arg = arg.trim_matches(['\'', '"']);
+        !arg.starts_with('-')
+            && arg
+                .split_once(':')
+                .is_some_and(|(revision, path)| !revision.is_empty() && !path.is_empty())
+    })
+}
+
 pub fn compress(command: &str, output: &str) -> Option<String> {
     let sub = extract_git_subcommand(command)?;
     match sub {
@@ -126,6 +141,7 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
         }
         "blame" => Some(commit::compress_blame(output)),
         "cherry-pick" => Some(commit::compress_cherry_pick(output)),
+        "show" if show_requests_blob(command) => Some(output.to_string()),
         "show" => Some(commit::compress_show(output)),
         "rebase" => Some(commit::compress_rebase(output)),
         "submodule" => Some(commit::compress_submodule(output)),
@@ -517,6 +533,23 @@ mod tests {
             result.len() > 10,
             "git show stash@{{0}} must not be over-compressed, got: {result}"
         );
+    }
+
+    #[test]
+    fn show_source_blob_is_preserved_verbatim() {
+        let output = (0..40)
+            .map(|i| format!("pub const VALUE_{i}: usize = {i};\n"))
+            .collect::<String>();
+
+        let result = compress("git show HEAD:src/generated.rs", &output).unwrap();
+
+        assert_eq!(result, output);
+        assert!(!result.contains("more lines"));
+    }
+
+    #[test]
+    fn show_format_colon_is_not_mistaken_for_blob_selector() {
+        assert!(!show_requests_blob("git show --format=%H:%s HEAD"));
     }
 
     #[test]
