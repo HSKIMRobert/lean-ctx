@@ -71,3 +71,7 @@ mod config_path_visibility_tests;
 #[cfg(test)]
 #[path = "tests_context_budget.rs"]
 mod context_budget_tests;
+
+#[cfg(test)]
+#[path = "tests_config_profiles.rs"]
+mod config_profiles_tests;

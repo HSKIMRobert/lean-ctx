@@ -90,6 +90,8 @@ impl Default for Config {
             no_degrade: false,
             delta_explicit: false,
             profile: None,
+            config_profile: None,
+            profiles: std::collections::BTreeMap::new(),
             tool_profile: None,
             tools_enabled: Vec::new(),
             persona: None,

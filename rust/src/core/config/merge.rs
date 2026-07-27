@@ -17,17 +17,21 @@ impl Config {
     /// apply. This stops a cloned, untrusted repo from silently weakening
     /// lean-ctx's own boundaries through its bundled config (security audit #4).
     pub(super) fn merge_local(&mut self, local_toml: &str, trusted: bool) {
-        let mut local: Config = match toml::from_str(local_toml) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("local config parse error: {e}");
-                eprintln!(
-                    "\x1b[33m[lean-ctx] WARNING: local .lean-ctx.toml parse error: {e}\n  \
+        let selected_profile =
+            super::loader::environment_config_profile().or_else(|| self.config_profile.clone());
+        let mut local: Config =
+            match super::loader::parse_config_with_profile(local_toml, selected_profile.as_deref())
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("local config parse error: {e}");
+                    eprintln!(
+                        "\x1b[33m[lean-ctx] WARNING: local .lean-ctx.toml parse error: {e}\n  \
                      Local overrides skipped.\x1b[0m"
-                );
-                return;
-            }
-        };
+                    );
+                    return;
+                }
+            };
         if !trusted {
             let withheld = strip_sensitive_overrides(&mut local);
             if !withheld.is_empty() {

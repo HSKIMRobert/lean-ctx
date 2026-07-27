@@ -5,6 +5,67 @@ use std::sync::{Arc, Mutex};
 
 use super::{Config, ConfigCacheSlot, default_shell_allowlist};
 
+const CONFIG_PROFILE_ENV: &str = "LEAN_CTX_CONFIG_PROFILE";
+
+pub(super) fn environment_config_profile() -> Option<String> {
+    std::env::var(CONFIG_PROFILE_ENV)
+        .ok()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+}
+
+/// Parses a config and recursively applies one named partial overlay. An
+/// explicit selector (normally the environment) wins over `config_profile`.
+pub(super) fn parse_config_with_profile(
+    raw: &str,
+    explicit_profile: Option<&str>,
+) -> Result<Config, String> {
+    let mut value: toml::Value = toml::from_str(raw).map_err(|error| error.to_string())?;
+    let configured_profile = value.get("config_profile").and_then(toml::Value::as_str);
+    let selected = explicit_profile
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .or(configured_profile);
+
+    if let Some(name) = selected {
+        let profiles = value
+            .get("profiles")
+            .and_then(toml::Value::as_table)
+            .ok_or_else(|| format!("config profile '{name}' selected but [profiles] is missing"))?;
+        let mut overlay = profiles
+            .get(name)
+            .and_then(toml::Value::as_table)
+            .cloned()
+            .ok_or_else(|| format!("config profile '{name}' is not defined"))?;
+        if overlay.remove("profiles").is_some() || overlay.remove("config_profile").is_some() {
+            return Err(format!(
+                "config profile '{name}' cannot override reserved profile keys"
+            ));
+        }
+        merge_toml_tables(
+            value
+                .as_table_mut()
+                .expect("a TOML document always has a root table"),
+            overlay,
+        );
+    }
+
+    value.try_into().map_err(|error| error.to_string())
+}
+
+fn merge_toml_tables(base: &mut toml::Table, overlay: toml::Table) {
+    for (key, overlay_value) in overlay {
+        match (base.get_mut(&key), overlay_value) {
+            (Some(toml::Value::Table(base_table)), toml::Value::Table(overlay_table)) => {
+                merge_toml_tables(base_table, overlay_table);
+            }
+            (_, replacement) => {
+                base.insert(key, replacement);
+            }
+        }
+    }
+}
+
 /// Holds the most recent global `config.toml` parse error, if the file currently
 /// fails to parse. When that happens `Config::load()` silently falls back to the
 /// built-in defaults and only logs to stderr — which is invisible over an MCP/stdio
@@ -121,7 +182,8 @@ pub(crate) fn strip_sensitive_overrides(local: &mut Config) -> Vec<&'static str>
 /// `lean-ctx trust` to tell the user exactly what trusting will enable.
 #[must_use]
 pub fn local_sensitive_overrides(local_toml: &str) -> Vec<&'static str> {
-    match toml::from_str::<Config>(local_toml) {
+    let selected = environment_config_profile();
+    match parse_config_with_profile(local_toml, selected.as_deref()) {
         Ok(mut parsed) => strip_sensitive_overrides(&mut parsed),
         Err(_) => Vec::new(),
     }
@@ -277,23 +339,25 @@ impl Config {
 
         let global_hash = global_content.as_deref().map(crate::core::hasher::hash_str);
         let local_hash = local_content.as_deref().map(crate::core::hasher::hash_str);
+        let selected_profile = environment_config_profile();
 
         if let Ok(guard) = CACHE.lock()
-            && let Some((ref cfg, ref cached_global, ref cached_local)) = *guard
+            && let Some((ref cfg, ref cached_global, ref cached_local, ref cached_profile)) = *guard
             && *cached_global == global_hash
             && *cached_local == local_hash
+            && *cached_profile == selected_profile
         {
             return Arc::clone(cfg);
         }
 
         let mut cfg: Config = if let Some(ref content) = global_content {
-            match toml::from_str(content) {
+            match parse_config_with_profile(content, selected_profile.as_deref()) {
                 Ok(c) => {
                     record_parse_error(None);
                     c
                 }
                 Err(e) => {
-                    record_parse_error(Some(format!("{e}")));
+                    record_parse_error(Some(e.clone()));
                     tracing::warn!("config parse error in {}: {e}", path.display());
                     eprintln!(
                         "\x1b[33m[lean-ctx] WARNING: config parse error in {}: {e}\n  \
@@ -325,7 +389,7 @@ impl Config {
 
         let cfg = Arc::new(cfg);
         if let Ok(mut guard) = CACHE.lock() {
-            *guard = Some((Arc::clone(&cfg), global_hash, local_hash));
+            *guard = Some((Arc::clone(&cfg), global_hash, local_hash, selected_profile));
         }
 
         cfg

@@ -25,9 +25,10 @@ pub mod setter;
 mod shell_activation;
 
 /// Cache payload for [`Config::load_arc`]: the shared config alongside the
-/// content hashes of the global and project-local files it was built from, so a
-/// later load re-reads + re-hashes and only rebuilds on a real change (#406).
-type ConfigCacheSlot = Option<(Arc<Config>, Option<String>, Option<String>)>;
+/// content hashes of the global and project-local files plus the environment-
+/// selected config profile it was built from, so a later load only reuses an
+/// entry with identical inputs (#406, #1159).
+type ConfigCacheSlot = Option<(Arc<Config>, Option<String>, Option<String>, Option<String>)>;
 
 pub use defaults::*;
 #[allow(unreachable_pub, unused_imports)]
