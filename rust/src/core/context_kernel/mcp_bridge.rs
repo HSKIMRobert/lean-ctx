@@ -1,6 +1,7 @@
 //! Unified integration between MCP clients and the context kernel.
 
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::client_wiring::OptimizationLevel;
 use super::coverage_class::{self, CoverageClass};
@@ -128,6 +129,31 @@ pub fn record_mcp_call(data: &McpCallData) {
     );
 }
 
+/// Generate a ContextReceiptV1 from completed MCP tool call data.
+#[must_use]
+pub fn generate_mcp_receipt(
+    plan_id: &str,
+    tool_name: &str,
+    _input_tokens: usize,
+    output_tokens: usize,
+    cache_hit: bool,
+) -> super::types::ContextReceiptV1 {
+    use std::collections::HashMap;
+
+    use super::types::{ContextReceiptV1, ReceiptOutcome};
+
+    ContextReceiptV1 {
+        receipt_id: format!("mcp-{tool_name}-{}", uuid_v4_short()),
+        plan_id: plan_id.to_owned(),
+        delivered_tokens: output_tokens,
+        cache_hits: usize::from(cache_hit),
+        cache_misses: usize::from(!cache_hit),
+        outcome: ReceiptOutcome::Accepted,
+        quality_signals: vec![],
+        feedback_attribution: HashMap::new(),
+    }
+}
+
 /// Returns the current MCP effective-tokens-per-accepted-outcome value.
 #[must_use]
 pub fn mcp_etpao() -> f64 {
@@ -177,6 +203,14 @@ fn mcp_identity() -> CallerIdentity {
     }
 }
 
+fn uuid_v4_short() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+        .to_string()
+}
+
 fn lock_etpao() -> MutexGuard<'static, EtpaoLive> {
     MCP_ETPAO
         .get_or_init(|| Mutex::new(EtpaoLive::new()))
@@ -196,10 +230,11 @@ mod tests {
     use std::sync::{Mutex, MutexGuard};
 
     use super::{
-        McpCallData, McpClientInfo, mcp_etpao, mcp_summary, process_mcp_context, record_mcp_call,
-        reset_mcp_state,
+        McpCallData, McpClientInfo, generate_mcp_receipt, mcp_etpao, mcp_summary,
+        process_mcp_context, record_mcp_call, reset_mcp_state,
     };
     use crate::core::context_kernel::coverage_class::CoverageClass;
+    use crate::core::context_kernel::types::ReceiptOutcome;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -286,5 +321,31 @@ mod tests {
         reset_mcp_state();
         assert_eq!(mcp_etpao(), 0.0);
         assert_eq!(mcp_summary().total_calls, 0);
+    }
+
+    #[test]
+    fn test_generate_mcp_receipt_fields() {
+        let receipt = generate_mcp_receipt("plan-42", "ctx_read", 100, 20, false);
+
+        assert_eq!(receipt.plan_id, "plan-42");
+        assert!(receipt.receipt_id.starts_with("mcp-ctx_read-"));
+        assert_eq!(receipt.delivered_tokens, 20);
+        assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
+    }
+
+    #[test]
+    fn test_receipt_cache_hit_counting() {
+        let receipt = generate_mcp_receipt("plan-42", "ctx_read", 100, 20, true);
+
+        assert_eq!(receipt.cache_hits, 1);
+        assert_eq!(receipt.cache_misses, 0);
+    }
+
+    #[test]
+    fn test_receipt_cache_miss_counting() {
+        let receipt = generate_mcp_receipt("plan-42", "ctx_read", 100, 20, false);
+
+        assert_eq!(receipt.cache_hits, 0);
+        assert_eq!(receipt.cache_misses, 1);
     }
 }

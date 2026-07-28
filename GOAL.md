@@ -1,98 +1,95 @@
-# Agent 02: Enforce Wiring on MCP + Proxy Hot Paths
+# Agent 03: ContextReceiptV1 on MCP + Proxy Hot Paths
 
 ## Preamble
 Read `../.worktrees/e13-preamble.md` first for project context and build commands.
 
 ## Objective
-Wire `enforce_plan()` into the MCP and proxy hot paths so that when
-`KernelMode::Enforce` is active, policy-violating plan entries are actually
-removed (not just logged as in Shadow mode).
-
-Currently, `enforce_plan()` exists in `enforce.rs` but is ONLY called from tests.
-The hot paths in `bridge.rs::kernel_enrich()` generate a plan but never enforce it.
+Wire `emit_receipt_event()` and `ContextReceiptV1` generation into the MCP
+and proxy hot paths. Currently, receipts are created in `server/context_gate.rs`
+shadow logging only. The hot paths use parallel types (McpReceipt, ChainEntry)
+instead.
 
 ## Files to Modify
-- `rust/src/core/context_kernel/bridge.rs` (MODIFY: call enforce_plan after plan generation)
-- `rust/src/core/context_kernel/hotpath_wiring.rs` (MODIFY: pass enforce result through)
+- `rust/src/server/post_dispatch.rs` (MODIFY: emit ContextReceiptV1 after MCP tool completion)
+- `rust/src/core/context_kernel/mcp_bridge.rs` (MODIFY: generate ContextReceiptV1 from McpCallData)
 
 ## Files to Create
 - NONE
 
 ## Files NOT to Touch
-- Do NOT modify `enforce.rs` (the function is already correct)
-- Do NOT modify `types.rs`, `activation.rs`, `ocla_bus.rs`
-- Do NOT modify `server/post_dispatch.rs` or `proxy/forward/mod.rs`
-- Do NOT modify any tool files (ctx_read, ctx_compose, etc.)
+- Do NOT modify `types.rs` (ContextReceiptV1 already exists and is correct)
+- Do NOT modify `bridge.rs` (Agent 02 is modifying that)
+- Do NOT modify `ocla_bus.rs` (Agent 01 is modifying that)
+- Do NOT modify `proxy/forward/mod.rs` — proxy receipt wiring is deferred
+- Do NOT modify `enforce.rs` or `activation.rs`
 
 ## Exact Requirements
 
-### 1. In bridge.rs::kernel_enrich(), call enforce_plan after plan generation
+### 1. In mcp_bridge.rs, add a receipt generation function
 
-Current flow (simplified):
+Add a new public function:
 ```rust
-pub fn kernel_enrich(task, project_root, budget_tokens) -> Option<KernelEnrichment> {
-    let kernel = ContextKernel::for_project(project_root);
-    let plan = kernel.plan(&ctx);  // generates plan
-    // ... builds blocks from plan.selected
-    // PROBLEM: plan.selected is never filtered by policy
+/// Generate a ContextReceiptV1 from completed MCP tool call data.
+pub fn generate_mcp_receipt(
+    plan_id: &str,
+    tool_name: &str,
+    input_tokens: usize,
+    output_tokens: usize,
+    cache_hit: bool,
+) -> super::types::ContextReceiptV1 {
+    use super::types::{ContextReceiptV1, QualitySignal, ReceiptOutcome};
+    use std::collections::HashMap;
+
+    ContextReceiptV1 {
+        receipt_id: format!("mcp-{}-{}", tool_name, uuid_v4_short()),
+        plan_id: plan_id.to_owned(),
+        delivered_tokens: output_tokens,
+        cache_hits: if cache_hit { 1 } else { 0 },
+        cache_misses: if cache_hit { 0 } else { 1 },
+        outcome: ReceiptOutcome::Delivered,
+        quality_signals: vec![],
+        feedback_attribution: HashMap::new(),
+    }
 }
 ```
 
-New flow — after `kernel.plan(&ctx)`:
+For `uuid_v4_short()`, use the existing pattern in the codebase — search for
+how other IDs are generated (likely `format!("{:x}", rand::random::<u64>())`
+or similar). If no pattern exists, use `std::time` nanoseconds as a simple unique ID.
+
+### 2. In post_dispatch.rs, call emit_receipt_event
+
+Find the `record_receipt_and_cost` function or the post-dispatch hook where
+MCP tool results are processed. After the existing processing, add:
+
 ```rust
-let mode = super::enforce::resolve_mode(project_root);
-let enforced = if mode == super::enforce::KernelMode::Enforce {
-    let policy = super::policy::ContextPolicy::default();
-    let result = super::enforce::enforce_plan(plan.clone(), &policy, mode);
-    if !result.blocked.is_empty() {
-        tracing::debug!(
-            blocked = result.blocked.len(),
-            "kernel enforce: plan entries blocked by policy"
-        );
-    }
-    ContextPlanV1 {
-        selected: result.allowed,
-        ..plan
-    }
-} else {
-    plan
-};
+// Emit canonical ContextReceiptV1 on OclaBus
+let receipt = crate::core::context_kernel::mcp_bridge::generate_mcp_receipt(
+    "mcp-dispatch",  // plan_id (no plan was generated, use sentinel)
+    &tool_name,
+    input_tokens,
+    output_tokens,
+    cache_hit,
+);
+crate::core::context_kernel::bridge::emit_receipt_event(&receipt);
 ```
-Then use `enforced` instead of `plan` for building blocks.
 
-### 2. In hotpath_wiring.rs, propagate enforcement
+Adapt the variable names to match what's available in the function scope.
+The key is: after every MCP tool call completes, a ContextReceiptV1 is
+emitted on the bus.
 
-If `hotpath_wiring.rs` has functions that call `kernel_enrich` or generate
-plans independently, ensure they also call `enforce_plan` when in Enforce mode.
-
-Look for any function that:
-- Calls `ContextKernel::plan()`
-- Builds enrichment from `plan.selected`
-And add the same enforce pattern.
-
-### 3. Add KernelEnrichment.enforced_mode field
-Add a field to `KernelEnrichment` so callers know which mode was used:
-```rust
-pub struct KernelEnrichment {
-    pub plan: ContextPlanV1,
-    pub blocks: String,
-    pub verdict: KernelVerdict,
-    pub enforced_mode: super::enforce::KernelMode,  // NEW
-}
-```
-Set this field in `kernel_enrich()`.
-
-### 4. Tests
-- `test_enforce_mode_blocks_policy_violations` — plan entries with low phi score or excluded providers are removed in Enforce mode
-- `test_shadow_mode_allows_all_entries` — same entries pass through in Shadow mode
+### 3. Tests
+- `test_generate_mcp_receipt_fields` — receipt has correct plan_id, tool name in receipt_id, token counts
+- `test_receipt_cache_hit_counting` — cache_hit=true → cache_hits=1, cache_misses=0
+- `test_receipt_cache_miss_counting` — cache_hit=false → cache_hits=0, cache_misses=1
 
 ## NOT in Scope
-- Do NOT change the enforce.rs logic itself
-- Do NOT add new CLI commands or API endpoints
-- Do NOT modify the tool dispatch layer
+- Do NOT add CacheReceiptV1 (separate future work)
+- Do NOT modify the proxy path (only MCP for now)
+- Do NOT add new MCP tools or CLI commands
 - Do NOT add new dependencies
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib bridge
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib mcp_bridge
 ```
