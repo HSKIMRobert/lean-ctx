@@ -6,13 +6,13 @@
 //! already been inferred from previously retrieved evidence."
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 static GLOBAL: Mutex<Option<NegativeKnowledge>> = Mutex::new(None);
 
 /// Access the global negative-knowledge tracker.
 pub fn global() -> std::sync::MutexGuard<'static, Option<NegativeKnowledge>> {
-    GLOBAL.lock().unwrap_or_else(|e| e.into_inner())
+    GLOBAL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Session-scoped negative knowledge store.
