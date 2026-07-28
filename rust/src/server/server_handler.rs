@@ -278,7 +278,9 @@ impl ServerHandler for LeanCtxServer {
         let computed = AssertUnwindSafe(async {
             let cfg = crate::core::config::Config::load();
             let disabled = cfg.disabled_tools_effective();
-            let tool_profile = cfg.tool_profile_effective();
+            let raw_profile = cfg.tool_profile_effective();
+            let tool_profile = crate::server::tool_visibility::resolve_auto_profile(&raw_profile);
+            crate::server::tool_visibility::record_auto_turn();
             // A profile is "explicit" when the user opted into one (config field,
             // env var, or a custom tools list). Without an explicit choice we keep
             // the token-lean lazy core set as the default. With one, the profile is

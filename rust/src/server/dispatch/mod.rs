@@ -68,6 +68,10 @@ impl LeanCtxServer {
             }
         }
 
+        if name.starts_with("ctx_") {
+            crate::server::tool_visibility::mark_auto_ctx_tool_used();
+        }
+
         match name {
             "ctx_call" => {
                 let inner = get_str(args, "name").ok_or_else(|| {
