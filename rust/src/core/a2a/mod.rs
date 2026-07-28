@@ -4,5 +4,6 @@ pub mod cost_attribution;
 pub mod dlq;
 pub mod message;
 pub mod rate_limiter;
+pub mod remote_transport;
 pub mod task;
 pub mod transfer;
