@@ -18,6 +18,8 @@ use axum::response::{IntoResponse, Json, Response};
 use deadpool_postgres::Pool;
 use serde::{Deserialize, Serialize};
 
+use crate::core::ocla::OclaRegistry;
+
 /// Days in the projection's reference month. The projection is an
 /// *extrapolation for planning*, clearly labeled — not a billing number.
 const PROJECTION_MONTH_DAYS: f64 = 30.0;
@@ -213,7 +215,25 @@ async fn get_usage(State(state): State<Arc<AdminState>>, Query(q): Query<UsageQu
     };
 
     match usage_breakdown(&state.pool, from, to, state.seats).await {
-        Ok(resp) => Json(resp).into_response(),
+        Ok(resp) => {
+            let response = Json(resp).into_response();
+
+            // OCLA projection: export admin-requested metrics
+            let metrics = vec![crate::core::ocla::types::MetricPoint {
+                context: super::serve::gateway_ocla_context(),
+                name: "gateway.admin.usage_query".to_string(),
+                value_milli: 1_000,
+                dimensions: std::collections::BTreeMap::new(),
+            }];
+            if let Err(e) = OclaRegistry::global()
+                .metrics_exporter
+                .export_metrics(metrics)
+            {
+                tracing::debug!("OCLA metrics export: {e}");
+            }
+
+            response
+        }
         Err(e) => {
             tracing::warn!("admin usage query failed: {e:#}");
             (
