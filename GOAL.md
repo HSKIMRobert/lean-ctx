@@ -1,83 +1,160 @@
-# Agent 03: Reconciliation CI Gate
+# Agent 04: Export & Verify Offline
 
 ## Preamble
 Read `../e14-preamble.md` first for project context and build commands.
 
 ## Objective
-Add a CI-ready reconciliation test that verifies the legacy↔unified dual-write
-produces zero drift. Currently `reconcile()` exists but is only tested in
-unit tests, not as a CI gate.
+Add unified ledger export and offline trace verification. Currently only
+the legacy ledger has export/verify CLI commands. The unified ledger and
+trace spans have no export/verify capability.
 
 ## Files to Modify
-- `rust/src/core/ocla/unified_ledger.rs` (MODIFY: add `reconcile_strict()` that returns error on any drift)
+- `rust/src/core/ocla/tracing.rs` (MODIFY: add trace-to-savings join function)
+
+## Files to Create
+- `rust/src/core/ocla/ledger_export.rs` (NEW, ~200 LOC max)
+
+## Files to Modify for module declaration
+- `rust/src/core/ocla/mod.rs` (MODIFY: add `pub mod ledger_export;` alphabetically)
 
 ## Files NOT to Touch
-- Do NOT modify `savings_ledger/mod.rs` (Agent 02 handles that)
-- Do NOT modify `builtin/savings_ledger.rs` (Agent 01 handles that)
-- Do NOT modify `event.rs` or `store.rs`
-- Do NOT modify CLI files
+- Do NOT modify `unified_ledger.rs` (Agents 01 and 03 handle that)
+- Do NOT modify `savings_ledger/` files (Agent 02 handles that)
+- Do NOT modify `builtin/savings_ledger.rs`
+- Do NOT modify CLI or proxy files
 
 ## Exact Requirements
 
-### 1. Add reconcile_strict() function
+### 1. Create ledger_export.rs with export types and functions
+
 ```rust
-/// Strict reconciliation for CI gates: returns Err if any drift or double-booking.
-pub fn reconcile_strict(&self) -> OclaResult<ReconciliationReport> {
-    let report = self.reconcile()?;
-    if report.token_drift != 0 || !report.double_bookings.is_empty() {
-        return Err(OclaError::ValidationFailed(format!(
-            "reconciliation drift: {} tokens, {} double-bookings",
-            report.token_drift,
-            report.double_bookings.len()
-        )));
-    }
-    Ok(report)
+//! Unified ledger export and offline verification.
+
+use serde::{Deserialize, Serialize};
+
+/// A self-contained export bundle for offline verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerExportBundle {
+    pub schema_version: u32,
+    pub exported_at: String,
+    pub event_count: usize,
+    pub hash_chain_valid: bool,
+    pub total_saved_tokens: u64,
+    pub events: Vec<super::unified_ledger::UnifiedSavingsEventV2>,
+}
+
+/// Result of offline verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerificationResult {
+    pub valid: bool,
+    pub event_count: usize,
+    pub chain_breaks: Vec<usize>,
+    pub total_saved_tokens: u64,
+    pub errors: Vec<String>,
 }
 ```
 
-### 2. Add format_reconciliation_report() for CLI output
+### 2. Export function
 ```rust
-pub fn format_reconciliation_report(report: &ReconciliationReport) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("Matched events: {}\n", report.matched));
-    out.push_str(&format!("Unmatched legacy: {}\n", report.unmatched_legacy));
-    out.push_str(&format!("Unmatched unified: {}\n", report.unmatched_unified));
-    out.push_str(&format!("Token drift: {}\n", report.token_drift));
-    out.push_str(&format!("Double bookings: {}\n", report.double_bookings.len()));
-    if report.token_drift == 0 && report.double_bookings.is_empty() {
-        out.push_str("Status: PASS\n");
-    } else {
-        out.push_str("Status: FAIL\n");
-    }
-    out
+/// Export the unified ledger as a verifiable bundle.
+pub fn export_unified_ledger() -> Result<LedgerExportBundle, String> {
+    let ledger = super::unified_ledger::FileUnifiedLedger::load()
+        .map_err(|e| format!("failed to load unified ledger: {e}"))?;
+    let events = ledger.all_events();
+    let hash_valid = verify_hash_chain(&events);
+    let total_saved: u64 = events.iter().map(|e| e.saved_tokens).sum();
+    
+    Ok(LedgerExportBundle {
+        schema_version: 2,
+        exported_at: chrono_or_manual_iso8601(),
+        event_count: events.len(),
+        hash_chain_valid: hash_valid,
+        total_saved_tokens: total_saved,
+        events,
+    })
 }
 ```
 
-### 3. Add reconciliation coverage metric
+For the timestamp, use the same pattern as the rest of the codebase — search
+for how `ts` fields are generated (likely `chrono::Utc::now()` or `SystemTime`).
+
+### 3. Verify function
 ```rust
-/// Returns the percentage of legacy events that have a matching unified event.
-pub fn reconciliation_coverage(&self) -> f64 {
-    let report = match self.reconcile() {
-        Ok(r) => r,
-        Err(_) => return 0.0,
-    };
-    let total = report.matched + report.unmatched_legacy;
-    if total == 0 {
-        return 100.0;
+/// Verify an exported bundle offline (no ledger file needed).
+pub fn verify_export_bundle(bundle: &LedgerExportBundle) -> VerificationResult {
+    let mut chain_breaks = Vec::new();
+    let mut errors = Vec::new();
+    
+    // Check hash chain
+    for (i, window) in bundle.events.windows(2).enumerate() {
+        if window[1].prev_hash != window[0].event_hash {
+            chain_breaks.push(i + 1);
+        }
     }
-    (report.matched as f64 / total as f64) * 100.0
+    
+    // Check token arithmetic
+    let computed_total: u64 = bundle.events.iter().map(|e| e.saved_tokens).sum();
+    if computed_total != bundle.total_saved_tokens {
+        errors.push(format!(
+            "token total mismatch: header={}, computed={}",
+            bundle.total_saved_tokens, computed_total
+        ));
+    }
+    
+    // Check event count
+    if bundle.events.len() != bundle.event_count {
+        errors.push(format!(
+            "event count mismatch: header={}, actual={}",
+            bundle.event_count, bundle.events.len()
+        ));
+    }
+    
+    VerificationResult {
+        valid: chain_breaks.is_empty() && errors.is_empty(),
+        event_count: bundle.events.len(),
+        chain_breaks,
+        total_saved_tokens: computed_total,
+        errors,
+    }
 }
 ```
 
-### 4. Tests
-- `test_reconcile_strict_passes_on_clean_dual_write` — dual-write events reconcile without error
-- `test_reconcile_strict_fails_on_drift` — manually inject drift → returns Err
-- `test_format_reconciliation_report_pass` — format shows "PASS"
-- `test_format_reconciliation_report_fail` — format shows "FAIL" with counts
-- `test_reconciliation_coverage_100_on_match` — all matched → 100%
-- `test_reconciliation_coverage_0_on_empty` — empty → 100% (no events = nothing to reconcile)
+### 4. Hash chain verification helper
+```rust
+fn verify_hash_chain(events: &[super::unified_ledger::UnifiedSavingsEventV2]) -> bool {
+    events.windows(2).all(|w| w[1].prev_hash == w[0].event_hash)
+}
+```
+
+### 5. In tracing.rs, add trace-to-savings join helper
+```rust
+/// Join trace spans with savings events by trace_id.
+pub fn trace_savings_summary(trace_id: &str) -> TraceSavingsSummary {
+    let spans = export_trace(trace_id);
+    TraceSavingsSummary {
+        trace_id: trace_id.to_owned(),
+        span_count: spans.len(),
+        tool_names: spans.iter().filter_map(|s| s.attributes.get("tool")).cloned().collect(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TraceSavingsSummary {
+    pub trace_id: String,
+    pub span_count: usize,
+    pub tool_names: Vec<String>,
+}
+```
+
+### 6. Tests
+- `test_export_empty_ledger` — empty ledger exports valid bundle with 0 events
+- `test_verify_valid_bundle` — well-formed bundle verifies as valid
+- `test_verify_broken_chain` — tampered prev_hash detected
+- `test_verify_token_mismatch` — wrong total_saved_tokens detected
+- `test_verify_count_mismatch` — wrong event_count detected
+- `test_trace_savings_summary` — summary contains span info
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib unified_ledger
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib ledger_export
 ```
