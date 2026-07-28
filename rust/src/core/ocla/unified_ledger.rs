@@ -12,7 +12,6 @@ use crate::core::savings_ledger::SavingsEvent;
 /// Unified P5 savings event combining the legacy chain fields with
 /// cross-capability attribution and analysis metadata.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct UnifiedSavingsEventV2 {
     pub tool_name: String,
     pub mode: String,
@@ -31,6 +30,12 @@ pub struct UnifiedSavingsEventV2 {
     pub attribution_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_ref: Option<String>,
 }
 
 /// Comparison of the legacy and unified savings ledgers.
@@ -147,6 +152,18 @@ impl FileUnifiedLedger {
         })
     }
 
+    /// Returns unified events associated with the supplied trace identifier.
+    ///
+    /// Consumed by the P5 unified-ledger query surface in E14 phase 3.
+    #[allow(dead_code)]
+    pub(crate) fn query_by_trace(&self, trace_id: &str) -> Vec<UnifiedSavingsEventV2> {
+        self.read_events()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|event| event.trace_id.as_deref() == Some(trace_id))
+            .collect()
+    }
+
     pub(crate) fn from_savings_event(event: &SavingsEvent) -> OclaResult<UnifiedSavingsEventV2> {
         let timestamp_epoch_ms = chrono::DateTime::parse_from_rfc3339(&event.ts)
             .map_err(Self::io_error)?
@@ -174,6 +191,9 @@ impl FileUnifiedLedger {
                 .clone()
                 .unwrap_or_else(|| event.repo_hash.clone()),
             trace_id: OclaRequestContext::current_trace_id(),
+            request_id: OclaRequestContext::current_request_id(),
+            session_id: OclaRequestContext::current_session_id(),
+            quality_ref: None,
         })
     }
 }
@@ -299,6 +319,9 @@ mod tests {
             efficiency_etpao: Some(750),
             attribution_id: "attribution:test".into(),
             trace_id: Some("tr-test".into()),
+            request_id: Some("request-test".into()),
+            session_id: Some("session-test".into()),
+            quality_ref: None,
         };
 
         assert_eq!(event.saved_tokens, 600);
@@ -306,20 +329,88 @@ mod tests {
         assert_eq!(event.intent.as_deref(), Some("summarize"));
     }
 
-    #[test]
-    fn request_context_trace_id_reaches_unified_event() {
-        let context = OclaRequestContext {
+    fn request_context() -> OclaRequestContext {
+        OclaRequestContext {
             request_id: "request".into(),
             session_id: "session".into(),
             agent_id: "agent".into(),
             content_ref: "content".into(),
             tenant_id: None,
             trace_id: "tr-request".into(),
-        };
+        }
+    }
+
+    #[test]
+    fn request_context_trace_id_reaches_unified_event() {
+        let context = request_context();
         let unified = context.scope(|| {
             FileUnifiedLedger::from_savings_event(&savings_event()).expect("legacy event converts")
         });
         assert_eq!(unified.trace_id.as_deref(), Some("tr-request"));
+    }
+
+    #[test]
+    fn test_unified_event_carries_request_id() {
+        let context = request_context();
+        let unified = context.scope(|| {
+            FileUnifiedLedger::from_savings_event(&savings_event()).expect("legacy event converts")
+        });
+        assert_eq!(unified.request_id.as_deref(), Some("request"));
+    }
+
+    #[test]
+    fn test_unified_event_carries_session_id() {
+        let context = request_context();
+        let unified = context.scope(|| {
+            FileUnifiedLedger::from_savings_event(&savings_event()).expect("legacy event converts")
+        });
+        assert_eq!(unified.session_id.as_deref(), Some("session"));
+    }
+
+    fn trace_event(trace_id: &str) -> UnifiedSavingsEventV2 {
+        UnifiedSavingsEventV2 {
+            tool_name: "ctx_read".into(),
+            mode: "compression".into(),
+            original_tokens: 100,
+            compressed_tokens: 40,
+            saved_tokens: 60,
+            content_hash: "repo".into(),
+            timestamp_epoch_ms: 1,
+            prev_hash: "genesis".into(),
+            event_hash: "event-1".into(),
+            intent: None,
+            outcome: None,
+            routing_decision: None,
+            agent_id: Some("agent".into()),
+            efficiency_etpao: None,
+            attribution_id: "attr".into(),
+            trace_id: Some(trace_id.into()),
+            request_id: None,
+            session_id: None,
+            quality_ref: None,
+        }
+    }
+
+    #[test]
+    fn test_query_by_trace_returns_matching() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let ledger = FileUnifiedLedger::new(dir.path().join("unified.jsonl"));
+        ledger
+            .record_unified(trace_event("trace-match"))
+            .expect("event records");
+
+        assert_eq!(ledger.query_by_trace("trace-match").len(), 1);
+    }
+
+    #[test]
+    fn test_query_by_trace_empty_on_mismatch() {
+        let dir = tempfile::tempdir().expect("temporary directory");
+        let ledger = FileUnifiedLedger::new(dir.path().join("unified.jsonl"));
+        ledger
+            .record_unified(trace_event("trace-match"))
+            .expect("event records");
+
+        assert!(ledger.query_by_trace("trace-missing").is_empty());
     }
 
     #[test]
@@ -347,6 +438,9 @@ mod tests {
             efficiency_etpao: None,
             attribution_id: "attr".into(),
             trace_id: None,
+            request_id: None,
+            session_id: None,
+            quality_ref: None,
         };
         assert_eq!(ledger.record_unified(event).unwrap(), "event-1");
         assert!(ledger.verify_chain().unwrap());

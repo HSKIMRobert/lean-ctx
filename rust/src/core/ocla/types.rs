@@ -222,6 +222,24 @@ impl OclaRequestContext {
         })
     }
 
+    pub(crate) fn current_request_id() -> Option<String> {
+        CURRENT_REQUEST_CONTEXT.with(|current| {
+            current
+                .borrow()
+                .as_ref()
+                .map(|context| context.request_id.clone())
+        })
+    }
+
+    pub(crate) fn current_session_id() -> Option<String> {
+        CURRENT_REQUEST_CONTEXT.with(|current| {
+            current
+                .borrow()
+                .as_ref()
+                .map(|context| context.session_id.clone())
+        })
+    }
+
     pub fn validate(&self) -> OclaResult<()> {
         for (label, value) in [
             ("request_id", &self.request_id),
