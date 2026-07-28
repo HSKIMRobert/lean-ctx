@@ -376,6 +376,8 @@ mod tests {
                 context: context(),
                 experiment_ref: "missing-suite.ndjson".into(),
                 cohort_ref: "cohort:registry-smoke".into(),
+                holdout: None,
+                stop_conditions: None,
             });
             let _ = reg.connector_scheduler.schedule_connector(ConnectorJob {
                 context: context(),

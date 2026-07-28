@@ -329,6 +329,8 @@ mod tests {
             },
             experiment_ref: suite.to_string_lossy().into_owned(),
             cohort_ref: "cohort:treatment".into(),
+            holdout: None,
+            stop_conditions: None,
         }
     }
 
