@@ -1,90 +1,83 @@
-# Agent 02: Quality Signals in Savings Rows
+# Agent 03: Reconciliation CI Gate
 
 ## Preamble
 Read `../e14-preamble.md` first for project context and build commands.
 
 ## Objective
-Wire quality signals and ETPAO into savings rows at record time. Currently
-`quality_signal`, `outcome`, and `efficiency_etpao` fields exist on
-SavingsEvent/UnifiedSavingsEventV2 but are NEVER populated at append time.
+Add a CI-ready reconciliation test that verifies the legacy↔unified dual-write
+produces zero drift. Currently `reconcile()` exists but is only tested in
+unit tests, not as a CI gate.
 
 ## Files to Modify
-- `rust/src/core/savings_ledger/mod.rs` (MODIFY: add quality_signal and etpao params to record functions)
+- `rust/src/core/ocla/unified_ledger.rs` (MODIFY: add `reconcile_strict()` that returns error on any drift)
 
 ## Files NOT to Touch
-- Do NOT modify `unified_ledger.rs` (Agent 01 handles that)
+- Do NOT modify `savings_ledger/mod.rs` (Agent 02 handles that)
 - Do NOT modify `builtin/savings_ledger.rs` (Agent 01 handles that)
-- Do NOT modify `store.rs` or `event.rs`
-- Do NOT modify any CLI, proxy, or tool files
+- Do NOT modify `event.rs` or `store.rs`
+- Do NOT modify CLI files
 
 ## Exact Requirements
 
-### 1. Add quality context to record_tool_event
-Find the `record_tool_event` function signature. Add optional quality parameters:
+### 1. Add reconcile_strict() function
 ```rust
-pub fn record_tool_event(
-    tool: &str,
-    mechanism: &str,
-    original: usize,
-    compressed: usize,
-    model_id: &str,
-    tokenizer: &str,
-    agent_id: &str,
-    savings: f64,
-    quality_signal: Option<&str>,    // NEW
-    efficiency_etpao: Option<u64>,   // NEW
-) -> SavingsEvent
-```
-
-Inside the function, set the P5 fields on the `SavingsEvent`:
-```rust
-event.quality_signal = quality_signal.map(|s| s.to_owned());
-event.efficiency_etpao = efficiency_etpao; // if field exists, or add to the event
-```
-
-### 2. Add quality context to record_read_event
-Same pattern — add `quality_signal` and `efficiency_etpao` optional params.
-
-### 3. Update ALL callers of record_tool_event
-Search the file for all calls to `record_tool_event` and `record_read_event`.
-Add `None, None` as the quality params to maintain backward compatibility.
-IMPORTANT: only fix callers WITHIN `mod.rs` itself. If there are callers in
-other files, they will get a compile error that other agents or the orchestrator
-will fix by adding `None, None`.
-
-### 4. Compute quality_signal from compression ratio
-Add a helper function:
-```rust
-fn compression_quality_signal(original: usize, compressed: usize) -> Option<String> {
-    if original == 0 {
-        return None;
+/// Strict reconciliation for CI gates: returns Err if any drift or double-booking.
+pub fn reconcile_strict(&self) -> OclaResult<ReconciliationReport> {
+    let report = self.reconcile()?;
+    if report.token_drift != 0 || !report.double_bookings.is_empty() {
+        return Err(OclaError::ValidationFailed(format!(
+            "reconciliation drift: {} tokens, {} double-bookings",
+            report.token_drift,
+            report.double_bookings.len()
+        )));
     }
-    let ratio = 1.0 - (compressed as f64 / original as f64);
-    let signal = match ratio {
-        r if r >= 0.7 => "excellent",
-        r if r >= 0.5 => "good",
-        r if r >= 0.3 => "moderate",
-        _ => "marginal",
-    };
-    Some(signal.to_owned())
+    Ok(report)
 }
 ```
 
-Use this in `record_tool_event` when no explicit quality_signal is provided:
+### 2. Add format_reconciliation_report() for CLI output
 ```rust
-let quality = quality_signal
-    .map(|s| s.to_owned())
-    .or_else(|| compression_quality_signal(original, compressed));
+pub fn format_reconciliation_report(report: &ReconciliationReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("Matched events: {}\n", report.matched));
+    out.push_str(&format!("Unmatched legacy: {}\n", report.unmatched_legacy));
+    out.push_str(&format!("Unmatched unified: {}\n", report.unmatched_unified));
+    out.push_str(&format!("Token drift: {}\n", report.token_drift));
+    out.push_str(&format!("Double bookings: {}\n", report.double_bookings.len()));
+    if report.token_drift == 0 && report.double_bookings.is_empty() {
+        out.push_str("Status: PASS\n");
+    } else {
+        out.push_str("Status: FAIL\n");
+    }
+    out
+}
 ```
 
-### 5. Tests
-- `test_quality_signal_excellent` — >=70% compression → "excellent"
-- `test_quality_signal_good` — 50-69% → "good"
-- `test_quality_signal_moderate` — 30-49% → "moderate"
-- `test_quality_signal_marginal` — <30% → "marginal"
-- `test_record_tool_event_carries_quality` — recorded event has quality_signal set
+### 3. Add reconciliation coverage metric
+```rust
+/// Returns the percentage of legacy events that have a matching unified event.
+pub fn reconciliation_coverage(&self) -> f64 {
+    let report = match self.reconcile() {
+        Ok(r) => r,
+        Err(_) => return 0.0,
+    };
+    let total = report.matched + report.unmatched_legacy;
+    if total == 0 {
+        return 100.0;
+    }
+    (report.matched as f64 / total as f64) * 100.0
+}
+```
+
+### 4. Tests
+- `test_reconcile_strict_passes_on_clean_dual_write` — dual-write events reconcile without error
+- `test_reconcile_strict_fails_on_drift` — manually inject drift → returns Err
+- `test_format_reconciliation_report_pass` — format shows "PASS"
+- `test_format_reconciliation_report_fail` — format shows "FAIL" with counts
+- `test_reconciliation_coverage_100_on_match` — all matched → 100%
+- `test_reconciliation_coverage_0_on_empty` — empty → 100% (no events = nothing to reconcile)
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib savings_ledger
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib unified_ledger
 ```
