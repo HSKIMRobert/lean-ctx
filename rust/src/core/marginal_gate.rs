@@ -114,8 +114,10 @@ mod tests {
 
     #[test]
     fn suppress_when_mostly_redundant() {
-        let prior = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10";
-        let response = "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10";
+        let prior =
+            "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10";
+        let response =
+            "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10";
         let config = GateConfig {
             novelty_threshold: 0.20,
             min_novel_tokens: 50,
