@@ -48,6 +48,28 @@ pub struct ReconciliationReport {
     pub double_bookings: Vec<String>,
 }
 
+/// Formats a reconciliation report for human-readable CLI output.
+pub fn format_reconciliation_report(report: &ReconciliationReport) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("Matched events: {}\n", report.matched));
+    out.push_str(&format!("Unmatched legacy: {}\n", report.unmatched_legacy));
+    out.push_str(&format!(
+        "Unmatched unified: {}\n",
+        report.unmatched_unified
+    ));
+    out.push_str(&format!("Token drift: {}\n", report.token_drift));
+    out.push_str(&format!(
+        "Double bookings: {}\n",
+        report.double_bookings.len()
+    ));
+    if report.token_drift == 0 && report.double_bookings.is_empty() {
+        out.push_str("Status: PASS\n");
+    } else {
+        out.push_str("Status: FAIL\n");
+    }
+    out
+}
+
 /// Unified ledger contract for P5 migration and eventual legacy replacement.
 ///
 /// Migration plan:
@@ -61,7 +83,8 @@ pub trait UnifiedLedger: Send + Sync {
 }
 
 /// File-backed implementation used during the P5 dual-write migration.
-pub(crate) struct FileUnifiedLedger {
+/// File-backed implementation of the unified savings ledger.
+pub struct FileUnifiedLedger {
     path: PathBuf,
 }
 
@@ -152,6 +175,7 @@ impl FileUnifiedLedger {
         })
     }
 
+
     /// Returns unified events associated with the supplied trace identifier.
     ///
     /// Consumed by the P5 unified-ledger query surface in E14 phase 3.
@@ -162,6 +186,32 @@ impl FileUnifiedLedger {
             .into_iter()
             .filter(|event| event.trace_id.as_deref() == Some(trace_id))
             .collect()
+    }
+
+    /// Strict reconciliation for CI gates: returns an error on drift or double-booking.
+    pub fn reconcile_strict(&self) -> OclaResult<ReconciliationReport> {
+        let report = self.reconcile()?;
+        if report.token_drift != 0 || !report.double_bookings.is_empty() {
+            return Err(OclaError::InvalidRequest(format!(
+                "reconciliation drift: {} tokens, {} double-bookings",
+                report.token_drift,
+                report.double_bookings.len()
+            )));
+        }
+        Ok(report)
+    }
+
+    /// Returns the percentage of legacy events that have a matching unified event.
+    pub fn reconciliation_coverage(&self) -> f64 {
+        let Ok(report) = self.reconcile() else {
+            return 0.0;
+        };
+        let total = report.matched + report.unmatched_legacy;
+        if total == 0 {
+            return 100.0;
+        }
+        (report.matched as f64 / total as f64) * 100.0
+    }
     }
 
     pub(crate) fn from_savings_event(event: &SavingsEvent) -> OclaResult<UnifiedSavingsEventV2> {
@@ -532,5 +582,92 @@ mod tests {
         assert_eq!(report.unmatched_unified, 1);
         assert_eq!(report.token_drift, 60);
         assert_eq!(report.double_bookings, vec![legacy.entry_hash]);
+    }
+
+    #[test]
+    fn test_reconcile_strict_passes_on_clean_dual_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let savings = dir.path().join("savings");
+        let legacy_path = savings.join("events.jsonl");
+        let unified_path = savings.join("unified_ledger.jsonl");
+        let legacy =
+            crate::core::savings_ledger::store::append(&legacy_path, legacy_event(60)).unwrap();
+        let ledger = FileUnifiedLedger::new(unified_path);
+        ledger
+            .record_unified(FileUnifiedLedger::from_savings_event(&legacy).unwrap())
+            .unwrap();
+
+        assert!(ledger.reconcile_strict().is_ok());
+    }
+
+    #[test]
+    fn test_reconcile_strict_fails_on_drift() {
+        let dir = tempfile::tempdir().unwrap();
+        let savings = dir.path().join("savings");
+        let legacy_path = savings.join("events.jsonl");
+        let unified_path = savings.join("unified_ledger.jsonl");
+        let legacy =
+            crate::core::savings_ledger::store::append(&legacy_path, legacy_event(60)).unwrap();
+        let ledger = FileUnifiedLedger::new(unified_path);
+        let mut unified = FileUnifiedLedger::from_savings_event(&legacy).unwrap();
+        unified.saved_tokens = 59;
+        ledger.record_unified(unified).unwrap();
+
+        assert!(ledger.reconcile_strict().is_err());
+    }
+
+    #[test]
+    fn test_format_reconciliation_report_pass() {
+        let report = ReconciliationReport {
+            matched: 1,
+            unmatched_legacy: 0,
+            unmatched_unified: 0,
+            token_drift: 0,
+            double_bookings: Vec::new(),
+        };
+
+        assert!(format_reconciliation_report(&report).contains("Status: PASS"));
+    }
+
+    #[test]
+    fn test_format_reconciliation_report_fail() {
+        let report = ReconciliationReport {
+            matched: 1,
+            unmatched_legacy: 2,
+            unmatched_unified: 3,
+            token_drift: 4,
+            double_bookings: vec!["event".into()],
+        };
+        let formatted = format_reconciliation_report(&report);
+
+        assert!(formatted.contains("Unmatched legacy: 2"));
+        assert!(formatted.contains("Unmatched unified: 3"));
+        assert!(formatted.contains("Token drift: 4"));
+        assert!(formatted.contains("Double bookings: 1"));
+        assert!(formatted.contains("Status: FAIL"));
+    }
+
+    #[test]
+    fn test_reconciliation_coverage_100_on_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let savings = dir.path().join("savings");
+        let legacy_path = savings.join("events.jsonl");
+        let unified_path = savings.join("unified_ledger.jsonl");
+        let legacy =
+            crate::core::savings_ledger::store::append(&legacy_path, legacy_event(60)).unwrap();
+        let ledger = FileUnifiedLedger::new(unified_path);
+        ledger
+            .record_unified(FileUnifiedLedger::from_savings_event(&legacy).unwrap())
+            .unwrap();
+
+        assert_eq!(ledger.reconciliation_coverage(), 100.0);
+    }
+
+    #[test]
+    fn test_reconciliation_coverage_0_on_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = FileUnifiedLedger::new(dir.path().join("savings/unified_ledger.jsonl"));
+
+        assert_eq!(ledger.reconciliation_coverage(), 100.0);
     }
 }
