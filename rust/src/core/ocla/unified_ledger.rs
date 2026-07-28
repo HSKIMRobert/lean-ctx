@@ -175,7 +175,6 @@ impl FileUnifiedLedger {
         })
     }
 
-
     /// Returns unified events associated with the supplied trace identifier.
     ///
     /// Consumed by the P5 unified-ledger query surface in E14 phase 3.
@@ -211,7 +210,6 @@ impl FileUnifiedLedger {
             return 100.0;
         }
         (report.matched as f64 / total as f64) * 100.0
-    }
     }
 
     pub(crate) fn from_savings_event(event: &SavingsEvent) -> OclaResult<UnifiedSavingsEventV2> {

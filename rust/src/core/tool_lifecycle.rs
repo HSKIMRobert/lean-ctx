@@ -83,7 +83,7 @@ pub fn record_file_read(
     // counts; the model-correct re-tokenization happens on the MCP read path,
     // which holds the source text. For the default O200kBase model these are
     // identical anyway.
-    crate::core::savings_ledger::record_read_event(original_tokens, saved);
+    crate::core::savings_ledger::record_read_event(original_tokens, saved, None, None);
 
     // Project root the learning sinks below are scoped to. Defaults to "." (the
     // MCP path's `project_root_snapshot` fallback) so a rootless read still
@@ -380,7 +380,13 @@ pub fn record_search(
     output_excerpt: &str,
 ) {
     stats::record("cli_grep", modeled_baseline, output_tokens);
-    crate::core::savings_ledger::record_tool_event("cli_grep", observed_tokens, output_tokens);
+    crate::core::savings_ledger::record_tool_event(
+        "cli_grep",
+        observed_tokens,
+        output_tokens,
+        None,
+        None,
+    );
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();
@@ -433,7 +439,13 @@ pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_shell", original_tokens, output_tokens);
     // Shell compression is *measured* (raw output vs sent output), so it belongs
     // in the verified ledger too (GL #479 D2). Zero-saving calls are skipped.
-    crate::core::savings_ledger::record_tool_event("cli_shell", original_tokens, output_tokens);
+    crate::core::savings_ledger::record_tool_event(
+        "cli_shell",
+        original_tokens,
+        output_tokens,
+        None,
+        None,
+    );
 
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();

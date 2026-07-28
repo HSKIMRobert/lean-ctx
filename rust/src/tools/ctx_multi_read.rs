@@ -80,7 +80,7 @@ pub fn handle_with_task_fresh(
                 } else {
                     (original, original.saturating_sub(sent))
                 };
-            ledger::record_read_event(lbase, lsaved);
+            ledger::record_read_event(lbase, lsaved, None, None);
         }
         total_original = total_original.saturating_add(original);
         total_saved = total_saved.saturating_add(original.saturating_sub(sent));

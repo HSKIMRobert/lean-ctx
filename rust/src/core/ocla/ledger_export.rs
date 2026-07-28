@@ -132,6 +132,9 @@ mod tests {
             efficiency_etpao: None,
             attribution_id: "attribution".to_owned(),
             trace_id: None,
+            request_id: None,
+            session_id: None,
+            quality_ref: None,
         }
     }
 
@@ -204,3 +207,4 @@ mod tests {
         assert_eq!(result.errors[0], "event count mismatch: header=2, actual=1");
     }
 }
+

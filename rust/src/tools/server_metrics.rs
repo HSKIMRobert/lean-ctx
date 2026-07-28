@@ -151,7 +151,13 @@ impl LeanCtxServer {
         // is the *sent* output; a prior duplicate block passed `saved` and so both
         // double-counted shell events and stored the wrong saving (#685).
         if tool == "ctx_shell" {
-            crate::core::savings_ledger::record_tool_event(tool, original, output_tokens);
+            crate::core::savings_ledger::record_tool_event(
+                tool,
+                original,
+                output_tokens,
+                None,
+                None,
+            );
         }
 
         // OCLA ObservationHook: project every MCP tool call as a structured

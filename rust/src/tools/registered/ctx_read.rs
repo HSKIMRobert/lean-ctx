@@ -1003,7 +1003,7 @@ impl CtxReadTool {
                             },
                             _ => (original, saved),
                         };
-                        ledger::record_read_event(lbase, lsaved);
+                        ledger::record_read_event(lbase, lsaved, None, None);
                     }
 
                     // Traversal/co-access edge: this read fired together with the
