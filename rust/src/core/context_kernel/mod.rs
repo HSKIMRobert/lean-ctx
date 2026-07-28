@@ -57,6 +57,7 @@ pub mod orchestrator;
 pub mod outcome_signal;
 pub mod perf_benchmark;
 pub mod policy;
+pub mod policy_engine;
 pub mod production_e2e;
 pub mod provider_display;
 pub mod provider_metrics_e2e;
