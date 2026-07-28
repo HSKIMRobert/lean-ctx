@@ -1,95 +1,154 @@
-# Agent 03: ContextReceiptV1 on MCP + Proxy Hot Paths
+# Agent 04: Stream Controller Foundation
 
 ## Preamble
 Read `../.worktrees/e13-preamble.md` first for project context and build commands.
 
 ## Objective
-Wire `emit_receipt_event()` and `ContextReceiptV1` generation into the MCP
-and proxy hot paths. Currently, receipts are created in `server/context_gate.rs`
-shadow logging only. The hot paths use parallel types (McpReceipt, ChainEntry)
-instead.
+Create a new `stream_controller` module in `core/context_kernel/` that handles
+append-stream workloads (terminal output, build logs, file watchers). The
+controller tracks content generations, detects appends vs rotations, and
+delivers minimal deltas instead of full content.
 
 ## Files to Modify
-- `rust/src/server/post_dispatch.rs` (MODIFY: emit ContextReceiptV1 after MCP tool completion)
-- `rust/src/core/context_kernel/mcp_bridge.rs` (MODIFY: generate ContextReceiptV1 from McpCallData)
+- `rust/src/core/context_kernel/mod.rs` (MODIFY: add `pub mod stream_controller;`)
 
 ## Files to Create
-- NONE
+- `rust/src/core/context_kernel/stream_controller.rs` (NEW, ~250 LOC max)
 
 ## Files NOT to Touch
-- Do NOT modify `types.rs` (ContextReceiptV1 already exists and is correct)
-- Do NOT modify `bridge.rs` (Agent 02 is modifying that)
-- Do NOT modify `ocla_bus.rs` (Agent 01 is modifying that)
-- Do NOT modify `proxy/forward/mod.rs` — proxy receipt wiring is deferred
-- Do NOT modify `enforce.rs` or `activation.rs`
+- Do NOT modify `types.rs`, `bridge.rs`, `enforce.rs`, `ocla_bus.rs`
+- Do NOT modify `proxy/` or `server/` files
+- Do NOT modify any tool files
 
 ## Exact Requirements
 
-### 1. In mcp_bridge.rs, add a receipt generation function
-
-Add a new public function:
+### 1. StreamRef — identifies a tracked stream
 ```rust
-/// Generate a ContextReceiptV1 from completed MCP tool call data.
-pub fn generate_mcp_receipt(
-    plan_id: &str,
-    tool_name: &str,
-    input_tokens: usize,
-    output_tokens: usize,
-    cache_hit: bool,
-) -> super::types::ContextReceiptV1 {
-    use super::types::{ContextReceiptV1, QualitySignal, ReceiptOutcome};
-    use std::collections::HashMap;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StreamRef {
+    pub source_id: String,
+    pub stream_type: StreamType,
+}
 
-    ContextReceiptV1 {
-        receipt_id: format!("mcp-{}-{}", tool_name, uuid_v4_short()),
-        plan_id: plan_id.to_owned(),
-        delivered_tokens: output_tokens,
-        cache_hits: if cache_hit { 1 } else { 0 },
-        cache_misses: if cache_hit { 0 } else { 1 },
-        outcome: ReceiptOutcome::Delivered,
-        quality_signals: vec![],
-        feedback_attribution: HashMap::new(),
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StreamType {
+    Terminal,
+    BuildLog,
+    FileWatch,
+    Custom,
 }
 ```
 
-For `uuid_v4_short()`, use the existing pattern in the codebase — search for
-how other IDs are generated (likely `format!("{:x}", rand::random::<u64>())`
-or similar). If no pattern exists, use `std::time` nanoseconds as a simple unique ID.
-
-### 2. In post_dispatch.rs, call emit_receipt_event
-
-Find the `record_receipt_and_cost` function or the post-dispatch hook where
-MCP tool results are processed. After the existing processing, add:
-
+### 2. StreamState — tracks a single stream's state
 ```rust
-// Emit canonical ContextReceiptV1 on OclaBus
-let receipt = crate::core::context_kernel::mcp_bridge::generate_mcp_receipt(
-    "mcp-dispatch",  // plan_id (no plan was generated, use sentinel)
-    &tool_name,
-    input_tokens,
-    output_tokens,
-    cache_hit,
-);
-crate::core::context_kernel::bridge::emit_receipt_event(&receipt);
+#[derive(Debug, Clone)]
+pub struct StreamState {
+    pub generation: u64,
+    pub line_cursor: usize,
+    pub byte_cursor: usize,
+    pub prefix_hash: u64,
+    pub last_seen: std::time::Instant,
+    pub total_lines: usize,
+}
 ```
 
-Adapt the variable names to match what's available in the function scope.
-The key is: after every MCP tool call completes, a ContextReceiptV1 is
-emitted on the bus.
+### 3. StreamDelta — the delivery result
+```rust
+#[derive(Debug, Clone)]
+pub enum StreamDelta {
+    /// Content unchanged since last check — deliver nothing
+    Unchanged,
+    /// New lines appended — deliver only the new portion
+    Append { new_lines: Vec<String>, from_line: usize },
+    /// Content rotated/replaced — deliver full snapshot
+    Rotation { full_content: Vec<String>, reason: String },
+    /// Stream expired — client should discard cached state
+    Expired,
+}
+```
 
-### 3. Tests
-- `test_generate_mcp_receipt_fields` — receipt has correct plan_id, tool name in receipt_id, token counts
-- `test_receipt_cache_hit_counting` — cache_hit=true → cache_hits=1, cache_misses=0
-- `test_receipt_cache_miss_counting` — cache_hit=false → cache_hits=0, cache_misses=1
+### 4. StreamController — the main controller
+```rust
+pub struct StreamController {
+    streams: std::collections::HashMap<StreamRef, StreamState>,
+    max_tracked: usize,
+    expiry: std::time::Duration,
+}
+
+impl StreamController {
+    pub fn new(max_tracked: usize, expiry_secs: u64) -> Self;
+
+    /// Compare current content with tracked state. Returns the minimal delta.
+    pub fn compute_delta(
+        &mut self,
+        stream_ref: &StreamRef,
+        current_content: &[String],
+    ) -> StreamDelta;
+
+    /// Remove expired streams and return the number removed.
+    pub fn gc(&mut self) -> usize;
+
+    /// Number of actively tracked streams.
+    pub fn tracked_count(&self) -> usize;
+}
+```
+
+### 5. Delta computation logic
+```
+fn compute_delta:
+  1. If stream_ref not in self.streams:
+     - Store new state (generation=1, cursor at end, hash prefix)
+     - Return Rotation { full_content, reason: "first_seen" }
+
+  2. If current_content is empty:
+     - Return Unchanged (don't track empty streams)
+
+  3. Compute prefix_hash of first min(10, len) lines
+     If prefix_hash != stored prefix_hash:
+       - Increment generation, reset cursors
+       - Return Rotation { full_content, reason: "prefix_changed" }
+
+  4. If current_content.len() == stored.total_lines && hash matches:
+     - Return Unchanged
+
+  5. If current_content.len() > stored.total_lines:
+     - Verify prefix still matches (first N lines same)
+     - Return Append { new_lines: content[stored.line_cursor..], from_line: stored.line_cursor }
+     - Update cursor
+
+  6. If current_content.len() < stored.total_lines:
+     - Return Rotation { full_content, reason: "truncated" }
+```
+
+### 6. Prefix hash function
+Use a simple hash (not cryptographic) for speed:
+```rust
+fn compute_prefix_hash(lines: &[String], max_lines: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for line in lines.iter().take(max_lines) {
+        line.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+```
+
+### 7. Tests (at least 6)
+- `test_first_seen_returns_rotation` — new stream returns full content
+- `test_unchanged_content_returns_unchanged` — same content on second call
+- `test_append_detection` — added lines at end → Append delta
+- `test_prefix_change_returns_rotation` — modified first lines → Rotation
+- `test_truncation_returns_rotation` — shorter content → Rotation
+- `test_gc_removes_expired_streams` — expired streams cleaned up
+- `test_empty_content_unchanged` — empty content is not tracked
 
 ## NOT in Scope
-- Do NOT add CacheReceiptV1 (separate future work)
-- Do NOT modify the proxy path (only MCP for now)
-- Do NOT add new MCP tools or CLI commands
-- Do NOT add new dependencies
+- Do NOT integrate with ctx_shell or proxy (future wiring work)
+- Do NOT add async/tokio — keep it sync
+- Do NOT add new dependencies to Cargo.toml
+- Do NOT modify the existing tools layer
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib mcp_bridge
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib stream_controller
 ```
