@@ -2,13 +2,101 @@
 
 use axum::http::{StatusCode, request::Parts};
 use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 
 use crate::proxy::codec::{
     RequestBodyEncoding, decode_gzip_bounded, decode_zstd_bounded, encode_gzip, encode_zstd,
     request_body_encoding,
 };
+use crate::proxy::dedup::ToolResultCache;
 
 use super::max_body_bytes;
+
+/// One proxy process serves one agent session, so its tool-result cache is safe
+/// to share across forwarded requests.
+static DEDUP_CACHE: OnceLock<Arc<ToolResultCache>> = OnceLock::new();
+
+fn dedup_cache() -> &'static Arc<ToolResultCache> {
+    DEDUP_CACHE.get_or_init(|| Arc::new(ToolResultCache::new()))
+}
+
+struct ToolResultToCache {
+    tool_name: String,
+    content: String,
+}
+
+/// Replace result blocks already sent during an earlier request, returning the
+/// misses to cache after the request's normal compression pass completes.
+fn deduplicate_tool_results(
+    parsed: &mut serde_json::Value,
+    cache: &ToolResultCache,
+) -> (Vec<ToolResultToCache>, usize) {
+    let Some(messages) = parsed.get_mut("messages").and_then(|v| v.as_array_mut()) else {
+        return (Vec::new(), 0);
+    };
+
+    let tool_names = messages
+        .iter()
+        .flat_map(|message| {
+            message
+                .get("content")
+                .and_then(|content| content.as_array())
+                .into_iter()
+                .flatten()
+        })
+        .filter(|block| block.get("type").and_then(|kind| kind.as_str()) == Some("tool_use"))
+        .filter_map(|block| {
+            Some((
+                block.get("id")?.as_str()?.to_owned(),
+                block.get("name")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect::<HashMap<_, _>>();
+    let mut misses = Vec::new();
+    let mut tokens_saved = 0;
+
+    for message in messages {
+        let Some(blocks) = message
+            .get_mut("content")
+            .and_then(|content| content.as_array_mut())
+        else {
+            continue;
+        };
+        for block in blocks {
+            if block.get("type").and_then(|kind| kind.as_str()) != Some("tool_result") {
+                continue;
+            }
+            let Some(content) = block.get("content").and_then(|content| content.as_str()) else {
+                continue;
+            };
+            let tool_name = block
+                .get("tool_use_id")
+                .and_then(|id| id.as_str())
+                .and_then(|id| tool_names.get(id))
+                .cloned()
+                .unwrap_or_else(|| "tool_result".to_owned());
+
+            if let Some(hit) = cache.check(&tool_name, content) {
+                tokens_saved += hit.tokens_saved;
+                block["content"] = serde_json::Value::String(hit.stub);
+            } else {
+                misses.push(ToolResultToCache {
+                    tool_name,
+                    content: content.to_owned(),
+                });
+            }
+        }
+    }
+    (misses, tokens_saved)
+}
+
+fn cache_tool_results(cache: &ToolResultCache, results: Vec<ToolResultToCache>) {
+    for result in results {
+        let token_count = result.content.len().saturating_add(3) / 4;
+        cache.insert(&result.tool_name, &result.content, token_count, None);
+    }
+}
 
 #[cfg(feature = "shape-xlat")]
 use super::xlat::translated_openai_body;
@@ -127,6 +215,8 @@ pub(crate) fn prepare_request_body(
     default_upstream_base: &str,
     openai_shape: bool,
 ) -> Result<PreparedRequestBody, StatusCode> {
+    let cache = dedup_cache();
+    cache.advance_turn();
     let encoding = request_body_encoding(parts);
     let decoded = match encoding {
         RequestBodyEncoding::Identity => Cow::Borrowed(body_bytes),
@@ -164,6 +254,10 @@ pub(crate) fn prepare_request_body(
             route: None,
         });
     };
+    let (tool_results_to_cache, dedup_tokens_saved) = deduplicate_tool_results(&mut parsed, cache);
+    if dedup_tokens_saved > 0 {
+        tracing::debug!(dedup_tokens_saved, "deduplicated proxy tool results");
+    }
 
     // Router runs on the freshly parsed body, before compression: the model
     // swap lands in the same single serialization as the compression pass.
@@ -217,6 +311,7 @@ pub(crate) fn prepare_request_body(
             }
             compress_body(parsed.clone(), original_size)
         };
+    cache_tool_results(cache, tool_results_to_cache);
     let body = match encoding {
         RequestBodyEncoding::Identity => logical_body,
         RequestBodyEncoding::Gzip => encode_gzip(&logical_body)?,
@@ -241,4 +336,77 @@ pub(crate) fn translated_openai_body(
     _parsed: &serde_json::Value,
 ) -> Option<serde_json::Value> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ToolResultCache, cache_tool_results, deduplicate_tool_results};
+    use serde_json::json;
+
+    fn tool_result_body(content: &str) -> serde_json::Value {
+        json!({
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [{
+                        "type": "tool_use",
+                        "id": "toolu_1",
+                        "name": "ctx_shell",
+                        "input": {}
+                    }]
+                },
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_1",
+                        "content": content
+                    }]
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn repeated_tool_result_on_second_request_returns_stub() {
+        let cache = ToolResultCache::new();
+        let content = "cargo test completed successfully";
+
+        cache.advance_turn();
+        let (first_misses, first_saved) =
+            deduplicate_tool_results(&mut tool_result_body(content), &cache);
+        assert_eq!(first_saved, 0);
+        cache_tool_results(&cache, first_misses);
+
+        cache.advance_turn();
+        let mut repeated = tool_result_body(content);
+        let (_second_misses, second_saved) = deduplicate_tool_results(&mut repeated, &cache);
+        let stub = repeated["messages"][1]["content"][0]["content"]
+            .as_str()
+            .expect("dedup stub content");
+        assert!(stub.contains("unchanged since turn 1"));
+        assert!(stub.contains("cargo test completed successfully"));
+        assert!(second_saved > 0);
+    }
+
+    #[test]
+    fn different_tool_results_are_not_deduplicated() {
+        let cache = ToolResultCache::new();
+        let first = "first result";
+        let second = "different result";
+
+        cache.advance_turn();
+        let (misses, _) = deduplicate_tool_results(&mut tool_result_body(first), &cache);
+        cache_tool_results(&cache, misses);
+
+        cache.advance_turn();
+        let mut different = tool_result_body(second);
+        let (misses, saved) = deduplicate_tool_results(&mut different, &cache);
+        assert_eq!(saved, 0);
+        assert_eq!(misses.len(), 1);
+        assert_eq!(
+            different["messages"][1]["content"][0]["content"],
+            json!(second)
+        );
+    }
 }
