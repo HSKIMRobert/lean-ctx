@@ -359,6 +359,7 @@ mod tests {
 
     #[test]
     fn old_shell_json_envelope_text_is_pruned() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let raw = long_git_status();
         let envelope = serde_json::to_string(&serde_json::json!({
             "content": [{"type": "text", "text": raw}],
@@ -435,6 +436,7 @@ mod tests {
 
     #[test]
     fn non_tool_output_items_are_untouched() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let body = serde_json::json!({
             "input": [
                 {"type": "message", "role": "user", "content": long_git_status()},
@@ -451,6 +453,7 @@ mod tests {
 
     #[test]
     fn plain_string_input_passthrough() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let body = serde_json::json!({"model": "gpt-5", "input": "hello world"});
         let bytes = serde_json::to_vec(&body).unwrap();
         let (out, orig, comp) = compress_request_body(body.clone(), bytes.len());
@@ -461,6 +464,7 @@ mod tests {
 
     #[test]
     fn no_input_field_passthrough() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let body = serde_json::json!({"model": "gpt-5", "previous_response_id": "resp_abc"});
         let bytes = serde_json::to_vec(&body).unwrap();
         let (out, orig, comp) = compress_request_body(body.clone(), bytes.len());
@@ -636,6 +640,7 @@ mod tests {
 
     #[test]
     fn short_output_unchanged() {
+        let _iso = crate::core::data_dir::isolated_data_dir();
         let body = serde_json::json!({
             "input": [
                 {"type": "function_call_output", "call_id": "c", "output": "ok"}
