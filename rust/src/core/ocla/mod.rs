@@ -12,6 +12,7 @@ pub mod grpc_bridge;
 pub mod health;
 pub mod openapi;
 pub mod registry;
+pub mod regression_gate;
 pub mod response_cache;
 pub mod routing_experiment;
 pub mod routing_quality;
