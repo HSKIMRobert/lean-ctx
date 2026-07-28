@@ -70,6 +70,30 @@ impl DeltaResponse {
     }
 }
 
+/// Find the next point where `old[skip_old..]` and `new[skip_new..]` agree.
+/// Returns `(old_skip, new_skip)` — the number of lines to consume from each.
+fn find_sync_point(old: &[&str], new: &[&str], max_look: usize) -> Option<(usize, usize)> {
+    let limit_o = old.len().min(max_look);
+    let limit_n = new.len().min(max_look);
+
+    for dist in 1..=(limit_o + limit_n) {
+        for skip_o in 0..=dist.min(limit_o) {
+            let skip_n = dist - skip_o;
+            if skip_n > limit_n {
+                continue;
+            }
+            if skip_o < old.len()
+                && skip_n < new.len()
+                && old.get(skip_o) == new.get(skip_n)
+            {
+                return Some((skip_o, skip_n));
+            }
+        }
+    }
+
+    None
+}
+
 /// Compute a delta between `old_content` and `new_content`.
 ///
 /// Uses a simple line-diff algorithm: identifies changed regions
@@ -116,17 +140,23 @@ pub fn compute_delta(
         let mut removed = Vec::new();
         let mut added = Vec::new();
 
-        while i < old_lines.len() && (j >= new_lines.len() || old_lines[i] != new_lines[j]) {
-            removed.push(old_lines[i].to_string());
-            i += 1;
-        }
+        // Find the next sync point where both sequences agree again.
+        // Look ahead up to 50 lines in both directions to find a match.
+        let sync = find_sync_point(&old_lines[i..], &new_lines[j..], 50);
+        let (old_skip, new_skip) = sync.unwrap_or((
+            old_lines.len() - i,
+            new_lines.len() - j,
+        ));
 
-        while j < new_lines.len()
-            && (i >= old_lines.len() || old_lines.get(i) != Some(&new_lines[j]))
-        {
-            added.push(new_lines[j].to_string());
-            j += 1;
+        for line in &old_lines[i..i + old_skip] {
+            removed.push(line.to_string());
         }
+        i += old_skip;
+
+        for line in &new_lines[j..j + new_skip] {
+            added.push(line.to_string());
+        }
+        j += new_skip;
 
         let ctx_end = (i + context_lines).min(old_lines.len());
         let context_after: Vec<String> = old_lines[i..ctx_end]
