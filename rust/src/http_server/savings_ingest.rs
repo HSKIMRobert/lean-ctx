@@ -3,6 +3,8 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
 
+use crate::core::ocla::OclaRegistry;
+use crate::core::ocla::types::{OclaRequestContext, SavingsEvidence};
 use crate::core::savings_ledger::SignedSavingsBatchV1;
 
 use super::team::TeamAppState;
@@ -16,6 +18,23 @@ struct IngestResponse {
     signer_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     net_saved_tokens: Option<u64>,
+}
+
+fn http_ocla_context(component: &str) -> OclaRequestContext {
+    OclaRequestContext::new(
+        format!("http-{}", uuid_short()),
+        "http-server".to_string(),
+        component.to_string(),
+        String::new(),
+        None,
+        None,
+    )
+}
+
+fn uuid_short() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).unwrap_or_default();
+    hex::encode(bytes)
 }
 
 /// `POST /api/v1/savings/ingest` — accepts a `SignedSavingsBatchV1` JSON body.
@@ -68,6 +87,21 @@ pub async fn v1_savings_ingest(
                 net_saved_tokens: Some(net_saved),
             }),
         );
+    }
+
+    // OCLA projection: record savings through trait boundary
+    let evidence = SavingsEvidence {
+        context: http_ocla_context("savings-ingest"),
+        original_tokens: batch.totals.saved_tokens,
+        delivered_tokens: batch.totals.net_saved_tokens,
+        quality_ref: None,
+        evidence_ref: format!("signed-batch-{}", batch.schema_version),
+    };
+    if let Err(e) = OclaRegistry::global()
+        .savings_ledger
+        .record_savings(evidence)
+    {
+        tracing::debug!("OCLA savings projection: {e}");
     }
 
     (
