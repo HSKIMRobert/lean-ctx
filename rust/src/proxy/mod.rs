@@ -121,6 +121,7 @@ pub struct ProxyState {
     /// mounted with the `gateway-server` feature. Startup snapshot, restart
     /// to reload — the same lifecycle as `gateway-keys.toml`.
     pub mcp_servers: Arc<Vec<crate::core::config::ResolvedMcpServer>>,
+    #[allow(dead_code)] // Used by web_app_middleware handlers in E13
     pub(crate) web_app_tracker:
         Arc<std::sync::Mutex<web_app::conversation_tracker::ConversationTracker>>,
 }

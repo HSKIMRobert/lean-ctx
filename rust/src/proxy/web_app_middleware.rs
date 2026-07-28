@@ -3,6 +3,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Read by forward-path handlers in E13
 pub(crate) struct DetectedWebApp(pub(crate) super::web_app::WebAppProvider);
 
 pub(crate) async fn detect_web_app(request: Request, next: Next) -> Response {
