@@ -167,24 +167,47 @@ fn new_event(tool: &str) -> SavingsEvent {
     }
 }
 
-fn append_with_unified(path: &std::path::Path, event: SavingsEvent) {
+fn append_with_unified(path: &std::path::Path, event: SavingsEvent, efficiency_etpao: Option<u64>) {
     let Ok(event) = store::append(path, event) else {
         return;
     };
-    let unified = FileUnifiedLedger::from_savings_event(&event)
-        .and_then(|event| FileUnifiedLedger::from_data_dir()?.record_unified(event));
+    let unified = FileUnifiedLedger::from_savings_event(&event).and_then(|mut event| {
+        event.efficiency_etpao = efficiency_etpao;
+        FileUnifiedLedger::from_data_dir()?.record_unified(event)
+    });
     if let Err(error) = unified {
         tracing::warn!(%error, "failed to dual-write unified savings event");
     }
 }
 
+fn compression_quality_signal(original: usize, compressed: usize) -> Option<String> {
+    if original == 0 {
+        return None;
+    }
+    let ratio = 1.0 - (compressed as f64 / original as f64);
+    let signal = match ratio {
+        r if r >= 0.7 => "excellent",
+        r if r >= 0.5 => "good",
+        r if r >= 0.3 => "moderate",
+        _ => "marginal",
+    };
+    Some(signal.to_owned())
+}
+
 /// Best-effort append of one auditable savings event for a value-producing read.
 /// Skips zero-saving events (keeps the ledger meaningful and cheap) and never panics.
-pub fn record_read_event(original_tokens: usize, saved_tokens: usize) {
+pub fn record_read_event(
+    original_tokens: usize,
+    saved_tokens: usize,
+    quality_signal: Option<&str>,
+    efficiency_etpao: Option<u64>,
+) {
     record_tool_event(
         "ctx_read",
         original_tokens,
         original_tokens.saturating_sub(saved_tokens),
+        quality_signal,
+        efficiency_etpao,
     );
 }
 
@@ -194,7 +217,13 @@ pub fn record_read_event(original_tokens: usize, saved_tokens: usize) {
 /// counterfactual estimate (e.g. the search 2.5x factor stays out of here, so
 /// `lean-ctx ledger verify` only ever attests measured numbers). Skips events
 /// where compression saved nothing and never panics.
-pub fn record_tool_event(tool: &str, baseline_tokens: usize, actual_tokens: usize) {
+pub fn record_tool_event(
+    tool: &str,
+    baseline_tokens: usize,
+    actual_tokens: usize,
+    quality_signal: Option<&str>,
+    efficiency_etpao: Option<u64>,
+) {
     let saved = baseline_tokens.saturating_sub(actual_tokens);
     if saved == 0 || !enabled() {
         return;
@@ -209,7 +238,10 @@ pub fn record_tool_event(tool: &str, baseline_tokens: usize, actual_tokens: usiz
     event.saved_tokens = saved as u64;
     event.saved_usd = saved as f64 / 1_000_000.0 * event.unit_price_per_m_usd;
     event.confidence = Some(1.0);
-    append_with_unified(&path, event);
+    event.quality_signal = quality_signal
+        .map(str::to_owned)
+        .or_else(|| compression_quality_signal(baseline_tokens, actual_tokens));
+    append_with_unified(&path, event, efficiency_etpao);
 }
 
 /// Like `record_tool_event` but with G8 token-stream attribution (#1191).
@@ -239,7 +271,7 @@ pub fn record_tool_event_with_stream(
     event.is_first_inject = Some(is_first_inject);
     event.cache_read_per_m_usd = Some(quote.cost.cache_read_per_m);
     event.cache_write_per_m_usd = Some(quote.cost.cache_write_per_m);
-    append_with_unified(&path, event);
+    append_with_unified(&path, event, None);
 }
 
 /// Best-effort append of a *routing* savings event (enterprise#13/#19): the gateway served
@@ -282,7 +314,7 @@ pub fn record_routing_event(requested_model: &str, serving_model: &str, input_to
     // saved_tokens stays 0: routing saves dollars at equal tokens. Token
     // savings remain the compression mechanism's dimension.
     event.saved_usd = saved_usd;
-    append_with_unified(&path, event);
+    append_with_unified(&path, event, None);
 }
 
 /// Best-effort append of a *caching* savings event: provider prompt-cache reads billed
@@ -304,7 +336,7 @@ pub fn record_caching_event(model: &str, cache_read_tokens: u64, discount_usd: f
     event.baseline_tokens = cache_read_tokens;
     event.actual_tokens = cache_read_tokens;
     event.saved_usd = discount_usd;
-    append_with_unified(&path, event);
+    append_with_unified(&path, event, None);
 }
 
 /// Best-effort append of a *bounce* event (G7): a compressed read later invalidated by a
@@ -324,7 +356,7 @@ pub fn record_bounce_event(wasted_tokens: usize) {
     event.actual_tokens = wasted;
     event.bounce_adjustment = wasted;
     event.saved_usd = -(wasted as f64 / 1_000_000.0 * event.unit_price_per_m_usd);
-    append_with_unified(&path, event);
+    append_with_unified(&path, event, None);
 }
 
 /// Total bounce-adjusted tokens recorded, optionally limited to the last `days` (by event
@@ -416,14 +448,78 @@ mod tests {
         assert_eq!(tokenizer(), ledger_family().to_string());
     }
 
+    #[test]
+    fn test_quality_signal_excellent() {
+        assert_eq!(
+            compression_quality_signal(100, 30).as_deref(),
+            Some("excellent")
+        );
+    }
+
+    #[test]
+    fn test_quality_signal_good() {
+        assert_eq!(compression_quality_signal(100, 50).as_deref(), Some("good"));
+        assert_eq!(compression_quality_signal(100, 31).as_deref(), Some("good"));
+    }
+
+    #[test]
+    fn test_quality_signal_moderate() {
+        assert_eq!(
+            compression_quality_signal(100, 70).as_deref(),
+            Some("moderate")
+        );
+        assert_eq!(
+            compression_quality_signal(100, 51).as_deref(),
+            Some("moderate")
+        );
+    }
+
+    #[test]
+    fn test_quality_signal_marginal() {
+        assert_eq!(
+            compression_quality_signal(100, 71).as_deref(),
+            Some("marginal")
+        );
+        assert_eq!(compression_quality_signal(0, 0), None);
+    }
+
+    #[test]
+    fn test_record_tool_event_carries_quality() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir =
+            std::env::temp_dir().join(format!("lctx-ledger-quality-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        record_tool_event("cli_shell", 100, 20, Some("verified"), Some(800));
+
+        let ledger = dir.join("savings").join("ledger.jsonl");
+        let content = std::fs::read_to_string(&ledger).expect("ledger written");
+        let unified_path = dir.join("savings").join("unified_ledger.jsonl");
+        let unified_content =
+            std::fs::read_to_string(&unified_path).expect("unified ledger written");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let event: SavingsEvent =
+            serde_json::from_str(content.lines().next().unwrap()).expect("valid event JSON");
+        assert_eq!(event.quality_signal.as_deref(), Some("verified"));
+
+        let unified: crate::core::ocla::unified_ledger::UnifiedSavingsEventV2 =
+            serde_json::from_str(unified_content.lines().next().unwrap())
+                .expect("valid unified event JSON");
+        assert_eq!(unified.efficiency_etpao, Some(800));
+    }
+
     /// GL #479 D2: tool events must never panic and must skip the degenerate
     /// cases (no saving / inverted inputs) so the ledger only carries value.
     #[test]
     fn record_tool_event_skips_zero_and_inverted_savings() {
         // actual >= baseline → saved == 0 → no-op (must not panic or write).
-        record_tool_event("cli_shell", 100, 100);
-        record_tool_event("ctx_search", 50, 80);
-        record_tool_event("cli_shell", 0, 0);
+        record_tool_event("cli_shell", 100, 100, None, None);
+        record_tool_event("ctx_search", 50, 80, None, None);
+        record_tool_event("cli_shell", 0, 0, None, None);
     }
 
     /// GL #479 D2 wiring proof: a measured shell/search saving lands in the
@@ -436,7 +532,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("mkdir");
         crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
 
-        record_tool_event("cli_shell", 5000, 800);
+        record_tool_event("cli_shell", 5000, 800, None, None);
 
         let ledger = dir.join("savings").join("ledger.jsonl");
         let content = std::fs::read_to_string(&ledger).expect("ledger written");
