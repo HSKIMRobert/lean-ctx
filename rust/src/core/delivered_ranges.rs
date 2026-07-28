@@ -12,7 +12,7 @@ static GLOBAL: Mutex<Option<DeliveredRanges>> = Mutex::new(None);
 
 /// Access the global delivered-ranges tracker.
 pub fn global() -> std::sync::MutexGuard<'static, Option<DeliveredRanges>> {
-    GLOBAL.lock().unwrap_or_else(|e| e.into_inner())
+    GLOBAL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Sorted, non-overlapping intervals of 1-based line numbers.
