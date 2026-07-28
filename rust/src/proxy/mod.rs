@@ -32,7 +32,6 @@ pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
 mod connector;
-#[cfg(feature = "experimental")]
 pub(crate) mod conversation;
 pub mod cost;
 pub mod counterfactual;
@@ -63,13 +62,11 @@ pub mod prose;
 pub mod prose_ranker;
 pub mod providers;
 pub mod response_optimizer;
-#[cfg(feature = "experimental")]
 pub(crate) mod response_shaper;
 pub mod routing;
 pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
-#[cfg(feature = "experimental")]
 pub(crate) mod shaping_hook;
 pub mod sse_keepalive;
 #[cfg(test)]
@@ -86,6 +83,7 @@ pub mod usage_meter;
 pub mod usage_parity;
 pub mod usage_sink;
 pub mod verbosity;
+pub mod web_app;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
