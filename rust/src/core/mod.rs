@@ -423,6 +423,7 @@ pub mod immune_detector;
 pub mod marginal_gate;
 pub mod mcp_catalog;
 pub mod negative_knowledge;
+pub mod query_aware;
 pub mod ocla;
 pub mod ocla_bus;
 pub mod quality_benchmark;

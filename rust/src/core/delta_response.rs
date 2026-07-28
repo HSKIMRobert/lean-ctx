@@ -110,7 +110,7 @@ pub fn compute_delta(
         let ctx_start = i.saturating_sub(context_lines);
         let context_before: Vec<String> = old_lines[ctx_start..i]
             .iter()
-            .map(|l| l.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         let mut removed = Vec::new();
