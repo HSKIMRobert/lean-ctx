@@ -316,9 +316,9 @@ pub struct Config {
     pub structure_first: bool,
     /// Progressive disclosure for first-time reads (LCLM arXiv 2606.09659).
     /// When true (default), large files default to compact overviews on first read:
-    ///   - Below progressive_threshold_lines: full content
-    ///   - Below progressive_signatures_max_lines: signatures mode
-    ///   - Above: map (manifest) mode
+    ///     - Below progressive_threshold_lines: full content
+    ///     - Below progressive_signatures_max_lines: signatures mode
+    ///     - Above: map (manifest) mode
     /// Models can always bypass with explicit mode= or lines= parameters.
     /// Override via LEAN_CTX_PROGRESSIVE_DISCLOSURE env var.
     #[serde(default = "serde_defaults::default_true")]
