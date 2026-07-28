@@ -581,4 +581,3 @@ fn persist_setup_report(report: &SetupReport) -> Result<(), String> {
     content.push('\n');
     crate::config_io::write_atomic(&path, &content)
 }
-
