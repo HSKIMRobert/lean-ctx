@@ -11,8 +11,46 @@
 //!   * The universal invoker (`ctx_call`) is force-advertised in non-full mode so
 //!     tools hidden by lazy/profile filtering stay reachable.
 
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+
 use super::dynamic_tools::{ToolCategory, categorize_tool};
 use crate::core::tool_profiles::ToolProfile;
+
+// ── Auto-profile session signals ─────────────────────────────
+
+static AUTO_TURN_COUNT: AtomicU64 = AtomicU64::new(0);
+static AUTO_CTX_TOOLS_USED: AtomicBool = AtomicBool::new(false);
+static AUTO_SYSTEM_PROMPT_TOKENS: AtomicUsize = AtomicUsize::new(0);
+
+/// Increment the Auto-profile turn counter (call once per tools/list request).
+pub fn record_auto_turn() {
+    AUTO_TURN_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Mark that the agent has invoked a ctx_* MCP tool in this session.
+pub fn mark_auto_ctx_tool_used() {
+    AUTO_CTX_TOOLS_USED.store(true, Ordering::Relaxed);
+}
+
+/// Update the system prompt token estimate for Auto-profile resolution.
+#[allow(dead_code)]
+pub fn set_auto_system_prompt_tokens(tokens: usize) {
+    AUTO_SYSTEM_PROMPT_TOKENS.store(tokens, Ordering::Relaxed);
+}
+
+/// Resolve `ToolProfile::Auto` to a concrete profile using session signals.
+/// Non-Auto profiles are returned as-is.
+#[must_use]
+pub fn resolve_auto_profile(profile: &ToolProfile) -> ToolProfile {
+    if *profile != ToolProfile::Auto {
+        return profile.clone();
+    }
+    ToolProfile::resolve_auto(
+        AUTO_TURN_COUNT.load(Ordering::Relaxed),
+        AUTO_CTX_TOOLS_USED.load(Ordering::Relaxed),
+        AUTO_SYSTEM_PROMPT_TOKENS.load(Ordering::Relaxed),
+    )
+}
 
 /// The universal invoker tool name. A static-list MCP client can call any
 /// registered tool through it, even when that tool isn't advertised.
@@ -581,5 +619,23 @@ mod tests {
             total <= TOTAL_BUDGET,
             "core surface costs {total} tok (budget {TOTAL_BUDGET})"
         );
+    }
+
+    #[test]
+    fn resolve_auto_returns_non_auto_unchanged() {
+        assert_eq!(
+            resolve_auto_profile(&ToolProfile::Power),
+            ToolProfile::Power
+        );
+        assert_eq!(
+            resolve_auto_profile(&ToolProfile::Minimal),
+            ToolProfile::Minimal
+        );
+    }
+
+    #[test]
+    fn resolve_auto_resolves_to_concrete_profile() {
+        let resolved = resolve_auto_profile(&ToolProfile::Auto);
+        assert_ne!(resolved, ToolProfile::Auto);
     }
 }

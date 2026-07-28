@@ -4,6 +4,129 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.13] — 2026-07-29
+
+### Fixed
+- **MCP cancellation handling** — `call_tool` now checks the rmcp `CancellationToken` 
+  after tool execution. If the client sent `notifications/cancelled` during execution, 
+  the result is dropped instead of replying to a stale JSON-RPC message ID (#1265).
+- **Delta response diff algorithm** — `find_sync_point()` replaces the greedy 
+  line-diff that consumed too many old lines on single-line changes, fixing false 
+  positives in `compute_delta()`.
+- **ctx_symbol stale index panic** — `start_line` is now clamped to `lines.len()` 
+  with a graceful "stale index, reindexing" fallback instead of panicking (#1126).
+- **ctx_patch dry_run honored** — `dry_run=true` now correctly prevents writes to 
+  disk for all op types including `replace_unique` (#1112).
+- **Secret redaction false positives** — `token == ""` in Go source no longer 
+  corrupted into `token =[REDACTED]` — comparison operators are excluded (#1095).
+- **ctx_search global limit** — `max_results` enforced globally across all files, 
+  preventing unbounded output that could crash clients (#1153).
+- **Shell chained command compression** — `&&`/`;` chains now preserve output from 
+  all segments instead of summarizing only the first (#1130).
+- **stderr capture** — stderr is now always captured even when stdout is empty (#1127).
+- **Stale AUTO CONTEXT** — relevance scoring gates preload injection to prevent 
+  stale task state from previous sessions (#1131).
+- **Shadow mode Edit allow** — shadow-mode instructions now explicitly allow native 
+  Edit/StrReplace operations (#1139).
+- **Preload usefulness guard** — handler returns structured `(body, usable)` instead 
+  of grepping prose for dead-end literals (#1137).
+- **OCLA cached errors** — provider errors no longer replayed as 200 from cache (#1169).
+- **OCLA budget enforcement** — proxy requests now respect budget limits (#1167).
+- **rmcp response task drain** — response tasks are drained to prevent RAM growth (#1160).
+- **Shell allowlist `#` comments** — bare `#` comment lines no longer blocked (#1109).
+- **ctx_search symbol path** — `path=` parameter now respected for graph root (#1108).
+- **ctx_read `lines:N:M` syntax** — colon-separator error now returns clear error 
+  instead of silent failure (#1209).
+- **Cross-Source Hints scoping** — hints block now scoped to requested range (#1247).
+- **ctx_shell archived JSON truncation** — JSON preview no longer truncated 
+  mid-document (#1245).
+- **Anchored mode instruction fallback** — no longer silently falls back to full 
+  on instruction files (#1238).
+- **Background job status output** — long-running jobs now show partial output 
+  during execution (#1217).
+- **ctx_patch hash error message** — clear guidance instead of cryptic "missing hash" (#1216).
+- **Dashboard verification chip** — 0/0 no longer shows red 0% (#1268).
+- **Hook rewrite schema validation** — output now passes Claude Code PreToolUse 
+  schema (#1264).
+- **ctx_shell code hallucination** — `git show` output no longer compressed into 
+  valid-looking nonexistent code (#1263).
+- **Cache-hit detection** — no longer sniffs rendered output for markers (#1133).
+- **Codex PreToolUse allow decision** — emits supported decision format (#1116).
+- **Shell long-running monitor loops** — 120s/8MB cap relaxed for background 
+  monitors (#1113).
+- **Dashboard net-of-injection** — calculation no longer overstates overhead (#1104).
+- **ctx_read Edit precondition** — satisfies read-before-write requirement (#1091).
+- **ctx_shell selective compression** — no longer discards selected lines (#1084).
+- **Security advisories** — remaining pi package advisories remediated (#1201).
+- **Bounce cost tracking** — extra turns counted as negative savings (#1193).
+- **Routing feedback timing** — decisions recorded after measured outcomes (#1170).
+- **OCLA capsule order** — delta insertion order preserved (#1143).
+- **Shell literal-path redirects** — outside project root follow-up (#1142).
+- **Carriage return resolution** — progress output no longer arrives as glued lines (#1140).
+- **Shell case/esac allowlist** — `case`/`esac` no longer blocked; `${p%% *}` 
+  tokenization fixed (#1147).
+- **Wrap/init allowlist** — permission seeds now match active profile tool names (#1289).
+- **CodeQL alerts** — open code scanning alerts addressed (#1166).
+- **Dependency lockfiles** — refreshed for Dependabot alerts (#1162).
+- **Background job retention** — completed job retention bounded (#1182).
+
+### Added
+- **Benchmark Optimization Initiative** (epic #1305) — 14 new modules for context 
+  efficiency, targeting -55% token delta:
+  - **Compression annotation control** — `CompressionAnnotation` enum (Full/Quantized/None) 
+    with configurable threshold to eliminate noisy `[compressed 0%]` markers (#1317).
+  - **Progressive disclosure** — auto-mode resolution tiers files as `full` → 
+    `signatures` → `map` based on line count thresholds (#1309).
+  - **Prefix stability audit** — determinism tests ensuring savings footer and 
+    auto-mode resolver produce byte-stable output for provider cache (#1310).
+  - **Turn-level context budget** — `turn_fresh_limit` caps fresh tokens per tool 
+    response with truncation and expand hints (#1306).
+  - **Cross-read deduplication** — `DeliveredRanges` tracks delivered line ranges 
+    per file; overlapping re-reads emit only novel lines (#1313).
+  - **Session-level budget** — cumulative token tracking with pressure tiers 
+    (Green/Yellow/Orange/Red) and progressive mode downgrades (#1307).
+  - **Marginal Information Gate** — suppresses tool responses with <20% novel 
+    content relative to already-delivered context (#1308).
+  - **Negative knowledge tracking** — remembers irrelevant files, dead-end queries, 
+    and absent features to prevent re-exploration (#1314).
+  - **Content-addressed handles** — blake3-based handles for zero-cost re-reads of 
+    unchanged content with mtime staleness checks (#1315).
+  - **Delta responses** — delivers only changed lines for re-reads after edits using 
+    sync-point diff algorithm (#1316).
+  - **Cache diagnostics** — monitors provider-side prompt cache hit rates with 
+    warning/critical alerts (#1311).
+  - **Query-aware adaptive compression** — classifies task intent (Explore/Implement/ 
+    Debug/Review) and maps to appropriate compression levels (#1312).
+  - **ETPAO metric** — cost-weighted token measurement accounting for fresh input, 
+    cached input, output, and reasoning token pricing (#1318).
+  - **Benchmark suite foundation** — `EtpaoReport` for reproducible A/B comparisons 
+    between lean-ctx and baseline (#1319).
+- **Config profiles** — different settings for local LLM vs cloud provider (#1159).
+- **Config parameter comments** — explainer comments for each config parameter (#1158).
+- **Agent-config compression** — automatic rule scoping and context diet (#1141).
+- **Qodercli support** — integration with Qoder CLI (#1135).
+- **Response shaping** — reduce LLM output verbosity (#1125).
+- **HTML content extraction** — compress web content before injection (#1124).
+- **Conversation history compression** — reduce token cost of long sessions (#1123).
+- **Proactive context expansion** — auto-inject compressed data on relevance (#1122).
+- **Inline shell output** — moderately-sized output inlined instead of archived (#1110).
+- **Runtime flags refactor** — internal env mutation replaced with flags (#1107).
+- **Dashboard compression exclusions** — intentionally-uncompressed tools excluded (#1105).
+- **CLI ledger push** — manual context loading without AI (#1101).
+- **Per-call banner noise** — `0 tokens saved` banner removed on `mode=full` reads (#1085).
+- **Dashboard session presence** — shows editor session instead of MCP transport 
+  count (#1177).
+- **Dashboard context contents** — properly separates history from active usage (#1174).
+- **Dashboard ledger status** — verified status scoped appropriately (#1175).
+- **USD-aufgeschlüsselte Savings** — per-token-stream cost breakdown (#1191).
+- **Adaptive Compression Depth** — compression backs off when it breaks cache (#1195).
+- **Output determinism benchmark** — validates #498 provider-cache preservation (#1194).
+- **A/B Benchmark harness** — proves compression quality non-degradation (#1192).
+- **Pack create refactor** — orchestration refactored for maintainability (#1277).
+- **SKILL.md accuracy** — core tools table corrected (#1288).
+- **README token footprint** — updated from ~2.1K to actual overhead (#1267).
+- **Dual-arm self-verify** — turn count corrected (#1266).
+
 ## [3.9.12] — 2026-07-17
 
 ### Fixed
