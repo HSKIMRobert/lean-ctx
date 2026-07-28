@@ -182,7 +182,9 @@ mod tests {
                 token_count: 1,
                 first_line: "expired".to_string(),
                 ccr_handle: None,
-                inserted_at: Instant::now() - Duration::from_secs(1801),
+                inserted_at: Instant::now()
+                    .checked_sub(Duration::from_secs(1801))
+                    .unwrap(),
             },
         );
 

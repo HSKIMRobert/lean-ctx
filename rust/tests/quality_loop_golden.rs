@@ -53,6 +53,7 @@ fn edit_fail_after_map_read_escalates_and_penalizes() {
     let ctx = AutoModeContext {
         path: &path,
         token_count: 3000,
+        line_count: None,
         task: None,
         cache: None,
     };
@@ -78,6 +79,7 @@ fn edit_fail_after_map_read_escalates_and_penalizes() {
         // to `map` (#683 raised the map floor from 3000 → 6000). Only a non-full
         // base mode can be escalated to `full` by the risky (rs × map) penalty.
         token_count: 7000,
+        line_count: None,
         task: None,
         cache: None,
     };
