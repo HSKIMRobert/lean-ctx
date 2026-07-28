@@ -9,6 +9,12 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # compressed output back as file content. See: #1301, #1302
 marker_hits=""
 while IFS= read -r file; do
+    # Skip Rust source, test files, and hook infrastructure — they contain
+    # marker literals in assertions/detection logic, and Rust corruption is
+    # caught by the cargo clippy check later in this hook.
+    case "$file" in
+        *.rs|*.githooks/*|*tests/*) continue ;;
+    esac
     if git show ":$file" 2>/dev/null | grep -qF -- '[lean-ctx: omitted'; then
         marker_hits="$marker_hits  - $file"$'\n'
     fi
@@ -33,12 +39,24 @@ if [ -n "$marker_hits" ]; then
     exit 1
 fi
 
-# Also catch the ctx_compose footer marker
+# Also catch the ctx_compose footer marker and build_header corruption (#1323)
 while IFS= read -r file; do
-    if git show ":$file" 2>/dev/null | grep -qF -- '--- lean-ctx:'; then
+    case "$file" in
+        *.rs|*.githooks/*|*tests/*) continue ;;
+    esac
+    staged=$(git show ":$file" 2>/dev/null) || continue
+    if echo "$staged" | grep -qF -- '--- lean-ctx:'; then
         echo "pre-commit: BLOCKED — '$file' contains lean-ctx footer marker."
         echo "  Fix: LEAN_CTX_DISABLE=1 git restore --source=HEAD -- $file"
         exit 1
+    fi
+    # Detect ctx_read build_header corruption: "filename.ext NNL" on first line
+    if echo "$staged" | head -2 | grep -qE '^[^ ]+\.[a-z]+ [0-9]+L$'; then
+        if echo "$staged" | sed -n '2p' | grep -qE '^ (deps|exports) '; then
+            echo "pre-commit: BLOCKED — '$file' contains ctx_read header corruption."
+            echo "  Fix: LEAN_CTX_DISABLE=1 git restore --source=HEAD -- $file"
+            exit 1
+        fi
     fi
 done < <(git diff --cached --name-only --diff-filter=d)
 

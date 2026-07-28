@@ -337,6 +337,16 @@ pub(crate) fn install_cursor_deny_hook(_global: bool) {
         &deny_cmd,
     );
 
+    // Write tools: deny guard blocks payloads containing compression markers.
+    // Without this, an agent that reads compressed ctx_read output and pastes
+    // it into StrReplace silently corrupts the file (#1302, #1323).
+    ensure_pretooluse_hook(
+        pre_arr,
+        &["StrReplace|Write|Edit|EditNotebook|MultiEdit"],
+        "StrReplace|Write|Edit|EditNotebook|MultiEdit",
+        &deny_cmd,
+    );
+
     let formatted = serde_json::to_string_pretty(&existing).unwrap_or_default();
     write_file(&hooks_json, &formatted);
 
@@ -505,5 +515,50 @@ mod tests {
                 .and_then(|m| m.as_str())
                 .is_some_and(|m| m == "Read|Grep")
         }));
+    }
+
+    #[test]
+    fn replace_mode_registers_write_tool_deny_guard() {
+        // #1302/#1323: StrReplace/Write/Edit must be hooked for compression guard
+        let mut v = serde_json::json!({
+            "version": 1,
+            "hooks": { "preToolUse": [] }
+        });
+
+        let deny_cmd = "/bin/lean-ctx hook deny";
+        let redirect_cmd = "/bin/lean-ctx hook redirect";
+        let pre = v
+            .pointer_mut("/hooks/preToolUse")
+            .and_then(|x| x.as_array_mut())
+            .unwrap();
+
+        ensure_pretooluse_hook(pre, &["Read"], "Read", redirect_cmd);
+        ensure_pretooluse_hook(
+            pre,
+            &["Read|Grep|Glob", "Read|Grep", "Grep", "Grep|Glob"],
+            "Grep|Glob",
+            deny_cmd,
+        );
+        ensure_pretooluse_hook(
+            pre,
+            &["StrReplace|Write|Edit|EditNotebook|MultiEdit"],
+            "StrReplace|Write|Edit|EditNotebook|MultiEdit",
+            deny_cmd,
+        );
+
+        let pre = v
+            .pointer("/hooks/preToolUse")
+            .and_then(|x| x.as_array())
+            .unwrap();
+
+        assert!(
+            pre.iter().any(|e| {
+                e.get("matcher")
+                    .and_then(|m| m.as_str())
+                    .is_some_and(|m| m.contains("StrReplace"))
+                    && e.get("command").and_then(|c| c.as_str()) == Some(deny_cmd)
+            }),
+            "write tools must be registered on hook deny"
+        );
     }
 }

@@ -150,7 +150,15 @@ fn is_compression_guard_disabled() -> bool {
 }
 
 fn has_compression_markers(content: &str) -> bool {
-    content.contains("[lean-ctx:")
+    if content.contains("[lean-ctx:") || content.contains("--- lean-ctx:") {
+        return true;
+    }
+    // Detect ctx_read build_header corruption (#1323): "filename.ext NNL"
+    // followed by " deps " or " exports " on the next line.
+    static HEADER_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?m)^\S+\.\w+ \d+L\n (?:deps|exports) ").unwrap()
+    });
+    HEADER_RE.is_match(content)
 }
 
 fn extract_write_content(payload: &str) -> Option<String> {
@@ -398,6 +406,25 @@ mod tests {
         ));
         assert!(!has_compression_markers("lean-ctx is great"));
         assert!(!has_compression_markers(""));
+    }
+
+    #[test]
+    fn has_compression_markers_detects_footer_marker() {
+        assert!(has_compression_markers("content\n--- lean-ctx: end ---\n"));
+    }
+
+    #[test]
+    fn has_compression_markers_detects_build_header_corruption() {
+        // #1323: ctx_read build_header format "mod.rs 1225L\n deps ..."
+        assert!(has_compression_markers(
+            "mod.rs 1225L\n deps super::foo,bar\n"
+        ));
+        assert!(has_compression_markers(
+            "server_handler.rs 340L\n exports handle_request\n"
+        ));
+        // Must NOT trigger on normal Rust content
+        assert!(!has_compression_markers("let x = 1225;\n deps: vec![]\n"));
+        assert!(!has_compression_markers("// mod.rs has 1225 lines\n"));
     }
 
     #[test]
