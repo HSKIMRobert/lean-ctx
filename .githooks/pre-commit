@@ -1,7 +1,49 @@
 #!/bin/bash
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)/rust"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# ── Data-loss guard (runs first, < 50ms, NOT skippable) ──────────
+# Catches files corrupted by lean-ctx shadow-mode compression markers.
+# These appear when an edit tool reads through ctx_read and writes the
+# compressed output back as file content. See: #1301, #1302
+marker_hits=""
+while IFS= read -r file; do
+    if git show ":$file" 2>/dev/null | grep -qF -- '[lean-ctx: omitted'; then
+        marker_hits="$marker_hits  - $file"$'\n'
+    fi
+done < <(git diff --cached --name-only --diff-filter=d)
+
+if [ -n "$marker_hits" ]; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  BLOCKED: lean-ctx compression markers in staged files     ║"
+    echo "╠══════════════════════════════════════════════════════════════╣"
+    echo "║                                                            ║"
+    echo "║  These files contain '[lean-ctx: omitted N lines]' text    ║"
+    echo "║  that was written by a corrupted edit tool read.           ║"
+    echo "║                                                            ║"
+    echo "║  Fix: restore from the last clean commit:                  ║"
+    echo "║    LEAN_CTX_DISABLE=1 git restore --source=HEAD -- <file>  ║"
+    echo "║                                                            ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Affected files:"
+    echo "$marker_hits"
+    exit 1
+fi
+
+# Also catch the ctx_compose footer marker
+while IFS= read -r file; do
+    if git show ":$file" 2>/dev/null | grep -qF -- '--- lean-ctx:'; then
+        echo "pre-commit: BLOCKED — '$file' contains lean-ctx footer marker."
+        echo "  Fix: LEAN_CTX_DISABLE=1 git restore --source=HEAD -- $file"
+        exit 1
+    fi
+done < <(git diff --cached --name-only --diff-filter=d)
+
+# ── Rust quality checks ──────────────────────────────────────────
+cd "$REPO_ROOT/rust"
 
 if ! cargo fmt --check 2>/dev/null; then
     echo "pre-commit: formatting check failed. Run 'cargo fmt' first."

@@ -1,0 +1,47 @@
+# Compression Safety — Prevent lean-ctx Marker Corruption
+
+## The problem
+
+lean-ctx shadow-mode hooks compress file reads. If an edit tool (StrReplace, Write)
+reads through the hook, it sees compressed content and writes markers like
+`[lean-ctx: omitted N lines]` back to disk. This silently destroys file content.
+
+## Rules for ALL agents
+
+### Never write compressed content to files
+
+The pre-commit hook blocks commits containing `[lean-ctx: omitted` markers.
+If your commit is blocked, the file was corrupted. Fix:
+
+```bash
+LEAN_CTX_DISABLED=1 git restore --source=HEAD -- <file>
+```
+
+### File restoration commands
+
+Always use `LEAN_CTX_DISABLED=1` when restoring files from git:
+
+```bash
+LEAN_CTX_DISABLED=1 git restore --source=<commit> -- <file>
+LEAN_CTX_DISABLED=1 git checkout <commit> -- <file>
+```
+
+NEVER use `git show commit:file > file` — the shell redirect writes compressed output.
+
+### When StrReplace produces unexpected results
+
+If a file shrinks after StrReplace or contains `[lean-ctx:` text:
+1. `LEAN_CTX_DISABLED=1 git restore --source=HEAD -- <file>`
+2. Use `LEAN_CTX_DISABLED=1 sed -i '' 's/old/new/g' <file>` for the edit
+3. Verify: `wc -l` + `rg '[lean-ctx:' <file>` must show 0
+
+### Environment variable: `LEAN_CTX_DISABLED`
+
+Set `LEAN_CTX_DISABLED=1` to bypass ALL lean-ctx compression for a command.
+This is the escape hatch for any compression-related issue.
+
+## NEVER do
+
+- Pipe `git show` output to a file without `LEAN_CTX_DISABLED=1`
+- Trust `wc -l` output that's significantly lower than expected
+- Commit files containing `[lean-ctx: omitted` or `--- lean-ctx:` text
