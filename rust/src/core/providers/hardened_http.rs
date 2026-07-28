@@ -62,8 +62,29 @@ impl HardenedClient {
         self.execute_request(|| request.call())
     }
 
+    pub fn get_with_headers(&self, url: &str, headers: &[(&str, &str)]) -> HttpOutcome {
+        let mut request = self.agent.get(url);
+        for &(key, value) in headers {
+            request = request.header(key, value);
+        }
+        self.execute_request(|| request.call())
+    }
+
     pub fn post(&self, url: &str, body: &str) -> HttpOutcome {
         let request = self.agent.post(url);
+        self.execute_request(|| request.send(body))
+    }
+
+    pub fn post_with_headers(
+        &self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+    ) -> HttpOutcome {
+        let mut request = self.agent.post(url);
+        for &(key, value) in headers {
+            request = request.header(key, value);
+        }
         self.execute_request(|| request.send(body))
     }
 
@@ -123,6 +144,15 @@ impl HardenedClient {
 }
 
 impl HttpOutcome {
+    pub fn into_body(self) -> Result<String, String> {
+        match self {
+            Self::Success { body, .. } => Ok(body),
+            Self::Timeout { phase, .. } => Err(format!("timeout during {phase}")),
+            Self::NetworkError { message, .. } => Err(message),
+            Self::HttpError { status, body, .. } => Err(format!("HTTP {status}: {body}")),
+        }
+    }
+
     pub fn is_success(&self) -> bool {
         matches!(self, Self::Success { .. })
     }
@@ -163,6 +193,14 @@ pub fn provider_get(provider_id: &str, url: &str) -> HttpOutcome {
     HardenedClient::new(provider_id).get(url)
 }
 
+pub fn provider_get_with_headers(
+    provider_id: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+) -> HttpOutcome {
+    HardenedClient::new(provider_id).get_with_headers(url, headers)
+}
+
 pub fn provider_post(provider_id: &str, url: &str, body: &str) -> HttpOutcome {
     HardenedClient::new(provider_id).post(url, body)
 }
@@ -175,8 +213,11 @@ fn elapsed_ms(started: Instant) -> u64 {
 mod tests {
     use super::{
         DEFAULT_CONNECT_TIMEOUT, DEFAULT_RESOLVE_TIMEOUT, DEFAULT_RESPONSE_TIMEOUT,
-        DEGRADED_MULTIPLIER, HttpOutcome, hardened_agent,
+        DEGRADED_MULTIPLIER, HardenedClient, HttpOutcome, hardened_agent,
     };
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::mpsc::{self, Receiver};
     use std::time::Duration;
 
     #[test]
@@ -217,6 +258,50 @@ mod tests {
             .expect_err("timeout expected");
         assert!(error.contains("timed out"));
         assert!(error.contains("connect"));
+    }
+
+    #[test]
+    fn test_http_outcome_into_body_variants() {
+        assert_eq!(success_outcome(12).into_body(), Ok("payload".to_owned()));
+        assert_eq!(
+            timeout_outcome(12).into_body(),
+            Err("timeout during connect".to_owned())
+        );
+        assert_eq!(
+            HttpOutcome::NetworkError {
+                message: "offline".to_owned(),
+                elapsed_ms: 12,
+            }
+            .into_body(),
+            Err("offline".to_owned())
+        );
+        assert_eq!(
+            HttpOutcome::HttpError {
+                status: 503,
+                body: "unavailable".to_owned(),
+                elapsed_ms: 12,
+            }
+            .into_body(),
+            Err("HTTP 503: unavailable".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_get_with_headers() {
+        let (get_url, get_request) = serve_once();
+        let client = HardenedClient::new("test");
+        assert!(
+            client
+                .get_with_headers(&get_url, &[("X-Test-Header", "get-value")])
+                .is_success()
+        );
+        assert!(
+            get_request
+                .recv()
+                .expect("GET request expected")
+                .to_ascii_lowercase()
+                .contains("x-test-header: get-value")
+        );
     }
 
     #[test]
@@ -271,5 +356,27 @@ mod tests {
             elapsed_ms,
             phase: "connect".to_owned(),
         }
+    }
+
+    fn serve_once() -> (String, Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+        let address = listener
+            .local_addr()
+            .expect("test listener address should exist");
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("request should connect");
+            let mut buffer = [0_u8; 4096];
+            let length = stream
+                .read(&mut buffer)
+                .expect("request should be readable");
+            sender
+                .send(String::from_utf8_lossy(&buffer[..length]).into_owned())
+                .expect("request should be received");
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("response should be writable");
+        });
+        (format!("http://{address}/test"), receiver)
     }
 }

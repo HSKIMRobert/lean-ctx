@@ -114,20 +114,18 @@ fn parse_github_remote(url: &str) -> (Option<String>, Option<String>) {
 
 fn api_get(config: &GitHubConfig, endpoint: &str) -> Result<String, String> {
     let url = config.api_url(endpoint);
-    let res = ureq::get(&url)
-        .header("Authorization", &format!("Bearer {}", config.token))
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .map_err(|e| format!("GitHub API error: {e}"))?;
-
-    if res.status() != 200 {
-        return Err(format!("GitHub API returned status {}", res.status()));
-    }
-
-    res.into_body()
-        .read_to_string()
-        .map_err(|e| format!("Failed to read response: {e}"))
+    let token = format!("Bearer {}", config.token);
+    super::hardened_http::provider_get_with_headers(
+        "github",
+        &url,
+        &[
+            ("Authorization", &token),
+            ("Accept", "application/vnd.github+json"),
+            ("X-GitHub-Api-Version", "2022-11-28"),
+        ],
+    )
+    .into_body()
+    .map_err(|e| format!("GitHub API error: {e}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +381,8 @@ impl ContextProvider for GitHubProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{GitHubProvider, parse_github_remote};
+    use crate::core::providers::provider_trait::ContextProvider;
 
     #[test]
     fn parse_github_remote_ssh() {
