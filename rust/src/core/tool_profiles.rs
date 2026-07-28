@@ -17,6 +17,7 @@ pub enum ToolProfile {
     Minimal,
     Standard,
     Power,
+    Auto,
     Custom(Vec<String>),
 }
 
@@ -26,6 +27,7 @@ impl ToolProfile {
             "minimal" | "min" => Some(Self::Minimal),
             "standard" | "std" | "default" => Some(Self::Standard),
             "power" | "full" | "all" => Some(Self::Power),
+            "auto" => Some(Self::Auto),
             _ => None,
         }
     }
@@ -35,6 +37,7 @@ impl ToolProfile {
             Self::Minimal => "minimal",
             Self::Standard => "standard",
             Self::Power => "power",
+            Self::Auto => "auto",
             Self::Custom(_) => "custom",
         }
     }
@@ -44,6 +47,7 @@ impl ToolProfile {
             Self::Minimal => "5 surgical tools — each irreplaceable (recommended)",
             Self::Standard => "16 balanced tools (adds compose, explore, callgraph, patch, more)",
             Self::Power => "All tools exposed",
+            Self::Auto => "Starts minimal, escalates based on session complexity",
             Self::Custom(v) => {
                 if v.is_empty() {
                     "Custom tool list (empty)"
@@ -88,6 +92,7 @@ impl ToolProfile {
                     .map(|t| String::from(*t))
                     .collect(),
             ),
+            Self::Auto => Self::Auto,
             Self::Custom(list) => Self::Custom(
                 list.iter()
                     .filter(|t| t.as_str() != tool_name)
@@ -102,6 +107,7 @@ impl ToolProfile {
             Self::Power => true,
             Self::Minimal => MINIMAL_TOOLS.contains(&tool_name),
             Self::Standard => STANDARD_TOOLS.contains(&tool_name),
+            Self::Auto => MINIMAL_TOOLS.contains(&tool_name),
             Self::Custom(list) => list.iter().any(|t| t == tool_name),
         }
     }
@@ -111,6 +117,7 @@ impl ToolProfile {
             Self::Minimal => MINIMAL_TOOLS.len(),
             Self::Standard => STANDARD_TOOLS.len(),
             Self::Power => 0, // dynamic — caller should use registry count
+            Self::Auto => MINIMAL_TOOLS.len(),
             Self::Custom(list) => list.len(),
         }
     }
@@ -119,8 +126,31 @@ impl ToolProfile {
         match self {
             Self::Minimal => MINIMAL_TOOLS.to_vec(),
             Self::Standard => STANDARD_TOOLS.to_vec(),
+            Self::Auto => MINIMAL_TOOLS.to_vec(),
             Self::Power | Self::Custom(_) => vec![],
         }
+    }
+
+    /// Resolves the `Auto` profile to a concrete profile based on session signals.
+    ///
+    /// This is a pure function: the caller tracks session state and passes the
+    /// current values. The server calls this on every `tools/list` request when
+    /// the configured profile is `Auto`.
+    pub fn resolve_auto(
+        turn_count: u64,
+        has_used_ctx_tools: bool,
+        system_prompt_tokens: usize,
+    ) -> ToolProfile {
+        if has_used_ctx_tools {
+            return ToolProfile::Standard;
+        }
+        if turn_count >= 10 {
+            return ToolProfile::Power;
+        }
+        if turn_count < 2 && system_prompt_tokens < 2000 {
+            return ToolProfile::Minimal;
+        }
+        ToolProfile::Standard
     }
 
     /// Resolves the active tool profile from environment, then config.
@@ -225,7 +255,7 @@ const STANDARD_TOOLS: &[&str] = &[
 ];
 
 /// Available built-in profile names.
-pub const PROFILE_NAMES: &[&str] = &["minimal", "standard", "power"];
+pub const PROFILE_NAMES: &[&str] = &["minimal", "standard", "power", "auto"];
 
 pub struct ProfileInfo {
     pub name: &'static str,
@@ -249,6 +279,11 @@ pub fn list_profiles() -> Vec<ProfileInfo> {
             name: "power",
             tool_count: "all",
             description: "Every tool exposed (backward compatible)",
+        },
+        ProfileInfo {
+            name: "auto",
+            tool_count: "5→all",
+            description: "Starts minimal, escalates based on session complexity",
         },
     ]
 }
@@ -289,7 +324,10 @@ pub fn clear_profile_in_config() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        MINIMAL_TOOLS, PROFILE_NAMES, STANDARD_TOOLS, ToolProfile, clear_profile_in_config,
+        is_unpinned_alias, list_profiles, set_profile_in_config,
+    };
 
     #[test]
     fn parse_known_profiles() {
@@ -301,6 +339,7 @@ mod tests {
         assert_eq!(ToolProfile::parse("power"), Some(ToolProfile::Power));
         assert_eq!(ToolProfile::parse("full"), Some(ToolProfile::Power));
         assert_eq!(ToolProfile::parse("all"), Some(ToolProfile::Power));
+        assert_eq!(ToolProfile::parse("auto"), Some(ToolProfile::Auto));
     }
 
     #[test]
@@ -446,6 +485,7 @@ mod tests {
         assert_eq!(ToolProfile::Minimal.tool_count(), MINIMAL_TOOLS.len());
         assert_eq!(ToolProfile::Standard.tool_count(), STANDARD_TOOLS.len());
         assert_eq!(ToolProfile::Power.tool_count(), 0);
+        assert_eq!(ToolProfile::Auto.tool_count(), MINIMAL_TOOLS.len());
     }
 
     #[test]
@@ -539,9 +579,56 @@ mod tests {
     }
 
     #[test]
-    fn list_profiles_returns_three_entries() {
+    fn list_profiles_returns_four_entries() {
         let profiles = list_profiles();
-        assert_eq!(profiles.len(), 3);
+        assert_eq!(profiles.len(), 4);
+    }
+
+    #[test]
+    fn resolve_auto_short_session_returns_minimal() {
+        assert_eq!(
+            ToolProfile::resolve_auto(0, false, 500),
+            ToolProfile::Minimal
+        );
+        assert_eq!(
+            ToolProfile::resolve_auto(1, false, 1500),
+            ToolProfile::Minimal
+        );
+    }
+
+    #[test]
+    fn resolve_auto_ctx_tools_used_returns_standard() {
+        assert_eq!(
+            ToolProfile::resolve_auto(1, true, 500),
+            ToolProfile::Standard
+        );
+        assert_eq!(ToolProfile::resolve_auto(0, true, 0), ToolProfile::Standard);
+    }
+
+    #[test]
+    fn resolve_auto_long_session_returns_power() {
+        assert_eq!(
+            ToolProfile::resolve_auto(10, false, 500),
+            ToolProfile::Power
+        );
+        assert_eq!(
+            ToolProfile::resolve_auto(20, false, 3000),
+            ToolProfile::Power
+        );
+    }
+
+    #[test]
+    fn resolve_auto_medium_session_returns_standard() {
+        assert_eq!(
+            ToolProfile::resolve_auto(5, false, 3000),
+            ToolProfile::Standard
+        );
+    }
+
+    #[test]
+    fn auto_profile_display() {
+        assert_eq!(ToolProfile::Auto.as_str(), "auto");
+        assert_eq!(format!("{}", ToolProfile::Auto), "auto");
     }
 
     #[test]
