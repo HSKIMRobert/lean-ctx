@@ -183,7 +183,7 @@ fn chatgpt_node_to_canonical(message: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::ConversationTracker;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     fn loaded_conversation() -> Vec<u8> {
         serde_json::to_vec(&json!({
@@ -233,10 +233,13 @@ mod tests {
 
     fn reconstructed(tracker: &ConversationTracker, conv_id: &str) -> Vec<Value> {
         tracker
-            .reconstruct_with_new_turn(conv_id, &json!({
-                "role": "user",
-                "content": "Where should I eat?"
-            }))
+            .reconstruct_with_new_turn(
+                conv_id,
+                &json!({
+                    "role": "user",
+                    "content": "Where should I eat?"
+                }),
+            )
             .expect("conversation must be tracked")
     }
 

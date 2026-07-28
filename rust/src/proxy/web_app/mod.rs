@@ -1,5 +1,5 @@
-pub(crate) mod normalize;
 pub(crate) mod conversation_tracker;
+pub(crate) mod normalize;
 #[cfg(test)]
 mod proof_tests;
 
