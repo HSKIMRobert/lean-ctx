@@ -78,11 +78,7 @@ pub struct EtpaoReport {
 
 impl EtpaoReport {
     /// Compute ETPAO comparison.
-    pub fn compute(
-        leanctx: TokenUsage,
-        baseline: TokenUsage,
-        pricing: &TokenPricing,
-    ) -> Self {
+    pub fn compute(leanctx: TokenUsage, baseline: TokenUsage, pricing: &TokenPricing) -> Self {
         let lw = leanctx.weighted_tokens(pricing);
         let bw = baseline.weighted_tokens(pricing);
         let delta_pct = if bw > 0.0 {

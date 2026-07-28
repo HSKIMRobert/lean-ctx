@@ -577,12 +577,26 @@ impl ServerHandler for LeanCtxServer {
             .unwrap_or_default();
 
         let loop_detector = self.loop_detector.clone();
+        let ct = context.ct.clone();
 
         match AssertUnwindSafe(self.call_tool_guarded(request))
             .catch_unwind()
             .await
         {
-            Ok(result) => result,
+            Ok(result) => {
+                // #1265: If the client cancelled this request while the tool was
+                // executing, drop the result instead of replying to a stale ID.
+                if ct.is_cancelled() {
+                    tracing::warn!(
+                        "tool '{tool_name_for_panic}' completed after client cancellation — dropping result"
+                    );
+                    return Err(ErrorData::internal_error(
+                        "request was cancelled by client",
+                        None,
+                    ));
+                }
+                result
+            }
             Err(panic_payload) => {
                 let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
                     (*s).to_string()
