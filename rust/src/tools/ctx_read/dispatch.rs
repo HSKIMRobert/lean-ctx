@@ -174,18 +174,29 @@ pub(crate) fn force_fresh_env() -> bool {
     })
 }
 
-/// Detects a subagent (forked agent) execution context via `CURSOR_TASK_ID`.
+/// Detects a subagent (forked agent) execution context.
 ///
 /// A subagent must never be served a stub for content only the parent received.
 /// That used to be enforced by force-freshing *every* subagent read; with
 /// conversation scoping (#954/#955) the subagent instead runs under its own scope
-/// (`conversation::current_conversation_id` → `task:{id}`), so the stub gate
-/// withholds cross-agent stubs precisely while restoring the subagent's *own*
-/// cheap re-reads. The blanket force-fresh is therefore kept only as the fallback
-/// when scoping is disabled (#956).
+/// (`conversation::current_conversation_id` → `task:{id}` or `proc:{id}`), so
+/// the stub gate withholds cross-agent stubs precisely while restoring the
+/// subagent's *own* cheap re-reads. The blanket force-fresh is therefore kept
+/// only as the fallback when scoping is disabled (#956).
+///
+/// Checks `CURSOR_TASK_ID` (Cursor) and `CLAUDE_CODE_ENTRYPOINT=local-agent`
+/// (future Claude Code subagent marker). Current Claude Code is handled by
+/// per-process scoping in [`crate::core::conversation`] (#1292).
 pub(crate) fn is_subagent_context() -> bool {
     static IS_SUBAGENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *IS_SUBAGENT.get_or_init(|| std::env::var("CURSOR_TASK_ID").is_ok_and(|v| !v.is_empty()))
+    *IS_SUBAGENT.get_or_init(|| {
+        std::env::var("CURSOR_TASK_ID").is_ok_and(|v| !v.is_empty())
+            || std::env::var("CLAUDE_CODE_ENTRYPOINT")
+                .ok()
+                .as_deref()
+                .map(str::trim)
+                == Some("local-agent")
+    })
 }
 
 fn handle_with_options_resolved(
