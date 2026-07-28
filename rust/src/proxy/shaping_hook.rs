@@ -7,7 +7,8 @@
 //!
 //! Both are gated on `Config::response_shaping_mode` / `Config::conversation_compression`.
 use super::conversation;
-use super::response_shaper::{self, ShapingMode, ShapingResult};
+#[allow(unused_imports)]
+use super::response_shaper::{self, ShapingMode, ShapingResult, StreamShaper};
 use crate::core::config::Config;
 
 /// Apply response shaping to non-streaming response bytes.
@@ -15,6 +16,21 @@ use crate::core::config::Config;
 pub(crate) fn shape_response(resp_bytes: &[u8], mode: &str) -> Option<ShapingResult> {
     let shaping_mode = ShapingMode::from_str_config(mode);
     response_shaper::shape_response(resp_bytes, shaping_mode)
+}
+
+/// Create a streaming shaper when response shaping is enabled.
+/// Returns `None` if disabled or mode is "off".
+#[allow(dead_code)]
+pub(crate) fn create_stream_shaper() -> Option<StreamShaper> {
+    let config = Config::load();
+    if !config.response_shaping.enabled {
+        return None;
+    }
+    let mode = ShapingMode::from_str_config(&config.response_shaping.mode);
+    if mode == ShapingMode::Off {
+        return None;
+    }
+    Some(StreamShaper::new(mode))
 }
 
 /// Config-gated response shaping. Returns `None` if disabled or mode is "off".
