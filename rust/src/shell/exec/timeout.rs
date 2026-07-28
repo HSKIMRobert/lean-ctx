@@ -87,6 +87,28 @@ fn is_loop_command(lower: &str) -> bool {
         || (trimmed.starts_with("for ") && trimmed.contains(" in "))
 }
 
+/// Strip leading `KEY=value` env-var assignments from a command string.
+/// Local copy of `rewrite_registry::strip_env_prefix` for decoupling.
+fn strip_env_prefix(cmd: &str) -> &str {
+    let mut rest = cmd;
+    loop {
+        let trimmed = rest.trim_start();
+        if let Some(eq_pos) = trimmed.find('=') {
+            let before_eq = &trimmed[..eq_pos];
+            if !before_eq.is_empty()
+                && before_eq
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                && let Some(space_pos) = trimmed[eq_pos..].find(' ')
+            {
+                rest = &trimmed[eq_pos + space_pos..];
+                continue;
+            }
+        }
+        return trimmed;
+    }
+}
+
 fn is_heavy_command(command: &str) -> bool {
     let cmd = command.trim();
     let lower = cmd.to_lowercase();
@@ -171,6 +193,13 @@ fn is_heavy_command(command: &str) -> bool {
         return true;
     }
 
+    // Agents prefix commands with `LEAN_CTX_DISABLED=1`, `RUST_LOG=debug`, etc.
+    // Strip the assignments so the underlying command can match a heavy prefix.
+    let stripped = strip_env_prefix(&lower);
+    if stripped != lower && matches_heavy(stripped) {
+        return true;
+    }
+
     // Agents often prefix commands with `cd /path && ...` or `cd /path;`.
     // Extract the final segment after the last `&&` or `;` and check that too.
     let final_cmd = lower
@@ -178,7 +207,11 @@ fn is_heavy_command(command: &str) -> bool {
         .or_else(|| lower.rsplit_once(';'))
         .map_or("", |(_, rhs)| rhs.trim());
 
-    !final_cmd.is_empty() && matches_heavy(final_cmd)
+    if final_cmd.is_empty() {
+        return false;
+    }
+    let final_stripped = strip_env_prefix(final_cmd);
+    matches_heavy(final_cmd) || matches_heavy(final_stripped)
 }
 
 #[cfg(test)]
@@ -220,6 +253,43 @@ mod tests {
                 bytes,
                 super::DEFAULT_MAX_BYTES,
                 "default byte limit for {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn env_prefixed_commands_get_correct_heavy_classification() {
+        for cmd in [
+            "LEAN_CTX_DISABLED=1 cargo test --lib",
+            "FOO=bar RUST_LOG=debug cargo test --lib",
+            "LEAN_CTX_DISABLED=1 cargo build --release",
+            "NODE_ENV=production npm run build",
+            "cd /path && LEAN_CTX_DISABLED=1 cargo test --lib",
+            "cd /path; FOO=bar npm run build",
+            "cargo test --lib",
+            "npm run build",
+            "go test ./...",
+            "cargo clippy --all-features -- -D warnings",
+        ] {
+            assert!(
+                super::is_heavy_command(cmd),
+                "expected heavy command: {cmd}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_commands_remain_non_heavy_with_or_without_env_prefixes() {
+        for cmd in [
+            "FOO=bar ls -la",
+            "LEAN_CTX_DISABLED=1 echo hello",
+            "ls -la",
+            "echo hello",
+            "cat file.txt",
+        ] {
+            assert!(
+                !super::is_heavy_command(cmd),
+                "expected non-heavy command: {cmd}"
             );
         }
     }
