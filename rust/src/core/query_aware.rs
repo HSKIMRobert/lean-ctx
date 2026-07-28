@@ -45,10 +45,9 @@ impl TaskIntent {
     pub fn compression_level(&self) -> CompressionLevel {
         match self {
             TaskIntent::Explore => CompressionLevel::High,
-            TaskIntent::Review => CompressionLevel::Medium,
+            TaskIntent::Review | TaskIntent::Unknown => CompressionLevel::Medium,
             TaskIntent::Debug => CompressionLevel::Low,
             TaskIntent::Implement => CompressionLevel::Minimal,
-            TaskIntent::Unknown => CompressionLevel::Medium,
         }
     }
 
@@ -57,8 +56,7 @@ impl TaskIntent {
         match self {
             TaskIntent::Explore => "map",
             TaskIntent::Review => "signatures",
-            TaskIntent::Debug => "full",
-            TaskIntent::Implement => "full",
+            TaskIntent::Debug | TaskIntent::Implement => "full",
             TaskIntent::Unknown => "auto",
         }
     }
