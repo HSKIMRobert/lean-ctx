@@ -576,7 +576,7 @@ mod tests {
 
         assert!(output.is_some(), "warm re-read must use the stub cache");
         assert!(
-            after >= before + 1,
+            after > before,
             "stub cache hit must increment central telemetry"
         );
     }

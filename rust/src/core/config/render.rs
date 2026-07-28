@@ -167,6 +167,8 @@ fn humanize(field: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::core::config::CompressionLevel;
 
@@ -257,11 +259,13 @@ mod tests {
 
     #[test]
     fn undocumented_schema_fields_get_readable_fallback_comments() {
-        let mut cfg = Config::default();
-        cfg.theme = "neon".to_string();
+        let cfg = Config {
+            theme: "neon".to_string(),
+            ..Config::default()
+        };
         let schema = ConfigSchema {
             version: 1,
-            sections: Default::default(),
+            sections: BTreeMap::default(),
         };
 
         let rendered = render_annotated_config(&cfg, &schema);

@@ -596,7 +596,7 @@ mod tests {
 
         assert!(output.contains("telemetry_miss"));
         assert!(
-            after >= before + 1,
+            after > before,
             "fresh cache store must increment central miss telemetry"
         );
     }

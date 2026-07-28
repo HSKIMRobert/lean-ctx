@@ -187,7 +187,7 @@ fn hebbian_eviction_bonus_is_wired() {
     // delayed one store() past the window. An injected window removes the
     // wall-clock dependency entirely.
     let mut cache = SessionCache::new();
-    cache.set_co_access_burst_window(std::time::Duration::from_secs(3600));
+    cache.set_co_access_burst_window(std::time::Duration::from_hours(1));
     cache.store("/a.rs", "fn a() {}");
     cache.store("/b.rs", "fn b() {}");
     cache.flush_co_access(); // commit the burst → association (a,b) forms
