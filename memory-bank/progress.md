@@ -48,3 +48,55 @@ Die ursprüngliche Empfehlung "22 Views → 7 Views" war **falsch** — die Tab-
 - Nav-Metadata SSOT (Labels dreifach definiert)
 - Component-Level Refactoring (Graph 1891L, Live 1227L)
 
+## Premium Production Readiness (E-Phasen)
+
+Stand: 2026-07-28
+
+### D6-D9: LOC Splits (4 Runden, 16 Agents) ✅
+- Alle Rust-Dateien unter 1500 LOC (Gate-Compliance)
+- Nur `shell_allowlist/tests.rs` (1427 LOC) noch über 1400 LOC
+- Flaky Test Fix: `prefix_replay::tests::append_only_detection_works`
+
+### E1: Test-File LOC Splits (4 Agents) ✅
+- `compress/tests.rs`, `hook_handlers/tests.rs`, `config/tests.rs`, `ctx_read/tests.rs` gesplittet
+- 9074 Tests, 0 Failures
+
+### E2: ETPAO Runtime Baseline (4 Agents) ✅ (2026-07-27)
+- `savings_ledger/etpao.rs`: RuntimeEtpao aus echten Events (Baseline vs. Delivered, per-Tool)
+- `telemetry.rs`: ObservedEfficiency Export (Cache Hit Rate, Request Count)
+- `ctx_gain.rs`: ETPAO-Section mit Live-Daten
+- `efficiency_analyzer.rs`: 5 E2E-Testszenarien
+- Flaky Test Fix: `mutate_locked_preserves_successive_agent_episodes`
+- 9095 Tests, 0 Clippy Warnings
+
+### E3: Multi-Layer Cache Pipeline (6 Agents) ✅ (2026-07-27)
+- **Root Cause**: `telemetry.record_cache()` wurde NIE aus Produktion aufgerufen → ~0.7% Hit Rate
+- SessionCache + ContentCache hits → zentrale Telemetrie verdrahtet
+- ResponseCache aktiviert für deterministische Tool-Calls
+- Cache Warming Modul (`cache/warming.rs`)
+- Multi-Layer Cache Dashboard (Session/Content/Response/Overall)
+- E2E Pipeline-Tests (`cache/pipeline_tests.rs`)
+- 879 neue LOC, 9137 Tests, 0 Clippy Warnings
+
+### E4: A2A Transport Hardening (5 Agents) ✅ (2026-07-28)
+- `a2a/remote_transport.rs` (342 LOC): HTTP Transport mit Retry + Timeout + Auth
+- `a2a/health.rs` (145 LOC): Transport Health Probes (Ready/Degraded/Unavailable)
+- `a2a/relay.rs` (149 LOC): Multi-Hop Relay Chain + Cycle-Detection
+- `a2a/budget_cascade.rs` (201 LOC): Token Budget Parent→Child Cascade
+- `a2a/telemetry.rs` (139 LOC): Transport Delivery Metrics
+- 976 neue LOC, 9147 Tests, 0 Clippy Warnings
+
+### E5: Doku-SSOT-Update ✅ (2026-07-28)
+- Memory-Bank (activeContext, progress) auf E2-E4-Stand
+- OCLA-UMBAU-ZIEL.md mit E-Phasen aktualisiert
+- Requirements Matrix IN-05 A2A-Status aktualisiert
+
+## Gesamtstatistik E-Phasen
+
+| Phase | Agents | Neue LOC | Tests Total |
+|---|---|---|---|
+| E1 | 4 | ~600 | 9074 |
+| E2 | 4 | ~530 | 9095 |
+| E3 | 6 | ~879 | 9137 |
+| E4 | 5 | ~976 | 9147 |
+| **Gesamt** | **19** | **~2985** | **9147** |
