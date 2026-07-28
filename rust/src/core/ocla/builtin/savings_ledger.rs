@@ -102,6 +102,8 @@ impl SavingsLedger for BuiltinSavingsLedger {
                 "ocla_savings",
                 evidence.original_tokens.try_into().unwrap_or(usize::MAX),
                 evidence.delivered_tokens.try_into().unwrap_or(usize::MAX),
+                evidence.quality_ref.as_deref(),
+                None,
             );
         });
 

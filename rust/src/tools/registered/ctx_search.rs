@@ -283,7 +283,13 @@ fn handle_regex(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutp
     // #685: `actual_tokens` is the *sent* output, not the saving — passing
     // `saved` here recorded `actual=observed−sent` and `saved=sent` (both
     // wrong). Align with cli_grep/cli_shell, which pass the output count.
-    crate::core::savings_ledger::record_tool_event("ctx_search", total_observed, total_sent);
+    crate::core::savings_ledger::record_tool_event(
+        "ctx_search",
+        total_observed,
+        total_sent,
+        None,
+        None,
+    );
 
     // R30: Search evidence for batch queries.
     crate::tools::search_hook::on_search("batch_query", "regex", total_observed, total_sent);
@@ -552,7 +558,7 @@ fn search_single(
     let final_out = crate::core::protocol::append_savings(&result, observed, sent);
     // #685: pass the *sent* output as `actual_tokens` (not `saved`); see the
     // multi-root branch above for why the previous arg was a double bug.
-    crate::core::savings_ledger::record_tool_event("ctx_search", observed, sent);
+    crate::core::savings_ledger::record_tool_event("ctx_search", observed, sent, None, None);
 
     // R30: Search evidence + dedup detection via kernel.
     crate::tools::search_hook::on_search(pattern, "regex", observed, sent);
@@ -677,7 +683,13 @@ fn handle_batch_queries(
 
     let final_out = crate::core::protocol::append_savings(&combined, total_observed, total_sent);
     let saved = total_observed.saturating_sub(total_sent);
-    crate::core::savings_ledger::record_tool_event("ctx_search", total_observed, total_sent);
+    crate::core::savings_ledger::record_tool_event(
+        "ctx_search",
+        total_observed,
+        total_sent,
+        None,
+        None,
+    );
 
     // R30: Search evidence for batch queries.
     crate::tools::search_hook::on_search("batch_query", "regex", total_observed, total_sent);
