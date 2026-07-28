@@ -856,6 +856,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
         crate::test_env::set_var("LEAN_CTX_STRUCTURE_FIRST", "0");
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "0");
 
         let ctx = AutoModeContext {
             path: "src/versioncmp.c",
@@ -868,6 +869,7 @@ mod tests {
         assert_eq!(result.mode, "full");
         assert_eq!(result.source, "heuristic");
 
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
         crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
@@ -884,6 +886,7 @@ mod tests {
         crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
         crate::test_env::remove_var("LEAN_CTX_AUTO_MODE_LEARNING");
         crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "0");
 
         let ctx = AutoModeContext {
             path: "src/widget.rs",
@@ -898,6 +901,7 @@ mod tests {
         assert_eq!(a.source, "structure_first");
         assert_eq!((a.mode, a.source), (b.mode, b.source));
 
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
