@@ -228,19 +228,13 @@ impl ContextProvider for GitLabProvider {
 
 fn api_get(config: &GitLabConfig, endpoint: &str) -> Result<String, String> {
     let url = config.api_url(endpoint);
-    let response = ureq::get(&url)
-        .header("PRIVATE-TOKEN", &config.token)
-        .call()
-        .map_err(|e| format!("GitLab API error: {e}"))?;
-
-    if response.status() != 200 {
-        return Err(format!("GitLab API returned status {}", response.status()));
-    }
-
-    response
-        .into_body()
-        .read_to_string()
-        .map_err(|e| format!("Failed to read response: {e}"))
+    super::hardened_http::provider_get_with_headers(
+        "gitlab",
+        &url,
+        &[("PRIVATE-TOKEN", config.token.as_str())],
+    )
+    .into_body()
+    .map_err(|e| format!("GitLab API error: {e}"))
 }
 
 fn parse_issue(v: &serde_json::Value) -> ProviderItem {
