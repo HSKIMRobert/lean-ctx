@@ -336,6 +336,7 @@ pub mod degradation_policy;
 pub mod loop_detection;
 pub mod output_verification;
 pub mod quality;
+pub mod quality_lab;
 pub mod safety_needles;
 pub mod scorecard;
 pub mod setup_report;
@@ -576,3 +577,4 @@ pub mod storage_maintenance;
 pub mod structured_compact;
 pub mod type_ref_edges;
 pub mod workspace_trust;
+
