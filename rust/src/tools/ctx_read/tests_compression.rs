@@ -300,13 +300,14 @@ fn resolve_auto_mode_returns_full_for_instruction_files() {
         None,
         "/home/user/.pi/agent/skills/committing-changes/SKILL.md",
         5000,
+        None,
         Some("read"),
     );
     assert_eq!(mode, "full", "SKILL.md must always be read in full");
 
-    let mode = resolve_auto_mode(None, "/workspace/AGENTS.md", 3000, Some("read"));
+    let mode = resolve_auto_mode(None, "/workspace/AGENTS.md", 3000, None, Some("read"));
     assert_eq!(mode, "full", "AGENTS.md must always be read in full");
 
-    let mode = resolve_auto_mode(None, "/workspace/.cursorrules", 2000, None);
+    let mode = resolve_auto_mode(None, "/workspace/.cursorrules", 2000, None, None);
     assert_eq!(mode, "full", ".cursorrules must always be read in full");
 }

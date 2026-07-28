@@ -314,6 +314,23 @@ pub struct Config {
     /// Override via the LEAN_CTX_STRUCTURE_FIRST env var.
     #[serde(default)]
     pub structure_first: bool,
+    /// Progressive disclosure for first-time reads (LCLM arXiv 2606.09659).
+    /// When true (default), large files default to compact overviews on first read:
+    ///   - Below progressive_threshold_lines: full content
+    ///   - Below progressive_signatures_max_lines: signatures mode
+    ///   - Above: map (manifest) mode
+    /// Models can always bypass with explicit mode= or lines= parameters.
+    /// Override via LEAN_CTX_PROGRESSIVE_DISCLOSURE env var.
+    #[serde(default = "serde_defaults::default_true")]
+    pub progressive_disclosure: bool,
+    /// Files with fewer lines than this threshold are always delivered in full.
+    /// Default: 100 lines.
+    #[serde(default = "serde_defaults::default_progressive_threshold_lines")]
+    pub progressive_threshold_lines: u32,
+    /// Files between threshold and this limit get signatures mode.
+    /// Files above get map (manifest) mode. Default: 500 lines.
+    #[serde(default = "serde_defaults::default_progressive_signatures_max")]
+    pub progressive_signatures_max: u32,
     /// Opt-in: let the adaptive *learning* signals (predictor, bandit, heatmap,
     /// adaptive policy, bounce/path memory) participate in `auto` mode
     /// resolution. Off by default (#683): the default cascade is a deterministic

@@ -262,9 +262,10 @@ pub(crate) fn process_mode_tuned(
             // The aggressiveness knob routes `auto` through the density path so a
             // single number drives whole-file intensity; otherwise the learned
             // auto-resolver picks the mode.
-            let chosen = tuning
-                .auto_density_mode()
-                .unwrap_or_else(|| resolve_auto_mode(None, file_path, original_tokens, task));
+            let chosen = tuning.auto_density_mode().unwrap_or_else(|| {
+                let lc = content.lines().count();
+                resolve_auto_mode(None, file_path, original_tokens, Some(lc), task)
+            });
             process_mode_tuned(
                 content,
                 &chosen,

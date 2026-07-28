@@ -42,6 +42,7 @@ pub(super) fn compress_text(
     false
 }
 
+#[allow(dead_code)]
 pub(super) fn compress_text_for(
     text: &mut String,
     tool_name: Option<&str>,
@@ -94,6 +95,7 @@ pub(super) fn compress_value(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn compress_value_for(
     value: &mut Value,
     tool_name: Option<&str>,

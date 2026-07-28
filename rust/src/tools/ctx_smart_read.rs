@@ -30,6 +30,7 @@ pub fn select_mode_with_task(cache: &SessionCache, path: &str, task: Option<&str
     let ctx = AutoModeContext {
         path,
         token_count,
+        line_count: None,
         task,
         cache: Some(cache),
     };
