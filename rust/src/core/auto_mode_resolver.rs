@@ -821,6 +821,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&dir);
         crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
         crate::test_env::set_var("LEAN_CTX_STRUCTURE_FIRST", "1");
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "0");
 
         let suspect = AutoModeContext {
             path: "src/versioncmp.c",
@@ -842,6 +843,7 @@ mod tests {
         };
         assert_eq!(resolve(&tiny).mode, "full");
 
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
         crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);

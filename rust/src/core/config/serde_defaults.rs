@@ -69,6 +69,10 @@ pub(super) fn default_annotation_threshold_pct() -> u8 {
     5
 }
 
+pub(super) fn default_turn_fresh_limit() -> usize {
+    4096
+}
+
 pub(super) fn default_progressive_threshold_lines() -> u32 {
     100
 }
