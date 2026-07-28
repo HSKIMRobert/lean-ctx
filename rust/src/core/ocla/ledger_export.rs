@@ -207,4 +207,3 @@ mod tests {
         assert_eq!(result.errors[0], "event count mismatch: header=2, actual=1");
     }
 }
-
