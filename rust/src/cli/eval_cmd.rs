@@ -240,6 +240,8 @@ fn cmd_routing(args: &[String]) {
         },
         experiment_ref: suite_path.to_string_lossy().into_owned(),
         cohort_ref: "cohort:routing-eval".into(),
+        holdout: None,
+        stop_conditions: None,
     };
     let result = match OclaRegistry::global()
         .experiment_runner

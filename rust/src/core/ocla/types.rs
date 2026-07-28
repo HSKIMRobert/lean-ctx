@@ -470,10 +470,53 @@ pub struct ConfigProposal {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Holdout configuration for experiments.
+pub struct HoldoutConfig {
+    /// Percentage of traffic to hold out (0-100).
+    pub holdout_pct: u8,
+    /// Deterministic assignment seed for reproducibility.
+    pub assignment_seed: String,
+    /// Maximum number of samples before stopping.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_samples: Option<u64>,
+}
+
+/// Stop conditions that can terminate an experiment early.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ExperimentStopConditions {
+    /// Stop if this many samples are collected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_samples: Option<u64>,
+    /// Stop if improvement over control is below this threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_improvement_pct: Option<u8>,
+    /// Stop after this many seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_duration_secs: Option<u64>,
+}
+
+/// Extended experiment result with holdout data.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExperimentOutcome {
+    pub experiment_ref: String,
+    pub treatment_samples: u64,
+    pub control_samples: u64,
+    pub treatment_metric: f64,
+    pub control_metric: f64,
+    pub improvement_pct: f64,
+    pub stopped_reason: Option<String>,
+    pub is_significant: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentRequest {
     pub context: OclaRequestContext,
     pub experiment_ref: String,
     pub cohort_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holdout: Option<HoldoutConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_conditions: Option<ExperimentStopConditions>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
