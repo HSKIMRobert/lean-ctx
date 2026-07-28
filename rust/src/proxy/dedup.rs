@@ -12,6 +12,7 @@ const FIRST_LINE_MAX: usize = 120;
 pub struct ToolResultCache {
     entries: DashMap<u64, CacheEntry>,
     current_turn: AtomicU64,
+    #[allow(dead_code)]
     created_at: Instant,
 }
 
@@ -73,15 +74,14 @@ impl ToolResultCache {
         token_count: usize,
         ccr_handle: Option<String>,
     ) {
-        if self.entries.len() >= MAX_ENTRIES {
-            if let Some(oldest_key) = self
+        if self.entries.len() >= MAX_ENTRIES
+            && let Some(oldest_key) = self
                 .entries
                 .iter()
                 .min_by_key(|entry| entry.inserted_at)
                 .map(|entry| *entry.key())
-            {
-                self.entries.remove(&oldest_key);
-            }
+        {
+            self.entries.remove(&oldest_key);
         }
 
         self.entries.insert(
