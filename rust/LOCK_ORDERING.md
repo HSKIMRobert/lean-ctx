@@ -98,6 +98,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L85 | `PROVIDER_STATS` | `core/context_kernel/envelope_bridge.rs:37` | `OnceLock<Mutex<HashMap<ProviderKind, ProviderAccum>>>` | Per-provider token/cost accumulation from canonical envelopes (r32); locked briefly to record or read a single entry; independent leaf lock, never nested |
 | L86 | `LATENCY_SAMPLES` | `proxy/latency_guard.rs:53` | `LazyLock<Mutex<Vec<u64>>>` | Rolling latency samples for p50/p95/p99 percentile tracking (E8); locked briefly to push or read samples; independent leaf lock, never nested |
 | L87 | `PROVIDER_CACHE` | `core/providers/cache.rs:8` | `LazyLock<Mutex<ProviderCache>>` | LRU cache for provider responses (E8); locked briefly to read, insert, or evict entries; independent leaf lock, never nested |
+| L88 | `HANDLES` | `core/content_handle.rs:14` | `Mutex<Option<HandleStore>>` | Content-addressed file handle store for dedup re-reads (#1315); locked briefly to create, get, or invalidate handles; independent leaf lock, never nested |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
@@ -231,7 +232,7 @@ is always `worker_threads * 4`, clamped to `[8, 32]`.
 
 ### Independent Static Locks (L3–L82)
 
-All other static locks (L3–L82) — **except the L22 → L4 pair documented above** — are
+All other static locks (L3–L88) — **except the L22 → L4 pair documented above** — are
 **independent singletons**: they protect isolated subsystem state and are never nested inside
 each other. Each should be acquired in isolation:
 
@@ -290,4 +291,5 @@ across any other lock acquisition.
 3. Assign a lock number (append to Section 1) and document the acquisition order here.
 4. If nesting is required, document the outer → inner relationship in Section 3.
 5. Run `cargo check --all-features` to verify `Send`/`Sync` bounds.
+
 
