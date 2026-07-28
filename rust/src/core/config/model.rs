@@ -506,6 +506,11 @@ pub struct Config {
     /// Default: 5 (suppress annotations for savings below 5%).
     #[serde(default = "serde_defaults::default_annotation_threshold_pct")]
     pub annotation_threshold_pct: u8,
+    /// Maximum fresh tokens per single tool response (turn budget).
+    /// 0 = unlimited. Default: 4096. Prevents context bloat from oversized responses.
+    /// Override via LEAN_CTX_TURN_FRESH_LIMIT env var.
+    #[serde(default = "serde_defaults::default_turn_fresh_limit")]
+    pub turn_fresh_limit: usize,
     /// Explicit project root override. When set, lean-ctx uses this instead of auto-detection.
     /// This prevents accidental home-directory scans when running from $HOME.
     /// Override via LEAN_CTX_PROJECT_ROOT env var.

@@ -152,6 +152,7 @@ impl Default for Config {
             savings_footer: SavingsFooter::default(),
             compression_annotation: CompressionAnnotation::default(),
             annotation_threshold_pct: serde_defaults::default_annotation_threshold_pct(),
+            turn_fresh_limit: serde_defaults::default_turn_fresh_limit(),
             project_root: None,
             lsp: std::collections::HashMap::new(),
             ide_paths: HashMap::new(),

@@ -361,6 +361,7 @@ pub mod attribution;
 pub mod audit_trail;
 pub mod binary_detect;
 pub mod bounce_tracker;
+pub mod budget;
 pub mod budget_tracker;
 pub mod budgets;
 pub mod cache;

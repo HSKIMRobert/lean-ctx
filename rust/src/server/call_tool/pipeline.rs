@@ -764,5 +764,21 @@ pub(in crate::server) async fn dispatch_and_post_process(
         result_text = pre_compression;
     }
 
+    // Turn-level budget enforcement (#1306): cap fresh tokens per response.
+    let budget_limit = crate::core::config::Config::load().turn_fresh_limit_effective();
+    if budget_limit > 0 && shell_outcome.is_none() {
+        let (budgeted, action) = crate::core::budget::apply_turn_budget(&result_text, budget_limit);
+        if let crate::core::budget::BudgetAction::Truncated {
+            original_tokens,
+            delivered_tokens,
+        } = action
+        {
+            tracing::debug!(
+                "budget: truncated {original_tokens} → {delivered_tokens} tokens (limit {budget_limit})"
+            );
+        }
+        result_text = budgeted;
+    }
+
     Ok(finalize_call_result(&result_text, shell_outcome))
 }

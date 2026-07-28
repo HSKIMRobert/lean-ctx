@@ -179,6 +179,14 @@ impl Config {
         }
     }
 
+    /// Effective turn budget (fresh token limit per response). 0 = unlimited.
+    pub fn turn_fresh_limit_effective(&self) -> usize {
+        std::env::var("LEAN_CTX_TURN_FRESH_LIMIT")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(self.turn_fresh_limit)
+    }
+
     /// Whether progressive disclosure is active. Default true. The env var
     /// `LEAN_CTX_PROGRESSIVE_DISCLOSURE` overrides the config field.
     pub fn progressive_disclosure_effective(&self) -> bool {
