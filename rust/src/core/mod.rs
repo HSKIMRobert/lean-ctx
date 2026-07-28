@@ -18,6 +18,7 @@ pub mod compressor;
 pub mod context_budget;
 pub mod datadog_push;
 pub mod entropy;
+pub mod etpao;
 pub mod eval_ab;
 pub mod eval_harness;
 pub mod extractive;

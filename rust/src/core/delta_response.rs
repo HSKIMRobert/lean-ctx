@@ -131,7 +131,7 @@ pub fn compute_delta(
         let ctx_end = (i + context_lines).min(old_lines.len());
         let context_after: Vec<String> = old_lines[i..ctx_end]
             .iter()
-            .map(|l| l.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         lines_changed += removed.len() + added.len();
