@@ -36,19 +36,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::protocol::strip_trailing_savings_footer;
-use crate::core::tokens::count_tokens;
+use crate::core::tokens::{TokenizerFamily, count_tokens_for, detect_tokenizer};
 
-use super::compress::compress_tool_result_gateway;
-
-/// Default tokenizer behind [`count_tokens`]; surfaced so SDK clients can label
-/// the savings figures correctly.
-const TOKENIZER: &str = "o200k_base";
+use super::compress::compress_tool_result_gateway_for;
 
 #[derive(Debug, Deserialize)]
 pub struct CompressRequest {
     pub messages: Vec<Value>,
-    /// Optional, echoed into `stats.model`. Routing/pricing hint for SDK clients;
-    /// the deterministic funnel itself is model-agnostic.
+    /// Optional model name, echoed into `stats.model` and used to select the
+    /// tokenizer family for compression and token accounting.
     #[serde(default)]
     pub model: Option<String>,
 }
@@ -60,7 +56,7 @@ pub struct CompressStats {
     pub saved_tokens: usize,
     /// Percentage saved over the compressible text payloads, one decimal place.
     pub saved_pct: f64,
-    pub tokenizer: &'static str,
+    pub tokenizer: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
@@ -94,10 +90,15 @@ pub async fn handler(Json(req): Json<CompressRequest>) -> impl IntoResponse {
 /// Pure, deterministic core: rewrites every text payload in `messages` and
 /// reports aggregate token savings. Same input → same output bytes (#498).
 pub fn compress_messages(req: CompressRequest) -> CompressResponse {
+    let family = req
+        .model
+        .as_deref()
+        .map(detect_tokenizer)
+        .unwrap_or_default();
     let mut messages = req.messages;
     let mut totals = Totals::default();
     for msg in &mut messages {
-        compress_message(msg, &mut totals);
+        compress_message(msg, &mut totals, family);
     }
 
     let saved = totals.original.saturating_sub(totals.compressed);
@@ -119,7 +120,7 @@ pub fn compress_messages(req: CompressRequest) -> CompressResponse {
             compressed_tokens: totals.compressed,
             saved_tokens: saved,
             saved_pct,
-            tokenizer: TOKENIZER,
+            tokenizer: family.to_string(),
             model: req.model,
         },
         tokens_before: totals.original,
@@ -128,28 +129,38 @@ pub fn compress_messages(req: CompressRequest) -> CompressResponse {
     }
 }
 
-fn compress_message(msg: &mut Value, totals: &mut Totals) {
+fn compress_message(msg: &mut Value, totals: &mut Totals, family: TokenizerFamily) {
     // OpenAI `tool`/`function` messages carry the tool name; pass it to the funnel
     // so it can honour the #479 pass-through for lean-ctx's own `ctx_*` results.
     let name = msg.get("name").and_then(Value::as_str).map(str::to_string);
     if let Some(content) = msg.get_mut("content") {
-        compress_content(content, name.as_deref(), totals);
+        compress_content(content, name.as_deref(), totals, family);
     }
 }
 
-fn compress_content(content: &mut Value, name: Option<&str>, totals: &mut Totals) {
+fn compress_content(
+    content: &mut Value,
+    name: Option<&str>,
+    totals: &mut Totals,
+    family: TokenizerFamily,
+) {
     match content {
-        Value::String(s) => squeeze_in_place(s, name, totals),
+        Value::String(s) => squeeze_in_place(s, name, totals, family),
         Value::Array(blocks) => {
             for block in blocks.iter_mut() {
-                compress_block(block, name, totals);
+                compress_block(block, name, totals, family);
             }
         }
         _ => {}
     }
 }
 
-fn compress_block(block: &mut Value, name: Option<&str>, totals: &mut Totals) {
+fn compress_block(
+    block: &mut Value,
+    name: Option<&str>,
+    totals: &mut Totals,
+    family: TokenizerFamily,
+) {
     let Some(obj) = block.as_object_mut() else {
         return;
     };
@@ -157,14 +168,14 @@ fn compress_block(block: &mut Value, name: Option<&str>, totals: &mut Totals) {
         // OpenAI + Anthropic text parts.
         Some("text") => {
             if let Some(Value::String(s)) = obj.get_mut("text") {
-                squeeze_in_place(s, name, totals);
+                squeeze_in_place(s, name, totals, family);
             }
         }
         // Anthropic tool_result: nested string or array of content blocks — the
         // single biggest compressible payload in an agent transcript.
         Some("tool_result") => {
             if let Some(inner) = obj.get_mut("content") {
-                compress_content(inner, name, totals);
+                compress_content(inner, name, totals, family);
             }
         }
         // image, tool_use, input_audio, document, … pass through untouched.
@@ -172,14 +183,19 @@ fn compress_block(block: &mut Value, name: Option<&str>, totals: &mut Totals) {
     }
 }
 
-fn squeeze_in_place(s: &mut String, name: Option<&str>, totals: &mut Totals) {
-    let before = count_tokens(s);
+fn squeeze_in_place(
+    s: &mut String,
+    name: Option<&str>,
+    totals: &mut Totals,
+    family: TokenizerFamily,
+) {
+    let before = count_tokens_for(s, family);
     // Gateway audience (#702): a lossy rewrite carries the `hash=<24hex>`
     // retrieval marker LiteLLM's CCR loop scans for; the savings footer is
     // stripped inside the gateway funnel (stats carry the numbers instead).
-    let compressed = compress_tool_result_gateway(s, name);
+    let compressed = compress_tool_result_gateway_for(s, name, family);
     let clean = strip_trailing_savings_footer(&compressed);
-    let after = count_tokens(clean);
+    let after = count_tokens_for(clean, family);
     totals.original += before;
     totals.compressed += after;
     if clean != s {
@@ -225,6 +241,17 @@ mod tests {
         assert!(resp.stats.compressed_tokens < resp.stats.original_tokens);
         assert_eq!(resp.stats.tokenizer, "o200k_base");
         assert_eq!(resp.stats.model.as_deref(), Some("claude-sonnet-4"));
+    }
+
+    #[test]
+    fn model_selects_tokenizer_family_for_gateway_compression() {
+        let resp = run(
+            vec![json!({"role": "user", "content": dedupable_prose()})],
+            Some("claude-sonnet-4"),
+        );
+
+        assert_eq!(resp.stats.model.as_deref(), Some("claude-sonnet-4"));
+        assert_eq!(resp.stats.tokenizer, "cl100k_base");
     }
 
     #[test]
