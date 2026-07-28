@@ -1,8 +1,4 @@
-use std::time::{Duration, Instant, SystemTime};
-
-use crate::core::http_client::ureq_agent_with_timeouts;
-
-const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+use std::time::{Instant, SystemTime};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProviderHealth {
@@ -152,11 +148,7 @@ fn network_endpoint(provider_type: &str) -> Option<String> {
 }
 
 fn probe_endpoint(provider_type: &str, endpoint: &str) -> Result<(), String> {
-    let agent = ureq_agent_with_timeouts(
-        Some(PROBE_TIMEOUT),
-        Some(PROBE_TIMEOUT),
-        Some(PROBE_TIMEOUT),
-    );
+    let agent = super::hardened_http::hardened_agent();
     let request = match provider_type {
         "github" => agent
             .get(endpoint)
