@@ -699,6 +699,7 @@ mod tests {
     #[test]
     #[serial_test::serial(policy_gate_rate)]
     fn rate_limit_blocks_after_n_accepted_requests() {
+        test_reset_ledger();
         let mut r = rules();
         r.max_requests_per_minute_per_person = Some(3);
         r.max_cost_usd_per_person_per_day = None;
@@ -748,6 +749,7 @@ mod tests {
     #[test]
     #[serial_test::serial(policy_gate_rate)]
     fn rate_limit_absent_or_anonymous_is_noop() {
+        test_reset_ledger();
         test_reset_rate_ledger();
         // No limit configured → unlimited.
         for _ in 0..50 {
