@@ -46,6 +46,7 @@ pub mod holdout;
 pub mod image_compression;
 mod intent;
 pub mod introspect;
+pub mod latency_guard;
 mod lineage;
 pub mod metrics;
 pub mod model_router;
