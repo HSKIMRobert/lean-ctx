@@ -113,6 +113,63 @@ pub(super) fn wrap_single_command(cmd: &str, binary: &str) -> String {
     }
 }
 
+/// Quote-aware check for stdout file redirects (`>`, `>>`).
+/// Returns `true` when the command contains an unquoted `>` that targets a
+/// real file (not `/dev/null`, not `>&N` fd-duplication, not `2>`).
+fn has_stdout_file_redirect(cmd: &str) -> bool {
+    let bytes = cmd.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while i < len {
+        let c = bytes[i];
+        if c == b'\\' && !in_single_quote {
+            i += 2;
+            continue;
+        }
+        if c == b'\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+        } else if c == b'"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        } else if c == b'>' && !in_single_quote && !in_double_quote {
+            // Skip stderr redirect `2>`
+            if i > 0 && bytes[i - 1] == b'2' {
+                i += 1;
+                continue;
+            }
+            let target_start = if i + 1 < len && bytes[i + 1] == b'>' {
+                i + 2 // >>
+            } else {
+                i + 1 // >
+            };
+            let target: String = cmd[target_start..]
+                .trim_start()
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
+            // /dev/null and fd-duplication are not file redirects.
+            if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
+                i += 1;
+                continue;
+            }
+            if let Some(fd) = target.strip_prefix('&')
+                && !fd.is_empty()
+                && (fd == "-" || fd.chars().all(|c| c.is_ascii_digit()))
+            {
+                i += 1;
+                continue;
+            }
+            if !target.is_empty() {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 pub(super) fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
     if cmd.starts_with("lean-ctx ") || cmd.starts_with(&format!("{binary} ")) {
         return None;
@@ -137,6 +194,15 @@ pub(super) fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
                 return None;
             }
         }
+    }
+
+    // File redirects (`cmd > out`, `cmd >> log`) mean the output is captured
+    // as data, not read by the agent. Wrapping in lean-ctx -c would either:
+    // (a) compress stdout before the redirect writes it to disk, or
+    // (b) add quoting overhead that can break redirect target paths.
+    // Let the native shell handle the redirect directly. (#1303)
+    if has_stdout_file_redirect(cmd) {
+        return None;
     }
 
     if let Some(rewritten) = rewrite_file_read_command(cmd, binary) {
@@ -458,5 +524,76 @@ mod tests {
             rewrite_candidate("lean-ctx ls src/", binary).is_none(),
             "lean-ctx commands must not be rewritten"
         );
+    }
+
+    // --- #1303: File redirect detection ---
+
+    #[test]
+    fn redirect_to_file_skips_rewrite() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("git show HEAD:README.md > /tmp/out.md", binary).is_none(),
+            "stdout redirect to file must skip rewrite"
+        );
+    }
+
+    #[test]
+    fn append_redirect_skips_rewrite() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("echo hello >> /tmp/log.txt", binary).is_none(),
+            "append redirect must skip rewrite"
+        );
+    }
+
+    #[test]
+    fn dev_null_redirect_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("cargo test 2>/dev/null", binary).is_some(),
+            "/dev/null redirect must still rewrite"
+        );
+    }
+
+    #[test]
+    fn stderr_redirect_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("cargo test 2> /tmp/err.log", binary).is_some(),
+            "stderr-only redirect must still rewrite"
+        );
+    }
+
+    #[test]
+    fn fd_dup_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("cargo test 2>&1", binary).is_some(),
+            "fd duplication (2>&1) must still rewrite"
+        );
+    }
+
+    #[test]
+    fn quoted_redirect_not_detected() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("echo 'output > file.txt' | grep output", binary).is_some(),
+            "redirect inside quotes must not trigger skip"
+        );
+    }
+
+    // --- has_stdout_file_redirect unit tests ---
+
+    #[test]
+    fn redirect_detection_basic() {
+        use super::has_stdout_file_redirect;
+        assert!(has_stdout_file_redirect("git status > files.txt"));
+        assert!(has_stdout_file_redirect("git diff >> changes.log"));
+        assert!(!has_stdout_file_redirect("git status"));
+        assert!(!has_stdout_file_redirect("git status 2>/dev/null"));
+        assert!(!has_stdout_file_redirect("git status > /dev/null"));
+        assert!(!has_stdout_file_redirect("git status 2>&1"));
+        assert!(!has_stdout_file_redirect("echo 'a > b'"));
+        assert!(!has_stdout_file_redirect("echo \"a > b\""));
     }
 }

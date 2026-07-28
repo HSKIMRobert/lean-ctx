@@ -239,7 +239,7 @@ mod tests {
         );
         assert!(resp.stats.saved_tokens > 0, "stats must reflect savings");
         assert!(resp.stats.compressed_tokens < resp.stats.original_tokens);
-        assert_eq!(resp.stats.tokenizer, "o200k_base");
+        assert_eq!(resp.stats.tokenizer, "cl100k_base");
         assert_eq!(resp.stats.model.as_deref(), Some("claude-sonnet-4"));
     }
 

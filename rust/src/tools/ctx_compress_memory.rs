@@ -2,9 +2,20 @@ use std::path::Path;
 
 use crate::core::tokens::count_tokens;
 
+const SOURCE_EXTENSIONS: &[&str] = &[
+    ".rs", ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h", ".hpp", ".cs",
+    ".rb", ".swift", ".kt", ".scala", ".zig", ".toml", ".yaml", ".yml", ".json", ".lock", ".sum",
+    ".mod",
+];
+
 pub fn handle(path: &str) -> String {
-    // Read-only-roots choke point (#475): this tool rewrites `path` in place (and
-    // writes a sibling backup), so deny up front inside a read-only root.
+    if SOURCE_EXTENSIONS.iter().any(|ext| path.ends_with(ext)) {
+        return format!(
+            "ERROR: refusing to compress source file {path} — \
+             ctx_compress_memory is for memory-bank/doc files only (#1323)"
+        );
+    }
+
     if let Err(e) = crate::core::pathjail::enforce_writable(Path::new(path)) {
         return format!("ERROR: {e}");
     }

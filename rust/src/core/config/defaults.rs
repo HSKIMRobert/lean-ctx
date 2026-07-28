@@ -147,6 +147,8 @@ impl Default for Config {
             max_staleness_days: 0,
             max_index_threads: 0,
             savings_footer: SavingsFooter::default(),
+            compression_annotation: CompressionAnnotation::default(),
+            annotation_threshold_pct: serde_defaults::default_annotation_threshold_pct(),
             project_root: None,
             lsp: std::collections::HashMap::new(),
             ide_paths: HashMap::new(),

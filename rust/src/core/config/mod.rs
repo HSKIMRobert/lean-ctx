@@ -45,7 +45,9 @@ pub use enums::{
 pub use loader::last_config_parse_error;
 pub use loader::local_sensitive_overrides;
 pub(crate) use loader::strip_sensitive_overrides;
-pub use memory::{MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter};
+pub use memory::{
+    CompressionAnnotation, MemoryCleanup, MemoryGuardConfig, MemoryProfile, SavingsFooter,
+};
 pub use provenance::{ConfigProvenance, EnvOverride};
 pub use proxy::{
     BaselineConfig, DEFAULT_LOCAL_SHADOW_RATE_PER_MTOK, HistoryMode, ProseRanker, ProseRole,
