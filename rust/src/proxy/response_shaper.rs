@@ -13,9 +13,7 @@ use std::sync::LazyLock;
 
 /// Result of shaping a response.
 pub(crate) struct ShapingResult {
-    #[cfg_attr(not(test), allow(dead_code))] // Read by proxy forward path once wired (#1125)
     pub bytes: Vec<u8>,
-    #[cfg_attr(not(test), allow(dead_code))] // Read by proxy forward path once wired (#1125)
     pub tokens_saved: usize,
 }
 
@@ -263,7 +261,10 @@ fn compress_narration(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        ShapingMode, is_protected_content, shape_response, shape_text_content, strip_preamble,
+        strip_trailing_confirmation,
+    };
 
     #[test]
     fn strips_common_preambles() {
@@ -376,7 +377,7 @@ mod tests {
 
 #[cfg(test)]
 mod edge_tests {
-    use super::*;
+    use super::{ShapingMode, shape_response};
 
     #[test]
     fn handles_empty_response() {
