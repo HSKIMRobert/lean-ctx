@@ -480,6 +480,95 @@ mod tests {
     }
 
     #[test]
+    fn determinism_savings_footer_is_stable_for_identical_inputs() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "quantized");
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::remove_var("LEAN_CTX_QUIET");
+        crate::core::protocol::set_mcp_context(false);
+
+        let input = (1000usize, 400usize);
+        let expected = crate::core::protocol::format_savings(input.0, input.1);
+
+        let report = replay_sessions(&input, expected.as_bytes(), 10, |&(orig, comp)| {
+            crate::core::protocol::format_savings(orig, comp).into_bytes()
+        });
+        assert!(
+            report.byte_stable(),
+            "savings footer must be byte-identical across sessions (mismatch at {:?})",
+            report.first_mismatch
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+    }
+
+    #[test]
+    fn determinism_quantized_footer_reduces_unique_variants() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
+        crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::remove_var("LEAN_CTX_QUIET");
+        crate::core::protocol::set_mcp_context(false);
+
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
+        let full_variants: std::collections::HashSet<String> = (10..=90)
+            .map(|pct| {
+                let comp = 100 - pct;
+                crate::core::protocol::format_savings(100, comp)
+            })
+            .collect();
+
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "quantized");
+        let quantized_variants: std::collections::HashSet<String> = (10..=90)
+            .map(|pct| {
+                let comp = 100 - pct;
+                crate::core::protocol::format_savings(100, comp)
+            })
+            .collect();
+
+        assert!(
+            quantized_variants.len() < full_variants.len(),
+            "quantized ({}) must produce fewer unique variants than full ({})",
+            quantized_variants.len(),
+            full_variants.len()
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
+        crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
+    }
+
+    #[test]
+    fn determinism_auto_mode_resolver_is_pure_for_identical_inputs() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-det-amr-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::remove_var("LEAN_CTX_AUTO_MODE_LEARNING");
+
+        let ctx = crate::core::auto_mode_resolver::AutoModeContext {
+            path: "src/widget.rs",
+            token_count: 3000,
+            line_count: Some(750),
+            task: None,
+            cache: None,
+        };
+        let first = crate::core::auto_mode_resolver::resolve(&ctx);
+        let second = crate::core::auto_mode_resolver::resolve(&ctx);
+        assert_eq!(
+            (first.mode.as_str(), first.source),
+            (second.mode.as_str(), second.source),
+            "auto-mode must be deterministic for identical inputs"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn determinism_serialization_is_stable_across_insertion_order() {
         let hit = CacheHeaderObservation {
             hit: true,
