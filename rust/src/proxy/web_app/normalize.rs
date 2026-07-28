@@ -116,8 +116,7 @@ fn optional_string(value: &Value, field: &str) -> Option<String> {
     value.get(field).and_then(Value::as_str).map(str::to_owned)
 }
 
-#[allow(dead_code)]
-fn estimate_tokens(messages: &[Value]) -> usize {
+pub(super) fn estimate_tokens(messages: &[Value]) -> usize {
     messages
         .iter()
         .filter_map(|message| message.get("content"))
@@ -209,7 +208,10 @@ mod tests {
                 .clone()
         );
         assert_eq!(normalized.messages.len(), 5);
-        assert_eq!(normalized.model.as_deref(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(
+            normalized.model.as_deref(),
+            Some("claude-sonnet-4-20250514")
+        );
     }
 
     #[test]
