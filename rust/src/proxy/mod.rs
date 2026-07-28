@@ -32,7 +32,6 @@ pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
 mod connector;
-#[allow(dead_code)] // Tested; forward-path wiring in next phase
 pub(crate) mod conversation;
 pub mod cost;
 pub mod counterfactual;
@@ -64,13 +63,11 @@ pub mod prose;
 pub mod prose_ranker;
 pub mod providers;
 pub mod response_optimizer;
-#[allow(dead_code)] // Tested; forward-path wiring in next phase
 pub(crate) mod response_shaper;
 pub mod routing;
 pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
-#[allow(dead_code)] // Tested; forward-path wiring in next phase
 pub(crate) mod shaping_hook;
 pub mod sse_keepalive;
 #[cfg(test)]
@@ -87,8 +84,8 @@ pub mod usage_meter;
 pub mod usage_parity;
 pub mod usage_sink;
 pub mod verbosity;
-#[allow(dead_code)] // Tested; forward-path wiring in next phase
 pub mod web_app;
+pub(crate) mod web_app_middleware;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -124,6 +121,8 @@ pub struct ProxyState {
     /// mounted with the `gateway-server` feature. Startup snapshot, restart
     /// to reload — the same lifecycle as `gateway-keys.toml`.
     pub mcp_servers: Arc<Vec<crate::core::config::ResolvedMcpServer>>,
+    pub(crate) web_app_tracker:
+        Arc<std::sync::Mutex<web_app::conversation_tracker::ConversationTracker>>,
 }
 
 impl ProxyState {
@@ -151,6 +150,9 @@ impl ProxyState {
             upstreams: rx,
             chatgpt_cookies: chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store(),
             mcp_servers: Arc::new(mcp_servers),
+            web_app_tracker: Arc::new(std::sync::Mutex::new(
+                web_app::conversation_tracker::ConversationTracker::default(),
+            )),
         }
     }
 
@@ -560,6 +562,9 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         upstreams: upstream_rx,
         chatgpt_cookies,
         mcp_servers: mcp_servers.clone(),
+        web_app_tracker: Arc::new(std::sync::Mutex::new(
+            web_app::conversation_tracker::ConversationTracker::default(),
+        )),
     };
 
     // `mut` is only exercised by the gateway-server merge below.
@@ -642,6 +647,9 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     }
 
     let mut app = app
+        .layer(axum::middleware::from_fn(
+            web_app_middleware::detect_web_app,
+        ))
         .layer(axum::middleware::from_fn(move |req, next| {
             let allowed = allowed_hosts.clone();
             host_guard(req, next, allowed)
