@@ -701,6 +701,8 @@ mod tests {
     fn rate_limit_blocks_after_n_accepted_requests() {
         let mut r = rules();
         r.max_requests_per_minute_per_person = Some(3);
+        r.max_cost_usd_per_person_per_day = None;
+        r.max_cost_usd_per_project_per_month = None;
 
         // Retry once if the UTC minute rolls mid-test (rare but real): the
         // whole sequence must land inside one window to be meaningful.
