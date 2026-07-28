@@ -221,9 +221,10 @@ fn handle_with_options_resolved_preread(
     tuning: ReadTuning<'_>,
     preread: Option<String>,
 ) -> ReadOutput {
-    let effective_fresh = fresh
-        || force_fresh_env()
-        || (is_subagent_context() && !crate::core::conversation::scope_enabled());
+    // #1292: Sub-agents have separate context windows and never received
+    // the parent's reads. Always force fresh regardless of scope state —
+    // correctness over cache savings for short-lived sub-agent contexts.
+    let effective_fresh = fresh || force_fresh_env() || is_subagent_context();
 
     if PluginManager::has_listener("pre_read") {
         PluginManager::fire_hook_background(HookPoint::PreRead {
