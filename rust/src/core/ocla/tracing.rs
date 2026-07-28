@@ -182,6 +182,32 @@ pub fn spans_for_trace(trace_id: &str) -> Vec<OclaSpan> {
     collector().spans_for_trace(trace_id)
 }
 
+/// Summary of trace spans that contributed tool savings.
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceSavingsSummary {
+    /// Trace identifier used for the join.
+    pub trace_id: String,
+    /// Number of spans associated with the trace.
+    pub span_count: usize,
+    /// Tool names recorded on associated spans.
+    pub tool_names: Vec<String>,
+}
+
+/// Join trace spans with savings events by trace identifier.
+pub fn trace_savings_summary(trace_id: &str) -> TraceSavingsSummary {
+    let spans = spans_for_trace(trace_id);
+    let tool_names = spans
+        .iter()
+        .flat_map(|span| span.attributes.iter())
+        .filter_map(|(key, value)| (key == "tool").then_some(value.clone()))
+        .collect();
+    TraceSavingsSummary {
+        trace_id: trace_id.to_owned(),
+        span_count: spans.len(),
+        tool_names,
+    }
+}
+
 fn status_value(status: &SpanStatus) -> serde_json::Value {
     match status {
         SpanStatus::Ok => serde_json::json!({"code": "STATUS_OK"}),
@@ -238,6 +264,20 @@ impl Default for SpanCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_trace_savings_summary() {
+        let trace_id = "trace-savings-summary";
+        let span = start_span(trace_id, "read");
+        span.add_attribute("tool", "ctx_read");
+        drop(span);
+
+        let summary = trace_savings_summary(trace_id);
+
+        assert_eq!(summary.trace_id, trace_id);
+        assert_eq!(summary.span_count, 1);
+        assert_eq!(summary.tool_names, vec!["ctx_read"]);
+    }
 
     fn unique_trace(label: &str) -> String {
         format!("{label}-{}", next_span_id())
