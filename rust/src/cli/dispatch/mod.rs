@@ -792,7 +792,8 @@ fn extract_and_apply_env_prefix(cmd: &str) -> String {
                 if let Some(space_pos) = after_eq.find(' ') {
                     let value = &after_eq[..space_pos];
                     if key.starts_with("LEAN_CTX_") {
-                        std::env::set_var(key, value);
+                        // SAFETY: runs before tokio runtime spawns threads.
+                        unsafe { std::env::set_var(key, value) };
                     }
                     rest = after_eq[space_pos..].trim_start();
                     last_rest = rest;
