@@ -117,7 +117,7 @@ fn test_cache_stats_aggregate_correctly() {
 
     let after = telemetry_counts();
     assert!(
-        after.0 >= before.0 + 1,
+        after.0 > before.0,
         "content-cache hit must be recorded in telemetry"
     );
     assert!(after.1 > before.1, "the miss must be recorded");

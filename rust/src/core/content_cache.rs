@@ -368,12 +368,12 @@ mod tests {
         assert!(get(&p, state).is_some());
 
         let local_after = stats();
-        assert!(local_after.hits >= local_before.hits + 1);
+        assert!(local_after.hits > local_before.hits);
         assert!(
             central
                 .cache_hits
                 .load(std::sync::atomic::Ordering::Relaxed)
-                >= hits_before + 1
+                > hits_before
         );
     }
 

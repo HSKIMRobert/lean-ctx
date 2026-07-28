@@ -209,7 +209,7 @@ mod response_cache_tests {
 
     #[test]
     fn successful_text_response_round_trips_through_cache() {
-        let cache = ResponseCache::new(8, Duration::from_secs(60));
+        let cache = ResponseCache::new(8, Duration::from_mins(1));
         let key = response_cache_key("ctx_search", Some(&arguments()), "/project").unwrap();
         let mut result = CallToolResult::success(vec![ContentBlock::text("search result")]);
         result.structured_content = Some(json!({"matches": 1}));
@@ -232,7 +232,7 @@ mod response_cache_tests {
                 body: b"stale".to_vec(),
                 status: 200,
                 tokens: 1,
-                created_at: Instant::now() - Duration::from_secs(2),
+                created_at: Instant::now().checked_sub(Duration::from_secs(2)).unwrap(),
                 ttl: Duration::from_secs(1),
             },
         );

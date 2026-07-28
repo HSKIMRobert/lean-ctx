@@ -336,8 +336,10 @@ mod tests {
     fn test_enforce_mode_blocks_policy_violations() {
         let mut blocked = entry("blocked");
         blocked.provider = "excluded.provider".to_owned();
-        let mut policy = ContextPolicy::default();
-        policy.blocked_sources = vec![blocked.provider.clone()];
+        let policy = ContextPolicy {
+            blocked_sources: vec![blocked.provider.clone()],
+            ..ContextPolicy::default()
+        };
 
         let enforced = enforce_plan_for_mode(
             plan(vec![entry("allowed"), blocked]),
@@ -353,8 +355,10 @@ mod tests {
     fn test_shadow_mode_allows_all_entries() {
         let mut blocked = entry("blocked");
         blocked.provider = "excluded.provider".to_owned();
-        let mut policy = ContextPolicy::default();
-        policy.blocked_sources = vec![blocked.provider.clone()];
+        let policy = ContextPolicy {
+            blocked_sources: vec![blocked.provider.clone()],
+            ..ContextPolicy::default()
+        };
 
         let shadow = enforce_plan_for_mode(
             plan(vec![entry("allowed"), blocked]),

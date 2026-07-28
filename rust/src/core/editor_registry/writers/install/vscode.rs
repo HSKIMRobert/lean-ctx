@@ -87,18 +87,6 @@ pub(crate) fn write_vscode_mcp_fresh(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::vscode_mcp_entry;
-
-    #[test]
-    fn vscode_mcp_entry_scopes_server_to_workspace_folder() {
-        let entry = vscode_mcp_entry("/bin/lean-ctx");
-
-        assert_eq!(entry["env"]["LEAN_CTX_PROJECT_ROOT"], "${workspaceFolder}");
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Augment VS Code extension writer
 //
@@ -187,4 +175,16 @@ pub(crate) fn write_augment_vscode(
         action: WriteAction::Updated,
         note: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::vscode_mcp_entry;
+
+    #[test]
+    fn vscode_mcp_entry_scopes_server_to_workspace_folder() {
+        let entry = vscode_mcp_entry("/bin/lean-ctx");
+
+        assert_eq!(entry["env"]["LEAN_CTX_PROJECT_ROOT"], "${workspaceFolder}");
+    }
 }

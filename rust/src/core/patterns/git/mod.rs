@@ -537,9 +537,11 @@ mod tests {
 
     #[test]
     fn show_source_blob_is_preserved_verbatim() {
-        let output = (0..40)
-            .map(|i| format!("pub const VALUE_{i}: usize = {i};\n"))
-            .collect::<String>();
+        let output = (0..40).fold(String::new(), |mut acc, i| {
+            use std::fmt::Write;
+            let _ = writeln!(acc, "pub const VALUE_{i}: usize = {i};");
+            acc
+        });
 
         let result = compress("git show HEAD:src/generated.rs", &output).unwrap();
 
