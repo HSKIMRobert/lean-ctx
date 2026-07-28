@@ -378,6 +378,7 @@ mod tests {
             client: reqwest::Client::new(),
             port: 0,
             stats: Arc::new(crate::proxy::ProxyStats::default()),
+            break_even: Arc::new(crate::proxy::break_even::BreakEvenCalculator::new(1500)),
             introspect: Arc::new(crate::proxy::introspect::IntrospectState::default()),
             ocla_cache: None,
             upstreams: rx,
