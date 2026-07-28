@@ -511,6 +511,11 @@ pub struct Config {
     /// Override via LEAN_CTX_TURN_FRESH_LIMIT env var.
     #[serde(default = "serde_defaults::default_turn_fresh_limit")]
     pub turn_fresh_limit: usize,
+    /// Maximum cumulative fresh tokens per session. 0 = unlimited.
+    /// Default: 200000. Progressive compression kicks in at 50/75/90%.
+    /// Override via LEAN_CTX_SESSION_TOKEN_LIMIT env var.
+    #[serde(default = "serde_defaults::default_session_token_limit")]
+    pub session_token_limit: usize,
     /// Explicit project root override. When set, lean-ctx uses this instead of auto-detection.
     /// This prevents accidental home-directory scans when running from $HOME.
     /// Override via LEAN_CTX_PROJECT_ROOT env var.

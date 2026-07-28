@@ -73,6 +73,10 @@ pub(super) fn default_turn_fresh_limit() -> usize {
     4096
 }
 
+pub(super) fn default_session_token_limit() -> usize {
+    200_000
+}
+
 pub(super) fn default_progressive_threshold_lines() -> u32 {
     100
 }

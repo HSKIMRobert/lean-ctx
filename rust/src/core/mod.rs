@@ -365,6 +365,7 @@ pub mod budget;
 pub mod budget_tracker;
 #[allow(unused)]
 pub mod delivered_ranges;
+pub mod session_budget;
 pub mod budgets;
 pub mod cache;
 pub mod cache_telemetry;
