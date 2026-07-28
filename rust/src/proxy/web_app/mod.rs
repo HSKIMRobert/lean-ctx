@@ -1,4 +1,6 @@
+#[allow(dead_code)] // Wired into ProxyState; full activation in E13
 pub(crate) mod conversation_tracker;
+#[allow(dead_code)] // Called from web_app_middleware detect path; full activation in E13
 pub(crate) mod normalize;
 #[cfg(test)]
 mod proof_tests;
