@@ -1,77 +1,90 @@
-# Agent 01: End-to-End Attribution Wiring
+# Agent 02: Quality Signals in Savings Rows
 
 ## Preamble
 Read `../e14-preamble.md` first for project context and build commands.
 
 ## Objective
-Wire `OclaRequestContext` fields (request_id, session_id, trace_id) through
-all savings record paths so every `UnifiedSavingsEventV2` carries full attribution.
+Wire quality signals and ETPAO into savings rows at record time. Currently
+`quality_signal`, `outcome`, and `efficiency_etpao` fields exist on
+SavingsEvent/UnifiedSavingsEventV2 but are NEVER populated at append time.
 
 ## Files to Modify
-- `rust/src/core/ocla/unified_ledger.rs` (MODIFY: add request_id, session_id, quality_ref fields to UnifiedSavingsEventV2; extend from_savings_event)
-- `rust/src/core/ocla/builtin/savings_ledger.rs` (MODIFY: propagate SavingsEvidence.context fields instead of dropping them)
+- `rust/src/core/savings_ledger/mod.rs` (MODIFY: add quality_signal and etpao params to record functions)
 
 ## Files NOT to Touch
-- Do NOT modify `savings_ledger/event.rs` or `savings_ledger/store.rs`
-- Do NOT modify `savings_ledger/mod.rs`
-- Do NOT modify `ocla/tracing.rs` or `ocla/types.rs`
+- Do NOT modify `unified_ledger.rs` (Agent 01 handles that)
+- Do NOT modify `builtin/savings_ledger.rs` (Agent 01 handles that)
+- Do NOT modify `store.rs` or `event.rs`
 - Do NOT modify any CLI, proxy, or tool files
 
 ## Exact Requirements
 
-### 1. Add fields to UnifiedSavingsEventV2
-Add these fields AFTER `trace_id`:
+### 1. Add quality context to record_tool_event
+Find the `record_tool_event` function signature. Add optional quality parameters:
 ```rust
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub request_id: Option<String>,
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub session_id: Option<String>,
-#[serde(default, skip_serializing_if = "Option::is_none")]
-pub quality_ref: Option<String>,
+pub fn record_tool_event(
+    tool: &str,
+    mechanism: &str,
+    original: usize,
+    compressed: usize,
+    model_id: &str,
+    tokenizer: &str,
+    agent_id: &str,
+    savings: f64,
+    quality_signal: Option<&str>,    // NEW
+    efficiency_etpao: Option<u64>,   // NEW
+) -> SavingsEvent
 ```
 
-### 2. Update from_savings_event() to populate new fields
-The `from_savings_event` function should pass through the new fields.
-Since `SavingsEvent` doesn't carry these yet, set them from the current
-`OclaRequestContext` if available:
+Inside the function, set the P5 fields on the `SavingsEvent`:
 ```rust
-request_id: crate::core::ocla::types::OclaRequestContext::current_request_id(),
-session_id: crate::core::ocla::types::OclaRequestContext::current_session_id(),
-quality_ref: None, // set by Agent 02
+event.quality_signal = quality_signal.map(|s| s.to_owned());
+event.efficiency_etpao = efficiency_etpao; // if field exists, or add to the event
 ```
 
-If `current_request_id()` / `current_session_id()` don't exist, add simple
-thread-local getters (check `current_trace_id()` pattern and replicate).
+### 2. Add quality context to record_read_event
+Same pattern — add `quality_signal` and `efficiency_etpao` optional params.
 
-### 3. Fix BuiltinSavingsLedger to propagate context
-In `record_savings()`, the `SavingsEvidence.context` fields are currently dropped.
-Before calling `record_tool_event`, set the thread-local context so that
-`from_savings_event` can pick it up:
+### 3. Update ALL callers of record_tool_event
+Search the file for all calls to `record_tool_event` and `record_read_event`.
+Add `None, None` as the quality params to maintain backward compatibility.
+IMPORTANT: only fix callers WITHIN `mod.rs` itself. If there are callers in
+other files, they will get a compile error that other agents or the orchestrator
+will fix by adding `None, None`.
+
+### 4. Compute quality_signal from compression ratio
+Add a helper function:
 ```rust
-fn record_savings(&self, evidence: SavingsEvidence) -> OclaResult<String> {
-    // Set context for this thread so unified projection picks it up
-    OclaRequestContext::set_current(evidence.context.clone());
-    // ... existing record_tool_event call ...
+fn compression_quality_signal(original: usize, compressed: usize) -> Option<String> {
+    if original == 0 {
+        return None;
+    }
+    let ratio = 1.0 - (compressed as f64 / original as f64);
+    let signal = match ratio {
+        r if r >= 0.7 => "excellent",
+        r if r >= 0.5 => "good",
+        r if r >= 0.3 => "moderate",
+        _ => "marginal",
+    };
+    Some(signal.to_owned())
 }
 ```
 
-### 4. Add query_by_trace() to FileUnifiedLedger
+Use this in `record_tool_event` when no explicit quality_signal is provided:
 ```rust
-pub fn query_by_trace(&self, trace_id: &str) -> Vec<UnifiedSavingsEventV2> {
-    self.events.iter()
-        .filter(|e| e.trace_id.as_deref() == Some(trace_id))
-        .cloned()
-        .collect()
-}
+let quality = quality_signal
+    .map(|s| s.to_owned())
+    .or_else(|| compression_quality_signal(original, compressed));
 ```
 
 ### 5. Tests
-- `test_unified_event_carries_request_id` — after recording with context, request_id is set
-- `test_unified_event_carries_session_id` — session_id propagated
-- `test_query_by_trace_returns_matching` — trace query finds correct events
-- `test_query_by_trace_empty_on_mismatch` — no results for unknown trace
+- `test_quality_signal_excellent` — >=70% compression → "excellent"
+- `test_quality_signal_good` — 50-69% → "good"
+- `test_quality_signal_moderate` — 30-49% → "moderate"
+- `test_quality_signal_marginal` — <30% → "marginal"
+- `test_record_tool_event_carries_quality` — recorded event has quality_signal set
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib unified_ledger
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib savings_ledger
 ```
