@@ -73,6 +73,7 @@ pub mod schema_wiring;
 pub mod shadow;
 pub mod smoke_test;
 pub mod startup;
+pub mod stream_controller;
 pub mod token_envelope;
 pub mod tool_surface;
 pub mod types;
