@@ -1,46 +1,53 @@
 # Active Context
 
-Stand: 2026-07-23T16:00+02:00
+Stand: 2026-07-28T09:15+02:00
 
 ## Aktueller Fokus
 
-Cockpit Kernel-Integration abgeschlossen. Clippy Zero-Warning Policy durchgesetzt.
+Premium Production Readiness Phasen E2–E4 abgeschlossen. Doku-SSOT-Update (E5).
 
 ## Letzte Änderungen
 
-### Cockpit Kernel-Integration (C1) ✅
-- **Architektur-Erkenntnis**: Die 5-Area Tab-Struktur existierte bereits! Kein View-Merge nötig.
-- `/api/kernel` Backend-Route (79 LOC): konsolidiert Health, Provider Stats, Evidence, Savings, Subsystems
-- `cockpit-health.js`: neuer "Kernel" Tab im Protection > Guards Bereich
-- `cockpit-overview.js`: Kernel-Status-Chip im Home StatusStrip
-- `cockpit-roi.js`: Provider Distribution Tabelle im Proof > ROI Bereich
-- Live-Test ✓: JSON Response mit 6 Subsystemen, korrekte Daten
+### E2: ETPAO Runtime Baseline ✅ (2026-07-27)
+- `savings_ledger/etpao.rs`: RuntimeEtpao-Berechnung aus echten Ledger-Events
+- `telemetry.rs`: ObservedEfficiency Export (Cache Hit Rate, Request Count)
+- `ctx_gain.rs`: ETPAO-Section im Dashboard mit Live-Daten
+- `efficiency_analyzer.rs`: 5 E2E-Testszenarien
+- Flaky Test Fix: `mutate_locked_preserves_successive_agent_episodes`
+- 9095 Tests, 0 Failures, 0 Clippy Warnings
 
-### Clippy Zero-Warning Policy (C2) ✅
-- 27 vorbestehende Warnings in 21 Dateien behoben
-- `cargo clippy --all-targets -- -D warnings` passiert sauber
-- 9051 Tests ✓ (1 flaky pre-existing: prefix_replay)
+### E3: Multi-Layer Cache Pipeline ✅ (2026-07-27)
+- **Root Cause Fix**: `telemetry.record_cache()` wurde in Produktion NIE aufgerufen
+- SessionCache hits → zentrale Telemetrie (ctx_read/dispatch, core_logic, lifecycle)
+- ContentCache hits/misses → zentrale Telemetrie
+- ResponseCache aktiviert für deterministische Tool-Calls (guarded.rs)
+- Cache Warming Modul (`cache/warming.rs`) für recently-used Files
+- Multi-Layer Cache Dashboard in ctx_gain (3 Cache Layers)
+- E2E Pipeline-Validierungstests (`cache/pipeline_tests.rs`)
+- 9137 Tests, 0 Failures, 0 Clippy Warnings
 
-### Explorer-Analyse (revidiert)
-- Explorer ist **funktional** — braucht Tree-Index-Build, nicht "defekt"
-- Graph.js (1891L): D3-basiert, Slim-Down ohne Feature-Verlust schwierig
+### E4: A2A Transport Hardening ✅ (2026-07-28)
+- `a2a/remote_transport.rs` (342 LOC): HTTP Transport mit Retry, Timeout, Auth
+- `a2a/health.rs` (145 LOC): Transport Health Probes (Ready/Degraded/Unavailable)
+- `a2a/relay.rs` (149 LOC): Multi-Hop Relay Chain mit Cycle-Detection
+- `a2a/budget_cascade.rs` (201 LOC): Token Budget Parent→Child Cascade
+- `a2a/telemetry.rs` (139 LOC): Transport Delivery Metrics
+- 9147 Tests, 0 Failures, 0 Clippy Warnings
 
 ## Architektur-Status
 
 ### OCLA: P0-P9, P11 = 100%
-### Context Kernel: 33 Runden, 478+ Tests
+### Context Kernel: 33 Runden, 478+ Tests, alle Hot-Paths live
 ### Provider Pipeline: detect → envelope → bridge → stats → dashboard → cockpit ✅
 ### Cockpit: 5 Areas + Home, Kernel-API integriert, Zero Clippy ✅
+### ETPAO: Runtime Baseline aktiv, Savings Ledger → Live-Metriken ✅
+### Cache: 3-Layer Pipeline (Session, Content, Response) → zentrale Telemetrie ✅
+### A2A: Remote Transport, Health, Relay Chain, Budget Cascade, Telemetrie ✅
 
 ## Nächste Schritte
 
-1. **Phase C1**: Context Consolidation (context + commander + compression → 3 Tabs)
-2. **Phase C2**: Savings & ROI Consolidation (+ Kernel Provider Stats)
-3. **Phase C4**: System Health + Kernel-API Integration
-4. Dann C3, C5-C8
-
-## Dokumentation
-
-- `memory-bank/cockpit-audit.md` — Vollständiger Audit-Report
-- `memory-bank/progress.md` — R31-R33 Fortschritt
-
+1. **E5**: Doku-SSOT-Update (dieses Update)
+2. **E6**: Web-App Interception Proof
+3. **E7**: Quality Lab (W3) — Input/Reasoning/Output/Cache Benchmarks
+4. **E8**: Production Hardening — Air-gap Tests, Performance Benchmarks
+5. **shell_allowlist/tests.rs**: Einzige Datei >1400 LOC (1427), Split ausstehend
