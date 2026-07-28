@@ -19,6 +19,7 @@ use tokio_postgres::config::SslMode;
 
 use crate::core::config::BaselineConfig;
 use crate::core::gain::model_pricing::ModelPricing;
+use crate::core::ocla::OclaRegistry;
 use crate::proxy::usage::RealUsage;
 
 /// Buffered events between the proxy choke-point and the Postgres writer.
@@ -453,8 +454,19 @@ pub fn spawn_writer(pool: Pool) -> bool {
             let event = UsageEvent::from_usage(&usage, &pricing, &baseline);
             match pool.get().await {
                 Ok(client) => {
-                    if let Err(e) = insert_event(&client, &event).await {
-                        tracing::warn!("usage_events insert failed (fail-open): {e:#}");
+                    match insert_event(&client, &event).await {
+                        Ok(()) => {
+                            // OCLA projection (parallel to Postgres write)
+                            if let Ok(Some(ocla_record)) = usage.to_ocla_usage_record()
+                                && let Err(e) =
+                                    OclaRegistry::global().usage_sink.record_usage(ocla_record)
+                            {
+                                tracing::debug!("OCLA usage projection: {e}");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("usage_events insert failed (fail-open): {e:#}");
+                        }
                     }
                 }
                 Err(e) => {
