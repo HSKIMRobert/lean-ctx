@@ -153,6 +153,7 @@ impl Default for Config {
             compression_annotation: CompressionAnnotation::default(),
             annotation_threshold_pct: serde_defaults::default_annotation_threshold_pct(),
             turn_fresh_limit: serde_defaults::default_turn_fresh_limit(),
+            session_token_limit: serde_defaults::default_session_token_limit(),
             project_root: None,
             lsp: std::collections::HashMap::new(),
             ide_paths: HashMap::new(),

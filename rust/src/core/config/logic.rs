@@ -179,6 +179,14 @@ impl Config {
         }
     }
 
+    /// Effective session token limit. 0 = unlimited.
+    pub fn session_token_limit_effective(&self) -> usize {
+        std::env::var("LEAN_CTX_SESSION_TOKEN_LIMIT")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(self.session_token_limit)
+    }
+
     /// Effective turn budget (fresh token limit per response). 0 = unlimited.
     pub fn turn_fresh_limit_effective(&self) -> usize {
         std::env::var("LEAN_CTX_TURN_FRESH_LIMIT")
