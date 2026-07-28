@@ -40,6 +40,7 @@ mod policy_org_cmd;
 mod profile_cmd;
 pub(crate) mod prompt;
 mod proof_cmd;
+pub(crate) mod quality_lab_cmd;
 mod read_cmd;
 mod repomap_cmd;
 mod roi_cmd;
