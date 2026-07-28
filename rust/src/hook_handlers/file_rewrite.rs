@@ -124,6 +124,21 @@ pub(super) fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
         return None;
     }
 
+    // If the command has a LEAN_CTX_DISABLED or LEAN_CTX_NO_HOOK env-prefix,
+    // the agent explicitly wants raw execution. Wrapping it in `lean-ctx -c`
+    // would bury the flag inside a string literal where is_disabled() can't
+    // see it. Skip rewrite entirely. (#1320)
+    {
+        let stripped = crate::rewrite_registry::strip_env_prefix(cmd);
+        if stripped.len() != cmd.len() {
+            let prefix_part = &cmd[..cmd.len() - stripped.len()];
+            if prefix_part.contains("LEAN_CTX_DISABLED") || prefix_part.contains("LEAN_CTX_NO_HOOK")
+            {
+                return None;
+            }
+        }
+    }
+
     if let Some(rewritten) = rewrite_file_read_command(cmd, binary) {
         return Some(rewritten);
     }
@@ -384,5 +399,64 @@ pub(super) fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> 
         Some(wrap_single_command(cmd, binary))
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rewrite_candidate;
+
+    #[test]
+    fn disabled_prefix_skips_rewrite() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("LEAN_CTX_DISABLED=1 cargo test --lib", binary).is_none(),
+            "LEAN_CTX_DISABLED prefix must skip rewrite"
+        );
+    }
+
+    #[test]
+    fn no_hook_prefix_skips_rewrite() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("LEAN_CTX_NO_HOOK=1 cargo test --lib", binary).is_none(),
+            "LEAN_CTX_NO_HOOK prefix must skip rewrite"
+        );
+    }
+
+    #[test]
+    fn disabled_with_multiple_env_vars_skips_rewrite() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("FOO=bar LEAN_CTX_DISABLED=1 cargo test --lib", binary).is_none(),
+            "LEAN_CTX_DISABLED anywhere in env prefix must skip rewrite"
+        );
+    }
+
+    #[test]
+    fn normal_env_prefix_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("FOO=bar cargo test --lib", binary).is_some(),
+            "Non-disable env prefix must still rewrite"
+        );
+    }
+
+    #[test]
+    fn no_prefix_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("cargo test --lib", binary).is_some(),
+            "Command without env prefix must still rewrite"
+        );
+    }
+
+    #[test]
+    fn lean_ctx_command_not_rewritten() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("lean-ctx ls src/", binary).is_none(),
+            "lean-ctx commands must not be rewritten"
+        );
     }
 }
