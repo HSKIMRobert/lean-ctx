@@ -423,6 +423,7 @@ pub mod ocla_bus;
 pub mod quality_benchmark;
 pub mod qubo_select;
 pub mod marginal_gate;
+pub mod negative_knowledge;
 pub mod session_budget;
 pub mod work_graph;
 
