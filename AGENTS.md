@@ -111,6 +111,22 @@ GitHub remote must stay clean: only `main` + `cla-signatures` + max 1 active PR 
 - **Before push**: `git ls-remote --heads github | wc -l` — if >3, clean up first.
 - **No branches without PRs** on GitHub. Either open a PR or keep it local.
 
+## Compression Safety
+
+lean-ctx shadow-mode compresses file reads. Edit tools (StrReplace, Write) can
+write compressed content back to disk, embedding `[lean-ctx: omitted N lines]`
+markers as literal text. The pre-commit hook blocks such commits.
+
+**If a commit is blocked or a file looks corrupted:**
+```bash
+LEAN_CTX_DISABLED=1 git restore --source=HEAD -- <file>   # restore raw content
+LEAN_CTX_DISABLED=1 sed -i '' 's/old/new/g' <file>        # edit without hooks
+```
+
+**Never** use `git show commit:file > file` without `LEAN_CTX_DISABLED=1`.
+
+`LEAN_CTX_DISABLED=1` bypasses all lean-ctx compression for a single command.
+
 ## Quality Bar
 
 - Zero clippy warnings, all tests pass

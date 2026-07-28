@@ -159,7 +159,12 @@ fn extract_write_content(payload: &str) -> Option<String> {
         .get("input")
         .or_else(|| json.get("hookSpecificInput").and_then(|h| h.get("input")))?;
 
-    // Check all common content field names across tool variants
+    let mut combined = String::new();
+
+    // Check all common content field names across tool variants.
+    // For StrReplace we must check BOTH old_string and new_string:
+    // if old_string contains markers, the agent read a compressed file
+    // and the resulting write will embed markers in the file. (#1302)
     for key in [
         "content",
         "contents",
@@ -167,27 +172,32 @@ fn extract_write_content(payload: &str) -> Option<String> {
         "text",
         "new_string",
         "new_text",
+        "old_string",
+        "old_text",
     ] {
         if let Some(text) = input.get(key).and_then(serde_json::Value::as_str) {
-            return Some(text.to_string());
+            combined.push_str(text);
+            combined.push('\n');
         }
     }
+
     // MultiEdit: check edits array for old_text/new_text
     if let Some(edits) = input.get("edits").and_then(|v| v.as_array()) {
-        let mut combined = String::new();
         for edit in edits {
-            if let Some(t) = edit.get("new_text").and_then(serde_json::Value::as_str) {
-                combined.push_str(t);
+            for key in ["old_text", "oldText", "new_text", "newText"] {
+                if let Some(t) = edit.get(key).and_then(serde_json::Value::as_str) {
+                    combined.push_str(t);
+                    combined.push('\n');
+                }
             }
-            if let Some(t) = edit.get("newText").and_then(serde_json::Value::as_str) {
-                combined.push_str(t);
-            }
-        }
-        if !combined.is_empty() {
-            return Some(combined);
         }
     }
-    None
+
+    if combined.is_empty() {
+        None
+    } else {
+        Some(combined)
+    }
 }
 
 fn print_deny_compression_markers(tool_name: &str) {
@@ -423,6 +433,28 @@ mod tests {
     fn extract_write_content_no_content_returns_none() {
         let payload = r#"{"tool_name":"Write","input":{"path":"test.md"}}"#;
         assert!(extract_write_content(payload).is_none());
+    }
+
+    #[test]
+    fn extract_write_content_catches_markers_in_old_string() {
+        // #1302: StrReplace with compressed old_string means the agent read a
+        // compressed file. The resulting write will embed markers in the file.
+        let payload = r#"{"tool_name":"StrReplace","input":{"path":"README.md","old_string":"text [lean-ctx: omitted 5 lines] more","new_string":"clean replacement"}}"#;
+        let content = extract_write_content(payload).unwrap();
+        assert!(
+            has_compression_markers(&content),
+            "old_string with markers must trigger the guard"
+        );
+    }
+
+    #[test]
+    fn extract_write_content_clean_str_replace_passes() {
+        let payload = r#"{"tool_name":"StrReplace","input":{"path":"README.md","old_string":"old text","new_string":"new text"}}"#;
+        let content = extract_write_content(payload).unwrap();
+        assert!(
+            !has_compression_markers(&content),
+            "clean StrReplace must not trigger the guard"
+        );
     }
 
     #[test]
