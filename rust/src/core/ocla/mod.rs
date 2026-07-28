@@ -10,6 +10,7 @@ pub mod capsule;
 pub mod content_port;
 pub mod grpc_bridge;
 pub mod health;
+pub mod ledger_export;
 pub mod openapi;
 pub mod registry;
 pub mod regression_gate;
