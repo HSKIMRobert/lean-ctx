@@ -110,6 +110,7 @@ pub struct ProxyState {
     pub client: reqwest::Client,
     pub port: u16,
     pub stats: Arc<ProxyStats>,
+    pub(crate) break_even: Arc<break_even::BreakEvenCalculator>,
     pub introspect: Arc<introspect::IntrospectState>,
     pub ocla_cache: Option<Arc<ocla_cache_bridge::OclaCacheBridge>>,
     /// Live provider upstreams, refreshed from config.toml without a proxy
@@ -149,6 +150,7 @@ impl ProxyState {
             client: reqwest::Client::new(),
             port: 0,
             stats: Arc::new(ProxyStats::default()),
+            break_even: Arc::new(break_even::BreakEvenCalculator::new(1500)),
             introspect: Arc::new(introspect::IntrospectState::default()),
             ocla_cache: None,
             upstreams: rx,
@@ -163,6 +165,11 @@ impl ProxyState {
     /// Consistent snapshot of all upstreams for the current request/response.
     pub fn upstream_snapshot(&self) -> Arc<Upstreams> {
         self.upstreams.borrow().clone()
+    }
+
+    /// Snapshot MCP schema-cost break-even status for `/status`.
+    pub(crate) fn break_even_summary(&self) -> break_even::BreakEvenSummary {
+        self.break_even.summary()
     }
 
     /// Current Anthropic upstream (live).
@@ -504,6 +511,13 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     cold_prefix::resume_from_disk();
 
     let cfg = Config::load();
+    let break_even_schema_overhead = match cfg.tool_profile_effective() {
+        crate::core::tool_profiles::ToolProfile::Minimal
+        | crate::core::tool_profiles::ToolProfile::Auto => 1500,
+        crate::core::tool_profiles::ToolProfile::Standard => 3000,
+        crate::core::tool_profiles::ToolProfile::Power
+        | crate::core::tool_profiles::ToolProfile::Custom(_) => 5000,
+    };
     // Read once at startup — avoids a Config::load() on every proxied request.
     let bind_host = cfg.resolved_proxy_bind_host();
     let loopback_bind = bind_host.is_loopback();
@@ -561,6 +575,9 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         client,
         port,
         stats: Arc::new(ProxyStats::default()),
+        break_even: Arc::new(break_even::BreakEvenCalculator::new(
+            break_even_schema_overhead,
+        )),
         introspect: Arc::new(introspect::IntrospectState::default()),
         ocla_cache: None,
         upstreams: upstream_rx,
@@ -887,6 +904,7 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
     let introspect_bulk_candidates = i.total_bulk_candidate_tokens.load(Relaxed);
     let introspect_bulk_share =
         introspect::token_share_basis_points(introspect_bulk_candidates, introspect_total_input);
+    let break_even = state.break_even_summary();
 
     let body = serde_json::json!({
         "status": "running",
@@ -917,6 +935,13 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
         "bytes_original": s.bytes_original.load(Relaxed),
         "bytes_compressed": s.bytes_compressed.load(Relaxed),
         "compression_ratio_pct": format!("{:.1}", s.compression_ratio()),
+        "break_even": {
+            "proxy_savings": break_even.proxy_savings,
+            "estimated_mcp_overhead": break_even.estimated_mcp_overhead,
+            "net": break_even.net,
+            "mcp_recommended": break_even.mcp_recommended,
+            "reason": break_even.reason,
+        },
         "per_upstream": s.provider_summary(),
         "prefix_cache": prefix_cache_stats::snapshot(),
         "cache_safety": cache_safety::snapshot(),

@@ -23,6 +23,7 @@ async fn proxy_state_reads_upstream_live_from_watch() {
         client: reqwest::Client::new(),
         port: 0,
         stats: Arc::new(ProxyStats::default()),
+        break_even: Arc::new(break_even::BreakEvenCalculator::new(1500)),
         introspect: Arc::new(introspect::IntrospectState::default()),
         ocla_cache: None,
         upstreams: rx,
@@ -42,6 +43,35 @@ async fn proxy_state_reads_upstream_live_from_watch() {
         "a live handler read must reflect the published change"
     );
     assert_eq!(state.upstream_snapshot().openai, "https://new.example");
+}
+
+#[test]
+fn proxy_state_summarizes_break_even_status() {
+    let (_tx, rx) =
+        tokio::sync::watch::channel(Arc::new(upstreams_with_openai("https://api.openai.com")));
+    let state = ProxyState {
+        client: reqwest::Client::new(),
+        port: 0,
+        stats: Arc::new(ProxyStats::default()),
+        break_even: Arc::new(break_even::BreakEvenCalculator::new(1500)),
+        introspect: Arc::new(introspect::IntrospectState::default()),
+        ocla_cache: None,
+        upstreams: rx,
+        chatgpt_cookies: chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store(),
+        mcp_servers: Arc::new(Vec::new()),
+        web_app_tracker: Arc::new(std::sync::Mutex::new(
+            web_app::conversation_tracker::ConversationTracker::default(),
+        )),
+    };
+    state.break_even.record_turn();
+    state.break_even.record_turn();
+    state.break_even.record_proxy_savings(4000);
+
+    let summary = state.break_even_summary();
+    assert_eq!(summary.proxy_savings, 4000);
+    assert_eq!(summary.estimated_mcp_overhead, 3000);
+    assert_eq!(summary.net, 1000);
+    assert!(summary.mcp_recommended);
 }
 
 /// End-to-end #449 repro (in-process, no network): a `config set`-style edit
