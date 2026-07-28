@@ -132,6 +132,7 @@ http-server = [
   "dep:reqwest",
   "dep:tokio-tungstenite",
   "dep:rustls",
+  "dep:hex",
 ]
 qdrant = ["embeddings"]
 pgvector = ["embeddings"]
@@ -495,3 +496,4 @@ harness = false
 [patch.crates-io]
 rmcp = { path = "crates/vendor/rmcp" }
 rmcp-macros = { path = "crates/vendor/rmcp-macros" }
+
