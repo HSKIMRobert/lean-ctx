@@ -770,6 +770,42 @@ fn is_server_mode(args: &[String]) -> bool {
         })
 }
 
+/// Extract `KEY=VALUE` prefixes from a command string and promote lean-ctx control variables
+/// (`LEAN_CTX_*`) into the process environment.
+/// Returns the remaining command string without the extracted prefixes.
+///
+/// Only `LEAN_CTX_*` variables are set in the process env — arbitrary user vars like `FOO=bar`
+/// are left for the child shell to handle.
+fn extract_and_apply_env_prefix(cmd: &str) -> String {
+    let mut rest = cmd.trim_start();
+    let mut last_rest = rest;
+
+    loop {
+        if let Some(eq_pos) = rest.find('=') {
+            let key = &rest[..eq_pos];
+            if !key.is_empty()
+                && key
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            {
+                let after_eq = &rest[eq_pos + 1..];
+                if let Some(space_pos) = after_eq.find(' ') {
+                    let value = &after_eq[..space_pos];
+                    if key.starts_with("LEAN_CTX_") {
+                        std::env::set_var(key, value);
+                    }
+                    rest = after_eq[space_pos..].trim_start();
+                    last_rest = rest;
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    last_rest.to_string()
+}
+
 fn handle_exec(args: &[String], rest: &[String]) -> ! {
     let raw = rest.first().is_some_and(|a| a == "--raw");
     let cmd_args = if raw { &args[3..] } else { &args[2..] };
@@ -778,6 +814,10 @@ fn handle_exec(args: &[String], rest: &[String]) -> ! {
     } else {
         shell::join_command(cmd_args)
     };
+    // Extract LEAN_CTX_* env-var prefixes from the command string and set them in process env
+    // so should_pass_through() / is_disabled() can see them. The child shell still gets the full
+    // original command. (#1321)
+    let _stripped_command = extract_and_apply_env_prefix(&command);
     // The `lean-ctx -c` wrapper runs inside the agent shell, which carries
     // runtime/session vars the MCP server never sees. Bridge them so ctx_shell
     // can forward them too (#370).
@@ -992,7 +1032,10 @@ pub(super) fn run_async<F: std::future::Future>(future: F) -> F::Output {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        capability_banner, concise_help_text, is_server_mode, quickstart_text,
+        resolve_worker_threads,
+    };
     use serial_test::serial;
 
     fn args_of(parts: &[&str]) -> Vec<String> {
@@ -1112,5 +1155,71 @@ mod tests {
         crate::test_env::set_var("LEAN_CTX_WORKER_THREADS", "not_a_number");
         assert_eq!(resolve_worker_threads(3), 3);
         crate::test_env::remove_var("LEAN_CTX_WORKER_THREADS");
+    }
+}
+
+#[cfg(test)]
+mod env_prefix_tests {
+    use super::extract_and_apply_env_prefix;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn extracts_lean_ctx_disabled() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
+        let result = extract_and_apply_env_prefix("LEAN_CTX_DISABLED=1 cargo test --lib");
+        assert_eq!(result, "cargo test --lib");
+        assert_eq!(std::env::var("LEAN_CTX_DISABLED").unwrap(), "1");
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
+    }
+
+    #[test]
+    #[serial]
+    fn ignores_non_lean_ctx_vars() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("FOO");
+        let result = extract_and_apply_env_prefix("FOO=bar cargo test --lib");
+        assert_eq!(result, "cargo test --lib");
+        assert!(
+            std::env::var("FOO").is_err(),
+            "FOO must not be set in process env"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn extracts_multiple_lean_ctx_vars() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
+        crate::test_env::remove_var("LEAN_CTX_ACTIVE");
+        let result =
+            extract_and_apply_env_prefix("LEAN_CTX_DISABLED=1 LEAN_CTX_ACTIVE=1 cargo test --lib");
+        assert_eq!(result, "cargo test --lib");
+        assert_eq!(std::env::var("LEAN_CTX_DISABLED").unwrap(), "1");
+        assert_eq!(std::env::var("LEAN_CTX_ACTIVE").unwrap(), "1");
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
+        crate::test_env::remove_var("LEAN_CTX_ACTIVE");
+    }
+
+    #[test]
+    #[serial]
+    fn no_prefix_returns_unchanged() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let result = extract_and_apply_env_prefix("cargo test --lib");
+        assert_eq!(result, "cargo test --lib");
+    }
+
+    #[test]
+    #[serial]
+    fn mixed_vars_extracts_only_lean_ctx() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("FOO");
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
+        let result = extract_and_apply_env_prefix("FOO=bar LEAN_CTX_DISABLED=1 cargo test --lib");
+        assert_eq!(result, "cargo test --lib");
+        assert_eq!(std::env::var("LEAN_CTX_DISABLED").unwrap(), "1");
+        assert!(std::env::var("FOO").is_err());
+        crate::test_env::remove_var("LEAN_CTX_DISABLED");
     }
 }
