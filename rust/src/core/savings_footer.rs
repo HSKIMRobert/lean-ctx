@@ -5,8 +5,6 @@ static SESSION_ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static SESSION_SAVED: AtomicUsize = AtomicUsize::new(0);
 static SESSION_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-const SESSION_TOTAL_INTERVAL: usize = 10;
-
 thread_local! {
     static CURRENT_MODE: RefCell<Option<String>> = const { RefCell::new(None) };
     static CURRENT_DETAIL: RefCell<Option<String>> = const { RefCell::new(None) };
@@ -127,11 +125,32 @@ fn format_footer_inner(info: &SavingsInfo<'_>) -> String {
     }
     let pct = (saved as f64 / info.original as f64 * 100.0).round() as usize;
 
+    let annotation = super::config::CompressionAnnotation::effective();
+    let threshold = super::config::Config::load().annotation_threshold_pct as usize;
+
+    if matches!(annotation, super::config::CompressionAnnotation::None) {
+        record_savings(info.original, saved);
+        return String::new();
+    }
+
+    if pct < threshold {
+        record_savings(info.original, saved);
+        return String::new();
+    }
+
     let orig_str = format_number(info.original);
     let comp_str = format_number(info.compressed);
 
+    let pct_display = match annotation {
+        super::config::CompressionAnnotation::Quantized => {
+            let quantized = ((pct + 5) / 10) * 10;
+            format!("~{quantized}")
+        }
+        _ => pct.to_string(),
+    };
+
     let mut parts = vec![format!(
-        "{orig_str} \u{2192} {comp_str} tok (\u{2193}{pct}%)"
+        "{orig_str} \u{2192} {comp_str} tok (\u{2193}{pct_display}%)"
     )];
 
     if let Some(mode) = info.mode {
@@ -142,13 +161,6 @@ fn format_footer_inner(info: &SavingsInfo<'_>) -> String {
     }
 
     record_savings(info.original, saved);
-
-    let call_count = SESSION_CALL_COUNT.load(Ordering::Relaxed);
-    if call_count > 0 && call_count.is_multiple_of(SESSION_TOTAL_INTERVAL) {
-        let (_, total_saved, _) = session_totals();
-        let total_str = format_number(total_saved);
-        parts.push(format!("session: {total_str} saved"));
-    }
 
     let body = parts.join(" | ");
     format!("\u{2500}\u{2500}\u{2500} {body} \u{2500}\u{2500}\u{2500}")
@@ -213,6 +225,9 @@ mod tests {
 
     #[test]
     fn basic_footer_format() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
+
         let info = SavingsInfo {
             original: 4200,
             compressed: 840,
@@ -244,10 +259,15 @@ mod tests {
             result.contains("mode: map"),
             "should contain mode: {result}"
         );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
     }
 
     #[test]
     fn footer_with_detail() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
+
         let info = SavingsInfo {
             original: 12300,
             compressed: 620,
@@ -263,6 +283,8 @@ mod tests {
             result.contains("12.3k"),
             "should format large numbers: {result}"
         );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
     }
 
     #[test]
@@ -342,9 +364,12 @@ mod tests {
     }
 
     #[test]
-    fn session_total_shown_at_interval() {
+    fn session_counter_removed_from_footer() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
+
         reset_session();
-        for _ in 0..(SESSION_TOTAL_INTERVAL - 1) {
+        for _ in 0..20 {
             record_savings(100, 50);
         }
         let info = SavingsInfo {
@@ -355,10 +380,92 @@ mod tests {
         };
         let result = format_footer_inner(&info);
         assert!(
-            result.contains("session:"),
-            "should contain session total at interval: {result}"
+            !result.contains("session:"),
+            "session counter must not appear in footer (breaks prefix stability): {result}"
         );
         reset_session();
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
+    }
+
+    #[test]
+    fn quantized_mode_rounds_to_nearest_10() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "quantized");
+
+        let info = SavingsInfo {
+            original: 100,
+            compressed: 58,
+            mode: None,
+            detail: None,
+        };
+        let result = format_footer_inner(&info);
+        assert!(
+            result.contains("~40%"),
+            "42% should quantize to ~40%: {result}"
+        );
+
+        let info = SavingsInfo {
+            original: 100,
+            compressed: 13,
+            mode: None,
+            detail: None,
+        };
+        let result = format_footer_inner(&info);
+        assert!(
+            result.contains("~90%"),
+            "87% should quantize to ~90%: {result}"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
+    }
+
+    #[test]
+    fn none_mode_suppresses_all_annotations() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "none");
+
+        let info = SavingsInfo {
+            original: 100,
+            compressed: 20,
+            mode: Some("map"),
+            detail: None,
+        };
+        let result = format_footer_inner(&info);
+        assert!(result.is_empty(), "none mode should suppress all: {result}");
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
+    }
+
+    #[test]
+    fn threshold_suppresses_small_savings() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
+
+        let info = SavingsInfo {
+            original: 100,
+            compressed: 97,
+            mode: None,
+            detail: None,
+        };
+        let result = format_footer_inner(&info);
+        assert!(
+            result.is_empty(),
+            "3% savings (below default 5% threshold) should be suppressed: {result}"
+        );
+
+        let info = SavingsInfo {
+            original: 100,
+            compressed: 90,
+            mode: None,
+            detail: None,
+        };
+        let result = format_footer_inner(&info);
+        assert!(
+            result.contains("10%"),
+            "10% savings (above 5% threshold) should appear: {result}"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
     }
 
     #[test]

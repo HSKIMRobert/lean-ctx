@@ -78,7 +78,7 @@ pub struct Config {
     /// false keeps the loopback-friendly behavior where any local AI tool's own
     /// provider key authenticates (the proxy never injects upstream credentials —
     /// it forwards the caller's key verbatim). Enable on shared/multi-user hosts to
-    /// require the token; clients must then send `Authorization: Bearer <token>`.
+    /// require the token; clients must then send `Authorization: Bearer [REDACTED:Authorization header]
     #[serde(default)]
     pub proxy_require_token: bool,
     /// Skip ALL proxy authentication on loopback-bound listeners (#755).
@@ -479,6 +479,16 @@ pub struct Config {
     /// Override via LEAN_CTX_SAVINGS_FOOTER or LEAN_CTX_SHOW_SAVINGS=1|0 env var.
     #[serde(default)]
     pub savings_footer: SavingsFooter,
+    /// Controls compression annotation style in savings footers.
+    /// Values: "quantized" (default, round to 10% buckets), "full" (exact %), "none" (suppress all).
+    /// Override via LEAN_CTX_COMPRESSION_ANNOTATION env var.
+    #[serde(default)]
+    pub compression_annotation: CompressionAnnotation,
+    /// Minimum savings percentage to emit a footer annotation. Below this threshold,
+    /// annotations are suppressed (the savings are too small to be worth the token cost).
+    /// Default: 5 (suppress annotations for savings below 5%).
+    #[serde(default = "serde_defaults::default_annotation_threshold_pct")]
+    pub annotation_threshold_pct: u8,
     /// Explicit project root override. When set, lean-ctx uses this instead of auto-detection.
     /// This prevents accidental home-directory scans when running from $HOME.
     /// Override via LEAN_CTX_PROJECT_ROOT env var.

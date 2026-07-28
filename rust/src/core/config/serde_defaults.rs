@@ -64,3 +64,7 @@ pub(super) fn default_cognition_loop_max_steps() -> u8 {
 pub(super) fn default_cognition_synthesis_min_cluster() -> usize {
     3
 }
+
+pub(super) fn default_annotation_threshold_pct() -> u8 {
+    5
+}

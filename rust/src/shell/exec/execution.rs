@@ -140,6 +140,61 @@ fn stdout_is_regular_file() -> bool {
     }
 }
 
+/// Quote-aware check for stdout file redirects (`>`, `>>`) inside a command
+/// string. Returns `true` when the command redirects to a real file (not
+/// `/dev/null`, not `>&N` fd-duplication, not `2>`).
+fn command_has_file_redirect(cmd: &str) -> bool {
+    let bytes = cmd.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while i < len {
+        let c = bytes[i];
+        if c == b'\\' && !in_single_quote {
+            i += 2;
+            continue;
+        }
+        if c == b'\'' && !in_double_quote {
+            in_single_quote = !in_single_quote;
+        } else if c == b'"' && !in_single_quote {
+            in_double_quote = !in_double_quote;
+        } else if c == b'>' && !in_single_quote && !in_double_quote {
+            if i > 0 && bytes[i - 1] == b'2' {
+                i += 1;
+                continue;
+            }
+            let target_start = if i + 1 < len && bytes[i + 1] == b'>' {
+                i + 2
+            } else {
+                i + 1
+            };
+            let target: String = cmd[target_start..]
+                .trim_start()
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
+            if target == "/dev/null" || target == "/dev/stdout" || target == "/dev/stderr" {
+                i += 1;
+                continue;
+            }
+            if let Some(fd) = target.strip_prefix('&')
+                && !fd.is_empty()
+                && (fd == "-" || fd.chars().all(|c| c.is_ascii_digit()))
+            {
+                i += 1;
+                continue;
+            }
+            if !target.is_empty() {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 /// Shared allowlist gate for the CLI shell entrypoints — `-c` (via [`exec`]) and
 /// `-t` (via [`exec_argv`]). Both must apply the SAME boundary so the track path
 /// (the default shell hook) cannot be weaker than the compress path.
@@ -244,6 +299,16 @@ pub fn exec(command: &str) -> i32 {
     // capture) and TTYs keep compressing. This is the single choke point, so it
     // holds for every caller (hook, direct CLI, Pi/MCP bridges).
     if stdout_is_regular_file() {
+        return exec_inherit_tracked(command, &shell, &shell_flag);
+    }
+
+    // Also bypass compression when the redirect is INSIDE the command string
+    // (e.g., `lean-ctx -c 'git show HEAD:f > out.md'`). In this case lean-ctx's
+    // own stdout is a pipe (to the agent), but the shell child redirects its
+    // stdout to the file. exec_buffered would capture empty/minimal output while
+    // the file gets correct data — but the overhead is wasted and the compressed
+    // empty output confuses agents. Let sh handle it natively. (#1303)
+    if command_has_file_redirect(command) {
         return exec_inherit_tracked(command, &shell, &shell_flag);
     }
 
@@ -572,5 +637,57 @@ mod exec_tests {
         // Explicit LEAN_CTX_ALLOWLIST_WARN_ONLY=1 opt-out (but never in hook-child mode).
         assert!(!super::allowlist_must_enforce_inner(false, true, false));
         assert!(super::allowlist_must_enforce_inner(true, true, false));
+    }
+
+    // --- #1303: command_has_file_redirect ---
+
+    #[test]
+    fn redirect_to_file_detected() {
+        assert!(super::command_has_file_redirect("git show HEAD:f > out.md"));
+        assert!(super::command_has_file_redirect("git diff >> changes.log"));
+        assert!(super::command_has_file_redirect(
+            "git status > /tmp/status.txt"
+        ));
+    }
+
+    #[test]
+    fn no_redirect_not_detected() {
+        assert!(!super::command_has_file_redirect("git status"));
+        assert!(!super::command_has_file_redirect("cargo test --lib"));
+    }
+
+    #[test]
+    fn dev_null_not_detected_as_redirect() {
+        assert!(!super::command_has_file_redirect("cargo test > /dev/null"));
+        assert!(!super::command_has_file_redirect("cmd > /dev/stdout"));
+        assert!(!super::command_has_file_redirect("cmd > /dev/stderr"));
+    }
+
+    #[test]
+    fn stderr_redirect_not_detected() {
+        assert!(!super::command_has_file_redirect(
+            "cargo test 2> errors.log"
+        ));
+        assert!(!super::command_has_file_redirect("cargo test 2>/dev/null"));
+    }
+
+    #[test]
+    fn fd_dup_not_detected() {
+        assert!(!super::command_has_file_redirect("cargo test 2>&1"));
+        assert!(!super::command_has_file_redirect("cmd >&2"));
+    }
+
+    #[test]
+    fn quoted_redirect_not_detected() {
+        assert!(!super::command_has_file_redirect("echo 'a > b'"));
+        assert!(!super::command_has_file_redirect("echo \"a > b\""));
+        assert!(!super::command_has_file_redirect(
+            "gh pr create --body 'see > details'"
+        ));
+    }
+
+    #[test]
+    fn escaped_redirect_not_detected() {
+        assert!(!super::command_has_file_redirect("echo a \\> b"));
     }
 }

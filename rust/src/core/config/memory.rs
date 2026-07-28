@@ -136,6 +136,35 @@ impl SavingsFooter {
     }
 }
 
+/// Controls how compression percentages are displayed in savings footers.
+///
+/// - `Full`: Show exact percentage (e.g., `↓42%`) — legacy behavior
+/// - `Quantized`: Round to nearest 10% (e.g., `↓~40%`) — reduces prefix variation
+/// - `None`: Suppress all savings annotations
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionAnnotation {
+    Full,
+    #[default]
+    Quantized,
+    None,
+}
+
+impl CompressionAnnotation {
+    pub fn effective() -> Self {
+        if let Ok(v) = std::env::var("LEAN_CTX_COMPRESSION_ANNOTATION") {
+            return match v.trim().to_lowercase().as_str() {
+                "full" => Self::Full,
+                "quantized" => Self::Quantized,
+                "none" => Self::None,
+                _ => Self::default(),
+            };
+        }
+        let cfg = super::Config::load();
+        cfg.compression_annotation.clone()
+    }
+}
+
 /// RSS-based memory guardian configuration.
 pub struct MemoryGuardConfig {
     pub max_ram_percent: u8,

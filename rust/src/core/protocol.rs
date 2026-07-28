@@ -608,10 +608,11 @@ mod tests {
     fn savings_footer_env_gated_tests() {
         let _lock = crate::core::data_dir::test_env_lock();
 
-        // Test: always mode shows box-drawing format
+        // Use full annotation mode for exact percentage checks
         super::MCP_CONTEXT.store(false, std::sync::atomic::Ordering::Relaxed);
         crate::test_env::set_var("LEAN_CTX_SAVINGS_FOOTER", "always");
         crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "1");
+        crate::test_env::set_var("LEAN_CTX_COMPRESSION_ANNOTATION", "full");
         crate::test_env::remove_var("LEAN_CTX_QUIET");
 
         let s = super::format_savings(100, 50);
@@ -622,7 +623,6 @@ mod tests {
             "expected box-drawing: {s}"
         );
 
-        // Test: mode info included
         let s = super::format_savings_with_info(4200, 840, Some("map"), None);
         assert!(s.contains("mode: map"), "expected mode: {s}");
         assert!(s.contains("\u{2193}80%"), "expected 80%: {s}");
@@ -651,9 +651,8 @@ mod tests {
         crate::test_env::set_var("LEAN_CTX_SHOW_SAVINGS", "0");
         assert!(!super::savings_footer_visible());
 
-        // Restore ALL touched env — leaking LEAN_CTX_SAVINGS_FOOTER made
-        // footers visible in unrelated tests (GL #556 flakiness).
         crate::test_env::remove_var("LEAN_CTX_SHOW_SAVINGS");
         crate::test_env::remove_var("LEAN_CTX_SAVINGS_FOOTER");
+        crate::test_env::remove_var("LEAN_CTX_COMPRESSION_ANNOTATION");
     }
 }
