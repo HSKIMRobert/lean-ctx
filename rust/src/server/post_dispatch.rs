@@ -157,6 +157,16 @@ impl LeanCtxServer {
                 },
             );
 
+            // Emit canonical ContextReceiptV1 on OclaBus.
+            let receipt = crate::core::context_kernel::mcp_bridge::generate_mcp_receipt(
+                "mcp-dispatch",
+                &name_owned,
+                input_token_count as usize,
+                output_token_count_u64 as usize,
+                false,
+            );
+            crate::core::context_kernel::bridge::emit_receipt_event(&receipt);
+
             // Evidence pipeline: MCP data → envelope → normalizer → receipt chain.
             let mcp_call_data = crate::core::context_kernel::mcp_bridge::McpCallData {
                 tool_name: name_owned.clone(),
