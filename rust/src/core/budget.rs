@@ -106,7 +106,10 @@ mod tests {
                 original_tokens,
                 delivered_tokens,
             } => {
-                assert!(delivered_tokens <= 120, "delivered {delivered_tokens} > ~120");
+                assert!(
+                    delivered_tokens <= 120,
+                    "delivered {delivered_tokens} > ~120"
+                );
                 assert!(original_tokens > delivered_tokens);
             }
             BudgetAction::PassThrough => panic!("should have truncated"),
