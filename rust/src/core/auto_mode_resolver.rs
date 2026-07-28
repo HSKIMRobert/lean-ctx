@@ -90,6 +90,7 @@ pub fn persisted_source_counts() -> Vec<(String, u64)> {
 pub struct AutoModeContext<'a> {
     pub path: &'a str,
     pub token_count: usize,
+    pub line_count: Option<usize>,
     pub task: Option<&'a str>,
     pub cache: Option<&'a SessionCache>,
 }
@@ -199,12 +200,30 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return r;
     }
 
+    // Progressive disclosure (#1309): large files default to compact overviews.
+    // File line count drives the tier; falls back to token-based approximation.
+    let cfg = crate::core::config::Config::load();
+    if cfg.progressive_disclosure_effective() {
+        let lines = ctx
+            .line_count
+            .unwrap_or_else(|| estimate_lines(ctx.token_count));
+        let threshold = cfg.progressive_threshold_lines as usize;
+        let sig_max = cfg.progressive_signatures_max as usize;
+
+        if lines >= sig_max && is_code(ext) {
+            return resolved("map", "progressive_manifest");
+        }
+        if lines >= threshold && is_code(ext) {
+            return resolved("signatures", "progressive_signatures");
+        }
+    }
+
     // Deterministic cold-read fallback. Every read that reaches here missed the
     // session cache (a warm hit returns `full`/`diff` above). `structure_first`
     // lets a phase-isolated host opt into a lower `map` floor for medium code
     // files; all capability guards (diagnostic / edit-fail / intent) already ran
     // above, and the anti-inflation guarantee keeps `map` break-even at worst.
-    let structure_first = crate::core::config::Config::load().structure_first_effective();
+    let structure_first = cfg.structure_first_effective();
     let heuristic = heuristic_mode(ext, ctx.token_count, structure_first);
     let source = if structure_first && heuristic == "map" && ctx.token_count <= 6000 {
         "structure_first"
@@ -475,6 +494,12 @@ fn is_code(ext: &str) -> bool {
     )
 }
 
+/// Approximate line count from tokens when actual line count is unavailable.
+/// Uses 4 tokens/line as a conservative estimate for typical source code.
+fn estimate_lines(token_count: usize) -> usize {
+    token_count / 4
+}
+
 fn is_config_or_data(ext: &str, path: &str) -> bool {
     if matches!(ext, "xml" | "ini" | "cfg" | "env") {
         return true;
@@ -603,6 +628,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "test.rs",
             token_count: 100,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -616,6 +642,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "config.ini",
             token_count: 500,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -650,6 +677,7 @@ mod tests {
         let ctx = AutoModeContext {
             path,
             token_count: 7000,
+            line_count: None,
             task: None,
             cache: Some(&cache),
         };
@@ -678,6 +706,7 @@ mod tests {
         let ctx = AutoModeContext {
             path,
             token_count: 3000,
+            line_count: None,
             task: None,
             cache: Some(&cache),
         };
@@ -691,6 +720,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "large.rs",
             token_count: 5000,
+            line_count: None,
             task: Some("how does the cache work?"),
             cache: None,
         };
@@ -737,6 +767,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "large.rs",
             token_count: 5000,
+            line_count: None,
             task: Some("how does large.rs build the cache?"),
             cache: None,
         };
@@ -794,6 +825,7 @@ mod tests {
         let suspect = AutoModeContext {
             path: "src/versioncmp.c",
             token_count: 1500,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -804,6 +836,7 @@ mod tests {
         let tiny = AutoModeContext {
             path: "src/util.c",
             token_count: 120,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -825,6 +858,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "src/versioncmp.c",
             token_count: 1500,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -852,6 +886,7 @@ mod tests {
         let ctx = AutoModeContext {
             path: "src/widget.rs",
             token_count: 1500,
+            line_count: None,
             task: None,
             cache: None,
         };
@@ -875,5 +910,106 @@ mod tests {
         crate::test_env::set_var("LEAN_CTX_AUTO_MODE_LEARNING", "0");
         assert!(!crate::core::config::Config::default().auto_mode_learning_effective());
         crate::test_env::remove_var("LEAN_CTX_AUTO_MODE_LEARNING");
+    }
+
+    #[test]
+    fn progressive_small_file_stays_full() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "1");
+
+        let ctx = AutoModeContext {
+            path: "small.rs",
+            token_count: 200,
+            line_count: Some(50),
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(result.mode, "full", "50 lines → full");
+
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
+    }
+
+    #[test]
+    fn progressive_medium_file_gets_signatures() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-pd-sig-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "1");
+
+        let ctx = AutoModeContext {
+            path: "medium.rs",
+            token_count: 800,
+            line_count: Some(200),
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(result.mode, "signatures", "200 lines → signatures");
+        assert_eq!(result.source, "progressive_signatures");
+
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn progressive_large_file_gets_map() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-pd-map-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "1");
+
+        let ctx = AutoModeContext {
+            path: "large.rs",
+            token_count: 3200,
+            line_count: Some(800),
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(result.mode, "map", "800 lines → map (manifest)");
+        assert_eq!(result.source, "progressive_manifest");
+
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn progressive_disabled_skips_tiering() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-pd-off-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+        crate::test_env::set_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE", "0");
+        crate::test_env::set_var("LEAN_CTX_STRUCTURE_FIRST", "0");
+
+        let ctx = AutoModeContext {
+            path: "medium.rs",
+            token_count: 800,
+            line_count: Some(200),
+            task: None,
+            cache: None,
+        };
+        let result = resolve(&ctx);
+        assert_eq!(
+            result.mode, "full",
+            "progressive off → falls through to heuristic (full for medium code)"
+        );
+
+        crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
+        crate::test_env::remove_var("LEAN_CTX_STRUCTURE_FIRST");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn estimate_lines_approximation() {
+        assert_eq!(estimate_lines(400), 100);
+        assert_eq!(estimate_lines(2000), 500);
+        assert_eq!(estimate_lines(0), 0);
     }
 }

@@ -625,6 +625,7 @@ impl CtxReadTool {
                                         Some(&cache),
                                         &path_owned,
                                         orig_tok,
+                                        None,
                                         task_ref,
                                     )
                                 })
@@ -704,6 +705,7 @@ impl CtxReadTool {
                                         None,
                                         &path_owned,
                                         sr.original_tokens,
+                                        Some(sr.line_count),
                                         task_ref,
                                     )
                                 })

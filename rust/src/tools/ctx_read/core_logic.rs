@@ -105,9 +105,9 @@ pub(super) fn handle_with_options_inner(
         // decompressing the full body (avoids ~2-5ms zstd on hits). The
         // aggressiveness knob (#714) still routes `auto` through the density path.
         let resolved_mode = if mode == "auto" {
-            tuning
-                .auto_density_mode()
-                .unwrap_or_else(|| resolve_auto_mode(Some(cache), path, original_tokens, task))
+            tuning.auto_density_mode().unwrap_or_else(|| {
+                resolve_auto_mode(Some(cache), path, original_tokens, None, task)
+            })
         } else {
             mode.to_string()
         };
@@ -307,9 +307,15 @@ pub(super) fn handle_with_options_inner(
     }
 
     let resolved_mode = if mode == "auto" {
-        tuning
-            .auto_density_mode()
-            .unwrap_or_else(|| resolve_auto_mode(None, path, store_result.original_tokens, task))
+        tuning.auto_density_mode().unwrap_or_else(|| {
+            resolve_auto_mode(
+                None,
+                path,
+                store_result.original_tokens,
+                Some(store_result.line_count),
+                task,
+            )
+        })
     } else {
         mode.to_string()
     };
@@ -409,11 +415,13 @@ pub(crate) fn resolve_auto_mode(
     cache: Option<&SessionCache>,
     file_path: &str,
     original_tokens: usize,
+    line_count: Option<usize>,
     task: Option<&str>,
 ) -> String {
     let ctx = crate::core::auto_mode_resolver::AutoModeContext {
         path: file_path,
         token_count: original_tokens,
+        line_count,
         task,
         cache,
     };

@@ -211,6 +211,7 @@ pub fn cmd_read(args: &[String]) {
             &crate::core::auto_mode_resolver::AutoModeContext {
                 path,
                 token_count: original_tokens,
+                line_count: None,
                 task: None,
                 cache: None,
             },

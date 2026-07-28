@@ -179,6 +179,18 @@ impl Config {
         }
     }
 
+    /// Whether progressive disclosure is active. Default true. The env var
+    /// `LEAN_CTX_PROGRESSIVE_DISCLOSURE` overrides the config field.
+    pub fn progressive_disclosure_effective(&self) -> bool {
+        match std::env::var("LEAN_CTX_PROGRESSIVE_DISCLOSURE") {
+            Ok(raw) => matches!(
+                raw.trim().to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            ),
+            Err(_) => self.progressive_disclosure,
+        }
+    }
+
     /// Returns `true` when the adaptive learning signals may participate in
     /// `auto` mode resolution (#683). Off by default for a deterministic,
     /// I/O-light cascade; the `LEAN_CTX_AUTO_MODE_LEARNING` env var wins over the

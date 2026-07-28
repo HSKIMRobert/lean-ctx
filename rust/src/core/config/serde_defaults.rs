@@ -68,3 +68,11 @@ pub(super) fn default_cognition_synthesis_min_cluster() -> usize {
 pub(super) fn default_annotation_threshold_pct() -> u8 {
     5
 }
+
+pub(super) fn default_progressive_threshold_lines() -> u32 {
+    100
+}
+
+pub(super) fn default_progressive_signatures_max() -> u32 {
+    500
+}
