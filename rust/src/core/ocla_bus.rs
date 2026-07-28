@@ -17,11 +17,12 @@
 //!   Timestamps are the only non-deterministic field (acceptable for
 //!   observability; not included in contract assertions).
 
-use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
+
+use crate::core::context_kernel::bounded::BoundedQueue;
 
 // ─── OCLA Event Types ────────────────────────────────────────────────────────
 
@@ -137,6 +138,46 @@ pub struct OclaBusRecord {
     pub event: OclaEvent,
 }
 
+/// Policy applied when the OCLA bus reaches its configured capacity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OverflowPolicy {
+    /// Retain the new event and evict the oldest queued event.
+    DropOldest,
+    /// Retain queued events and reject the new event.
+    DropNewest,
+    /// Warn and reject the new event because this synchronous bus cannot block.
+    Backpressure,
+}
+
+impl OverflowPolicy {
+    fn from_env() -> Self {
+        match std::env::var("LEANCTX_BUS_OVERFLOW").as_deref() {
+            Ok("drop_newest") => Self::DropNewest,
+            Ok("backpressure") => Self::Backpressure,
+            Ok("drop_oldest") | Err(_) => Self::DropOldest,
+            Ok(value) => {
+                tracing::warn!(
+                    value,
+                    "invalid LEANCTX_BUS_OVERFLOW value; using drop_oldest"
+                );
+                Self::DropOldest
+            }
+        }
+    }
+}
+
+/// Details recorded whenever an event cannot be retained without overflow.
+#[derive(Debug, Clone)]
+pub struct OverflowEvent {
+    /// Policy active when the overflow occurred.
+    pub policy: OverflowPolicy,
+    /// Number of overflows observed by this bus since creation.
+    pub dropped_count: usize,
+    /// Maximum number of events retained by the queue.
+    pub queue_capacity: usize,
+}
+
 // ─── OclaBus ─────────────────────────────────────────────────────────────────
 
 /// The OCLA event bus. Zero-cost when disabled.
@@ -145,25 +186,40 @@ pub struct OclaBusRecord {
 /// Test usage: `OclaBus::scoped(cap)` — isolated instance, no global state.
 pub struct OclaBus {
     enabled: AtomicBool,
-    ring: Mutex<VecDeque<OclaBusRecord>>,
+    ring: Mutex<BoundedQueue<OclaBusRecord>>,
     capacity: usize,
     next_id: AtomicU64,
+    overflow_policy: OverflowPolicy,
+    overflow_count: AtomicUsize,
 }
 
 impl OclaBus {
     /// Create a new bus with the given ring buffer capacity.
     fn new(capacity: usize) -> Self {
+        Self::new_with_policy(capacity, OverflowPolicy::from_env())
+    }
+
+    fn new_with_policy(capacity: usize, overflow_policy: OverflowPolicy) -> Self {
         Self {
             enabled: AtomicBool::new(false),
-            ring: Mutex::new(VecDeque::with_capacity(capacity)),
+            ring: Mutex::new(BoundedQueue::new(capacity)),
             capacity,
             next_id: AtomicU64::new(1),
+            overflow_policy,
+            overflow_count: AtomicUsize::new(0),
         }
     }
 
     /// Create a scoped (isolated) bus for testing. Does NOT affect the global bus.
     pub fn scoped(capacity: usize) -> Self {
-        let bus = Self::new(capacity);
+        let bus = Self::new_with_policy(capacity, OverflowPolicy::DropOldest);
+        bus.enabled.store(true, Ordering::Relaxed);
+        bus
+    }
+
+    #[cfg(test)]
+    fn scoped_with_policy(capacity: usize, overflow_policy: OverflowPolicy) -> Self {
+        let bus = Self::new_with_policy(capacity, overflow_policy);
         bus.enabled.store(true, Ordering::Relaxed);
         bus
     }
@@ -207,10 +263,29 @@ impl OclaBus {
             .ring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if ring.len() >= self.capacity {
-            ring.pop_front();
-        }
-        ring.push_back(record);
+        let _dropped = if ring.is_full() {
+            let dropped_count = self.overflow_count.fetch_add(1, Ordering::Relaxed) + 1;
+            let overflow = OverflowEvent {
+                policy: self.overflow_policy,
+                dropped_count,
+                queue_capacity: self.capacity,
+            };
+
+            match self.overflow_policy {
+                OverflowPolicy::DropOldest => ring.push(record),
+                OverflowPolicy::DropNewest => Some(record),
+                OverflowPolicy::Backpressure => {
+                    tracing::warn!(
+                        dropped_count = overflow.dropped_count,
+                        queue_capacity = overflow.queue_capacity,
+                        "OCLA bus backpressure requested; dropping newest event"
+                    );
+                    Some(record)
+                }
+            }
+        } else {
+            ring.push(record)
+        };
 
         id
     }
@@ -221,7 +296,8 @@ impl OclaBus {
             .ring
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        ring.drain(..).collect()
+        let count = ring.len();
+        ring.drain_oldest(count)
     }
 
     /// Read events since a given ID (non-consuming).
@@ -260,6 +336,16 @@ impl OclaBus {
     pub fn total_emitted(&self) -> u64 {
         self.next_id.load(Ordering::Relaxed) - 1
     }
+
+    /// Total queue overflows observed by this bus since creation.
+    pub fn overflow_count(&self) -> usize {
+        self.overflow_count.load(Ordering::Relaxed)
+    }
+
+    /// Overflow policy active for this bus.
+    pub fn overflow_policy(&self) -> OverflowPolicy {
+        self.overflow_policy
+    }
 }
 
 impl std::fmt::Debug for OclaBus {
@@ -270,6 +356,8 @@ impl std::fmt::Debug for OclaBus {
             .field("ring", &format_args!("[{ring_len} events]"))
             .field("capacity", &self.capacity)
             .field("next_id", &self.next_id.load(Ordering::Relaxed))
+            .field("overflow_policy", &self.overflow_policy)
+            .field("overflow_count", &self.overflow_count())
             .finish()
     }
 }
@@ -318,6 +406,16 @@ pub fn latest(n: usize) -> Vec<OclaBusRecord> {
 /// Total events emitted on the global bus.
 pub fn total_emitted() -> u64 {
     global_bus().total_emitted()
+}
+
+/// Total queue overflows observed by the global bus since startup.
+pub fn overflow_count() -> usize {
+    global_bus().overflow_count()
+}
+
+/// Overflow policy active for the global bus.
+pub fn overflow_policy() -> OverflowPolicy {
+    global_bus().overflow_policy()
 }
 
 // ─── Bridge to existing events.rs ────────────────────────────────────────────
@@ -407,6 +505,17 @@ fn current_timestamp_ms() -> u64 {
 mod tests {
     use super::*;
 
+    fn savings_event(input_saved: u64) -> OclaEvent {
+        OclaEvent::SavingsRecorded {
+            input_saved,
+            output_saved: 0,
+            source: SavingsSource::Compression,
+            attribution_id: None,
+            evidence_class: None,
+            measurement_method: None,
+        }
+    }
+
     #[test]
     fn disabled_bus_returns_zero() {
         let bus = OclaBus::new(16);
@@ -451,8 +560,19 @@ mod tests {
     }
 
     #[test]
-    fn ring_buffer_evicts_oldest() {
-        let bus = OclaBus::scoped(3);
+    fn test_bounded_queue_replaces_vecdeque() {
+        let bus = OclaBus::scoped(2);
+        bus.emit_if_enabled(savings_event(1));
+        bus.emit_if_enabled(savings_event(2));
+
+        assert_eq!(bus.len(), 2);
+        assert_eq!(bus.drain().len(), 2);
+        assert!(bus.is_empty());
+    }
+
+    #[test]
+    fn test_overflow_drop_oldest() {
+        let bus = OclaBus::scoped_with_policy(3, OverflowPolicy::DropOldest);
         let id1 = bus.emit_if_enabled(OclaEvent::SavingsRecorded {
             input_saved: 10,
             output_saved: 5,
@@ -490,6 +610,49 @@ mod tests {
         assert_eq!(bus.len(), 3);
         let events = bus.events_since(0);
         assert!(events.iter().all(|r| r.id > id1), "oldest evicted");
+    }
+
+    #[test]
+    fn test_overflow_drop_newest() {
+        let bus = OclaBus::scoped_with_policy(2, OverflowPolicy::DropNewest);
+        bus.emit_if_enabled(savings_event(1));
+        bus.emit_if_enabled(savings_event(2));
+        let rejected_id = bus.emit_if_enabled(savings_event(3));
+
+        let retained_ids = bus
+            .events_since(0)
+            .into_iter()
+            .map(|record| record.id)
+            .collect::<Vec<_>>();
+        assert_eq!(retained_ids, vec![1, 2]);
+        assert_eq!(rejected_id, 3);
+    }
+
+    #[test]
+    fn test_overflow_metrics() {
+        let bus = OclaBus::scoped_with_policy(1, OverflowPolicy::DropNewest);
+        bus.emit_if_enabled(savings_event(1));
+        bus.emit_if_enabled(savings_event(2));
+        bus.emit_if_enabled(savings_event(3));
+
+        assert_eq!(bus.overflow_count(), 2);
+        assert_eq!(bus.overflow_policy(), OverflowPolicy::DropNewest);
+    }
+
+    #[test]
+    fn test_overflow_policy_from_env() {
+        let _env_lock = crate::core::data_dir::test_env_lock();
+        let previous = std::env::var_os("LEANCTX_BUS_OVERFLOW");
+        crate::test_env::set_var("LEANCTX_BUS_OVERFLOW", "backpressure");
+
+        let bus = OclaBus::new(1);
+        assert_eq!(bus.overflow_policy(), OverflowPolicy::Backpressure);
+
+        if let Some(value) = previous {
+            crate::test_env::set_var("LEANCTX_BUS_OVERFLOW", value);
+        } else {
+            crate::test_env::remove_var("LEANCTX_BUS_OVERFLOW");
+        }
     }
 
     #[test]
