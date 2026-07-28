@@ -3,6 +3,8 @@ pub mod config;
 pub mod config_provider;
 pub mod github;
 pub mod gitlab;
+pub mod hardened_http;
+pub mod health;
 pub mod init;
 pub mod jira;
 pub mod jira_oauth;

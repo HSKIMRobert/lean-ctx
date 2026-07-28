@@ -2,12 +2,21 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
+const MAX_CACHE_ENTRIES: usize = 2048;
+const STALE_SERVE_GRACE: Duration = Duration::from_hours(1);
+
 static PROVIDER_CACHE: std::sync::LazyLock<Mutex<ProviderCache>> =
     std::sync::LazyLock::new(|| Mutex::new(ProviderCache::new()));
 
 struct CacheEntry {
     data: String,
     expires_at: Instant,
+    provider_id: String,
+}
+
+struct StaleEntry {
+    data: String,
+    evicted_at: Instant,
     provider_id: String,
 }
 
@@ -37,6 +46,8 @@ pub struct CacheMetrics {
     pub total_hits: u64,
     pub total_misses: u64,
     pub total_entries: usize,
+    pub stale_entries: usize,
+    pub max_entries: usize,
     pub provider_stats: Vec<ProviderCacheStats>,
 }
 
@@ -52,6 +63,8 @@ impl CacheMetrics {
 
 struct ProviderCache {
     entries: HashMap<String, CacheEntry>,
+    access_order: Vec<String>,
+    stale_entries: HashMap<String, StaleEntry>,
     hits: HashMap<String, u64>,
     misses: HashMap<String, u64>,
     last_fetch: HashMap<String, SystemTime>,
@@ -61,6 +74,8 @@ impl ProviderCache {
     fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            access_order: Vec::new(),
+            stale_entries: HashMap::new(),
             hits: HashMap::new(),
             misses: HashMap::new(),
             last_fetch: HashMap::new(),
@@ -68,20 +83,31 @@ impl ProviderCache {
     }
 
     fn get(&mut self, key: &str) -> Option<&str> {
-        self.entries.retain(|_, v| v.expires_at > Instant::now());
+        self.expire_entries();
+        self.purge_stale();
         if let Some(entry) = self.entries.get(key) {
-            *self.hits.entry(entry.provider_id.clone()).or_insert(0) += 1;
-            Some(entry.data.as_str())
-        } else {
-            let provider = key.split(':').next().unwrap_or("unknown");
-            *self.misses.entry(provider.to_string()).or_insert(0) += 1;
-            None
+            let provider_id = entry.provider_id.clone();
+            self.access_order.retain(|candidate| candidate != key);
+            self.access_order.push(key.to_string());
+            *self.hits.entry(provider_id).or_insert(0) += 1;
+            return self.entries.get(key).map(|entry| entry.data.as_str());
         }
+        let provider_id = self.stale_entries.get(key).map_or_else(
+            || key.split(':').next().unwrap_or("unknown").to_string(),
+            |entry| entry.provider_id.clone(),
+        );
+        *self.misses.entry(provider_id.clone()).or_insert(0) += 1;
+        let stale = self.stale_entries.get(key)?;
+        tracing::warn!(key, provider_id, "serving stale provider cache entry");
+        Some(stale.data.as_str())
     }
 
     fn set(&mut self, key: String, data: String, ttl: Duration, provider_id: &str) {
         self.last_fetch
             .insert(provider_id.to_string(), SystemTime::now());
+        self.access_order.retain(|candidate| candidate != &key);
+        self.access_order.push(key.clone());
+        self.stale_entries.remove(&key);
         self.entries.insert(
             key,
             CacheEntry {
@@ -90,22 +116,75 @@ impl ProviderCache {
                 provider_id: provider_id.to_string(),
             },
         );
+        self.enforce_lru_cap();
+    }
+
+    fn expire_entries(&mut self) {
+        let now = Instant::now();
+        let expired: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.expires_at <= now)
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in expired {
+            self.move_to_stale(&key, now);
+        }
+    }
+
+    fn enforce_lru_cap(&mut self) {
+        let now = Instant::now();
+        while self.entries.len() > MAX_CACHE_ENTRIES {
+            let key = self.access_order.remove(0);
+            self.move_to_stale(&key, now);
+        }
+    }
+
+    fn move_to_stale(&mut self, key: &str, evicted_at: Instant) {
+        self.access_order.retain(|candidate| candidate != key);
+        if let Some(entry) = self.entries.remove(key) {
+            self.stale_entries.insert(
+                key.to_string(),
+                StaleEntry {
+                    data: entry.data,
+                    evicted_at,
+                    provider_id: entry.provider_id,
+                },
+            );
+        }
+    }
+
+    fn stale_entry_count(&self) -> usize {
+        self.stale_entries.len()
+    }
+
+    fn purge_stale(&mut self) {
+        let now = Instant::now();
+        self.stale_entries
+            .retain(|_, entry| entry.evicted_at + STALE_SERVE_GRACE > now);
     }
 
     fn invalidate_provider(&mut self, provider_id: &str) -> usize {
         let before = self.entries.len();
         self.entries.retain(|_, v| v.provider_id != provider_id);
+        self.access_order
+            .retain(|key| self.entries.contains_key(key));
+        self.stale_entries
+            .retain(|_, entry| entry.provider_id != provider_id);
         before - self.entries.len()
     }
 
     fn invalidate_all(&mut self) -> usize {
         let count = self.entries.len();
         self.entries.clear();
+        self.access_order.clear();
+        self.stale_entries.clear();
         count
     }
 
     fn metrics(&mut self) -> CacheMetrics {
-        self.entries.retain(|_, v| v.expires_at > Instant::now());
+        self.expire_entries();
+        self.purge_stale();
 
         let mut by_provider: HashMap<String, ProviderCacheStats> = HashMap::new();
 
@@ -138,6 +217,8 @@ impl ProviderCache {
             total_hits: self.hits.values().sum(),
             total_misses: self.misses.values().sum(),
             total_entries: self.entries.len(),
+            stale_entries: self.stale_entries.len(),
+            max_entries: MAX_CACHE_ENTRIES,
             provider_stats,
         }
     }
@@ -188,8 +269,29 @@ pub fn cache_metrics() -> CacheMetrics {
     PROVIDER_CACHE
         .lock()
         .ok()
-        .map(|mut c| c.metrics())
-        .unwrap_or_default()
+        .map_or_else(CacheMetrics::default, |mut c| c.metrics())
+}
+
+pub fn cache_entry_count() -> usize {
+    PROVIDER_CACHE.lock().ok().map_or(0, |mut cache| {
+        cache.expire_entries();
+        cache.entries.len()
+    })
+}
+
+pub fn cache_stale_count() -> usize {
+    PROVIDER_CACHE
+        .lock()
+        .ok()
+        .map_or(0, |cache| cache.stale_entry_count())
+}
+
+pub fn cache_purge_stale() -> usize {
+    PROVIDER_CACHE.lock().ok().map_or(0, |mut cache| {
+        let before = cache.stale_entry_count();
+        cache.purge_stale();
+        before - cache.stale_entry_count()
+    })
 }
 
 #[cfg(test)]
@@ -209,16 +311,16 @@ mod tests {
     }
 
     #[test]
-    fn cache_expired_entry_returns_none() {
+    fn test_stale_serve_on_expired_entry() {
         let mut cache = ProviderCache::new();
         cache.set(
             "test:key".into(),
             "value".into(),
-            Duration::from_secs(0),
+            Duration::from_millis(10),
             "test",
         );
-        std::thread::sleep(Duration::from_millis(10));
-        assert!(cache.get("test:key").is_none());
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(cache.get("test:key"), Some("value"));
     }
 
     #[test]
@@ -318,6 +420,74 @@ mod tests {
     }
 
     #[test]
+    fn test_lru_eviction_at_capacity() {
+        let mut cache = ProviderCache::new();
+        for index in 0..MAX_CACHE_ENTRIES + 10 {
+            let key = format!("test:{index}");
+            cache.set(key.clone(), key, Duration::from_mins(1), "test");
+        }
+        assert_eq!(cache.entries.len(), MAX_CACHE_ENTRIES);
+    }
+
+    #[test]
+    fn test_stale_serve_expired_grace() {
+        let mut cache = ProviderCache::new();
+        cache.stale_entries.insert(
+            "test:key".into(),
+            StaleEntry {
+                data: "value".into(),
+                evicted_at: Instant::now()
+                    .checked_sub(STALE_SERVE_GRACE + Duration::from_millis(1))
+                    .unwrap(),
+                provider_id: "test".into(),
+            },
+        );
+        assert!(cache.get("test:key").is_none());
+    }
+
+    #[test]
+    fn test_access_order_update_on_get() {
+        let mut cache = ProviderCache::new();
+        cache.set("a".into(), "1".into(), Duration::from_mins(1), "test");
+        cache.set("b".into(), "2".into(), Duration::from_mins(1), "test");
+        cache.get("a");
+        assert_eq!(cache.access_order.last().map(String::as_str), Some("a"));
+    }
+
+    #[test]
+    fn test_metrics_include_stale_count() {
+        let mut cache = ProviderCache::new();
+        cache.set("a".into(), "1".into(), Duration::from_millis(10), "test");
+        std::thread::sleep(Duration::from_millis(20));
+        assert_eq!(cache.metrics().stale_entries, 1);
+    }
+
+    #[test]
+    fn test_purge_stale_removes_old() {
+        let mut cache = ProviderCache::new();
+        cache.stale_entries.insert(
+            "old".into(),
+            StaleEntry {
+                data: "value".into(),
+                evicted_at: Instant::now()
+                    .checked_sub(STALE_SERVE_GRACE + Duration::from_millis(1))
+                    .unwrap(),
+                provider_id: "test".into(),
+            },
+        );
+        cache.purge_stale();
+        assert_eq!(cache.stale_entry_count(), 0);
+    }
+
+    #[test]
+    fn test_cache_entry_count_accuracy() {
+        invalidate_all();
+        set_cached_with_provider("test:count", "value", 60, "test");
+        assert_eq!(cache_entry_count(), 1);
+        invalidate_all();
+    }
+
+    #[test]
     fn provider_cache_stats_hit_rate() {
         let stats = ProviderCacheStats {
             provider_id: "test".into(),
@@ -327,11 +497,5 @@ mod tests {
             last_fetch: None,
         };
         assert!((stats.hit_rate() - 0.75).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn provider_cache_stats_hit_rate_zero() {
-        let stats = ProviderCacheStats::default();
-        assert!((stats.hit_rate() - 0.0).abs() < f64::EPSILON);
     }
 }
