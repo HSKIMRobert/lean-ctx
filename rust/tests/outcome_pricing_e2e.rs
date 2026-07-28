@@ -54,7 +54,7 @@ fn record_real_compression(command: &str, raw: &str) -> (usize, usize) {
     let compressed = compress_if_beneficial_pub(command, raw);
     let baseline = count_tokens(raw);
     let actual = count_tokens(&compressed);
-    savings_ledger::record_tool_event("cli_shell", baseline, actual);
+    savings_ledger::record_tool_event("cli_shell", baseline, actual, None, None);
     (baseline, actual)
 }
 

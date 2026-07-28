@@ -189,7 +189,7 @@ fn test_full_pipeline() {
     );
     assert_eq!(cache.get(&key).expect("cache hit").tokens, 40);
 
-    savings_ledger::record_tool_event("ocla_integration", 100, 40);
+    savings_ledger::record_tool_event("ocla_integration", 100, 40, None, None);
     assert_eq!(savings_ledger::all_events().len(), 1);
     assert_eq!(reconciled_event_count(data.temp.path()), 1);
     assert!(savings_ledger::verify().valid);
