@@ -97,11 +97,13 @@ impl OclaService for BuiltinSavingsLedger {
 
 impl SavingsLedger for BuiltinSavingsLedger {
     fn record_savings(&self, evidence: SavingsEvidence) -> OclaResult<String> {
-        crate::core::savings_ledger::record_tool_event(
-            "ocla_savings",
-            evidence.original_tokens.try_into().unwrap_or(usize::MAX),
-            evidence.delivered_tokens.try_into().unwrap_or(usize::MAX),
-        );
+        evidence.context.scope(|| {
+            crate::core::savings_ledger::record_tool_event(
+                "ocla_savings",
+                evidence.original_tokens.try_into().unwrap_or(usize::MAX),
+                evidence.delivered_tokens.try_into().unwrap_or(usize::MAX),
+            );
+        });
 
         let saved = evidence
             .original_tokens
