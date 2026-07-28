@@ -363,6 +363,8 @@ pub mod binary_detect;
 pub mod bounce_tracker;
 pub mod budget;
 pub mod budget_tracker;
+#[allow(unused)]
+pub mod delivered_ranges;
 pub mod budgets;
 pub mod cache;
 pub mod cache_telemetry;
