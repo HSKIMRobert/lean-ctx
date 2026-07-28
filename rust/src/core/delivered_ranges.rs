@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 
 static GLOBAL: Mutex<Option<DeliveredRanges>> = Mutex::new(None);
 
@@ -84,11 +84,11 @@ impl IntervalSet {
         self.intervals.sort_by_key(|&(s, _)| s);
         let mut merged: Vec<(usize, usize)> = Vec::new();
         for (s, e) in self.intervals.drain(..) {
-            if let Some(last) = merged.last_mut() {
-                if s <= last.1 + 1 {
-                    last.1 = last.1.max(e);
-                    continue;
-                }
+            if let Some(last) = merged.last_mut()
+                && s <= last.1 + 1
+            {
+                last.1 = last.1.max(e);
+                continue;
             }
             merged.push((s, e));
         }

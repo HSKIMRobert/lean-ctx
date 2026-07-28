@@ -384,6 +384,7 @@ pub mod crash_log;
 pub mod data_consolidate;
 pub mod data_dir;
 pub mod debug_log;
+pub mod content_handle;
 #[allow(unused)]
 pub mod delivered_ranges;
 pub mod deployment_profile;
@@ -417,13 +418,13 @@ pub mod hnsw;
 pub mod home;
 pub mod homeostasis;
 pub mod immune_detector;
+pub mod marginal_gate;
 pub mod mcp_catalog;
+pub mod negative_knowledge;
 pub mod ocla;
 pub mod ocla_bus;
 pub mod quality_benchmark;
 pub mod qubo_select;
-pub mod marginal_gate;
-pub mod negative_knowledge;
 pub mod session_budget;
 pub mod work_graph;
 
