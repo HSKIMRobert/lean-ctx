@@ -231,6 +231,7 @@ fn tool_profile_canon(p: &ToolProfile) -> &'static str {
         ToolProfile::Standard => "standard",
         ToolProfile::Power => "power",
         ToolProfile::Custom(_) => "custom",
+        ToolProfile::Auto => "auto",
     }
 }
 

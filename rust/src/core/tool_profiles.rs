@@ -105,28 +105,25 @@ impl ToolProfile {
     pub fn is_tool_enabled(&self, tool_name: &str) -> bool {
         match self {
             Self::Power => true,
-            Self::Minimal => MINIMAL_TOOLS.contains(&tool_name),
+            Self::Minimal | Self::Auto => MINIMAL_TOOLS.contains(&tool_name),
             Self::Standard => STANDARD_TOOLS.contains(&tool_name),
-            Self::Auto => MINIMAL_TOOLS.contains(&tool_name),
             Self::Custom(list) => list.iter().any(|t| t == tool_name),
         }
     }
 
     pub fn tool_count(&self) -> usize {
         match self {
-            Self::Minimal => MINIMAL_TOOLS.len(),
+            Self::Minimal | Self::Auto => MINIMAL_TOOLS.len(),
             Self::Standard => STANDARD_TOOLS.len(),
             Self::Power => 0, // dynamic — caller should use registry count
-            Self::Auto => MINIMAL_TOOLS.len(),
             Self::Custom(list) => list.len(),
         }
     }
 
     pub fn tool_names(&self) -> Vec<&str> {
         match self {
-            Self::Minimal => MINIMAL_TOOLS.to_vec(),
+            Self::Minimal | Self::Auto => MINIMAL_TOOLS.to_vec(),
             Self::Standard => STANDARD_TOOLS.to_vec(),
-            Self::Auto => MINIMAL_TOOLS.to_vec(),
             Self::Power | Self::Custom(_) => vec![],
         }
     }
