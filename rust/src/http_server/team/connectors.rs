@@ -15,7 +15,7 @@
 //! **Local-Free Invariant.** Connectors are a hosted convenience: they only add
 //! context to a hosted workspace and gate nothing locally.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -25,6 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::core::consolidation;
+use crate::core::ocla::OclaRegistry;
+use crate::core::ocla::types::{ConnectorJob, Observation, OclaRequestContext};
 use crate::core::providers::config::GitLabConfig;
 use crate::core::providers::github::{GitHubConfig, GitHubProvider};
 use crate::core::providers::gitlab::GitLabProvider;
@@ -40,6 +42,23 @@ const MIN_INTERVAL_SECS: u64 = 300;
 const DEFAULT_INTERVAL_SECS: u64 = 3_600;
 /// How many items a single sync pulls when the connector omits a limit.
 const DEFAULT_LIMIT: usize = 50;
+
+fn http_ocla_context(component: &str) -> OclaRequestContext {
+    OclaRequestContext::new(
+        format!("http-{}", uuid_short()),
+        "http-server".to_string(),
+        component.to_string(),
+        String::new(),
+        None,
+        None,
+    )
+}
+
+fn uuid_short() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).unwrap_or_default();
+    hex::encode(bytes)
+}
 
 fn default_interval_secs() -> u64 {
     DEFAULT_INTERVAL_SECS
@@ -313,6 +332,36 @@ pub fn spawn_scheduler(
                             st.last_item_count = Some(n);
                             st.total_items = st.total_items.saturating_add(n as u64);
                             tracing::info!(connector = %cfg.id, items = n, "connector sync ok");
+
+                            // OCLA projection: record connector scheduling through trait boundary
+                            let job = ConnectorJob {
+                                context: http_ocla_context("connector-scheduler"),
+                                connector_id: cfg.id.clone(),
+                                payload_ref: format!("{}:{}", cfg.provider, cfg.resource),
+                                deadline_ms: None,
+                            };
+                            if let Err(e) = OclaRegistry::global()
+                                .connector_scheduler
+                                .schedule_connector(job)
+                            {
+                                tracing::debug!("OCLA connector projection: {e}");
+                            }
+
+                            let observation = Observation {
+                                context: http_ocla_context("connector-sync"),
+                                name: "connector.sync_complete".to_string(),
+                                attributes: BTreeMap::from([
+                                    ("connector_id".to_string(), cfg.id.clone()),
+                                    ("provider".to_string(), cfg.provider.clone()),
+                                    ("items".to_string(), n.to_string()),
+                                ]),
+                            };
+                            if let Err(e) = OclaRegistry::global()
+                                .observation_hook
+                                .observe(observation)
+                            {
+                                tracing::debug!("OCLA observation: {e}");
+                            }
                         }
                         Err(e) => {
                             st.last_status = Some("error".to_string());
