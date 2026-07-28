@@ -8,18 +8,26 @@
 //! Both are gated on `Config::response_shaping_mode` / `Config::conversation_compression`.
 use super::conversation;
 use super::response_shaper::{self, ShapingMode, ShapingResult};
+use crate::core::config::Config;
 
 /// Apply response shaping to non-streaming response bytes.
 /// Returns shaped bytes + tokens saved, or `None` if shaping didn't apply.
-#[cfg_attr(not(test), allow(dead_code))] // Reserved: proxy forward integration pending (#1125)
 pub(crate) fn shape_response(resp_bytes: &[u8], mode: &str) -> Option<ShapingResult> {
     let shaping_mode = ShapingMode::from_str_config(mode);
     response_shaper::shape_response(resp_bytes, shaping_mode)
 }
 
+/// Config-gated response shaping. Returns `None` if disabled or mode is "off".
+pub(crate) fn shape_response_if_enabled(resp_bytes: &[u8]) -> Option<ShapingResult> {
+    let config = Config::load();
+    if !config.response_shaping.enabled {
+        return None;
+    }
+    shape_response(resp_bytes, &config.response_shaping.mode)
+}
+
 /// Compress conversation messages if the request exceeds thresholds.
 /// Returns compressed messages array + savings stats, or `None` if not applicable.
-#[cfg_attr(not(test), allow(dead_code))] // Reserved: proxy forward integration pending (#1123)
 pub(crate) fn compress_conversation(body_bytes: &[u8]) -> Option<(Vec<u8>, usize, usize, usize)> {
     let mut parsed: serde_json::Value = serde_json::from_slice(body_bytes).ok()?;
 
@@ -37,9 +45,23 @@ pub(crate) fn compress_conversation(body_bytes: &[u8]) -> Option<(Vec<u8>, usize
     ))
 }
 
+/// Config-gated conversation compression. Returns `None` if disabled or not applicable.
+pub(crate) fn compress_conversation_if_enabled(
+    body_bytes: &[u8],
+) -> Option<(Vec<u8>, usize, usize, usize)> {
+    let config = Config::load();
+    if !config.conversation.compression_enabled {
+        return None;
+    }
+    compress_conversation(body_bytes)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        compress_conversation, compress_conversation_if_enabled, shape_response,
+        shape_response_if_enabled,
+    };
 
     #[test]
     fn shape_response_off_mode_returns_none() {
@@ -77,5 +99,29 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&body).unwrap();
         assert!(compress_conversation(&bytes).is_none());
+    }
+
+    #[test]
+    fn compress_conversation_if_enabled_respects_config() {
+        let messages: Vec<serde_json::Value> = (0..30)
+            .map(|i| {
+                serde_json::json!({
+                    "role": if i % 2 == 0 { "user" } else { "assistant" },
+                    "content": "x".repeat(2000)
+                })
+            })
+            .collect();
+        let body = serde_json::json!({"messages": messages});
+        let bytes = serde_json::to_vec(&body).unwrap();
+        assert!(compress_conversation_if_enabled(&bytes).is_none());
+    }
+
+    #[test]
+    fn shape_response_if_enabled_returns_none_when_disabled() {
+        let response = serde_json::json!({
+            "choices": [{"message": {"role": "assistant", "content": "42"}}]
+        });
+        let bytes = serde_json::to_vec(&response).unwrap();
+        let _result = shape_response_if_enabled(&bytes);
     }
 }
