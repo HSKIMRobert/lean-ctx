@@ -116,6 +116,7 @@ mod tests {
     use crate::core::context_kernel::accounting_fix::detect_negative_savings;
     use crate::core::context_kernel::activation::KernelModeConfig;
     use crate::core::context_kernel::bridge::{KernelEnrichment, KernelVerdict};
+    use crate::core::context_kernel::enforce::KernelMode;
     use crate::core::context_kernel::types::{ContextPlanV1, PlanBudget};
 
     fn enrichment(blocks: String) -> KernelEnrichment {
@@ -140,6 +141,7 @@ mod tests {
                 suppress: Vec::new(),
                 budget_used,
             },
+            enforced_mode: KernelMode::Shadow,
         }
     }
 
