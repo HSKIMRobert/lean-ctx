@@ -7,24 +7,123 @@
 use crate::core::config::{Config, Effort, RoutingRules, parse_route_target};
 use crate::core::ocla::traits::{ModelRouter, OclaService};
 use crate::core::ocla::types::{
-    IntentDecision, ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaResult,
+    IntentDecision, ModelRouteRequest, OclaCapability, OclaCapabilityKind, OclaError, OclaResult,
     RoutingDecision,
 };
 use crate::core::ocla_bus::{self, OclaEvent};
 use crate::core::savings_ledger::store::{self, MechanismSummary};
+use serde::Deserialize;
 use serde_json::json;
+
+/// Policy Enforcement Point wrapping the model router.
+/// Validates routing decisions against policy constraints.
+#[derive(Debug)]
+pub struct PolicyEnforcementPoint {
+    pub max_cost_micros: Option<u64>,
+    pub model_allowlist: Option<Vec<String>>,
+    pub model_denylist: Vec<String>,
+    pub require_reasoning_budget: bool,
+}
+
+impl PolicyEnforcementPoint {
+    #[must_use]
+    pub fn permissive() -> Self {
+        Self {
+            max_cost_micros: None,
+            model_allowlist: None,
+            model_denylist: Vec::new(),
+            require_reasoning_budget: false,
+        }
+    }
+
+    #[must_use]
+    pub fn from_config() -> Self {
+        let Some(path) = dirs::config_dir().map(|path| path.join("lean-ctx/router-policy.toml"))
+        else {
+            return Self::permissive();
+        };
+        let Ok(contents) = std::fs::read_to_string(path) else {
+            return Self::permissive();
+        };
+        let Ok(config) = toml::from_str::<PolicyEnforcementConfig>(&contents) else {
+            return Self::permissive();
+        };
+
+        Self {
+            max_cost_micros: config.max_cost_micros,
+            model_allowlist: config.model_allowlist,
+            model_denylist: config.model_denylist,
+            require_reasoning_budget: config.require_reasoning_budget,
+        }
+    }
+
+    /// Validates a routing decision against configured router policy.
+    pub fn enforce(
+        &self,
+        decision: &RoutingDecision,
+        request: &ModelRouteRequest,
+    ) -> Result<(), String> {
+        if self
+            .model_denylist
+            .iter()
+            .any(|model| model == &decision.model)
+        {
+            return Err(format!(
+                "model '{}' is denied by router policy",
+                decision.model
+            ));
+        }
+        if let Some(allowlist) = &self.model_allowlist
+            && !allowlist.iter().any(|model| model == &decision.model)
+        {
+            return Err(format!(
+                "model '{}' is not allowed by router policy",
+                decision.model
+            ));
+        }
+        if let (Some(policy_maximum), Some(request_maximum)) =
+            (self.max_cost_micros, request.maximum_cost_micros)
+            && request_maximum > policy_maximum
+        {
+            return Err(format!(
+                "requested maximum cost {request_maximum} exceeds router policy maximum {policy_maximum}"
+            ));
+        }
+        if self.require_reasoning_budget && decision.reasoning_budget_tokens == 0 {
+            return Err("router policy requires a reasoning budget".to_string());
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Default, Deserialize)]
+struct PolicyEnforcementConfig {
+    max_cost_micros: Option<u64>,
+    model_allowlist: Option<Vec<String>>,
+    #[serde(default)]
+    model_denylist: Vec<String>,
+    #[serde(default)]
+    require_reasoning_budget: bool,
+}
 
 pub struct BuiltinModelRouter {
     rules: RoutingRules,
+    pep: PolicyEnforcementPoint,
 }
 
 impl BuiltinModelRouter {
     pub fn new() -> Self {
-        Self::with_rules(Config::load().proxy.routing)
+        let mut router = Self::with_rules(Config::load().proxy.routing);
+        router.pep = PolicyEnforcementPoint::from_config();
+        router
     }
 
     pub(crate) fn with_rules(rules: RoutingRules) -> Self {
-        Self { rules }
+        Self {
+            rules,
+            pep: PolicyEnforcementPoint::permissive(),
+        }
     }
 }
 
@@ -49,7 +148,19 @@ pub struct RoutingDecisionWithRationale {
 
 impl ModelRouter for BuiltinModelRouter {
     fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision> {
-        Ok(self.route_model_with_intent(&request, None)?.decision)
+        let result = self.route_model_with_intent(&request, None)?;
+        if let Err(reason) = self.pep.enforce(&result.decision, &request) {
+            ocla_bus::emit(OclaEvent::AgentChainEvent {
+                agent_id: request.context.agent_id.clone(),
+                action: format!("model_route_denied: {reason}"),
+                parent_agent: None,
+            });
+            return Err(OclaError::InvalidRequest(format!(
+                "routing policy denied: {reason}"
+            )));
+        }
+
+        Ok(result.decision)
     }
 }
 
@@ -249,8 +360,16 @@ fn infer_provider(model: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::core::ocla::types::OclaRequestContext;
+    use super::{
+        BuiltinModelRouter, PolicyEnforcementPoint, configured_reasoning_budget, reasoning_budget,
+        routing_rationale,
+    };
+    use crate::core::config::{Effort, RoutingRules};
+    use crate::core::ocla::traits::ModelRouter;
+    use crate::core::ocla::types::{
+        IntentDecision, ModelRouteRequest, OclaRequestContext, RoutingDecision,
+    };
+    use crate::core::savings_ledger::store::MechanismSummary;
     use std::collections::BTreeMap;
 
     fn route_req(candidates: &[&str]) -> ModelRouteRequest {
@@ -267,6 +386,63 @@ mod tests {
             maximum_cost_micros: None,
             maximum_latency_ms: None,
         }
+    }
+
+    fn decision(model: &str, reasoning_budget_tokens: u64) -> RoutingDecision {
+        RoutingDecision {
+            model: model.to_string(),
+            provider: "test".to_string(),
+            reasoning_budget_tokens,
+            decision_ref: "route:r1".to_string(),
+        }
+    }
+
+    #[test]
+    fn permissive_pep_allows_any_decision() {
+        let pep = PolicyEnforcementPoint::permissive();
+
+        assert!(
+            pep.enforce(&decision("any-model", 0), &route_req(&[]))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn pep_denies_model_in_denylist() {
+        let pep = PolicyEnforcementPoint {
+            model_denylist: vec!["blocked-model".to_string()],
+            ..PolicyEnforcementPoint::permissive()
+        };
+
+        assert!(
+            pep.enforce(&decision("blocked-model", 0), &route_req(&[]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn pep_denies_model_missing_from_allowlist() {
+        let pep = PolicyEnforcementPoint {
+            model_allowlist: Some(vec!["approved-model".to_string()]),
+            ..PolicyEnforcementPoint::permissive()
+        };
+
+        assert!(
+            pep.enforce(&decision("other-model", 0), &route_req(&[]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn pep_denies_request_cost_above_policy_maximum() {
+        let pep = PolicyEnforcementPoint {
+            max_cost_micros: Some(100),
+            ..PolicyEnforcementPoint::permissive()
+        };
+        let mut request = route_req(&[]);
+        request.maximum_cost_micros = Some(101);
+
+        assert!(pep.enforce(&decision("any-model", 0), &request).is_err());
     }
 
     fn active_rules(tiers: &[(&str, &str)]) -> RoutingRules {
