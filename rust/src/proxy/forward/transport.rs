@@ -161,10 +161,17 @@ pub(crate) async fn build_response(
         }
     }
 
+    let resp_bytes =
+        if let Some(shaped) = crate::proxy::shaping_hook::shape_response_if_enabled(&resp_bytes) {
+            shaped.bytes
+        } else {
+            resp_bytes.to_vec()
+        };
+
     let resp_bytes = if xlat {
         xlat_response_bytes(&resp_bytes, status)
     } else {
-        resp_bytes.to_vec()
+        resp_bytes
     };
     if let (Some(cache), Some(model)) = (cache, model) {
         cache.record_response(

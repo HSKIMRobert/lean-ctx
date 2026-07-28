@@ -145,6 +145,14 @@ pub(crate) fn prepare_request_body(
         }
     };
 
+    let decoded = if let Some((compressed_body, _tokens_saved, _summarized, _dropped)) =
+        crate::proxy::shaping_hook::compress_conversation_if_enabled(&decoded)
+    {
+        Cow::Owned(compressed_body)
+    } else {
+        decoded
+    };
+
     let Some(mut parsed) = serde_json::from_slice::<serde_json::Value>(&decoded).ok() else {
         return Ok(PreparedRequestBody {
             body: body_bytes.to_vec(),
