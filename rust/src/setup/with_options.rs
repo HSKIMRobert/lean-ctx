@@ -486,34 +486,37 @@ fn maybe_add_project_root_warning(steps: &mut Vec<SetupStepReport>) {
     let has_env_root = std::env::var("LEAN_CTX_PROJECT_ROOT").is_ok_and(|v| !v.is_empty());
     let cfg = crate::core::config::Config::load();
     let has_cfg_root = cfg.project_root.as_ref().is_some_and(|v| !v.is_empty());
-    if !has_env_root
-        && !has_cfg_root
-        && let Ok(cwd) = std::env::current_dir()
-    {
-        let is_home = dirs::home_dir().is_some_and(|h| cwd == h);
-        if is_home {
-            let mut root_step = SetupStepReport {
-                name: "project_root".to_string(),
-                ok: true,
-                items: Vec::new(),
-                warnings: vec![
-                    "No project_root configured. Running from $HOME can cause excessive scanning. \
-                     Set via: lean-ctx config set project_root /path/to/project"
-                        .to_string(),
-                ],
-                errors: Vec::new(),
-            };
-            root_step.items.push(SetupItem {
-                name: "project_root".to_string(),
-                status: "unconfigured".to_string(),
-                path: None,
-                note: Some(
-                    "Set LEAN_CTX_PROJECT_ROOT or add project_root to config.toml".to_string(),
-                ),
-            });
-            steps.push(root_step);
-        }
+
+    if has_env_root || has_cfg_root {
+        return;
     }
+
+    let Ok(cwd) = std::env::current_dir() else {
+        return;
+    };
+    let is_home = dirs::home_dir().is_some_and(|h| cwd == h);
+    if !is_home {
+        return;
+    }
+
+    let mut root_step = SetupStepReport {
+        name: "project_root".to_string(),
+        ok: true,
+        items: Vec::new(),
+        warnings: vec![
+            "No project_root configured. Running from $HOME can cause excessive scanning. \
+             Set via: lean-ctx config set project_root /path/to/project"
+                .to_string(),
+        ],
+        errors: Vec::new(),
+    };
+    root_step.items.push(SetupItem {
+        name: "project_root".to_string(),
+        status: "unconfigured".to_string(),
+        path: None,
+        note: Some("Set LEAN_CTX_PROJECT_ROOT or add project_root to config.toml".to_string()),
+    });
+    steps.push(root_step);
 }
 
 fn maybe_spawn_background_index() {
@@ -526,25 +529,27 @@ fn maybe_spawn_background_index() {
 }
 
 fn maybe_enable_ide_config_access(opts: SetupOptions) {
-    if opts.yes
-        && !opts.fix
-        && crate::core::config::Config::load()
+    if !opts.yes
+        || opts.fix
+        || crate::core::config::Config::load()
             .allow_ide_config_dirs
-            .is_none()
+            .is_some()
     {
-        match crate::core::config::Config::update_global(|c| {
-            c.allow_ide_config_dirs = Some(true);
-        }) {
-            Ok(_) => {
-                if !opts.json {
-                    println!(
-                        "  Enabled IDE config access (allow_ide_config_dirs) — \
-                         disable: lean-ctx config set allow_ide_config_dirs false"
-                    );
-                }
+        return;
+    }
+
+    match crate::core::config::Config::update_global(|c| {
+        c.allow_ide_config_dirs = Some(true);
+    }) {
+        Ok(_) => {
+            if !opts.json {
+                println!(
+                    "  Enabled IDE config access (allow_ide_config_dirs) — \
+                     disable: lean-ctx config set allow_ide_config_dirs false"
+                );
             }
-            Err(e) => tracing::warn!("could not enable IDE config access: {e}"),
         }
+        Err(e) => tracing::warn!("could not enable IDE config access: {e}"),
     }
 }
 
@@ -576,3 +581,4 @@ fn persist_setup_report(report: &SetupReport) -> Result<(), String> {
     content.push('\n');
     crate::config_io::write_atomic(&path, &content)
 }
+
