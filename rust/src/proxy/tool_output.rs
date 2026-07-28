@@ -1,6 +1,8 @@
 use serde_json::Value;
 
-use super::compress::compress_tool_result;
+use crate::core::tokens::TokenizerFamily;
+
+use super::compress::{compress_tool_result, compress_tool_result_for};
 use super::tool_kind::{ToolResultKind, should_protect};
 
 enum JsonRewrite {
@@ -40,6 +42,38 @@ pub(super) fn compress_text(
     false
 }
 
+pub(super) fn compress_text_for(
+    text: &mut String,
+    tool_name: Option<&str>,
+    kind: ToolResultKind,
+    family: TokenizerFamily,
+) -> bool {
+    match rewrite_json_payload_text(text, kind, |inner| {
+        if should_protect(kind, inner) {
+            return None;
+        }
+        let compressed = compress_tool_result_for(inner, tool_name, family);
+        (compressed.len() < inner.len()).then_some(compressed)
+    }) {
+        JsonRewrite::Changed(compressed) => {
+            *text = compressed;
+            return true;
+        }
+        JsonRewrite::Unchanged => return false,
+        JsonRewrite::NotJson => {}
+    }
+
+    if should_protect(kind, text) {
+        return false;
+    }
+    let compressed = compress_tool_result_for(text, tool_name, family);
+    if compressed.len() < text.len() {
+        *text = compressed;
+        return true;
+    }
+    false
+}
+
 pub(super) fn compress_value(
     value: &mut Value,
     tool_name: Option<&str>,
@@ -52,6 +86,27 @@ pub(super) fn compress_value(
             for part in parts.iter_mut() {
                 if let Some(Value::String(text)) = part.get_mut("text") {
                     changed |= compress_text(text, tool_name, kind);
+                }
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+pub(super) fn compress_value_for(
+    value: &mut Value,
+    tool_name: Option<&str>,
+    kind: ToolResultKind,
+    family: TokenizerFamily,
+) -> bool {
+    match value {
+        Value::String(text) => compress_text_for(text, tool_name, kind, family),
+        Value::Array(parts) => {
+            let mut changed = false;
+            for part in parts.iter_mut() {
+                if let Some(Value::String(text)) = part.get_mut("text") {
+                    changed |= compress_text_for(text, tool_name, kind, family);
                 }
             }
             changed
@@ -154,5 +209,37 @@ fn rewrite_json_text_values(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::tokens::count_tokens_for;
+
+    #[test]
+    fn compress_text_for_uses_selected_tokenizer_family() {
+        let paragraph = "Grüezi 世界 means hello in Swiss German, and this repeated sentence carries multilingual text for tokenizer accounting. 🤝";
+        let input = format!("{}\n", [paragraph; 20].join("\n\n"));
+        let mut cl100k = input.clone();
+        let mut o200k = input;
+
+        assert!(compress_text_for(
+            &mut cl100k,
+            Some("shell"),
+            ToolResultKind::Shell,
+            TokenizerFamily::Cl100k,
+        ));
+        assert!(compress_text_for(
+            &mut o200k,
+            Some("shell"),
+            ToolResultKind::Shell,
+            TokenizerFamily::O200kBase,
+        ));
+        assert_ne!(
+            count_tokens_for(&cl100k, TokenizerFamily::Cl100k),
+            count_tokens_for(&o200k, TokenizerFamily::O200kBase),
+            "the selected tokenizer family must produce model-specific accounting"
+        );
     }
 }
