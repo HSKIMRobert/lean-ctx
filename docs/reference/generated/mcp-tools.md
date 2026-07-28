@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **81 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **82 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -504,6 +504,12 @@ and the estimated token 'quality tax' of over-threshold functions.
 ANTIPATTERN: NOT a linter/style checker — it scores navigability, not formatting.
 
 Parameters: `action`, `format`, `path`, `root`
+
+## `ctx_quality_lab`
+
+Run Quality Lab: compression fidelity, cache effectiveness, tokenizer calibration, ETPAO. Pass original+compressed text, or omit for runtime-only metrics.
+
+Parameters: `compressed`, `ext`, `format`, `original`
 
 ## `ctx_radar`
 
