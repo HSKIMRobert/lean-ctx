@@ -294,6 +294,14 @@ impl OclaCapabilityKind {
     ];
 }
 
+/// Fail behavior when a subsystem cannot evaluate policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailMode {
+    Open,
+    Closed,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OclaCapabilityStatus {
