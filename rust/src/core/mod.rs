@@ -363,9 +363,6 @@ pub mod binary_detect;
 pub mod bounce_tracker;
 pub mod budget;
 pub mod budget_tracker;
-#[allow(unused)]
-pub mod delivered_ranges;
-pub mod session_budget;
 pub mod budgets;
 pub mod cache;
 pub mod cache_telemetry;
@@ -387,6 +384,8 @@ pub mod crash_log;
 pub mod data_consolidate;
 pub mod data_dir;
 pub mod debug_log;
+#[allow(unused)]
+pub mod delivered_ranges;
 pub mod deployment_profile;
 pub mod diagnostics_store;
 pub mod editor_signal;
@@ -423,6 +422,8 @@ pub mod ocla;
 pub mod ocla_bus;
 pub mod quality_benchmark;
 pub mod qubo_select;
+pub mod marginal_gate;
+pub mod session_budget;
 pub mod work_graph;
 
 pub mod agent_registry;
