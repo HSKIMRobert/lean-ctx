@@ -98,8 +98,8 @@ pub(crate) fn scope_enabled() -> bool {
     })
 }
 
-/// Pure core of [`subagent_scope`] — split out so the derivation is unit-testable
-/// without touching the process environment.
+/// Pure core of the Cursor `task:` scope — split out so the derivation is
+/// unit-testable without touching the process environment.
 fn subagent_scope_from(task_id: Option<&str>) -> Option<String> {
     task_id
         .map(str::trim)
@@ -107,18 +107,72 @@ fn subagent_scope_from(task_id: Option<&str>) -> Option<String> {
         .map(|id| format!("task:{id}"))
 }
 
-/// A subagent's dedicated conversation scope, derived from `CURSOR_TASK_ID`.
+/// Full scope resolver — pure core of [`subagent_scope`], testable without
+/// touching the process environment.
 ///
-/// A Cursor subagent (Task) runs with `CURSOR_TASK_ID` set for its whole life.
-/// Giving it a distinct, non-`None` scope means it can never match the parent's
-/// (or a sibling's) `delivered_conversation`, so it is never served a stub for
-/// content only another agent received — while its *own* re-reads still collapse
-/// to the cheap stub. This replaces the old blanket force-fresh for subagents
-/// (#952/#956).
+/// Priority:
+/// 1. `LEAN_CTX_SCOPE` — explicit operator/integration override
+/// 2. `CURSOR_TASK_ID` — Cursor's per-subagent identifier
+/// 3. `CLAUDECODE=1` — per-process scope for Claude Code (#1292). Claude Code
+///    does not (yet) provide a per-subagent env var, so parent and sub-agent
+///    share the same `session_id`. Each lean-ctx process gets a unique scope
+///    instead, which isolates their caches because each MCP connection is a
+///    separate stdio process.
+fn resolve_scope(
+    cursor_task_id: Option<&str>,
+    claudecode: Option<&str>,
+    explicit_scope: Option<&str>,
+    process_id: &str,
+) -> Option<String> {
+    if let Some(scope) = explicit_scope.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(format!("custom:{scope}"));
+    }
+    if let Some(scope) = subagent_scope_from(cursor_task_id) {
+        return Some(scope);
+    }
+    if claudecode.is_some_and(|v| v == "1") {
+        return Some(format!("proc:{process_id}"));
+    }
+    None
+}
+
+/// A unique identifier for this lean-ctx process, stable for its lifetime.
+/// Used as a scope discriminator when no explicit subagent ID is available
+/// (Claude Code, #1292).
+fn process_unique_id() -> &'static str {
+    static ID: OnceLock<String> = OnceLock::new();
+    ID.get_or_init(|| {
+        let pid = std::process::id();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        format!("{pid}-{ts}")
+    })
+}
+
+/// A per-connection conversation scope that prevents cross-agent stub leakage.
+///
+/// Scope sources (first match wins):
+/// - `LEAN_CTX_SCOPE` — explicit override for custom integrations
+/// - `CURSOR_TASK_ID` — Cursor subagents (#952/#956)
+/// - `CLAUDECODE=1` — per-process scope for Claude Code (#1292); each
+///   lean-ctx stdio process gets a unique scope so a sub-agent's process
+///   never inherits the parent's stub deliveries
+///
+/// Returns `None` only when no agent environment is detected (standalone
+/// usage, plain Cursor without a subagent, etc.), preserving legacy
+/// transcript-based scoping.
 fn subagent_scope() -> Option<String> {
     static SCOPE: OnceLock<Option<String>> = OnceLock::new();
     SCOPE
-        .get_or_init(|| subagent_scope_from(std::env::var("CURSOR_TASK_ID").ok().as_deref()))
+        .get_or_init(|| {
+            resolve_scope(
+                std::env::var("CURSOR_TASK_ID").ok().as_deref(),
+                std::env::var("CLAUDECODE").ok().as_deref(),
+                std::env::var("LEAN_CTX_SCOPE").ok().as_deref(),
+                process_unique_id(),
+            )
+        })
         .clone()
 }
 
@@ -420,7 +474,6 @@ mod tests {
             subagent_scope_from(Some("abc123")),
             Some("task:abc123".to_string())
         );
-        // Whitespace-padded ids are trimmed; empty/blank/absent → no scope.
         assert_eq!(
             subagent_scope_from(Some("  abc  ")),
             Some("task:abc".to_string())
@@ -432,11 +485,65 @@ mod tests {
 
     #[test]
     fn subagent_scope_never_matches_a_plain_conversation() {
-        // The `task:` prefix guarantees a subagent can't collide with a parent's
-        // transcript conversation id, so the stub gate always withholds the
-        // parent's delivery from the subagent.
         let sub = subagent_scope_from(Some("xyz")).unwrap();
         assert!(!allows_stub(true, false, Some(&sub), Some("xyz")));
         assert!(allows_stub(true, false, Some(&sub), Some(&sub)));
+    }
+
+    // --- resolve_scope (multi-host) tests (#1292) ---
+
+    #[test]
+    fn resolve_scope_explicit_override_wins() {
+        let s = resolve_scope(Some("task-1"), Some("1"), Some("my-scope"), "42-99");
+        assert_eq!(s, Some("custom:my-scope".to_string()));
+    }
+
+    #[test]
+    fn resolve_scope_cursor_task_id_beats_claude_code() {
+        let s = resolve_scope(Some("task-1"), Some("1"), None, "42-99");
+        assert_eq!(s, Some("task:task-1".to_string()));
+    }
+
+    #[test]
+    fn resolve_scope_claude_code_gets_process_scope() {
+        let s = resolve_scope(None, Some("1"), None, "100-111");
+        assert_eq!(s, Some("proc:100-111".to_string()));
+    }
+
+    #[test]
+    fn resolve_scope_no_agent_env_returns_none() {
+        assert_eq!(resolve_scope(None, None, None, "42-99"), None);
+    }
+
+    #[test]
+    fn resolve_scope_claude_code_different_processes_differ() {
+        let s1 = resolve_scope(None, Some("1"), None, "100-111").unwrap();
+        let s2 = resolve_scope(None, Some("1"), None, "200-222").unwrap();
+        assert_ne!(
+            s1, s2,
+            "different lean-ctx processes must get different scopes"
+        );
+    }
+
+    #[test]
+    fn claude_code_process_scope_never_matches_session_id() {
+        let scope = resolve_scope(None, Some("1"), None, "42-12345").unwrap();
+        assert!(!allows_stub(true, false, Some(&scope), Some("sess-abc")));
+        assert!(allows_stub(true, false, Some(&scope), Some(&scope)));
+    }
+
+    #[test]
+    fn claude_code_parent_and_subagent_stubs_isolated() {
+        let parent = resolve_scope(None, Some("1"), None, "100-111").unwrap();
+        let child = resolve_scope(None, Some("1"), None, "200-222").unwrap();
+        assert!(allows_stub(true, false, Some(&parent), Some(&parent)));
+        assert!(!allows_stub(true, false, Some(&child), Some(&parent)));
+        assert!(!allows_cold_stub(false, Some(&child), Some(&parent)));
+    }
+
+    #[test]
+    fn resolve_scope_blank_explicit_override_ignored() {
+        assert_eq!(resolve_scope(None, None, Some("  "), "42-99"), None);
+        assert_eq!(resolve_scope(None, None, Some(""), "42-99"), None);
     }
 }
