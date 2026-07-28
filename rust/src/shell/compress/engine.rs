@@ -1,5 +1,5 @@
 use crate::core::patterns;
-use crate::core::tokens::count_tokens;
+use crate::core::tokens::{COUNTING_FAMILY, TokenizerFamily, count_tokens_for};
 
 use super::classification::{
     has_structural_output, is_search_output, is_verbatim_output, looks_like_toon,
@@ -12,8 +12,18 @@ pub(in crate::shell) fn compress_and_measure(
     stderr: &str,
     exit_code: i32,
 ) -> (String, usize) {
-    let compressed_stdout = compress_for_outcome(command, stdout, exit_code);
-    let compressed_stderr = compress_for_outcome(command, stderr, exit_code);
+    compress_and_measure_for(command, stdout, stderr, exit_code, COUNTING_FAMILY)
+}
+
+pub(in crate::shell) fn compress_and_measure_for(
+    command: &str,
+    stdout: &str,
+    stderr: &str,
+    exit_code: i32,
+    family: TokenizerFamily,
+) -> (String, usize) {
+    let compressed_stdout = compress_for_outcome_for(command, stdout, exit_code, family);
+    let compressed_stderr = compress_for_outcome_for(command, stderr, exit_code, family);
 
     let mut result = String::new();
     if !compressed_stdout.is_empty() {
@@ -38,7 +48,7 @@ pub(in crate::shell) fn compress_and_measure(
     } else {
         &result
     };
-    let output_tokens = count_tokens(content_for_counting);
+    let output_tokens = count_tokens_for(content_for_counting, family);
     (result, output_tokens)
 }
 
@@ -52,10 +62,19 @@ pub(in crate::shell) fn compress_and_measure(
 /// `<lc_safe>` spans keep the normal pipeline (the latter so its markers are
 /// stripped correctly); a succeeding command still compresses as before.
 pub(crate) fn compress_for_outcome(command: &str, output: &str, exit_code: i32) -> String {
+    compress_for_outcome_for(command, output, exit_code, COUNTING_FAMILY)
+}
+
+pub(crate) fn compress_for_outcome_for(
+    command: &str,
+    output: &str,
+    exit_code: i32,
+    family: TokenizerFamily,
+) -> String {
     if exit_code != 0 && !output.trim().is_empty() && !crate::core::protect::has_markers(output) {
-        return truncate_verbatim(output, count_tokens(output));
+        return truncate_verbatim(output, count_tokens_for(output, family), family);
     }
-    compress_if_beneficial_with_exit(command, output, exit_code)
+    compress_if_beneficial_with_exit(command, output, exit_code, family)
 }
 
 /// Opt-in (#936) lossless crush of a *verbatim* data command's JSON. Returns a
@@ -64,17 +83,34 @@ pub(crate) fn compress_for_outcome(command: &str, output: &str, exit_code: i32) 
 /// the output-token floor; otherwise `None`, so the caller keeps the output
 /// verbatim. Kept pure (env read stays in the caller) so the gate is unit-tested
 /// without mutating the process environment.
+#[allow(dead_code)]
 pub(crate) fn verbatim_json_crush(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_json_crush_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_json_crush_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let crushed = patterns::json_schema::crush_verbatim(output)?;
-    let crushed_tokens = count_tokens(&crushed);
+    let crushed_tokens = count_tokens_for(&crushed, family);
     (crushed_tokens >= min_output_tokens && crushed_tokens < original_tokens)
         .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
 }
@@ -96,17 +132,34 @@ const LOSSY_DROP_ENTROPY: f64 = 0.9;
 /// unless enabled, the crush both drops a column and clears the token floor, and
 /// the original is large enough to persist. The embedded handle is content-
 /// addressed, so the rewritten output stays byte-stable across turns (#448/#498).
+#[allow(dead_code)]
 pub(crate) fn verbatim_json_crush_lossy(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_json_crush_lossy_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_json_crush_lossy_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let res = crate::core::json_crush::crush_text_lossy_if_beneficial(output, LOSSY_DROP_ENTROPY)?;
-    let crushed_tokens = count_tokens(&res.text);
+    let crushed_tokens = count_tokens_for(&res.text, family);
     if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
         return None;
     }
@@ -133,18 +186,35 @@ fn tabular_delim_crush<T>(output: &str, crush: impl Fn(&str, char) -> Option<T>)
 /// the columnar crusher — fully reconstructible, so no CCR handle is needed.
 /// Returns a footer'd reshape only when `enabled` and the crush both pays (at
 /// least halves the bytes) and clears the token floor; otherwise `None`.
+#[allow(dead_code)]
 pub(crate) fn verbatim_tabular_crush(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_tabular_crush_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_tabular_crush_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let crushed =
         tabular_delim_crush(output, crate::core::tabular_crush::crush_text_if_beneficial)?;
-    let crushed_tokens = count_tokens(&crushed);
+    let crushed_tokens = count_tokens_for(&crushed, family);
     (crushed_tokens >= min_output_tokens && crushed_tokens < original_tokens)
         .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
 }
@@ -156,11 +226,28 @@ pub(crate) fn verbatim_tabular_crush(
 /// so a dropped datum is always recoverable out-of-band (never from the text).
 /// The embedded handle is content-addressed, so the output stays byte-stable
 /// across turns (#448/#498).
+#[allow(dead_code)]
 pub(crate) fn verbatim_tabular_crush_lossy(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
+) -> Option<String> {
+    verbatim_tabular_crush_lossy_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_tabular_crush_lossy_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
 ) -> Option<String> {
     if !enabled {
         return None;
@@ -168,7 +255,7 @@ pub(crate) fn verbatim_tabular_crush_lossy(
     let res = tabular_delim_crush(output, |text, delim| {
         crate::core::tabular_crush::crush_text_lossy_if_beneficial(text, delim, LOSSY_DROP_ENTROPY)
     })?;
-    let crushed_tokens = count_tokens(&res.text);
+    let crushed_tokens = count_tokens_for(&res.text, family);
     if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
         return None;
     }
@@ -188,17 +275,34 @@ pub(crate) fn verbatim_tabular_crush_lossy(
 /// text is a genuinely structured, redundant document). Returns a footer'd
 /// reshape only when `enabled` and the crush clears both the reduction gate and
 /// the token floor; otherwise `None`.
+#[allow(dead_code)]
 pub(crate) fn verbatim_yaml_crush(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_yaml_crush_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_yaml_crush_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let crushed = crate::core::yaml_crush::crush_text_if_beneficial(output)?;
-    let crushed_tokens = count_tokens(&crushed);
+    let crushed_tokens = count_tokens_for(&crushed, family);
     (crushed_tokens >= min_output_tokens && crushed_tokens < original_tokens)
         .then(|| shell_savings_footer(&crushed, original_tokens, crushed_tokens))
 }
@@ -210,17 +314,34 @@ pub(crate) fn verbatim_yaml_crush(
 /// datum is always recoverable out-of-band (never from the text). The embedded
 /// handle is content-addressed, so the output stays byte-stable across turns
 /// (#448/#498).
+#[allow(dead_code)]
 pub(crate) fn verbatim_yaml_crush_lossy(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_yaml_crush_lossy_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_yaml_crush_lossy_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let res = crate::core::yaml_crush::crush_text_lossy_if_beneficial(output, LOSSY_DROP_ENTROPY)?;
-    let crushed_tokens = count_tokens(&res.text);
+    let crushed_tokens = count_tokens_for(&res.text, family);
     if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
         return None;
     }
@@ -236,17 +357,34 @@ pub(crate) fn verbatim_yaml_crush_lossy(
 /// pages and converts to clean markdown. Triggered for HTML content in the
 /// verbatim crusher ladder (curl, wget, fetch outputs). The full HTML is
 /// persisted to CCR under the `html_` prefix for recovery via `ctx_expand`.
+#[allow(dead_code)]
 pub(crate) fn verbatim_html_crush(
     output: &str,
     original_tokens: usize,
     min_output_tokens: usize,
     enabled: bool,
 ) -> Option<String> {
+    verbatim_html_crush_for(
+        output,
+        original_tokens,
+        min_output_tokens,
+        enabled,
+        COUNTING_FAMILY,
+    )
+}
+
+pub(crate) fn verbatim_html_crush_for(
+    output: &str,
+    original_tokens: usize,
+    min_output_tokens: usize,
+    enabled: bool,
+    family: TokenizerFamily,
+) -> Option<String> {
     if !enabled {
         return None;
     }
     let result = crate::core::html_crush::crush_if_beneficial(output)?;
-    let crushed_tokens = count_tokens(&result.text);
+    let crushed_tokens = count_tokens_for(&result.text, family);
     if crushed_tokens < min_output_tokens || crushed_tokens >= original_tokens {
         return None;
     }
@@ -258,11 +396,25 @@ pub(crate) fn verbatim_html_crush(
     ))
 }
 
+#[allow(dead_code)]
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
-    compress_if_beneficial_with_exit(command, output, -1)
+    compress_if_beneficial_for(command, output, COUNTING_FAMILY)
 }
 
-fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32) -> String {
+pub(crate) fn compress_if_beneficial_for(
+    command: &str,
+    output: &str,
+    family: TokenizerFamily,
+) -> String {
+    compress_if_beneficial_with_exit(command, output, -1, family)
+}
+
+fn compress_if_beneficial_with_exit(
+    command: &str,
+    output: &str,
+    exit_code: i32,
+    family: TokenizerFamily,
+) -> String {
     if output.trim().is_empty() {
         return String::new();
     }
@@ -274,11 +426,14 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
     // each unprotected segment flows through the normal pipeline (footer stripped),
     // and a single savings footer is recomputed over the spliced result.
     if crate::core::protect::has_markers(output) {
-        let original_tokens = count_tokens(output);
+        let original_tokens = count_tokens_for(output, family);
         let spliced = crate::core::protect::compress_preserving(output, |seg| {
-            strip_shell_footer(&compress_if_beneficial(command, seg)).to_string()
+            strip_shell_footer(&compress_if_beneficial_with_exit(
+                command, seg, exit_code, family,
+            ))
+            .to_string()
         });
-        let spliced_tokens = count_tokens(&spliced);
+        let spliced_tokens = count_tokens_for(&spliced, family);
         return if spliced_tokens < original_tokens {
             shell_savings_footer(&spliced, original_tokens, spliced_tokens)
         } else {
@@ -294,35 +449,35 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
     // whose diagnostics alone exceed the budget is still head/tail-truncated
     // with safety-needle preservation (#655).
     if is_error_output_from_build_tool(command, output) {
-        let base =
-            maybe_fold_progress(output, count_tokens(output)).unwrap_or_else(|| output.to_string());
+        let base = maybe_fold_progress(output, count_tokens_for(output, family), family)
+            .unwrap_or_else(|| output.to_string());
         let base = dedup_build_diagnostics(&base);
-        return truncate_verbatim(&base, count_tokens(&base));
+        return truncate_verbatim(&base, count_tokens_for(&base, family), family);
     }
 
     // Test-runner output: structurally compress successful runs through the
     // dedicated test-pattern compressors (cargo test, pytest, jest, etc.).
     // Failed runs (exit_code != 0) stay verbatim to preserve failure diagnostics.
     if is_test_runner_command(command) {
-        let base =
-            maybe_fold_progress(output, count_tokens(output)).unwrap_or_else(|| output.to_string());
+        let base = maybe_fold_progress(output, count_tokens_for(output, family), family)
+            .unwrap_or_else(|| output.to_string());
         if exit_code == 0
             && let Some(compressed) = patterns::test::compress(&base)
         {
-            let original_tokens = count_tokens(output);
-            let compressed_tokens = count_tokens(&compressed);
+            let original_tokens = count_tokens_for(output, family);
+            let compressed_tokens = count_tokens_for(&compressed, family);
             if compressed_tokens < original_tokens {
                 return shell_savings_footer(&compressed, original_tokens, compressed_tokens);
             }
         }
-        return truncate_verbatim(&base, count_tokens(&base));
+        return truncate_verbatim(&base, count_tokens_for(&base, family), family);
     }
 
     if !is_search_output(command) && crate::tools::ctx_shell::contains_auth_flow(output) {
         return output.to_string();
     }
 
-    let original_tokens = count_tokens(output);
+    let original_tokens = count_tokens_for(output, family);
 
     // #1129: small outputs are cheaper verbatim than compressed + tee-log round-trip.
     // The tee-log pointer alone costs ~50 tokens; a second read-back call doubles
@@ -348,47 +503,63 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
             // the lossy stage drop high-entropy noise — and always behind a CCR
             // handle, so a dropped datum is never irrecoverable (#936).
             if let Some(crushed) =
-                verbatim_json_crush(output, original_tokens, min_output_tokens, enabled)
+                verbatim_json_crush_for(output, original_tokens, min_output_tokens, enabled, family)
             {
                 return crushed;
             }
-            if let Some(crushed) =
-                verbatim_json_crush_lossy(output, original_tokens, min_output_tokens, enabled)
-            {
+            if let Some(crushed) = verbatim_json_crush_lossy_for(
+                output,
+                original_tokens,
+                min_output_tokens,
+                enabled,
+                family,
+            ) {
                 return crushed;
             }
             // Non-JSON delimited data (CSV/TSV): same lossless-then-lossy ladder,
             // self-guarding so only a genuinely redundant table is ever reshaped.
-            if let Some(crushed) =
-                verbatim_tabular_crush(output, original_tokens, min_output_tokens, enabled)
-            {
+            if let Some(crushed) = verbatim_tabular_crush_for(
+                output,
+                original_tokens,
+                min_output_tokens,
+                enabled,
+                family,
+            ) {
                 return crushed;
             }
-            if let Some(crushed) =
-                verbatim_tabular_crush_lossy(output, original_tokens, min_output_tokens, enabled)
-            {
+            if let Some(crushed) = verbatim_tabular_crush_lossy_for(
+                output,
+                original_tokens,
+                min_output_tokens,
+                enabled,
+                family,
+            ) {
                 return crushed;
             }
             // Structured YAML (kubectl/helm -o yaml): same lossless-then-lossy
             // ladder, self-guarding so only a genuinely structured, redundant
             // document is ever reshaped.
             if let Some(crushed) =
-                verbatim_yaml_crush(output, original_tokens, min_output_tokens, enabled)
+                verbatim_yaml_crush_for(output, original_tokens, min_output_tokens, enabled, family)
             {
                 return crushed;
             }
-            if let Some(crushed) =
-                verbatim_yaml_crush_lossy(output, original_tokens, min_output_tokens, enabled)
-            {
+            if let Some(crushed) = verbatim_yaml_crush_lossy_for(
+                output,
+                original_tokens,
+                min_output_tokens,
+                enabled,
+                family,
+            ) {
                 return crushed;
             }
             if let Some(crushed) =
-                verbatim_html_crush(output, original_tokens, min_output_tokens, enabled)
+                verbatim_html_crush_for(output, original_tokens, min_output_tokens, enabled, family)
             {
                 return crushed;
             }
         }
-        return truncate_verbatim(output, original_tokens);
+        return truncate_verbatim(output, original_tokens, family);
     }
 
     // Format-aware passthrough (#342): output already in a compact, token-oriented
@@ -402,11 +573,11 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
         .any(|f| f.eq_ignore_ascii_case("toon"))
         && looks_like_toon(output)
     {
-        return truncate_verbatim(output, original_tokens);
+        return truncate_verbatim(output, original_tokens, family);
     }
 
     if is_verbatim_output(command) {
-        return truncate_verbatim(output, original_tokens);
+        return truncate_verbatim(output, original_tokens, family);
     }
 
     // Structural output AND version-control history are owned by their
@@ -421,7 +592,7 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
         if let Some(compressed) = patterns::try_specific_pattern(&cl, output)
             && !compressed.trim().is_empty()
         {
-            let compressed_tokens = count_tokens(&compressed);
+            let compressed_tokens = count_tokens_for(&compressed, family);
             let savings = original_tokens.saturating_sub(compressed_tokens);
             if compressed_tokens >= min_output_tokens
                 && compressed_tokens < original_tokens
@@ -446,7 +617,7 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
             }
         }
 
-        let compressed_tokens = count_tokens(&compressed);
+        let compressed_tokens = count_tokens_for(&compressed, family);
         let savings = original_tokens.saturating_sub(compressed_tokens);
         if compressed_tokens >= min_output_tokens
             && compressed_tokens < original_tokens
@@ -479,11 +650,11 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
     }
 
     let cleaned = crate::core::compressor::lightweight_cleanup(output);
-    let cleaned_tokens = count_tokens(&cleaned);
+    let cleaned_tokens = count_tokens_for(&cleaned, family);
     if cleaned_tokens < original_tokens {
         let lines: Vec<&str> = cleaned.lines().collect();
         if lines.len() > 30 {
-            let compressed = truncate_with_safety_scan(&lines, original_tokens);
+            let compressed = truncate_with_safety_scan(&lines, original_tokens, family);
             if let Some(c) = compressed {
                 return c;
             }
@@ -495,7 +666,7 @@ fn compress_if_beneficial_with_exit(command: &str, output: &str, exit_code: i32)
 
     let lines: Vec<&str> = output.lines().collect();
     if lines.len() > 30
-        && let Some(c) = truncate_with_safety_scan(&lines, original_tokens)
+        && let Some(c) = truncate_with_safety_scan(&lines, original_tokens, family)
     {
         return c;
     }
@@ -747,7 +918,7 @@ const MAX_VERBATIM_TOKENS: usize = 8000;
 /// guarantees a large test run — even a fully passing one with dozens of
 /// per-suite `test result:` lines — never silently loses its outcome lines,
 /// regardless of OS or client (issue: compression must never swallow signal).
-fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
+fn truncate_verbatim(output: &str, original_tokens: usize, family: TokenizerFamily) -> String {
     if original_tokens <= MAX_VERBATIM_TOKENS {
         return output.to_string();
     }
@@ -789,7 +960,7 @@ fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
         result.push_str(line);
         result.push('\n');
     }
-    let truncated_tokens = count_tokens(&result);
+    let truncated_tokens = count_tokens_for(&result, family);
     if crate::core::protocol::savings_footer_visible() {
         result.push_str(&format!(
             "[lean-ctx: {original_tokens}→{truncated_tokens} tok, verbatim truncated]"
@@ -798,7 +969,11 @@ fn truncate_verbatim(output: &str, original_tokens: usize) -> String {
     result
 }
 
-fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<String> {
+fn truncate_with_safety_scan(
+    lines: &[&str],
+    original_tokens: usize,
+    family: TokenizerFamily,
+) -> Option<String> {
     use crate::core::safety_needles;
 
     let first = &lines[..5];
@@ -822,7 +997,7 @@ fn truncate_with_safety_scan(lines: &[&str], original_tokens: usize) -> Option<S
     parts.push(last.join("\n"));
 
     let compressed = parts.join("\n");
-    let ct = count_tokens(&compressed);
+    let ct = count_tokens_for(&compressed, family);
     if ct >= original_tokens {
         return None;
     }
@@ -943,9 +1118,13 @@ fn flush_progress_run(out: &mut Vec<String>, kind: Option<ProgressKind>, lines: 
     }
 }
 
-fn maybe_fold_progress(output: &str, original_tokens: usize) -> Option<String> {
+fn maybe_fold_progress(
+    output: &str,
+    original_tokens: usize,
+    family: TokenizerFamily,
+) -> Option<String> {
     let folded = fold_repetitive_progress(output)?;
-    (count_tokens(&folded) < original_tokens).then_some(folded)
+    (count_tokens_for(&folded, family) < original_tokens).then_some(folded)
 }
 
 /// Detects shell command chains (`&&`, `;`) outside of quotes.
@@ -973,7 +1152,15 @@ pub(crate) fn is_chained_command(command: &str) -> bool {
 }
 
 pub fn compress_if_beneficial_pub(command: &str, output: &str) -> String {
-    compress_if_beneficial(command, output)
+    compress_if_beneficial_pub_for(command, output, COUNTING_FAMILY)
+}
+
+pub(crate) fn compress_if_beneficial_pub_for(
+    command: &str,
+    output: &str,
+    family: TokenizerFamily,
+) -> String {
+    compress_if_beneficial_for(command, output, family)
 }
 
 /// Preserve build/test output verbatim, applying only the safety-line-preserving
@@ -983,6 +1170,11 @@ pub fn compress_if_beneficial_pub(command: &str, output: &str) -> String {
 /// build/test output but supplied no recognizable command — the engine's
 /// command-gated verbatim guards cannot fire, yet compiler errors, panics and
 /// test summaries must still reach the model intact for a bug-fix task.
+#[allow(dead_code)]
 pub(crate) fn preserve_verbatim_pub(output: &str) -> String {
-    truncate_verbatim(output, count_tokens(output))
+    preserve_verbatim_pub_for(output, COUNTING_FAMILY)
+}
+
+pub(crate) fn preserve_verbatim_pub_for(output: &str, family: TokenizerFamily) -> String {
+    truncate_verbatim(output, count_tokens_for(output, family), family)
 }

@@ -1,5 +1,5 @@
 use super::ccr;
-use crate::core::tokens::count_tokens;
+use crate::core::tokens::{COUNTING_FAMILY, TokenizerFamily, count_tokens_for};
 use crate::core::web::distill;
 
 /// Byte-ish budget for the research-prose squeeze (~5k tokens on English prose).
@@ -28,7 +28,15 @@ fn research_prose_cap() -> usize {
 ///    `compress_if_beneficial` pipeline. A `$ ...` command hint is extracted so
 ///    the pattern engine gets the same routing as the CLI and MCP paths.
 pub fn compress_tool_result(content: &str, tool_name: Option<&str>) -> String {
-    let compressed = compress_inner(content, tool_name);
+    compress_tool_result_for(content, tool_name, COUNTING_FAMILY)
+}
+
+pub fn compress_tool_result_for(
+    content: &str,
+    tool_name: Option<&str>,
+    family: TokenizerFamily,
+) -> String {
+    let compressed = compress_inner(content, tool_name, family);
     attach_ccr(content, compressed, CcrAudience::Local)
 }
 
@@ -42,7 +50,15 @@ pub fn compress_tool_result(content: &str, tool_name: Option<&str>) -> String {
 /// savings figures belong in the caller's structured `stats` (#498), while the
 /// marker is functional content that must survive as the last line.
 pub fn compress_tool_result_gateway(content: &str, tool_name: Option<&str>) -> String {
-    let compressed = compress_inner(content, tool_name);
+    compress_tool_result_gateway_for(content, tool_name, COUNTING_FAMILY)
+}
+
+pub fn compress_tool_result_gateway_for(
+    content: &str,
+    tool_name: Option<&str>,
+    family: TokenizerFamily,
+) -> String {
+    let compressed = compress_inner(content, tool_name, family);
     let clean = crate::core::protocol::strip_trailing_savings_footer(&compressed).to_string();
     attach_ccr(content, clean, CcrAudience::Gateway)
 }
@@ -101,7 +117,7 @@ fn attach_ccr(original: &str, result: String, audience: CcrAudience) -> String {
     }
 }
 
-fn compress_inner(content: &str, tool_name: Option<&str>) -> String {
+fn compress_inner(content: &str, tool_name: Option<&str>, family: TokenizerFamily) -> String {
     if content.trim().is_empty() || content.len() < 200 {
         return content.to_string();
     }
@@ -121,7 +137,7 @@ fn compress_inner(content: &str, tool_name: Option<&str>) -> String {
     // through the normal funnel (markers are stripped, so this never recurses).
     if crate::core::protect::has_markers(content) {
         return crate::core::protect::compress_preserving(content, |seg| {
-            compress_inner(seg, tool_name)
+            compress_inner(seg, tool_name, family)
         });
     }
 
@@ -131,7 +147,7 @@ fn compress_inner(content: &str, tool_name: Option<&str>) -> String {
 
     if extract_command_hint(content).is_none()
         && looks_like_prose(content)
-        && let Some(out) = squeeze_research_prose(content)
+        && let Some(out) = squeeze_research_prose(content, family)
     {
         return out;
     }
@@ -148,10 +164,10 @@ fn compress_inner(content: &str, tool_name: Option<&str>) -> String {
     if generic_command
         && (output_looks_like_test_run(content) || output_looks_like_build_failure(content))
     {
-        return crate::shell::compress::engine::preserve_verbatim_pub(content);
+        return crate::shell::compress::engine::preserve_verbatim_pub_for(content, family);
     }
 
-    crate::shell::compress::engine::compress_if_beneficial(&cmd, content)
+    crate::shell::compress::engine::compress_if_beneficial_for(&cmd, content, family)
 }
 
 /// Strong, ecosystem-spanning signals that an output is a *test run* (passing or
@@ -234,13 +250,13 @@ fn looks_like_prose(content: &str) -> bool {
 
 /// Apply the prose squeeze, returning a footer-stamped result only when it
 /// actually saves tokens; otherwise `None` so the normal pipeline can try.
-fn squeeze_research_prose(content: &str) -> Option<String> {
-    let before = count_tokens(content);
+fn squeeze_research_prose(content: &str, family: TokenizerFamily) -> Option<String> {
+    let before = count_tokens_for(content, family);
     let squeezed = squeeze_research_prose_body(content);
     if squeezed.trim().is_empty() {
         return None;
     }
-    let after = count_tokens(&squeezed);
+    let after = count_tokens_for(&squeezed, family);
     if after + 2 >= before {
         return None;
     }
@@ -320,7 +336,12 @@ fn extract_command_hint(content: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::ccr;
+    use super::{
+        RESEARCH_PROSE_CAP, RESEARCH_PROSE_CAP_ENV, compress_tool_result,
+        compress_tool_result_gateway, extract_command_hint, infer_command, looks_like_prose,
+        output_looks_like_build_failure, output_looks_like_test_run, research_prose_cap,
+    };
     use serial_test::serial;
 
     /// #980/#985: search tool results must compress without corrupting source.
