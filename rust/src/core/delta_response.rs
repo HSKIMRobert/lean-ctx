@@ -82,10 +82,7 @@ fn find_sync_point(old: &[&str], new: &[&str], max_look: usize) -> Option<(usize
             if skip_n > limit_n {
                 continue;
             }
-            if skip_o < old.len()
-                && skip_n < new.len()
-                && old.get(skip_o) == new.get(skip_n)
-            {
+            if skip_o < old.len() && skip_n < new.len() && old.get(skip_o) == new.get(skip_n) {
                 return Some((skip_o, skip_n));
             }
         }
@@ -143,10 +140,7 @@ pub fn compute_delta(
         // Find the next sync point where both sequences agree again.
         // Look ahead up to 50 lines in both directions to find a match.
         let sync = find_sync_point(&old_lines[i..], &new_lines[j..], 50);
-        let (old_skip, new_skip) = sync.unwrap_or((
-            old_lines.len() - i,
-            new_lines.len() - j,
-        ));
+        let (old_skip, new_skip) = sync.unwrap_or((old_lines.len() - i, new_lines.len() - j));
 
         for line in &old_lines[i..i + old_skip] {
             removed.push(line.to_string());

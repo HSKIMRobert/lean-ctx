@@ -25,16 +25,33 @@ impl TaskIntent {
     pub fn classify(task: &str) -> Self {
         let lower = task.to_lowercase();
 
-        if contains_any(&lower, &["implement", "add feature", "create", "build", "write"]) {
+        if contains_any(
+            &lower,
+            &["implement", "add feature", "create", "build", "write"],
+        ) {
             return Self::Implement;
         }
-        if contains_any(&lower, &["fix", "debug", "error", "bug", "crash", "failing"]) {
+        if contains_any(
+            &lower,
+            &["fix", "debug", "error", "bug", "crash", "failing"],
+        ) {
             return Self::Debug;
         }
         if contains_any(&lower, &["review", "audit", "check", "verify", "inspect"]) {
             return Self::Review;
         }
-        if contains_any(&lower, &["explore", "understand", "how does", "what is", "find", "search", "where"]) {
+        if contains_any(
+            &lower,
+            &[
+                "explore",
+                "understand",
+                "how does",
+                "what is",
+                "find",
+                "search",
+                "where",
+            ],
+        ) {
             return Self::Explore;
         }
 
@@ -85,31 +102,58 @@ mod tests {
 
     #[test]
     fn classify_explore() {
-        assert_eq!(TaskIntent::classify("how does the cache work?"), TaskIntent::Explore);
-        assert_eq!(TaskIntent::classify("find the database module"), TaskIntent::Explore);
+        assert_eq!(
+            TaskIntent::classify("how does the cache work?"),
+            TaskIntent::Explore
+        );
+        assert_eq!(
+            TaskIntent::classify("find the database module"),
+            TaskIntent::Explore
+        );
     }
 
     #[test]
     fn classify_implement() {
-        assert_eq!(TaskIntent::classify("implement user authentication"), TaskIntent::Implement);
-        assert_eq!(TaskIntent::classify("add feature for dark mode"), TaskIntent::Implement);
+        assert_eq!(
+            TaskIntent::classify("implement user authentication"),
+            TaskIntent::Implement
+        );
+        assert_eq!(
+            TaskIntent::classify("add feature for dark mode"),
+            TaskIntent::Implement
+        );
     }
 
     #[test]
     fn classify_debug() {
-        assert_eq!(TaskIntent::classify("fix the null pointer error"), TaskIntent::Debug);
-        assert_eq!(TaskIntent::classify("debug why tests are failing"), TaskIntent::Debug);
+        assert_eq!(
+            TaskIntent::classify("fix the null pointer error"),
+            TaskIntent::Debug
+        );
+        assert_eq!(
+            TaskIntent::classify("debug why tests are failing"),
+            TaskIntent::Debug
+        );
     }
 
     #[test]
     fn classify_review() {
-        assert_eq!(TaskIntent::classify("review this pull request"), TaskIntent::Review);
+        assert_eq!(
+            TaskIntent::classify("review this pull request"),
+            TaskIntent::Review
+        );
     }
 
     #[test]
     fn classification_drives_compression() {
-        assert_eq!(TaskIntent::Explore.compression_level(), CompressionLevel::High);
-        assert_eq!(TaskIntent::Implement.compression_level(), CompressionLevel::Minimal);
+        assert_eq!(
+            TaskIntent::Explore.compression_level(),
+            CompressionLevel::High
+        );
+        assert_eq!(
+            TaskIntent::Implement.compression_level(),
+            CompressionLevel::Minimal
+        );
         assert_eq!(TaskIntent::Debug.compression_level(), CompressionLevel::Low);
     }
 

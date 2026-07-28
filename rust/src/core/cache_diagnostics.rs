@@ -95,13 +95,23 @@ pub fn check_alert() -> Option<(CacheAlertSeverity, String)> {
         if rate < 0.50 {
             return Some((
                 CacheAlertSeverity::Critical,
-                format!("Provider cache hit rate critically low: {:.0}% ({} hits / {} total)", rate * 100.0, diag.hits, total),
+                format!(
+                    "Provider cache hit rate critically low: {:.0}% ({} hits / {} total)",
+                    rate * 100.0,
+                    diag.hits,
+                    total
+                ),
             ));
         }
         if rate < 0.80 {
             return Some((
                 CacheAlertSeverity::Warning,
-                format!("Provider cache hit rate below target: {:.0}% ({} hits / {} total)", rate * 100.0, diag.hits, total),
+                format!(
+                    "Provider cache hit rate below target: {:.0}% ({} hits / {} total)",
+                    rate * 100.0,
+                    diag.hits,
+                    total
+                ),
             ));
         }
     }
@@ -132,8 +142,12 @@ mod tests {
     #[test]
     fn hit_rate_calculation() {
         setup();
-        for _ in 0..8 { record_hit(1000); }
-        for _ in 0..2 { record_miss(); }
+        for _ in 0..8 {
+            record_hit(1000);
+        }
+        for _ in 0..2 {
+            record_miss();
+        }
         let rate = hit_rate().unwrap();
         assert!((rate - 0.8).abs() < 0.01);
     }
@@ -153,8 +167,12 @@ mod tests {
     #[test]
     fn alert_below_threshold() {
         setup();
-        for _ in 0..3 { record_hit(1000); }
-        for _ in 0..7 { record_miss(); }
+        for _ in 0..3 {
+            record_hit(1000);
+        }
+        for _ in 0..7 {
+            record_miss();
+        }
         let diag = CacheDiagnostics::snapshot();
         assert!(diag.needs_alert(0.80));
     }
@@ -162,7 +180,9 @@ mod tests {
     #[test]
     fn no_alert_when_above_threshold() {
         setup();
-        for _ in 0..9 { record_hit(1000); }
+        for _ in 0..9 {
+            record_hit(1000);
+        }
         record_miss();
         let diag = CacheDiagnostics::snapshot();
         assert!(!diag.needs_alert(0.80));
@@ -171,8 +191,12 @@ mod tests {
     #[test]
     fn critical_alert_below_50() {
         setup();
-        for _ in 0..3 { record_hit(1000); }
-        for _ in 0..7 { record_miss(); }
+        for _ in 0..3 {
+            record_hit(1000);
+        }
+        for _ in 0..7 {
+            record_miss();
+        }
         let alert = check_alert();
         assert!(alert.is_some());
         let (severity, _) = alert.unwrap();
