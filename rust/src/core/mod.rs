@@ -377,6 +377,7 @@ pub mod config;
 pub mod config_heal;
 pub mod consolidation;
 pub mod consolidation_engine;
+pub mod content_handle;
 pub mod context_capsule;
 pub mod contextops;
 pub mod conversation;
@@ -384,9 +385,9 @@ pub mod crash_log;
 pub mod data_consolidate;
 pub mod data_dir;
 pub mod debug_log;
-pub mod content_handle;
 #[allow(unused)]
 pub mod delivered_ranges;
+pub mod delta_response;
 pub mod deployment_profile;
 pub mod diagnostics_store;
 pub mod editor_signal;

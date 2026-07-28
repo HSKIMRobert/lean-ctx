@@ -8,14 +8,14 @@
 //! representations avoid re-processing.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
 static HANDLES: Mutex<Option<HandleStore>> = Mutex::new(None);
 
 /// Access the global handle store.
 pub fn global() -> std::sync::MutexGuard<'static, Option<HandleStore>> {
-    HANDLES.lock().unwrap_or_else(|e| e.into_inner())
+    HANDLES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A content handle that references previously-delivered content.
@@ -76,9 +76,7 @@ impl HandleStore {
         let hash = blake3::hash(content.as_bytes()).to_hex().to_string();
         let short_hash = hash[..12].to_string();
 
-        let stored_mtime = std::fs::metadata(path)
-            .ok()
-            .and_then(|m| m.modified().ok());
+        let stored_mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
 
         self.handles.insert(
             short_hash.clone(),
