@@ -24,12 +24,31 @@ use std::sync::Arc;
 
 use axum::response::IntoResponse;
 
+use crate::core::ocla::OclaRegistry;
+
 /// Environment variable holding the admin Bearer token. Env-only by design —
 /// tokens never live in config.toml (same rule as `LEAN_CTX_PROXY_TOKEN`).
 pub const ADMIN_TOKEN_ENV: &str = "LEAN_CTX_GATEWAY_ADMIN_TOKEN";
 
 /// Environment variable with the Postgres connection string for `usage_events`.
 pub const DATABASE_URL_ENV: &str = "DATABASE_URL";
+
+pub(crate) fn gateway_ocla_context() -> crate::core::ocla::types::OclaRequestContext {
+    crate::core::ocla::types::OclaRequestContext::new(
+        format!("gw-{}", uuid_short()),
+        "gateway".to_string(),
+        "gateway-server".to_string(),
+        String::new(),
+        None,
+        None,
+    )
+}
+
+fn uuid_short() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).unwrap_or_default();
+    hex::encode(bytes)
+}
 
 /// Options parsed by the CLI (`lean-ctx gateway serve`).
 #[derive(Debug, Clone)]
@@ -90,6 +109,22 @@ pub async fn serve(opts: ServeOptions) -> anyhow::Result<()> {
             None
         }
     };
+
+    // OCLA projection: observe gateway startup
+    if let Err(e) =
+        OclaRegistry::global()
+            .observation_hook
+            .observe(crate::core::ocla::types::Observation {
+                context: gateway_ocla_context(),
+                name: "gateway.started".to_string(),
+                attributes: std::collections::BTreeMap::from([(
+                    "port".to_string(),
+                    opts.port.to_string(),
+                )]),
+            })
+    {
+        tracing::debug!("OCLA observation: {e}");
+    }
 
     // Personal usage view (enterprise#64): give `/me` on the proxy port its
     // read path into the store. Without a store the endpoint answers 503 with
@@ -373,6 +408,21 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 async fn metrics_handler() -> axum::response::Response {
     let mut out = String::with_capacity(2048);
     render_metrics(&mut out);
+
+    // OCLA projection: export admin-requested metrics
+    let metrics = vec![crate::core::ocla::types::MetricPoint {
+        context: gateway_ocla_context(),
+        name: "gateway.admin.metrics_query".to_string(),
+        value_milli: 1_000,
+        dimensions: std::collections::BTreeMap::new(),
+    }];
+    if let Err(e) = OclaRegistry::global()
+        .metrics_exporter
+        .export_metrics(metrics)
+    {
+        tracing::debug!("OCLA metrics export: {e}");
+    }
+
     (
         [(
             axum::http::header::CONTENT_TYPE,
