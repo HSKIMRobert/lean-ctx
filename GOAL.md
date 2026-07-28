@@ -1,79 +1,98 @@
-# Agent 01: OclaBus Bounded Queues + Overflow Policy
+# Agent 02: Enforce Wiring on MCP + Proxy Hot Paths
 
 ## Preamble
 Read `../.worktrees/e13-preamble.md` first for project context and build commands.
 
 ## Objective
-Wire the existing `BoundedQueue<T>` from `context_kernel/bounded.rs` into the
-OclaBus (`core/ocla_bus.rs`) and add a configurable overflow policy.
+Wire `enforce_plan()` into the MCP and proxy hot paths so that when
+`KernelMode::Enforce` is active, policy-violating plan entries are actually
+removed (not just logged as in Shadow mode).
+
+Currently, `enforce_plan()` exists in `enforce.rs` but is ONLY called from tests.
+The hot paths in `bridge.rs::kernel_enrich()` generate a plan but never enforce it.
 
 ## Files to Modify
-- `rust/src/core/ocla_bus.rs` (MODIFY: replace VecDeque with BoundedQueue, add overflow policy)
+- `rust/src/core/context_kernel/bridge.rs` (MODIFY: call enforce_plan after plan generation)
+- `rust/src/core/context_kernel/hotpath_wiring.rs` (MODIFY: pass enforce result through)
 
 ## Files to Create
-- NONE — all code goes into `ocla_bus.rs`
+- NONE
 
 ## Files NOT to Touch
-- Do NOT modify any file other than `rust/src/core/ocla_bus.rs`
-- Do NOT modify `bounded.rs`, `types.rs`, `bridge.rs`, or any other file
+- Do NOT modify `enforce.rs` (the function is already correct)
+- Do NOT modify `types.rs`, `activation.rs`, `ocla_bus.rs`
+- Do NOT modify `server/post_dispatch.rs` or `proxy/forward/mod.rs`
+- Do NOT modify any tool files (ctx_read, ctx_compose, etc.)
 
 ## Exact Requirements
 
-### 1. Add OverflowPolicy enum to ocla_bus.rs
+### 1. In bridge.rs::kernel_enrich(), call enforce_plan after plan generation
+
+Current flow (simplified):
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OverflowPolicy {
-    DropOldest,
-    DropNewest,
-    Backpressure,
+pub fn kernel_enrich(task, project_root, budget_tokens) -> Option<KernelEnrichment> {
+    let kernel = ContextKernel::for_project(project_root);
+    let plan = kernel.plan(&ctx);  // generates plan
+    // ... builds blocks from plan.selected
+    // PROBLEM: plan.selected is never filtered by policy
 }
 ```
 
-### 2. Add OverflowEvent struct
+New flow — after `kernel.plan(&ctx)`:
 ```rust
-#[derive(Debug, Clone)]
-pub struct OverflowEvent {
-    pub policy: OverflowPolicy,
-    pub dropped_count: usize,
-    pub queue_capacity: usize,
+let mode = super::enforce::resolve_mode(project_root);
+let enforced = if mode == super::enforce::KernelMode::Enforce {
+    let policy = super::policy::ContextPolicy::default();
+    let result = super::enforce::enforce_plan(plan.clone(), &policy, mode);
+    if !result.blocked.is_empty() {
+        tracing::debug!(
+            blocked = result.blocked.len(),
+            "kernel enforce: plan entries blocked by policy"
+        );
+    }
+    ContextPlanV1 {
+        selected: result.allowed,
+        ..plan
+    }
+} else {
+    plan
+};
+```
+Then use `enforced` instead of `plan` for building blocks.
+
+### 2. In hotpath_wiring.rs, propagate enforcement
+
+If `hotpath_wiring.rs` has functions that call `kernel_enrich` or generate
+plans independently, ensure they also call `enforce_plan` when in Enforce mode.
+
+Look for any function that:
+- Calls `ContextKernel::plan()`
+- Builds enrichment from `plan.selected`
+And add the same enforce pattern.
+
+### 3. Add KernelEnrichment.enforced_mode field
+Add a field to `KernelEnrichment` so callers know which mode was used:
+```rust
+pub struct KernelEnrichment {
+    pub plan: ContextPlanV1,
+    pub blocks: String,
+    pub verdict: KernelVerdict,
+    pub enforced_mode: super::enforce::KernelMode,  // NEW
 }
 ```
+Set this field in `kernel_enrich()`.
 
-### 3. Replace the raw VecDeque in the bus internals with BoundedQueue
-The current bus uses `VecDeque` with manual `pop_front()`. Replace with:
-```rust
-use crate::core::context_kernel::bounded::BoundedQueue;
-```
-Use `BoundedQueue::push()` which returns `Option<T>` (the evicted item) when full.
-
-### 4. Add configurable overflow policy
-- Default: `DropOldest` (current behavior)
-- When `DropNewest`: return the new item instead of evicting the oldest
-- When `Backpressure`: log a warning and drop (no real backpressure in async-free context)
-- Read policy from config: `LEANCTX_BUS_OVERFLOW` env var, fallback to `drop_oldest`
-
-### 5. Track overflow metrics
-Add counters for overflow events:
-```rust
-pub fn overflow_count() -> usize  // total overflows since startup
-pub fn overflow_policy() -> OverflowPolicy  // currently active policy
-```
-
-### 6. Add tests
-- `test_bounded_queue_replaces_vecdeque` — bus works with bounded queue
-- `test_overflow_drop_oldest` — oldest item evicted when full
-- `test_overflow_drop_newest` — new item rejected when full
-- `test_overflow_metrics` — overflow counter increments correctly
-- `test_overflow_policy_from_env` — env var configures policy
+### 4. Tests
+- `test_enforce_mode_blocks_policy_violations` — plan entries with low phi score or excluded providers are removed in Enforce mode
+- `test_shadow_mode_allows_all_entries` — same entries pass through in Shadow mode
 
 ## NOT in Scope
-- Do NOT modify the subscriber/filter system
-- Do NOT add async/tokio — keep it sync with Mutex
-- Do NOT change the public `emit()` / `subscribe()` API signatures
-- Do NOT add new dependencies to Cargo.toml
+- Do NOT change the enforce.rs logic itself
+- Do NOT add new CLI commands or API endpoints
+- Do NOT modify the tool dispatch layer
+- Do NOT add new dependencies
 
 ## Build Verification
 ```bash
-cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib ocla_bus
+cd rust && cargo fmt && cargo clippy --lib -- -D warnings && cargo test --lib bridge
 ```

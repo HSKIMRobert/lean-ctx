@@ -1,6 +1,8 @@
 //! Runtime integration helpers for the Context Control Kernel.
 
+use super::enforce::{KernelMode, enforce_plan, resolve_mode};
 use super::orchestrator::ContextKernel;
+use super::policy::ContextPolicy;
 use super::types::{ContextPlanV1, ContextReceiptV1, PlanEntry, ReceiptOutcome, RetrievalContext};
 
 /// Result of kernel gating: what to add and what to suppress.
@@ -22,6 +24,8 @@ pub struct KernelEnrichment {
     pub blocks: String,
     /// Gate decision accompanying the backward-compatible blocks.
     pub verdict: KernelVerdict,
+    /// Kernel policy mode used while producing this enrichment.
+    pub enforced_mode: KernelMode,
 }
 /// Check whether `path` should be suppressed as already delivered.
 /// Returns `false` until the orchestrator exposes recent-delivery state.
@@ -48,7 +52,8 @@ pub fn kernel_enrich(
         },
         max_candidates: 20,
     };
-    let plan = kernel.plan(&ctx);
+    let mode = resolve_mode(project_root);
+    let plan = enforce_plan_for_mode(kernel.plan(&ctx), &ContextPolicy::default(), mode);
     let enrichments: Vec<&PlanEntry> = plan
         .selected
         .iter()
@@ -56,12 +61,37 @@ pub fn kernel_enrich(
         .collect();
 
     let blocks = format_enrichment_blocks(&enrichments);
-    enrichment_from_plan(plan, blocks, capped_budget)
+    enrichment_from_plan(plan, blocks, capped_budget, mode)
 }
+
+fn enforce_plan_for_mode(
+    plan: ContextPlanV1,
+    policy: &ContextPolicy,
+    mode: KernelMode,
+) -> ContextPlanV1 {
+    if mode != KernelMode::Enforce {
+        return plan;
+    }
+
+    let result = enforce_plan(&plan, policy, mode);
+    if !result.blocked.is_empty() {
+        tracing::debug!(
+            blocked = result.blocked.len(),
+            "kernel enforce: plan entries blocked by policy"
+        );
+    }
+
+    ContextPlanV1 {
+        selected: result.allowed,
+        ..plan
+    }
+}
+
 fn enrichment_from_plan(
     plan: ContextPlanV1,
     blocks: String,
     budget: usize,
+    enforced_mode: KernelMode,
 ) -> Option<KernelEnrichment> {
     let verdict = verdict_from_blocks(blocks, budget);
     let blocks = verdict.supplement.clone()?;
@@ -69,6 +99,7 @@ fn enrichment_from_plan(
         plan,
         blocks,
         verdict,
+        enforced_mode,
     })
 }
 
@@ -227,10 +258,12 @@ pub fn format_plan_summary(plan: &ContextPlanV1) -> String {
 mod tests {
     use std::collections::HashMap;
 
+    use super::super::enforce::KernelMode;
+    use super::super::policy::ContextPolicy;
     use super::super::types::PlanBudget;
     use super::{
-        ContextPlanV1, PlanEntry, enrichment_from_plan, format_enrichment_blocks, kernel_gate,
-        verdict_from_blocks,
+        ContextPlanV1, PlanEntry, enforce_plan_for_mode, enrichment_from_plan,
+        format_enrichment_blocks, kernel_gate, verdict_from_blocks,
     };
 
     fn plan(selected: Vec<PlanEntry>) -> ContextPlanV1 {
@@ -264,7 +297,7 @@ mod tests {
     fn budget_capped_at_150() {
         let item = entry(&"token ".repeat(1_000));
         let blocks = format_enrichment_blocks(&[&item]);
-        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150, KernelMode::Shadow)
             .expect("long enrichment should be truncated, not removed");
         assert!(enrichment.verdict.budget_used <= 150);
     }
@@ -278,7 +311,7 @@ mod tests {
     fn verdict_has_correct_budget_used() {
         let item = entry("Known constraint");
         let blocks = format_enrichment_blocks(&[&item]);
-        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150, KernelMode::Shadow)
             .expect("entry should produce enrichment");
         assert_eq!(
             enrichment.verdict.budget_used,
@@ -293,8 +326,42 @@ mod tests {
     fn backward_compat_enrichment_still_works() {
         let item = entry("Known constraint");
         let blocks = format_enrichment_blocks(&[&item]);
-        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150)
+        let enrichment = enrichment_from_plan(plan(vec![item]), blocks, 150, KernelMode::Shadow)
             .expect("entry should produce enrichment");
         assert_eq!(enrichment.blocks, enrichment.verdict.supplement.unwrap());
+        assert_eq!(enrichment.enforced_mode, KernelMode::Shadow);
+    }
+
+    #[test]
+    fn test_enforce_mode_blocks_policy_violations() {
+        let mut blocked = entry("blocked");
+        blocked.provider = "excluded.provider".to_owned();
+        let mut policy = ContextPolicy::default();
+        policy.blocked_sources = vec![blocked.provider.clone()];
+
+        let enforced = enforce_plan_for_mode(
+            plan(vec![entry("allowed"), blocked]),
+            &policy,
+            KernelMode::Enforce,
+        );
+
+        assert_eq!(enforced.selected.len(), 1);
+        assert_eq!(enforced.selected[0].reason, "allowed");
+    }
+
+    #[test]
+    fn test_shadow_mode_allows_all_entries() {
+        let mut blocked = entry("blocked");
+        blocked.provider = "excluded.provider".to_owned();
+        let mut policy = ContextPolicy::default();
+        policy.blocked_sources = vec![blocked.provider.clone()];
+
+        let shadow = enforce_plan_for_mode(
+            plan(vec![entry("allowed"), blocked]),
+            &policy,
+            KernelMode::Shadow,
+        );
+
+        assert_eq!(shadow.selected.len(), 2);
     }
 }
