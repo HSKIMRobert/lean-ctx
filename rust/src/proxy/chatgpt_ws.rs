@@ -384,6 +384,9 @@ mod tests {
             chatgpt_cookies: crate::proxy::chatgpt_cookies::shared_chatgpt_cloudflare_cookie_store(
             ),
             mcp_servers: Arc::new(Vec::new()),
+            web_app_tracker: Arc::new(std::sync::Mutex::new(
+                crate::proxy::web_app::conversation_tracker::ConversationTracker::default(),
+            )),
         };
         let app = Router::new()
             .route(
