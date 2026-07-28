@@ -52,6 +52,7 @@ pub mod ctx_preload;
 pub mod ctx_proof;
 pub mod ctx_provider;
 pub mod ctx_quality;
+pub(crate) mod ctx_quality_lab;
 pub mod ctx_radar;
 pub mod ctx_read;
 pub mod ctx_refactor;

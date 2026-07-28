@@ -126,6 +126,7 @@ pub fn build_registry() -> ToolRegistry {
     use crate::tools::registered;
     registry.register(Box::new(registered::ctx_tree::CtxTreeTool));
     registry.register(Box::new(registered::ctx_benchmark::CtxBenchmarkTool));
+    registry.register(Box::new(registered::ctx_quality_lab::CtxQualityLabTool));
     registry.register(Box::new(registered::ctx_analyze::CtxAnalyzeTool));
     registry.register(Box::new(registered::ctx_discover::CtxDiscoverTool));
     registry.register(Box::new(registered::ctx_response::CtxResponseTool));
