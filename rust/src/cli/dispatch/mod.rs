@@ -76,6 +76,13 @@ pub fn run() {
                 }
                 return;
             }
+            "quality-lab" | "quality_lab" => {
+                let code = crate::cli::quality_lab_cmd::cmd_quality_lab(&rest);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+                return;
+            }
             "billing" => {
                 cmd_billing(&rest);
                 return;
