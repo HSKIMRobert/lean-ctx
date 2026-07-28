@@ -157,15 +157,28 @@ pub fn crash_loop_backoff(process_name: &str) {
         let restarts_over = recent.len() - CRASH_LOOP_THRESHOLD;
         let backoff_secs =
             (2u64.saturating_pow(restarts_over as u32)).min(CRASH_LOOP_MAX_BACKOFF_SECS);
-        let msg = format!(
-            "lean-ctx: crash-loop protection — {process_name} started {} times in {CRASH_LOOP_WINDOW_SECS}s, \
-             waiting {backoff_secs}s before accepting connections. \
-             If your IDE is slow to initialize, this is normal.",
-            recent.len()
-        );
-        tracing::warn!("{msg}");
-        eprintln!("{msg}");
-        std::thread::sleep(Duration::from_secs(backoff_secs));
+
+        // #1294: In MCP server mode the client controls restarts and expects a
+        // fast `initialize` response. Sleeping here causes the client to close
+        // stdin → EOF → ConnectionClosed error. Only log the warning; the crash
+        // history still accumulates so a persistent loop is visible in logs.
+        if crate::core::runtime_flags::mcp_server_enabled() {
+            tracing::warn!(
+                "crash-loop detected ({} starts in {CRASH_LOOP_WINDOW_SECS}s) — \
+                 skipping {backoff_secs}s sleep in MCP mode (client controls retry)",
+                recent.len()
+            );
+        } else {
+            let msg = format!(
+                "lean-ctx: crash-loop protection — {process_name} started {} times in {CRASH_LOOP_WINDOW_SECS}s, \
+                 waiting {backoff_secs}s before accepting connections. \
+                 If your IDE is slow to initialize, this is normal.",
+                recent.len()
+            );
+            tracing::warn!("{msg}");
+            eprintln!("{msg}");
+            std::thread::sleep(Duration::from_secs(backoff_secs));
+        }
     }
 }
 
