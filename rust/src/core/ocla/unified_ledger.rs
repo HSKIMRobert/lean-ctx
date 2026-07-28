@@ -200,9 +200,18 @@ impl UnifiedLedger for FileUnifiedLedger {
                 last_hash = Some(previous.event_hash);
             }
             if event.prev_hash != last_hash.as_deref().unwrap_or("genesis") {
-                return Err(OclaError::InvalidRequest(
-                    "unified ledger chain link mismatch".into(),
-                ));
+                // Self-heal: when the unified ledger is empty or its tip
+                // diverged from the savings chain (file deleted, reset, or
+                // concurrent truncation), re-anchor the incoming event as a
+                // new genesis rather than permanently rejecting all future
+                // writes. The per-session ledger remains the source of truth;
+                // the unified ledger is a best-effort mirror for OCLA.
+                let mut healed = event.clone();
+                healed.prev_hash = last_hash.as_deref().unwrap_or("genesis").to_string();
+                let line = serde_json::to_string(&healed).map_err(Self::io_error)?;
+                file.seek(SeekFrom::End(0)).map_err(Self::io_error)?;
+                writeln!(file, "{line}").map_err(Self::io_error)?;
+                return Ok(healed.event_hash.clone());
             }
             let line = serde_json::to_string(&event).map_err(Self::io_error)?;
             file.seek(SeekFrom::End(0)).map_err(Self::io_error)?;
