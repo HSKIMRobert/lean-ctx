@@ -429,7 +429,10 @@ mod tests {
         ];
         let filtered = filter_by_path(&rules, "/project/src/main.rs", "/project");
         let sources: Vec<&str> = filtered.iter().map(|r| r.source.as_str()).collect();
-        assert!(sources.contains(&"AGENTS.md"), "hierarchy rules always pass");
+        assert!(
+            sources.contains(&"AGENTS.md"),
+            "hierarchy rules always pass"
+        );
         assert!(
             sources.contains(&".cursor/rules/scoped.mdc"),
             "glob-matched rules pass"
@@ -449,11 +452,8 @@ mod tests {
         reset_injection_cache();
         let start = std::time::Instant::now();
         for _ in 0..100 {
-            let _ = rules_suffix_for_read(
-                "/tmp/nonexistent/src/main.rs",
-                "/tmp/nonexistent",
-                "cursor",
-            );
+            let _ =
+                rules_suffix_for_read("/tmp/nonexistent/src/main.rs", "/tmp/nonexistent", "cursor");
         }
         let elapsed = start.elapsed();
         let per_call_us = elapsed.as_micros() / 100;
@@ -488,7 +488,10 @@ mod tests {
         let warm_us = start.elapsed().as_micros() / 100;
 
         eprintln!("\n=== Rule Discovery Performance ===");
-        eprintln!("Cold: {cold_us}μs | Warm: {warm_us}μs | Rules: {} bytes", suffix.len());
+        eprintln!(
+            "Cold: {cold_us}μs | Warm: {warm_us}μs | Rules: {} bytes",
+            suffix.len()
+        );
 
         assert!(
             cold_us < 50_000,
@@ -500,4 +503,3 @@ mod tests {
         );
     }
 }
-
