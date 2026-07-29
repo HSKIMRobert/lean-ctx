@@ -144,6 +144,49 @@ func (c *OclaClient) LedgerSummary() (LedgerSummaryResponse, error) {
 	return response, err
 }
 
+// StreamEnvelopes receives envelope events from the OCLA SSE endpoint.
+func (c *OclaClient) StreamEnvelopes(ctx context.Context) (<-chan EnvelopeRequest, <-chan error) {
+	envelopes := make(chan EnvelopeRequest, 16)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(envelopes)
+		defer close(errc)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/events", nil)
+		if err != nil {
+			errc <- err
+			return
+		}
+		req.Header.Set("Accept", "text/event-stream")
+		if c.apiKey != "" {
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			errc <- err
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+			errc <- &APIError{StatusCode: resp.StatusCode}
+			return
+		}
+
+		for event := range ParseSSEStream(resp.Body) {
+			if event.Type != "envelope" {
+				continue
+			}
+			var env EnvelopeRequest
+			if err := json.Unmarshal(event.Data, &env); err == nil {
+				envelopes <- env
+			}
+		}
+	}()
+	return envelopes, errc
+}
+
 func (c *OclaClient) request(method, path string, payload any, target any) error {
 	var body io.Reader
 	contentType := ""
