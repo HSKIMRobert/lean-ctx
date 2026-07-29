@@ -156,7 +156,52 @@ activity happened without exporting the data the rules protect).
 - [ ] Framework coverage rows marked GAP discussed with the organisation
 - [ ] Re-run on a second machine if first run was on theirs
 
-## 9. Glossary
+## 9. Unified Ledger reconciliation (E14)
+
+The Unified Ledger is the canonical, append-only view of savings events. During
+the E14 transition, compare it with the legacy savings ledger before relying on
+it for a reporting period. Reconciliation reports matched events, events found
+only on either side, token drift, and duplicate bookings.
+
+`reconcile_strict` is the CI-safe form of that check. It fails when token drift
+is non-zero or any event is double-booked. A passing strict reconciliation is a
+useful release gate; it is not a settlement approval and does not establish a
+commercial amount.
+
+## 10. Settlement Evidence v2 (E18)
+
+Settlement v2 is a payload-free OSS-to-private handoff. It uses a
+`SettlementEvidenceManifestV2` plus a separate, out-of-band
+`SettlementEvidenceTrustStoreV2`. The manifest is content-addressed and the
+trust store prevents a manifest from declaring itself trusted.
+
+An eligible v2 manifest needs active trusted evidence for all roles:
+`baseline`, `price`, `contract`, `quality`, `attribution`,
+`period_completion`, and `customer_approval`. A valid signature or an intact
+ledger chain alone is insufficient. The verifier also rejects ambiguous roles,
+disputed or superseded evidence, incomplete periods, non-exclusive attribution,
+and arithmetic or integrity failures.
+
+### Export and verify flow
+
+1. Obtain the manifest and independently governed trust-store file.
+2. Verify the pair without network access:
+
+   ```
+   lean-ctx billing settlement verify manifest.json trust-store.json --json
+   ```
+
+3. Only after verification, write canonical JSON for the private-plane handoff:
+
+   ```
+   lean-ctx billing settlement export manifest.json trust-store.json canonical.json --json
+   ```
+
+4. Preserve the manifest ID, trust-store ID, verifier result, and canonical
+   export with the audit record. Export is read-only: it cannot approve a
+   customer, settle funds, create an invoice, or change dispute state.
+
+## 11. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -166,6 +211,10 @@ activity happened without exporting the data the rules protect).
 | Manifest | Signed table of contents of the bundle |
 | Anchor | The seal linking this period to the history before it |
 | Policy pack | The machine-enforced rule set in force during the period |
+| Unified Ledger | Canonical append-only savings-event view reconciled against legacy data |
+| `reconcile_strict` | Reconciliation mode that fails on token drift or double-booking |
+| Settlement manifest | Content-addressed v2 evidence handoff with no payload business logic |
+| Trust store | Independently pinned decisions required for v2 eligibility |
 
 *Contract: `docs/contracts/evidence-bundle-v1.md` · Verifier source:
 `packages/leanctx-verify/` (Apache-2.0, ~600 lines, independently
