@@ -53,6 +53,33 @@ pub(crate) fn cmd_agent(args: &[String]) {
             }
         }
         Some("list") => {
+            if args.iter().any(|arg| arg == "--all") {
+                let unified = crate::core::agents::list_unified();
+                if as_json {
+                    print_json_or_exit(&unified);
+                    return;
+                }
+                if unified.is_empty() {
+                    println!("no agents registered anywhere");
+                    return;
+                }
+                println!(
+                    "{:<24} {:<10} {:<12} {:<14} {:<6} PID",
+                    "AGENT", "SOURCE", "ROLE", "STATUS", "ALIVE"
+                );
+                for agent in &unified {
+                    println!(
+                        "{:<24} {:<10} {:<12} {:<14} {:<6} {}",
+                        agent.agent_id,
+                        format!("{:?}", agent.source).to_lowercase(),
+                        agent.role.as_deref().unwrap_or("-"),
+                        agent.status,
+                        if agent.alive { "yes" } else { "no" },
+                        agent.pid.map_or("-".to_string(), |pid| pid.to_string()),
+                    );
+                }
+                return;
+            }
             let _ = agent_registry::gc();
             let records = agent_registry::list();
             if as_json {
@@ -184,7 +211,7 @@ pub(crate) fn cmd_agent(args: &[String]) {
                 "lean-ctx agent — first-class agent identities (registered, attested, revocable)\n\n\
 USAGE:\n\
   lean-ctx agent register --id <agent-id> --role <role> --owner <user@org>\n\
-  lean-ctx agent list [--json]\n\
+  lean-ctx agent list [--json] [--all]      list agents (--all: merged identity+presence)\n\
   lean-ctx agent gc                          remove dead agents (PID check)\n\
   lean-ctx agent show <agent-id> [--trust-domain org.example]\n\
   lean-ctx agent heartbeat <agent-id>        liveness + attestation drift check\n\

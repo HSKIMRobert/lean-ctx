@@ -269,13 +269,9 @@ async fn envelope_batch(Json(envelopes): Json<Vec<Value>>) -> Json<Vec<BatchEnve
     Json(results)
 }
 
-#[derive(Serialize)]
-struct AgentsResponse {
-    agents: Vec<Value>,
-}
-
-async fn agents() -> Json<AgentsResponse> {
-    Json(AgentsResponse { agents: Vec::new() })
+async fn agents() -> Json<serde_json::Value> {
+    let unified = crate::core::agents::list_unified();
+    Json(serde_json::to_value(unified).unwrap_or_default())
 }
 
 #[derive(Serialize)]
@@ -623,7 +619,7 @@ mod tests {
             .expect("response");
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(json_response(response).await, json!({"agents": []}));
+        assert!(json_response(response).await.is_array());
     }
 
     #[tokio::test]
