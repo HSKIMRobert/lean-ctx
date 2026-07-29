@@ -121,6 +121,10 @@ pub fn router(state: AdminState) -> axum::Router {
     axum::Router::new()
         .route("/api/admin/usage", axum::routing::get(get_usage))
         .route(
+            "/api/admin/pilot-summary",
+            axum::routing::get(get_pilot_summary),
+        )
+        .route(
             "/api/admin/timeseries",
             axum::routing::get(super::admin_timeseries::get_timeseries),
         )
@@ -244,6 +248,35 @@ async fn get_usage(State(state): State<Arc<AdminState>>, Query(q): Query<UsageQu
         }
         Err(e) => {
             tracing::warn!("admin usage query failed: {e:#}");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": "usage store unavailable"})),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// `GET /api/admin/pilot-summary?from=&to=` — measured Shadow Pilot totals.
+async fn get_pilot_summary(
+    State(state): State<Arc<AdminState>>,
+    Query(q): Query<UsageQuery>,
+) -> Response {
+    let (from, to) = match resolve_window(q.from.as_deref(), q.to.as_deref()) {
+        Ok(w) => w,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": msg})),
+            )
+                .into_response();
+        }
+    };
+
+    match super::report::pilot_summary(&state.pool, from, to).await {
+        Ok(report) => Json(report).into_response(),
+        Err(e) => {
+            tracing::warn!("pilot summary query failed: {e:#}");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
                 Json(serde_json::json!({"error": "usage store unavailable"})),
