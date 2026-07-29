@@ -5,7 +5,7 @@ use crate::core::ocla::types::OclaRequestContext;
 
 const TRACE_ID_HEADER: &str = "x-trace-id";
 
-pub(super) fn extract_or_generate_trace_id(headers: &HeaderMap) -> String {
+pub fn extract_or_generate_trace_id(headers: &HeaderMap) -> String {
     headers
         .get(TRACE_ID_HEADER)
         .and_then(|value| value.to_str().ok())
@@ -26,7 +26,7 @@ pub(super) fn extract_or_generate_trace_id(headers: &HeaderMap) -> String {
         )
 }
 
-pub(super) fn inject_trace_id(response: &mut Response, trace_id: &str) {
+pub fn inject_trace_id(response: &mut Response, trace_id: &str) {
     response.headers_mut().insert(
         TRACE_ID_HEADER,
         HeaderValue::from_str(trace_id).expect("generated trace ID is a valid header"),

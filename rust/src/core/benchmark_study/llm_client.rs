@@ -6,8 +6,6 @@
 
 use std::time::{Duration, Instant};
 
-
-
 /// Response from a single LLM completion.
 #[derive(Debug, Clone)]
 pub struct CompletionResponse {

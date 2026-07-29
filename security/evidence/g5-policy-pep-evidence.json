@@ -1,0 +1,14 @@
+{
+  "gate": "G5",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "policy-pep-forward-path",
+  "policy_gate_module": "src/proxy/policy_gate.rs",
+  "forward_path_integration": "src/proxy/forward/mod.rs lines 119-150",
+  "enforcement_controls": [
+    "model_ceiling (allowed_models, 403 refusal)",
+    "hard_budgets (per-person-day, per-project-month, 429 refusal)",
+    "rate_limit (max_requests_per_minute_per_person, 429 + Retry-After)"
+  ],
+  "fail_open_guarantee": "no org policy = no-op (solo user never gated)",
+  "pass": true
+}

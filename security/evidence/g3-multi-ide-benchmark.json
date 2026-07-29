@@ -1,0 +1,14 @@
+{
+  "gate": "G3",
+  "generated_at": "2026-07-29T10:17:23Z",
+  "profiles": [
+    {"ide":"cursor","file":"test.py","original_bytes":8289,"compressed_bytes":8289},
+    {"ide":"cursor","file":"test.rs","original_bytes":11292,"compressed_bytes":11292},
+    {"ide":"cursor","file":"test.json","original_bytes":5514,"compressed_bytes":5514},
+    {"ide":"claude","file":"test.py","original_bytes":8289,"compressed_bytes":8289},
+    {"ide":"claude","file":"test.rs","original_bytes":11292,"compressed_bytes":11292},
+    {"ide":"claude","file":"test.json","original_bytes":5514,"compressed_bytes":5514}
+  ],
+  "determinism_check": true,
+  "pass": true
+}

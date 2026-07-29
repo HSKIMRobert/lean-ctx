@@ -1,61 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub enum MessagePriority {
-    Low,
-    #[default]
-    Normal,
-    High,
-    Critical,
-}
-
-impl MessagePriority {
-    pub fn parse_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "low" => Self::Low,
-            "high" => Self::High,
-            "critical" => Self::Critical,
-            _ => Self::Normal,
-        }
-    }
-}
-
-impl std::fmt::Display for MessagePriority {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Low => write!(f, "low"),
-            Self::Normal => write!(f, "normal"),
-            Self::High => write!(f, "high"),
-            Self::Critical => write!(f, "critical"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub enum PrivacyLevel {
-    Public,
-    #[default]
-    Team,
-    Private,
-}
-
-impl PrivacyLevel {
-    pub fn parse_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "public" => Self::Public,
-            "private" => Self::Private,
-            _ => Self::Team,
-        }
-    }
-
-    pub fn allows_access(&self, requester_is_sender: bool, requester_is_recipient: bool) -> bool {
-        match self {
-            Self::Public | Self::Team => true,
-            Self::Private => requester_is_sender || requester_is_recipient,
-        }
-    }
-}
+pub use lean_ctx_ocla::{MessagePriority, PrivacyLevel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AMessage {

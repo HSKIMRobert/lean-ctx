@@ -176,6 +176,17 @@ pub struct SavingsEvent {
     /// Confidence score [0.0, 1.0] for the savings measurement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
+    // ── G2 Trace Correlation (#closure) ──
+    /// OCLA request ID that generated this savings event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// Session ID from the agent context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// Distributed trace ID for end-to-end correlation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+
     /// Quality signal from outcome tracking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality_signal: Option<String>,
@@ -413,6 +424,9 @@ mod tests {
             measurement_method: None,
             evidence_class: None,
             confidence: None,
+            request_id: None,
+            session_id: None,
+            trace_id: None,
             quality_signal: None,
             attribution_group: None,
             attribution_id: None,

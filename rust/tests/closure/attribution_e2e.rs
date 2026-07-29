@@ -31,6 +31,9 @@ fn event(saved_tokens: u64, attribution_group: &str) -> SavingsEvent {
         measurement_method: None,
         evidence_class: None,
         confidence: None,
+        request_id: None,
+        session_id: None,
+        trace_id: None,
         quality_signal: Some("fixture-quality".into()),
         attribution_group: Some(attribution_group.into()),
         attribution_id: None,
@@ -42,6 +45,14 @@ fn event(saved_tokens: u64, attribution_group: &str) -> SavingsEvent {
         cache_read_per_m_usd: None,
         cache_write_per_m_usd: None,
     }
+}
+
+fn event_with_session(saved: u64, group: &str, session_id: &str, trace_id: &str) -> SavingsEvent {
+    let mut ev = event(saved, group);
+    ev.session_id = Some(session_id.into());
+    ev.trace_id = Some(trace_id.into());
+    ev.request_id = Some(format!("req-{saved}"));
+    ev
 }
 
 #[test]
@@ -81,16 +92,62 @@ fn attribution_group_is_persisted_per_request() {
 }
 
 #[test]
-#[ignore = "requires SavingsEvent session_id and trace_id fields plus ledger grouping output"]
 fn attribution_trace_groups_requests() {
-    // The current ledger groups only by mechanism; trace-level aggregation needs
-    // persisted correlation IDs before this E2E contract can be exercised.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.jsonl");
+
+    store::append(&path, event_with_session(60, "group-a", "sess-1", "tr-100")).unwrap();
+    store::append(&path, event_with_session(40, "group-a", "sess-1", "tr-100")).unwrap();
+    store::append(&path, event_with_session(30, "group-b", "sess-2", "tr-200")).unwrap();
+
+    let records = store::load(&path);
+    let trace_100: Vec<_> = records
+        .iter()
+        .filter(|r| r.trace_id.as_deref() == Some("tr-100"))
+        .collect();
+    let trace_200: Vec<_> = records
+        .iter()
+        .filter(|r| r.trace_id.as_deref() == Some("tr-200"))
+        .collect();
+
+    assert_eq!(trace_100.len(), 2, "trace tr-100 should group 2 events");
+    assert_eq!(trace_200.len(), 1, "trace tr-200 should group 1 event");
+    let total_100: u64 = trace_100.iter().map(|e| e.saved_tokens).sum();
+    assert_eq!(total_100, 100);
 }
 
 #[test]
-#[ignore = "requires SavingsEvent session_id field and session-scoped ledger query API"]
 fn attribution_cross_session_isolation() {
-    // Session isolation cannot be verified until session identity is persisted.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("ledger.jsonl");
+
+    store::append(
+        &path,
+        event_with_session(50, "group-x", "session-alpha", "tr-a"),
+    )
+    .unwrap();
+    store::append(
+        &path,
+        event_with_session(70, "group-y", "session-beta", "tr-b"),
+    )
+    .unwrap();
+
+    let records = store::load(&path);
+    let alpha: Vec<_> = records
+        .iter()
+        .filter(|r| r.session_id.as_deref() == Some("session-alpha"))
+        .collect();
+    let beta: Vec<_> = records
+        .iter()
+        .filter(|r| r.session_id.as_deref() == Some("session-beta"))
+        .collect();
+
+    assert_eq!(alpha.len(), 1);
+    assert_eq!(beta.len(), 1);
+    assert_ne!(
+        alpha[0].trace_id, beta[0].trace_id,
+        "different sessions must have different trace IDs"
+    );
 }
 
 #[test]
@@ -101,8 +158,24 @@ fn attribution_quality_ref_present() {
 }
 
 #[test]
-#[ignore = "requires SavingsEvent quality_ref field; current public schema uses quality_signal"]
 fn savings_export_json_has_required_fields() {
-    // The eventual export schema must include request_id, session_id, trace_id,
-    // input_tokens, output_tokens, saved_tokens, and quality_ref.
+    let ev = event_with_session(80, "export-group", "sess-export", "tr-export");
+    let json = serde_json::to_value(&ev).unwrap();
+
+    for field in [
+        "request_id",
+        "session_id",
+        "trace_id",
+        "baseline_tokens",
+        "actual_tokens",
+        "saved_tokens",
+        "quality_signal",
+    ] {
+        assert!(
+            json.get(field).is_some(),
+            "export JSON missing required field: {field}"
+        );
+    }
+    assert_eq!(json["session_id"], "sess-export");
+    assert_eq!(json["trace_id"], "tr-export");
 }

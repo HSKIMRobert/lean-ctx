@@ -202,6 +202,7 @@ tree-sitter = [
 wasm = ["dep:wasmi"]
 
 [dependencies]
+lean-ctx-ocla = { path = "crates/lean-ctx-ocla" }
 rmcp = { version = "2", features = [
   "server",
   "client",
@@ -498,5 +499,6 @@ harness = false
 [patch.crates-io]
 rmcp = { path = "crates/vendor/rmcp" }
 rmcp-macros = { path = "crates/vendor/rmcp-macros" }
+
 
 

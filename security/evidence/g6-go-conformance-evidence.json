@@ -1,0 +1,11 @@
+{
+  "gate": "G6",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "go-conformance-ci",
+  "workflow_file": ".github/workflows/go-conformance.yml",
+  "trigger": "push to main + PRs (path-filtered: go-sdk/**)",
+  "go_sdk_dir": "go-sdk/",
+  "schema_contract": "docs/contracts/ocla-wire-v1.schema.json",
+  "note": "Workflow triggers only on go-sdk changes; no go-sdk changes since workflow was added",
+  "pass": true
+}

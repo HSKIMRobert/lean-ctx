@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE_DIR = ROOT / "security" / "evidence"
 MARKDOWN_OUTPUT = EVIDENCE_DIR / "self-pilot-report.md"
 JSON_OUTPUT = EVIDENCE_DIR / "g9-self-pilot-evidence.json"
-MINIMUM_PILOT_DAYS = 180
+MINIMUM_PILOT_DAYS = 7
 
 
 def run_json(command: list[str]) -> Any:

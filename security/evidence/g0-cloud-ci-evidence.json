@@ -1,0 +1,10 @@
+{
+  "gate": "G0",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "cloud-ci-deployment",
+  "cloud_ci_template": "scripts/cloud-ci-template.yml",
+  "deployed_to": "lean-ctx-cloud (GitLab origin)",
+  "security_policies": "src/core/policy/ (builtin, floor, runtime, org, coverage)",
+  "traceability": "src/proxy/forward/trace_id.rs (extract_or_generate + inject)",
+  "pass": true
+}

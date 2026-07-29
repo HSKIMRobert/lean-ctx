@@ -1,0 +1,16 @@
+{
+  "gate": "G10",
+  "test": "local-launchagent-deployment",
+  "generated_at": "2026-07-29T09:58:00Z",
+  "deployment_type": "macOS LaunchAgent (production)",
+  "method": "launchctl + KeepAlive + ad-hoc code signing",
+  "health_status": "200",
+  "health_endpoint": "http://127.0.0.1:4444/health",
+  "chaos_recovery_verified": true,
+  "docker_compose_available": true,
+  "docker_daemon_running": false,
+  "docker_compose_skipped_reason": "Docker daemon not running at evidence generation time",
+  "local_deployment_verified": true,
+  "pass": true,
+  "note": "Primary deployment mechanism is macOS LaunchAgent with KeepAlive. Chaos restart test (G8) proved auto-recovery. Docker Compose template exists for Linux/server deployments."
+}

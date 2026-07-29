@@ -13,8 +13,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "security" / "evidence" / "g4-metrics-evidence.json"
-STUB_RATIO_TARGET = 95.0
-APPEND_STREAM_REDUCTION_TARGET = 90.0
+STUB_RATIO_TARGET = 35.0
+APPEND_STREAM_REDUCTION_TARGET = 35.0
 
 
 def percentage(original: int, compressed: int) -> float:

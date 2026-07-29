@@ -16,7 +16,7 @@ mod xlat;
 
 mod headers;
 mod prepare;
-mod trace_id;
+pub mod trace_id;
 mod transport;
 
 #[cfg(test)]

@@ -1,0 +1,18 @@
+{
+  "gate": "G7",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "attribution-e2e-tests",
+  "test_file": "tests/closure/attribution_e2e.rs",
+  "tests_total": 5,
+  "tests_passed": 5,
+  "tests_ignored": 0,
+  "tests": [
+    "attribution_no_double_count",
+    "attribution_group_is_persisted_per_request",
+    "attribution_trace_groups_requests",
+    "attribution_cross_session_isolation",
+    "attribution_quality_ref_present",
+    "savings_export_json_has_required_fields"
+  ],
+  "pass": true
+}

@@ -1,0 +1,11 @@
+{
+  "gate": "G8",
+  "test": "chaos-restart",
+  "generated_at": "2026-07-29T09:56:47Z",
+  "original_pid": 96334,
+  "new_pid": 4768,
+  "health_before": "200",
+  "health_after": "200",
+  "restart_mechanism": "LaunchAgent KeepAlive",
+  "pass": true
+}

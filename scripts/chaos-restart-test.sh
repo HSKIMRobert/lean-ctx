@@ -30,7 +30,7 @@ PORT="$(lean-ctx config show 2>/dev/null | awk -F '=' '
         }
     }
 ' || true)"
-PORT="${PORT:-19187}"
+PORT="${PORT:-4444}"
 HEALTH="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/health" 2>/dev/null || echo 000)"
 echo "  Health: HTTP $HEALTH"
 if [ "$HEALTH" != "200" ]; then

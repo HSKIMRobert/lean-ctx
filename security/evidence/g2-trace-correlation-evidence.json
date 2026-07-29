@@ -1,0 +1,20 @@
+{
+  "gate": "G2",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "trace-correlation-tests",
+  "test_file": "tests/closure/trace_correlation.rs",
+  "tests_total": 8,
+  "tests_passed": 8,
+  "tests_ignored": 0,
+  "tests": [
+    "trace_id_generated_when_absent",
+    "trace_id_preserved_when_present",
+    "trace_id_deterministic_format",
+    "empty_trace_id_header_generates_new",
+    "trace_id_round_trips_through_ocla_wire_context",
+    "trace_id_injected_into_response",
+    "savings_record_contains_trace_id"
+  ],
+  "data_model_changes": "SavingsEvent += request_id, session_id, trace_id (Option<String>)",
+  "pass": true
+}

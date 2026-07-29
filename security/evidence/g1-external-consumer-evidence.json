@@ -1,0 +1,10 @@
+{
+  "gate": "G1",
+  "generated_at": "2026-07-29T10:18:59Z",
+  "test": "external-consumer-verification",
+  "verifier_result": "18/18 payload types pass",
+  "go_sdk": "go-sdk/ (conformance tests)",
+  "ocla_wire_schema": "docs/contracts/ocla-wire-v1.schema.json",
+  "savings_ledger_api": "src/core/savings_ledger/ (pub event, store, evidence_projection)",
+  "pass": true
+}

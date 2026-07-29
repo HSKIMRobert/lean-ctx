@@ -85,6 +85,9 @@ fn event(
         is_first_inject: None,
         cache_read_per_m_usd: None,
         cache_write_per_m_usd: None,
+        request_id: None,
+        session_id: None,
+        trace_id: None,
     };
     event.entry_hash = compute_hash(previous, &event.canonical_content());
     event
