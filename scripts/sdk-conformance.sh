@@ -3,10 +3,11 @@
 #
 # Builds the engine (unless LEAN_CTX_BIN points at one), starts a real
 # `lean-ctx serve` on an ephemeral port, then runs the conformance kit of all
-# three first-party SDKs against it:
+# four first-party SDKs against it:
 #
 #   * Python   clients/python            (pytest  tests/test_conformance_live.py)
 #   * TypeScript cookbook/sdk            (vitest  src/conformance.e2e.test.ts)
+#   * Go       go-sdk                    (go test TestConformanceLive)
 #   * Rust     clients/rust/lean-ctx-client (cargo test --test conformance_live)
 #
 # Each suite writes its scorecard into $LEANCTX_MATRIX_DIR; afterwards the
@@ -64,6 +65,12 @@ echo "==> TypeScript SDK conformance"
 (cd cookbook && npm install --no-fund --no-audit >/dev/null \
   && cd sdk && npx vitest run src/conformance.e2e.test.ts) || FAIL=1
 
+echo "==> Go SDK conformance"
+(
+  cd go-sdk
+  LEANCTX_CONFORMANCE_URL="$URL" go test -run TestConformanceLive -v ./... 2>&1 | tee "$MATRIX_DIR/go.log"
+  echo $? > "$MATRIX_DIR/go.exit"
+)
 echo "==> Rust SDK conformance"
 (cd clients/rust/lean-ctx-client && cargo test --test conformance_live) || FAIL=1
 
