@@ -12,25 +12,38 @@ against a real `lean-ctx serve` instance — regenerate, never edit.
 | python | `lean-ctx-client` (PyPI) | 0.1.0 | PASS (14/14) |
 | typescript | `lean-ctx-client` (npm) | 0.1.0 | PASS (14/14) |
 | rust | `lean-ctx-client` (crates.io) | 0.1.0 | PASS (14/14) |
+| go | `lean-ctx-ocla` (module) | 0.1.0 | PASS (14/14) |
 
 ## Checks
 
-| Check | python | typescript | rust |
-|---|---|---|---|
-| health | pass | pass | pass |
-| manifest_shape | pass | pass | pass |
-| capabilities_shape | pass | pass | pass |
-| contract_status_map | pass | pass | pass |
-| engine_compat | pass | pass | pass |
-| openapi_shape | pass | pass | pass |
-| route_coverage | pass | pass | pass |
-| tools_list | pass | pass | pass |
-| tool_call_error_contract | pass | pass | pass |
-| events_stream | pass | pass | pass |
-| context_summary_shape | pass | pass | pass |
-| events_search_shape | pass | pass | pass |
-| event_lineage_shape | pass | pass | pass |
-| metrics_shape | pass | pass | pass |
+| Check | python | typescript | rust | go |
+|---|---|---|---|---|
+| health | pass | pass | pass | pass |
+| manifest_shape | pass | pass | pass | — |
+| capabilities_shape | pass | pass | pass | pass |
+| contract_status_map | pass | pass | pass | — |
+| engine_compat | pass | pass | pass | — |
+| openapi_shape | pass | pass | pass | — |
+| route_coverage | pass | pass | pass | — |
+| tools_list | pass | pass | pass | — |
+| tool_call_error_contract | pass | pass | pass | — |
+| events_stream | pass | pass | pass | — |
+| context_summary_shape | pass | pass | pass | — |
+| events_search_shape | pass | pass | pass | — |
+| event_lineage_shape | pass | pass | pass | — |
+| metrics_shape | pass | pass | pass | — |
+| health_version | — | — | — | pass |
+| capabilities_version | — | — | — | pass |
+| capability_shape | — | — | — | pass |
+| validate_envelope | — | — | — | pass |
+| envelope_token_balance | — | — | — | pass |
+| validate_envelope_batch | — | — | — | pass |
+| agents | — | — | — | pass |
+| metrics | — | — | — | pass |
+| ledger | — | — | — | pass |
+| capsule_register | — | — | — | pass |
+| capsule_resolve | — | — | — | pass |
+| capsule_fork | — | — | — | pass |
 
 ## SemVer coupling
 
