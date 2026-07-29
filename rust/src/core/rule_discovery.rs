@@ -24,7 +24,9 @@ pub struct DiscoveredRule {
 static INJECTED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn already_injected(key: &str) -> bool {
-    let mut guard = INJECTED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = INJECTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let set = guard.get_or_insert_with(HashSet::new);
     !set.insert(key.to_string())
 }
@@ -32,7 +34,9 @@ fn already_injected(key: &str) -> bool {
 /// Reset injection tracking (for tests).
 #[cfg(test)]
 pub fn reset_injection_cache() {
-    let mut guard = INJECTED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = INJECTED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     *guard = None;
 }
 
@@ -93,11 +97,13 @@ fn discover_rules(file_path: &str, project_root: &str, client_id: &str) -> Vec<D
 
     let cache_key = format!("{client_id}:{}", dir.display());
     {
-        let guard = DIR_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(cache) = guard.as_ref() {
-            if let Some(cached) = cache.get(&cache_key) {
-                return filter_by_path(cached, file_path, project_root);
-            }
+        let guard = DIR_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cache) = guard.as_ref()
+            && let Some(cached) = cache.get(&cache_key)
+        {
+            return filter_by_path(cached, file_path, project_root);
         }
     }
 
@@ -107,7 +113,9 @@ fn discover_rules(file_path: &str, project_root: &str, client_id: &str) -> Vec<D
     collect_glob_rules(project_root, client_id, &mut rules);
 
     {
-        let mut guard = DIR_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = DIR_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let cache = guard.get_or_insert_with(HashMap::new);
         cache.insert(cache_key, rules.clone());
     }
@@ -121,19 +129,18 @@ fn collect_hierarchy_rules(dir: &Path, root: &Path, rules: &mut Vec<DiscoveredRu
     while let Some(d) = current {
         for name in &["CLAUDE.md", "AGENTS.md"] {
             let candidate = d.join(name);
-            if candidate.is_file() {
-                if let Ok(content) = std::fs::read_to_string(&candidate) {
-                    if !content.trim().is_empty() {
-                        let relative = candidate
-                            .strip_prefix(root)
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_else(|_| candidate.display().to_string());
-                        rules.push(DiscoveredRule {
-                            source: relative,
-                            content,
-                        });
-                    }
-                }
+            if candidate.is_file()
+                && let Ok(content) = std::fs::read_to_string(&candidate)
+                && !content.trim().is_empty()
+            {
+                let relative = candidate.strip_prefix(root).map_or_else(
+                    |_| candidate.display().to_string(),
+                    |p| p.display().to_string(),
+                );
+                rules.push(DiscoveredRule {
+                    source: relative,
+                    content,
+                });
             }
         }
         if d == root {
@@ -174,8 +181,7 @@ fn collect_glob_rules(project_root: &str, client_id: &str, rules: &mut Vec<Disco
                 }
                 let relative = path
                     .strip_prefix(root)
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| path.display().to_string());
+                    .map_or_else(|_| path.display().to_string(), |p| p.display().to_string());
                 rules.push(DiscoveredRule {
                     source: relative,
                     content,
@@ -196,8 +202,7 @@ fn filter_by_path(
 ) -> Vec<DiscoveredRule> {
     let relative_file = Path::new(file_path)
         .strip_prefix(project_root)
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| file_path.to_string());
+        .map_or_else(|_| file_path.to_string(), |p| p.display().to_string());
 
     rules
         .iter()
@@ -257,14 +262,24 @@ fn glob_matches(pattern: &str, path: &str) -> bool {
         return true;
     }
 
-    let pattern = pattern.replace("\\", "/");
-    let path = path.replace("\\", "/");
+    let pattern = pattern.replace('\\', "/");
+    let path = path.replace('\\', "/");
 
-    if pattern.starts_with("**/") {
-        let suffix = &pattern[3..];
-        return path.ends_with(suffix)
-            || path.contains(&format!("/{suffix}"))
-            || glob_matches(suffix, &path);
+    if let Some(suffix) = pattern.strip_prefix("**/") {
+        if !suffix.contains('/') {
+            let filename = path.rsplit('/').next().unwrap_or(&path);
+            return glob_matches(suffix, filename);
+        }
+        let mut remaining = &path[..];
+        loop {
+            if glob_matches(suffix, remaining) {
+                return true;
+            }
+            match remaining.find('/') {
+                Some(pos) => remaining = &remaining[pos + 1..],
+                None => return false,
+            }
+        }
     }
 
     if pattern.starts_with("*.") {
