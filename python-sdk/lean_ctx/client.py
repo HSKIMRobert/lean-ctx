@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import TracebackType
+from collections.abc import AsyncIterator
 from typing import Any, Optional
 
 import httpx
@@ -13,6 +14,7 @@ from .models import (
     HealthResponse,
     LedgerSummary,
 )
+from .streaming import stream_events
 
 
 class OclaClient:
@@ -97,6 +99,18 @@ class OclaClient:
         response = await self._client.get(self._url("ledger/summary"))
         response.raise_for_status()
         return LedgerSummary.model_validate(response.json())
+
+    async def stream_envelopes(self) -> AsyncIterator[dict[str, Any]]:
+        """Stream envelopes via SSE from /v1/events."""
+        async with self._client.stream(
+            "GET",
+            self._url("events"),
+            headers={"Accept": "text/event-stream"},
+        ) as response:
+            response.raise_for_status()
+            async for event in stream_events(response):
+                if event.get("type") == "envelope":
+                    yield event["data"]
 
     def _url(self, route: str) -> str:
         return f"{self._base_url}/ocla/v1/{route}"
