@@ -98,6 +98,13 @@ pub enum OclaEvent {
         action: String,
         parent_agent: Option<String>,
     },
+    /// Cross-agent stub served instead of full read (delivery_registry.rs).
+    CrossAgentStubServed {
+        path: String,
+        tokens_saved: u64,
+        serving_agent: String,
+        original_agent: String,
+    },
 }
 
 /// Feedback outcome enum.
@@ -481,7 +488,8 @@ fn bridge_to_legacy(event: &OclaEvent) {
         | OclaEvent::OutcomeRecorded { .. }
         | OclaEvent::ResponseOptimized { .. }
         | OclaEvent::ModelRouted { .. }
-        | OclaEvent::AgentChainEvent { .. } => {
+        | OclaEvent::AgentChainEvent { .. }
+        | OclaEvent::CrossAgentStubServed { .. } => {
             return;
         }
     };
@@ -837,6 +845,12 @@ mod tests {
                 agent_id: "x".into(),
                 action: "spawn".into(),
                 parent_agent: Some("y".into()),
+            },
+            OclaEvent::CrossAgentStubServed {
+                path: "src/main.rs".into(),
+                tokens_saved: 200,
+                serving_agent: "agent-a".into(),
+                original_agent: "agent-b".into(),
             },
         ];
 

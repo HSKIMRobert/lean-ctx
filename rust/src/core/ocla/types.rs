@@ -273,10 +273,11 @@ pub enum OclaCapabilityKind {
     ExperimentRunner,
     ConnectorScheduler,
     AgentGateway,
+    DeliveryRegistry,
 }
 
 impl OclaCapabilityKind {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::ObservationHook,
         Self::UsageSink,
         Self::MetricsExporter,
@@ -291,6 +292,7 @@ impl OclaCapabilityKind {
         Self::ExperimentRunner,
         Self::ConnectorScheduler,
         Self::AgentGateway,
+        Self::DeliveryRegistry,
     ];
 }
 
@@ -538,6 +540,40 @@ pub struct ConnectorJob {
 pub struct ScheduledJob {
     pub job_ref: String,
     pub queue_ref: String,
+}
+
+/// Cross-agent delivery record: tracks that file content was read by an agent.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeliveryRecord {
+    pub blake3: [u8; 12],
+    pub path: String,
+    pub line_count: u32,
+    pub agent_id: String,
+    pub conversation_id: String,
+    pub read_at: u64,
+    pub mtime: u64,
+    pub fresh: bool,
+}
+
+/// Entry for recording a new delivery.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DeliveryEntry {
+    pub blake3: [u8; 12],
+    pub path: String,
+    pub line_count: u32,
+    pub agent_id: String,
+    pub conversation_id: String,
+    pub mtime: u64,
+}
+
+/// Statistics for the delivery registry.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DeliveryStats {
+    pub total_entries: usize,
+    pub stubs_served: u64,
+    pub tokens_saved: u64,
+    pub unique_paths: usize,
+    pub unique_agents: usize,
 }
 
 /// Canonical, payload-free admission contract for one A2A relay.

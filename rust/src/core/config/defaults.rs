@@ -71,6 +71,7 @@ impl Default for Config {
             proxy: ProxyConfig::default(),
             conversation: ConversationConfig::default(),
             response_shaping: ResponseShapingConfig::default(),
+            ocla: OclaConfig::default(),
             proxy_enabled: None,
             proxy_port: None,
             proxy_timeout_ms: None,

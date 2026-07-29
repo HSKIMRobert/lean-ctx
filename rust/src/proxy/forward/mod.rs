@@ -270,6 +270,16 @@ pub async fn forward_request(
     if let (Some(cache), Some(model)) = (&state.ocla_cache, model)
         && let Some(cached) = cache.try_cache_hit(model, &cache_prompt_hash, 0.0, 0)
     {
+        if let Some(route_decision) = &route {
+            let quality = if cached.status.is_success() { 1.0 } else { 0.0 };
+            crate::proxy::routing_feedback::global_feedback().record_outcome(
+                &route_decision.routed_from,
+                &route_decision.model,
+                quality,
+                tokens_saved,
+                0,
+            );
+        }
         let mut response = Response::builder()
             .status(cached.status)
             .body(Body::from(cached.body))
@@ -344,6 +354,21 @@ pub async fn forward_request(
         preserve_content_encoding,
     )
     .await?;
+
+    if let Some(route_decision) = &route {
+        let quality = if response.status().is_success() {
+            1.0
+        } else {
+            0.0
+        };
+        crate::proxy::routing_feedback::global_feedback().record_outcome(
+            &route_decision.routed_from,
+            &route_decision.model,
+            quality,
+            tokens_saved,
+            0,
+        );
+    }
 
     // Measured usage: read the real model + billed tokens from the response.
     // Gemini puts the model in the URL path, not the request/response body.

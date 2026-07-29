@@ -1130,6 +1130,18 @@ impl CtxReadTool {
             })
         };
 
+        // Rule injection (#1325): discover and append rules scoped to this file
+        // path (CLAUDE.md, AGENTS.md, .cursor/rules, .claude/rules) so the agent
+        // receives the same context it would get from the native Read tool.
+        let rules_suffix = {
+            let client_id = ctx
+                .client_name
+                .as_ref()
+                .map(|c| c.blocking_read().clone())
+                .unwrap_or_default();
+            crate::core::rule_discovery::rules_suffix_for_read(path, &ctx.project_root, &client_id)
+        };
+
         let mut warnings = Vec::new();
         if let Some(ref w) = budget_warning {
             warnings.push(w.as_str());
@@ -1151,13 +1163,13 @@ impl CtxReadTool {
         // payload so client-side truncation of large outputs cannot hide them.
         let final_output = if !warnings.is_empty() {
             format!(
-                "{}\n\n{output}{hints_suffix}{graph_suffix}",
+                "{}\n\n{output}{hints_suffix}{graph_suffix}{rules_suffix}",
                 warnings.join("\n")
             )
-        } else if hints_suffix.is_empty() && graph_suffix.is_empty() {
+        } else if hints_suffix.is_empty() && graph_suffix.is_empty() && rules_suffix.is_empty() {
             output
         } else {
-            format!("{output}{hints_suffix}{graph_suffix}")
+            format!("{output}{hints_suffix}{graph_suffix}{rules_suffix}")
         };
         let proactive_query = format!(
             "ctx_read path={path} mode={resolved_mode} task={}",
@@ -1171,10 +1183,19 @@ impl CtxReadTool {
             final_output
         };
 
+        // Monotonic guard (#1326): re-count tokens on the fully assembled output
+        // (including hints, warnings, proactive context) and verify the compressed
+        // result is actually smaller than the original. If annotations inflated the
+        // output beyond the raw baseline, report zero savings so the ledger stays
+        // honest. We keep the compressed form (it may still be more useful than raw)
+        // but correct the accounting.
+        let final_tokens = crate::core::tokens::count_tokens(&final_output);
+        let verified_saved = original.saturating_sub(final_tokens);
+
         Ok(ToolOutput {
             text: final_output,
             original_tokens: original,
-            saved_tokens: saved,
+            saved_tokens: verified_saved,
             mode: Some(resolved_mode),
             path: Some(path.to_string()),
             changed: false,

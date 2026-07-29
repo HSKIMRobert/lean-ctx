@@ -40,7 +40,7 @@ pub mod protect;
 pub mod rabin_karp;
 pub mod relevance_tracker;
 pub mod rule_artifacts;
-#[cfg(feature = "experimental")]
+pub mod rule_discovery;
 pub mod rule_scorer;
 #[cfg(feature = "experimental")]
 pub mod rule_staleness;
@@ -530,6 +530,7 @@ pub mod stats;
 pub mod structural_diff;
 pub mod symbol_map;
 pub mod syntax_validate;
+pub mod task_benchmark;
 pub mod task_briefing;
 /// macOS Seatbelt self-sandbox (#356): wraps launchd-owned daemon/proxy/updater
 /// in a `sandbox-exec` profile that denies `~/Documents`/`~/Desktop`/

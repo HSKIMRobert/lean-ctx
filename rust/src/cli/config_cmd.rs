@@ -576,6 +576,12 @@ pub fn cmd_benchmark(args: &[String]) {
             println!("       lean-ctx benchmark compare [--repo path] [--output file.md]");
             println!("       lean-ctx benchmark scorecard [--json] [--output file]");
             println!("       lean-ctx benchmark dual-arm [--json] [--output file]");
+            println!(
+                "       lean-ctx benchmark tasks [--config stock|standard|aggressive] [--repeats N] [--json|--markdown] [--output file]"
+            );
+        }
+        "tasks" => {
+            cmd_benchmark_tasks(args);
         }
         "dual-arm" => {
             let is_json = args.iter().any(|a| a == "--json");
@@ -1475,5 +1481,83 @@ mod tests {
             5,
             "default seed resets to 5 — the #443 regression we fixed"
         );
+    }
+}
+
+fn cmd_benchmark_tasks(args: &[String]) {
+    use crate::core::task_benchmark::{
+        config::{BenchConfig, CompressionProfile, ProfileMode},
+        fixtures::canonical_suite,
+        report::BenchReport,
+        runner::run_benchmark,
+    };
+
+    let is_json = args.iter().any(|a| a == "--json");
+    let is_markdown = args.iter().any(|a| a == "--markdown" || a == "--md");
+    let output = parse_flag_value(args, "--output");
+
+    let repeats: u32 = parse_flag_value(args, "--repeats")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3);
+
+    let config_filter = parse_flag_value(args, "--config");
+    let profiles = match config_filter.as_deref() {
+        Some("stock") => vec![CompressionProfile {
+            name: "stock".into(),
+            mode: ProfileMode::Stock,
+        }],
+        Some("standard") => vec![
+            CompressionProfile {
+                name: "stock".into(),
+                mode: ProfileMode::Stock,
+            },
+            CompressionProfile {
+                name: "standard".into(),
+                mode: ProfileMode::Standard,
+            },
+        ],
+        Some("aggressive") => vec![
+            CompressionProfile {
+                name: "stock".into(),
+                mode: ProfileMode::Stock,
+            },
+            CompressionProfile {
+                name: "aggressive".into(),
+                mode: ProfileMode::Aggressive,
+            },
+        ],
+        _ => BenchConfig::default().profiles,
+    };
+
+    let config = BenchConfig {
+        profiles,
+        repeats,
+        regression_threshold: 0.95,
+    };
+
+    let tasks = canonical_suite();
+    let result = run_benchmark(&tasks, &config);
+    let report = BenchReport::new(result);
+
+    let rendered = if is_json {
+        report.to_json()
+    } else if is_markdown {
+        report.to_markdown()
+    } else {
+        report.to_human()
+    };
+
+    if let Some(path) = output {
+        if let Err(e) = std::fs::write(&path, &rendered) {
+            eprintln!("Failed to write task benchmark to {path}: {e}");
+            std::process::exit(1);
+        }
+        eprintln!("Wrote task benchmark report to {path}");
+    } else {
+        print!("{rendered}");
+    }
+
+    if report.result.regression_detected {
+        std::process::exit(1);
     }
 }
