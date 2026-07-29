@@ -48,16 +48,14 @@ pub fn reap_cycle() -> Result<ReapStats, String> {
     // Presence registry: cleanup_stale marks dead PIDs as Finished and removes
     // old Finished entries.
     if let Ok((_registry, ())) = super::AgentRegistry::mutate_locked(|registry| {
-        let before = registry.agents.len();
-        registry.cleanup_stale(DEFAULT_PRESENCE_TTL_HOURS);
-        stats.presence_removed = before.saturating_sub(registry.agents.len());
-
-        // Scratchpad: remove expired entries.
+        let agents_before = registry.agents.len();
         let scratchpad_before = registry.scratchpad.len();
-        let now = chrono::Utc::now();
-        registry
-            .scratchpad
-            .retain(|entry| entry.expires_at.map_or(true, |expiration| expiration > now));
+
+        // cleanup_stale handles: dead PIDs → Finished, old agents removal,
+        // AND expired scratchpad entries (since #502).
+        registry.cleanup_stale(DEFAULT_PRESENCE_TTL_HOURS);
+
+        stats.presence_removed = agents_before.saturating_sub(registry.agents.len());
         stats.scratchpad_expired = scratchpad_before.saturating_sub(registry.scratchpad.len());
 
         // Logical sessions: cleanup stale.

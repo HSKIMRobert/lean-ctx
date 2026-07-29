@@ -142,19 +142,17 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         if !file_unchanged(ctx.path, cached) {
             return resolved("diff", "cache_changed");
         }
-        // Unchanged. Resolving to "full" is only a *cheap* stub hit when full
-        // content was actually delivered before. If the first read was a
-        // compressed mode (map/signatures), `full_content_delivered` is false,
-        // so forcing "full" here re-delivers the entire file on the very next
-        // read — a compression bounce that costs *more* tokens than the first
-        // read and collapses the cache hit rate: the 2nd read of every file
-        // blows up to full and stub hits only begin at the 3rd read (which
-        // agents rarely reach). Only short-circuit once full was delivered;
-        // otherwise fall through to the predictor, which deterministically
-        // reproduces the cached compressed mode and serves it from the
-        // compressed-output cache as a cheap, consistent hit.
+        // Unchanged. Resolving to "full" is only a cheap stub hit when full
+        // content was actually delivered before.
         if cache.is_full_delivered(ctx.path) {
             return resolved("full", "cache_hit");
+        }
+        // Reuse the last compressed mode so the dispatcher can serve its cached
+        // output rather than re-running the predictor and compression pipeline.
+        if let Some(prev_mode) = cache.last_mode(ctx.path)
+            && prev_mode != "full"
+        {
+            return resolved(&prev_mode, "cache_hit_compressed");
         }
     }
 
@@ -421,10 +419,7 @@ fn heuristic_mode(ext: &str, token_count: usize, structure_first: bool) -> Strin
         }
         return "aggressive".to_string();
     }
-    // Raised from 3000 → 6000: at 3-6k tokens, returning only signatures forces
-    // the agent into a follow-up full/lines read for the body it actually
-    // needs. Keeping `full` here trades a few hundred tokens per call for
-    // fewer round-trips — the right call per the total-task-token principle.
+    // Large code files need an overview rather than an API-only surface.
     if token_count > 6000 && is_code(ext) {
         return "map".to_string();
     }
@@ -436,6 +431,12 @@ fn heuristic_mode(ext: &str, token_count: usize, structure_first: bool) -> Strin
     // 500-token floor stays above the trivial files where `full` is already best.
     if structure_first && token_count > 500 && is_code(ext) {
         return "map".to_string();
+    }
+    // Medium code files are common during exploration. Keep the tiny-file floor
+    // intact, but avoid delivering full bodies once signatures can localize the
+    // relevant symbol cheaply.
+    if token_count > 500 && is_code(ext) {
+        return "signatures".to_string();
     }
     "full".to_string()
 }
@@ -487,6 +488,11 @@ fn is_code(ext: &str) -> bool {
             | "scala"
             | "sc"
             | "dart"
+            | "toml"
+            | "yaml"
+            | "yml"
+            | "json"
+            | "md"
             | "sh"
             | "bash"
             | "svelte"
@@ -652,18 +658,10 @@ mod tests {
     }
 
     #[test]
-    fn cached_compressed_only_file_does_not_escalate_to_full() {
-        // Cache regression: a file first read in a compressed mode has
-        // `full_content_delivered=false`. Resolving its re-read to "full" would
-        // re-deliver the entire file on the 2nd read — a compression bounce that
-        // costs more tokens than the first read and defeats the cache. The
-        // resolver must fall through so the cached compressed mode is reused.
-        //
-        // Sized > 6000 tokens so the deterministic default heuristic itself
-        // picks a compressed mode (`map` for large code) — making the
-        // compressed-only premise real even with learning off (#683); the
-        // invariant under test is that the `cache_hit` shortcut never fires for
-        // an entry whose full body was not delivered.
+    fn cached_compressed_only_file_reuses_cached_mode() {
+        // A compressed first read records its mode without marking full content
+        // delivered. An unchanged re-read must reuse that mode and its cached
+        // compressed output rather than re-entering the prediction pipeline.
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("large.rs");
         let body = "fn placeholder() { let _ = 1; }\n".repeat(900);
@@ -672,7 +670,7 @@ mod tests {
 
         let mut cache = SessionCache::new();
         cache.store(path, &body);
-        // A compressed first read does NOT mark full content as delivered.
+        cache.get_mut(path).unwrap().last_mode = "map".to_string();
 
         let ctx = AutoModeContext {
             path,
@@ -682,11 +680,8 @@ mod tests {
             cache: Some(&cache),
         };
         let result = resolve(&ctx);
-        assert_ne!(
-            result.mode, "full",
-            "compressed-only cached file must not escalate to full on re-read"
-        );
-        assert_ne!(result.source, "cache_hit");
+        assert_eq!(result.mode, "map");
+        assert_eq!(result.source, "cache_hit_compressed");
     }
 
     #[test]
@@ -780,11 +775,9 @@ mod tests {
     }
 
     #[test]
-    fn heuristic_full_for_medium_code_by_default() {
-        // Default (structure_first off): medium code stays full so the agent
-        // gets the body in one round-trip on a warm, re-readable session.
-        assert_eq!(heuristic_mode("rs", 1500, false), "full");
-        assert_eq!(heuristic_mode("ts", 1000, false), "full");
+    fn heuristic_medium_code_uses_signatures_by_default() {
+        assert_eq!(heuristic_mode("rs", 1500, false), "signatures");
+        assert_eq!(heuristic_mode("ts", 1000, false), "signatures");
     }
 
     #[test]
@@ -795,12 +788,24 @@ mod tests {
     }
 
     #[test]
-    fn heuristic_structure_first_keeps_tiny_and_prose_full() {
+    fn heuristic_structure_first_keeps_tiny_and_plain_text_full() {
         // Below the 500-token floor `full` is already best.
         assert_eq!(heuristic_mode("rs", 400, true), "full");
-        // Non-code (prose / data) is never structure-first mapped.
-        assert_eq!(heuristic_mode("md", 4000, true), "full");
+        // Plain text is never structure-first mapped.
         assert_eq!(heuristic_mode("txt", 1000, true), "full");
+    }
+
+    #[test]
+    fn code_extensions_cover_progressive_formats() {
+        for ext in [
+            "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "h", "rb", "swift",
+            "kt", "scala", "toml", "yaml", "yml", "json", "md", "sh", "bash",
+        ] {
+            assert!(
+                is_code(ext),
+                "{ext} should participate in structure-first modes"
+            );
+        }
     }
 
     #[test]
@@ -850,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    fn structure_first_off_keeps_medium_code_full() {
+    fn structure_first_off_uses_signatures_for_medium_code() {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-sfoff-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -866,7 +871,7 @@ mod tests {
             cache: None,
         };
         let result = resolve(&ctx);
-        assert_eq!(result.mode, "full");
+        assert_eq!(result.mode, "signatures");
         assert_eq!(result.source, "heuristic");
 
         crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
@@ -1002,8 +1007,8 @@ mod tests {
         };
         let result = resolve(&ctx);
         assert_eq!(
-            result.mode, "full",
-            "progressive off → falls through to heuristic (full for medium code)"
+            result.mode, "signatures",
+            "progressive off → heuristic uses signatures for medium code"
         );
 
         crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");

@@ -249,6 +249,7 @@ impl SessionCache {
             let new_count = existing.bump_read_count();
             existing.full_content_delivered = false;
             existing.delivered_conversation = None;
+            existing.last_mode.clear();
             if stored_mtime.is_some() {
                 existing.stored_mtime = stored_mtime;
             }
@@ -400,14 +401,15 @@ impl SessionCache {
         self.stats
             .total_original_tokens
             .fetch_add(entry.original_tokens as u64, Ordering::Relaxed);
-        let sent = count_tokens(result) as u64;
+        let sent = count_tokens(result);
         self.stats
             .total_sent_tokens
-            .fetch_add(sent, Ordering::Relaxed);
+            .fetch_add(sent as u64, Ordering::Relaxed);
         crate::core::events::emit_cache_hit(
             path,
-            (entry.original_tokens as u64).saturating_sub(sent),
+            (entry.original_tokens as u64).saturating_sub(sent as u64),
         );
+        crate::core::stats::record_reread(entry.original_tokens.saturating_sub(sent));
         Some(result)
     }
 
@@ -461,6 +463,14 @@ impl SessionCache {
         self.entries
             .get(&normalize_key(path))
             .is_some_and(|e| e.full_content_delivered)
+    }
+
+    /// Returns the last successful read mode for an entry, if one was recorded.
+    pub fn last_mode(&self, path: &str) -> Option<String> {
+        self.entries
+            .get(&normalize_key(path))
+            .map(|entry| entry.last_mode.clone())
+            .filter(|mode| !mode.is_empty())
     }
 
     /// Counts entries that have full content delivered — i.e. those that would

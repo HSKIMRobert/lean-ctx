@@ -27,6 +27,17 @@ fn cache_miss_on_changed_content() {
 }
 
 #[test]
+fn last_mode_is_available_only_for_current_content() {
+    let mut cache = SessionCache::new();
+    cache.store("/test/file.rs", "old content");
+    cache.get_mut("/test/file.rs").unwrap().last_mode = "map".to_string();
+    assert_eq!(cache.last_mode("/test/file.rs"), Some("map".to_string()));
+
+    cache.store("/test/file.rs", "new content");
+    assert_eq!(cache.last_mode("/test/file.rs"), None);
+}
+
+#[test]
 fn file_refs_are_sequential() {
     let mut cache = SessionCache::new();
     assert_eq!(cache.get_file_ref("/a.rs"), "F1");
