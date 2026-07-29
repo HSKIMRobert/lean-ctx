@@ -6,8 +6,10 @@ use std::path::Path;
 use jsonschema::{Draft, JSONSchema};
 use lean_ctx_client::{
     decode_agent_envelope, decode_canonical_token_envelope, verify_agent_gateway_admissibility,
-    AgentEnvelopeV1, CanonicalTokenEnvelopeV1, OclaGatewayAdmissibilityError, OclaWireError,
-    AGENT_ENVELOPE_SCHEMA_ID, CANONICAL_TOKEN_ENVELOPE_SCHEMA_ID, MAX_OCLA_WIRE_BYTES,
+    AgentEnvelopeV1, CanonicalTokenEnvelopeV1, EnvelopePayload, MessageV1, MessagesPayload,
+    OclaGatewayAdmissibilityError, OclaWireError, StreamChunkPayload, ToolCallPayload,
+    UsagePayload, AGENT_ENVELOPE_SCHEMA_ID, CANONICAL_TOKEN_ENVELOPE_SCHEMA_ID,
+    MAX_OCLA_WIRE_BYTES,
 };
 use serde_json::Value;
 
@@ -24,6 +26,7 @@ fn committed_public_fixtures_decode_to_typed_contracts() {
     let token = decode_canonical_token_envelope(TOKEN_FIXTURE).expect("token fixture verifies");
     assert_eq!(token.provider, "openai");
     assert_eq!(token.token_balance.delivered_tokens, 60);
+    assert_eq!(token.payload, None);
 
     let agent = decode_agent_envelope(AGENT_FIXTURE).expect("agent fixture verifies");
     assert_eq!(agent.from_agent_id, "owner-agent");
@@ -36,6 +39,55 @@ fn committed_public_fixtures_decode_to_typed_contracts() {
         serde_json::to_vec(&self_relay).expect("serialize self-relay fixture"),
         SELF_RELAY_FIXTURE
     );
+}
+
+#[test]
+fn payload_variants_roundtrip_and_legacy_forms_remain_optional() {
+    let base: CanonicalTokenEnvelopeV1 =
+        serde_json::from_slice(TOKEN_FIXTURE).expect("typed token fixture");
+    let payloads = [
+        EnvelopePayload::Messages(MessagesPayload {
+            messages: vec![MessageV1 {
+                role: "user".to_string(),
+                content: Value::String("hello".to_string()),
+                name: Some("alice".to_string()),
+            }],
+        }),
+        EnvelopePayload::StreamChunk(StreamChunkPayload {
+            chunk_index: 0,
+            delta: "hello".to_string(),
+            finish_reason: Some("stop".to_string()),
+        }),
+        EnvelopePayload::ToolCall(ToolCallPayload {
+            tool_name: "search".to_string(),
+            arguments: r#"{\"query\":\"hello\"}"#.to_string(),
+            result: Some("[]".to_string()),
+        }),
+        EnvelopePayload::Usage(UsagePayload {
+            input_cost_usd: Some(0.001),
+            output_cost_usd: Some(0.002),
+            total_cost_usd: Some(0.003),
+            currency: "USD".to_string(),
+        }),
+    ];
+
+    for payload in payloads {
+        let mut envelope = base.clone();
+        envelope.payload = Some(payload);
+        let wire = serde_json::to_vec(&envelope).expect("serialize payload envelope");
+        let decoded: CanonicalTokenEnvelopeV1 =
+            serde_json::from_slice(&wire).expect("deserialize payload envelope");
+        assert_eq!(decoded, envelope);
+    }
+
+    let missing: CanonicalTokenEnvelopeV1 =
+        serde_json::from_slice(TOKEN_FIXTURE).expect("payload may be omitted");
+    let mut null_payload: Value = serde_json::from_slice(TOKEN_FIXTURE).expect("fixture JSON");
+    null_payload["payload"] = Value::Null;
+    let null: CanonicalTokenEnvelopeV1 =
+        serde_json::from_value(null_payload).expect("payload may be null");
+    assert_eq!(missing.payload, None);
+    assert_eq!(null.payload, None);
 }
 
 #[test]

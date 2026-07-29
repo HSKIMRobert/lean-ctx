@@ -2,6 +2,7 @@
 //!
 //! Types mirror public JSON Schemas without linking engine internals.
 
+use crate::types::EnvelopePayload;
 use serde::{Deserialize, Serialize};
 
 /// OCLA API version implemented by this verifier.
@@ -114,8 +115,8 @@ pub struct TokenBalanceV1 {
     pub provider_billed_tokens: u64,
 }
 
-/// Payload-free token decision at an OCLA boundary.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// Token decision at an OCLA boundary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CanonicalTokenEnvelopeV1 {
     /// Wire schema version.
@@ -138,6 +139,9 @@ pub struct CanonicalTokenEnvelopeV1 {
     pub policy_ref: Option<String>,
     /// Caller-provided idempotency identity.
     pub idempotency_key: String,
+    /// Optional E12 content payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<EnvelopePayload>,
 }
 
 /// Payload-free A2A admission contract.
@@ -198,6 +202,9 @@ pub fn decode_canonical_token_envelope(
         (&envelope.idempotency_key, "idempotency_key is required"),
     ] {
         require_text(value, message)?;
+    }
+    if let Some(payload) = &envelope.payload {
+        validate_payload(payload)?;
     }
     require_canonical(bytes, &envelope)?;
     Ok(envelope)
@@ -291,6 +298,19 @@ fn validate_context(context: &OclaRequestContext) -> Result<(), OclaWireError> {
         (&context.content_ref, "content_ref is required"),
     ] {
         require_text(value, message)?;
+    }
+    Ok(())
+}
+
+fn validate_payload(payload: &EnvelopePayload) -> Result<(), OclaWireError> {
+    if let EnvelopePayload::Messages(messages) = payload {
+        for message in &messages.messages {
+            if !message.content.is_string() && !message.content.is_array() {
+                return Err(OclaWireError::InvalidInvariant(
+                    "message content must be a string or array",
+                ));
+            }
+        }
     }
     Ok(())
 }
