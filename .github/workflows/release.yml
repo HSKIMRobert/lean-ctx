@@ -210,6 +210,38 @@ jobs:
       - name: Generate checksums
         run: sha256sum lean-ctx-*.tar.gz lean-ctx-*.zip > SHA256SUMS
 
+      - name: Generate SBOM
+        run: |
+          cd rust
+          cargo tree --locked --prefix none --no-dedupe \
+            --format "{p} {l}" > ../SBOM.txt
+          cd ..
+          echo "SBOM generated with $(wc -l < SBOM.txt) entries"
+
+      - name: Generate release manifest
+        run: |
+          python3 -c "
+          import json, hashlib, datetime, pathlib
+          artifacts = {}
+          for f in pathlib.Path('.').glob('lean-ctx-*'):
+              h = hashlib.sha256(f.read_bytes()).hexdigest()
+              artifacts[f.name] = {'sha256': h, 'size': f.stat().st_size}
+          sbom_h = hashlib.sha256(pathlib.Path('SBOM.txt').read_bytes()).hexdigest()
+          manifest = {
+              'schema_version': 'leanctx.release-manifest/v1',
+              'tag': '${{ github.ref_name }}',
+              'commit': '${{ github.sha }}',
+              'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+              'artifacts': artifacts,
+              'sbom_sha256': sbom_h,
+              'checksums_sha256': hashlib.sha256(
+                  pathlib.Path('SHA256SUMS').read_bytes()).hexdigest()
+          }
+          pathlib.Path('release-manifest.json').write_text(
+              json.dumps(manifest, indent=2) + '\n')
+          print(json.dumps(manifest, indent=2))
+          "
+
       - name: Extract release notes from CHANGELOG
         id: notes
         run: |
@@ -243,6 +275,8 @@ jobs:
             lean-ctx-*.tar.gz
             lean-ctx-*.zip
             SHA256SUMS
+            SBOM.txt
+            release-manifest.json
 
   jetbrains-plugin:
     # Build the JetBrains/IntelliJ plugin and attach it to the GitHub Release as a
