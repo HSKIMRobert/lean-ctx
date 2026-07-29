@@ -236,7 +236,11 @@ impl AgentRegistry {
         ttl_hours: Option<u64>,
     ) -> String {
         let id = generate_short_id();
-        let expires_at = ttl_hours.map(|h| Utc::now() + chrono::Duration::hours(h as i64));
+        let default_ttl_hours: u64 = 12;
+        let expires_at = Some(match ttl_hours {
+            Some(hours) => Utc::now() + chrono::Duration::hours(hours as i64),
+            None => Utc::now() + chrono::Duration::hours(default_ttl_hours as i64),
+        });
         self.scratchpad.push(ScratchpadEntry {
             id: id.clone(),
             from_agent: from_agent.to_string(),
@@ -263,6 +267,7 @@ impl AgentRegistry {
     }
 
     pub fn read_messages(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
+        let now = Utc::now();
         let unread: Vec<usize> = self
             .scratchpad
             .iter()
@@ -270,6 +275,7 @@ impl AgentRegistry {
             .filter(|(_, e)| {
                 !e.read_by.contains(&agent_id.to_string())
                     && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
+                    && e.expires_at.is_none_or(|exp| exp > now)
             })
             .map(|(i, _)| i)
             .collect();
@@ -280,12 +286,16 @@ impl AgentRegistry {
 
         self.scratchpad
             .iter()
-            .filter(|e| e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
-            .filter(|e| e.from_agent != agent_id)
+            .filter(|e| {
+                (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
+                    && e.from_agent != agent_id
+                    && e.expires_at.is_none_or(|exp| exp > now)
+            })
             .collect()
     }
 
     pub fn read_unread(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
+        let now = Utc::now();
         let unread_indices: Vec<usize> = self
             .scratchpad
             .iter()
@@ -294,6 +304,7 @@ impl AgentRegistry {
                 !e.read_by.contains(&agent_id.to_string())
                     && e.from_agent != agent_id
                     && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
+                    && e.expires_at.is_none_or(|exp| exp > now)
             })
             .map(|(i, _)| i)
             .collect();
@@ -311,6 +322,7 @@ impl AgentRegistry {
                     && (e.to_agent.is_none() || e.to_agent.as_deref() == Some(agent_id))
                     && e.read_by.contains(&agent_id.to_string())
                     && e.read_by.iter().filter(|r| *r == agent_id).count() == 1
+                    && e.expires_at.is_none_or(|exp| exp > now)
             })
             .collect()
     }
@@ -337,6 +349,11 @@ impl AgentRegistry {
             }
             !retire
         });
+
+        // Remove expired scratchpad entries.
+        let now = Utc::now();
+        self.scratchpad
+            .retain(|entry| entry.expires_at.is_none_or(|exp| exp > now));
 
         self.updated_at = Utc::now();
     }
@@ -399,7 +416,15 @@ impl Default for AgentRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::HashMap;
+
+    use chrono::Utc;
+
+    use super::{
+        AgentDiary, AgentEntry, AgentRegistry, AgentStatus, DiaryEntryType, ScratchpadEntry,
+        truncate,
+    };
+    use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 
     #[test]
     fn register_and_list() {
@@ -429,6 +454,68 @@ mod tests {
         let msgs = reg.read_unread("agent-a");
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].category, "request");
+    }
+
+    #[test]
+    fn expired_messages_are_skipped_in_read_unread() {
+        let mut reg = AgentRegistry::new();
+        reg.scratchpad.push(ScratchpadEntry {
+            id: "expired-1".to_string(),
+            from_agent: "agent-a".to_string(),
+            to_agent: None,
+            task_id: None,
+            category: "test".to_string(),
+            priority: MessagePriority::default(),
+            privacy: PrivacyLevel::default(),
+            message: "I am expired".to_string(),
+            metadata: HashMap::new(),
+            project_root: None,
+            timestamp: Utc::now(),
+            read_by: vec![],
+            expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
+        });
+        reg.post_message("agent-a", None, "test", "I am fresh");
+
+        let msgs = reg.read_unread("agent-b");
+
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].message, "I am fresh");
+    }
+
+    #[test]
+    fn cleanup_stale_removes_expired_scratchpad() {
+        let mut reg = AgentRegistry::new();
+        reg.scratchpad.push(ScratchpadEntry {
+            id: "exp-1".to_string(),
+            from_agent: "a".to_string(),
+            to_agent: None,
+            task_id: None,
+            category: "test".to_string(),
+            priority: MessagePriority::default(),
+            privacy: PrivacyLevel::default(),
+            message: "expired".to_string(),
+            metadata: HashMap::new(),
+            project_root: None,
+            timestamp: Utc::now(),
+            read_by: vec![],
+            expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
+        });
+
+        reg.cleanup_stale(24);
+
+        assert!(reg.scratchpad.is_empty());
+    }
+
+    #[test]
+    fn post_message_gets_default_ttl() {
+        let mut reg = AgentRegistry::new();
+
+        reg.post_message("agent-a", None, "finding", "test");
+
+        assert!(
+            reg.scratchpad[0].expires_at.is_some(),
+            "default TTL must be set"
+        );
     }
 
     #[test]
@@ -664,7 +751,9 @@ mod tests {
 
 #[cfg(test)]
 mod presence_tests {
-    use super::*;
+    use chrono::Utc;
+
+    use super::{AgentRegistry, AgentStatus};
 
     #[test]
     fn persistent_presence_preserves_multiple_processes_and_lifecycle() {
