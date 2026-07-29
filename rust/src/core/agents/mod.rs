@@ -1,3 +1,4 @@
+mod bridge;
 mod diary;
 mod persistence;
 mod reaper;
@@ -6,6 +7,7 @@ mod roles;
 mod shared;
 mod types;
 
+pub use bridge::*;
 pub use diary::*;
 pub use persistence::*;
 pub use reaper::*;
