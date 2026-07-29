@@ -130,6 +130,14 @@ pub fn router(state: AdminState) -> axum::Router {
         )
         .route("/api/admin/evidence", axum::routing::get(get_evidence))
         .route(
+            "/api/admin/evidence/export",
+            axum::routing::get(get_evidence),
+        )
+        .route(
+            "/api/admin/evidence/ocla",
+            axum::routing::get(super::evidence::ocla_evidence_summary),
+        )
+        .route(
             "/api/admin/mcp",
             axum::routing::get(super::mcp::admin::get_mcp),
         )
