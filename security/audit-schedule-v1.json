@@ -1,0 +1,58 @@
+{
+  "schema_version": "leanctx.audit-schedule/v1",
+  "audits": [
+    {
+      "id": "history-delta",
+      "description": "Incremental history delta check on every push",
+      "trigger": "push",
+      "workflow": ".github/workflows/security-check.yml",
+      "scanner": "scripts/history-policy-gate.py gate",
+      "policy": "security/history-policy-v1.json"
+    },
+    {
+      "id": "history-full",
+      "description": "Full history audit weekly",
+      "trigger": "schedule:weekly",
+      "workflow": ".github/workflows/history-audit.yml",
+      "scanner": "scripts/history-policy-gate.py full-audit",
+      "policy": "security/history-policy-v1.json"
+    },
+    {
+      "id": "secret-rotation",
+      "description": "Secret expiry check monthly",
+      "trigger": "schedule:monthly",
+      "workflow": ".github/workflows/secret-rotation-check.yml",
+      "scanner": "scripts/check-secret-expiry.py",
+      "policy": "security/secret-rotation-policy-v1.json"
+    },
+    {
+      "id": "dependency-audit",
+      "description": "Cargo dependency audit on every push",
+      "trigger": "push",
+      "workflow": ".github/workflows/security-check.yml",
+      "scanner": "cargo audit",
+      "policy": null
+    },
+    {
+      "id": "codeql",
+      "description": "CodeQL analysis on push + weekly",
+      "trigger": "push+schedule:weekly",
+      "workflow": ".github/workflows/codeql.yml",
+      "scanner": "github/codeql-action",
+      "policy": null
+    }
+  ],
+  "retention": {
+    "audit_reports_days": 90,
+    "baseline_reports": "permanent"
+  },
+  "scanner_source_paths": [
+    "security/audit-schedule-v1.json",
+    "scripts/generate-audit-report.py",
+    ".github/workflows/history-audit.yml"
+  ],
+  "scanner_source_sha256": {
+    "scripts/generate-audit-report.py": "96e1211dc1f79119dd15e03dc66893620590e983f751d64c96a41d70241f41da",
+    ".github/workflows/history-audit.yml": "87cbfecada4e3c970658d2756b1eb4f70bea1b7ad69518c32545080e9b7fe3fd"
+  }
+}
