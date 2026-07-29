@@ -786,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn all_10_event_types_serialize() {
+    fn all_11_event_types_serialize() {
         let events = vec![
             OclaEvent::RequestCompleted {
                 model: "m".into(),
@@ -859,7 +859,7 @@ mod tests {
             assert!(!json.is_empty());
             let _: OclaEvent = serde_json::from_str(&json).unwrap();
         }
-        assert_eq!(events.len(), 10, "exactly 10 event types");
+        assert_eq!(events.len(), 11, "exactly 11 event types");
     }
 
     #[test]

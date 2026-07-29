@@ -218,6 +218,7 @@ async fn capabilities() -> Json<CapabilitiesResponse> {
         registry.experiment_runner.capability(),
         registry.connector_scheduler.capability(),
         registry.agent_gateway.capability(),
+        registry.delivery_registry.capability(),
     ];
     debug_assert_eq!(capabilities.len(), OclaCapabilityKind::ALL.len());
 
@@ -530,7 +531,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn capabilities_endpoint_lists_all_fourteen_statuses() {
+    async fn capabilities_endpoint_lists_all_fifteen_statuses() {
         let response = ocla_router()
             .oneshot(
                 Request::builder()
@@ -545,7 +546,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_response(response).await;
         assert_eq!(body["version"], OCLA_API_VERSION);
-        assert_eq!(body["capabilities"].as_array().expect("list").len(), 14);
+        assert_eq!(body["capabilities"].as_array().expect("list").len(), 15);
         assert!(
             body["capabilities"]
                 .as_array()
@@ -643,7 +644,7 @@ mod tests {
         assert!(body.get("total_events").is_some());
         assert!(body.get("saved_tokens").is_some());
         assert!(body.get("saved_usd").is_some());
-        assert_eq!(body["trait_adoption_count"], 14);
+        assert_eq!(body["trait_adoption_count"], 15);
     }
 
     #[tokio::test]

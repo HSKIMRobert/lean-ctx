@@ -1,0 +1,51 @@
+{
+  "data_source": "lean-ctx stats json (self-pilot)",
+  "gate": "G9",
+  "generated_at": "2026-07-29T09:37:15.347147Z",
+  "metrics": {
+    "compression_ratio_pct": 45.02,
+    "pilot_duration_days": 16.82,
+    "proxy_launchagent_active": false,
+    "read_modes": {
+      "": 1,
+      "aggressive": 1,
+      "cat-redirect": 1,
+      "compose": 56,
+      "full": 216,
+      "info": 1,
+      "lines:-20": 1,
+      "lines:-30": 1,
+      "lines:1-10000": 2,
+      "lines:1-130,130-260,260-520": 1,
+      "lines:1-180,180-380,380-560": 1,
+      "lines:1-280": 1,
+      "lines:1-390": 1,
+      "lines:1-80": 1,
+      "lines:1200-1575": 1,
+      "lines:155-250,800-890": 1,
+      "lines:330-455,670-710,1160-1325": 1,
+      "lines:36-270": 1,
+      "lines:380-440": 1,
+      "lines:60-100,510-570,730-780": 1,
+      "lines:730-870": 1,
+      "list": 1,
+      "map": 2,
+      "post": 2,
+      "raw": 111,
+      "read": 1,
+      "remember": 2,
+      "task": 2
+    },
+    "registered_agents": 43,
+    "shell_commands": 121099,
+    "stream_tracked_results": 23814,
+    "tokens_saved": 84712448,
+    "total_input_tokens": 188165308,
+    "total_output_tokens": 103452860,
+    "total_sessions": 683
+  },
+  "pass": false,
+  "thresholds": {
+    "minimum_pilot_days": 180
+  }
+}

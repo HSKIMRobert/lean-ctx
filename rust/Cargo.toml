@@ -5,6 +5,7 @@
 [workspace]
 members = [
   ".",
+  "crates/lean-ctx-ocla",
   "crates/lean-ctx-sdk",
   # Grammar-addon cdylibs (#690, Phase 1c) — one crate per long-tail
   # tree-sitter grammar, built per-platform by grammar-addons.yml and
@@ -497,4 +498,5 @@ harness = false
 [patch.crates-io]
 rmcp = { path = "crates/vendor/rmcp" }
 rmcp-macros = { path = "crates/vendor/rmcp-macros" }
+
 

@@ -233,7 +233,11 @@ impl McpTool for CtxShellTool {
             let crp_mode = ctx.crp_mode;
             let cmd_clone = command.clone();
             let cwd_clone = effective_cwd;
-            let proactive_block = if raw {
+            let proactive_block = if raw
+                || !crate::core::profiles::active_profile()
+                    .output_hints
+                    .proactive_context()
+            {
                 None
             } else {
                 crate::core::relevance_tracker::proactive_context(&format!(
