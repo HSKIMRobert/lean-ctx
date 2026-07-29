@@ -18,6 +18,18 @@ End-user documentation lives at **https://leanctx.com/docs/getting-started**.
 - Cookbook (real examples + `lean-ctx-client`): [`cookbook/`](../cookbook/)
 - Editor integrations: [`packages/`](../packages/)
 
+## Contracts & SDKs
+
+- OCLA Wire Contract: [`docs/contracts/ocla-wire-v1.schema.json`](contracts/ocla-wire-v1.schema.json)
+- Contract Pack (80+ documents): [`docs/contracts/`](contracts/)
+- Contract Portal: [`docs/contracts/README.md`](contracts/README.md)
+- Certification Levels: [`docs/contracts/certification-levels-v1.md`](contracts/certification-levels-v1.md)
+- SDK Conformance Matrix: [`docs/reference/sdk-conformance-matrix.md`](reference/sdk-conformance-matrix.md)
+- TypeScript SDK: [`ts-sdk/`](../ts-sdk/)
+- Python SDK: [`python-sdk/`](../python-sdk/)
+- Go SDK: [`go-sdk/`](../go-sdk/)
+- Rust Client (standalone): [`clients/rust/lean-ctx-client/`](../clients/rust/lean-ctx-client/)
+
 ## Reference & journeys
 
 - Full function-by-function reference (organized as user journeys): [`reference/README.md`](reference/README.md)
@@ -38,3 +50,7 @@ End-user documentation lives at **https://leanctx.com/docs/getting-started**.
 ## Design notes / tickets
 
 - Cache correctness + heatmap plan: [`premium-cache-heatmap.md`](premium-cache-heatmap.md)
+
+## Archive
+
+- Implementation Protocol (v3.4.7 era): [`docs/archive/`](archive/)

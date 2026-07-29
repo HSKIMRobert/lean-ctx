@@ -31,9 +31,13 @@ Each journey document answers three questions for every feature:
 | 12 | [Troubleshooting Playbook](12-troubleshooting.md)                | something's not working                              | symptom → diagnosis → fix; `status`, `doctor`, `doctor integrations`, `sessions doctor`, `report-issue`   |
 | 13 | [Security & Governance](13-security-and-governance.md)           | putting lean-ctx in front of real code               | PathJail, `shell_allowlist`, `secret_detection`, sandbox, `harden`, role policies                         |
 | 14 | [Performance Tuning](14-performance-tuning.md)                   | huge repo / constrained machine                      | `memory_profile`, `bm25_max_cache_mb`, `graph_index_max_files`, `LEAN_CTX_MAX_*`, `slow-log`              |
+| 16 | [Proof & Audit](16-signed-savings-ledger.md)                     | proving savings to a lead, client, or finance team   | local savings ledger, Ed25519-signed receipts, offline verification                                        |
+| 17 | [Beyond Coding: Web & Research](17-web-and-research.md)         | reading web sources without raw HTML context         | `ctx_url_read` for compressed, citation-backed URL, PDF, and YouTube context                               |
 | 18 | [Adaptive Learning](18-adaptive-learning.md)                     | understanding how lean-ctx tunes itself              | learned thresholds, LITM calibration, scent field, playbook, `learning export/import`, efficacy           |
 | 19 | [JetBrains-Plugin](19-jetbrains-plugin.md)                      | using code intelligence from a running JetBrains IDE | `ctx_refactor`: navigation, structure, inspections, symbol-edits, rename/reformat/move/safe_delete/inline |
 | 20 | [Hermes Context Engine](20-hermes-context-engine.md)            | embedding lean-ctx as your agent's context engine    | `ctx_transcript_compact`, `serve`, `context.engine`, recall tools, session lifecycle                      |
+| 21 | [Context Time Machine](21-context-time-machine.md)              | capturing and replaying context at a commit          | `lean-ctx snapshot`, git-anchored signed snapshots, offline verification, restore, publish, import         |
+| 21 | [lean-md](21-lean-md.md)                                        | integrating the external Markdown-rendering addon    | addon integration, external release cycle, and link to the directive catalog                                |
 | 22 | [Code Health](22-code-health.md)                                | paying to re-read tangled, complex code              | `ctx_quality`, `lean-ctx health [--gate]`, cognitive complexity (S3776), navigability, edit-gate, gain `navigability` |
 
 ## Cross-cutting references
@@ -46,6 +50,9 @@ Each journey document answers three questions for every feature:
 | [Paths, env vars & config](appendix-paths-and-config.md) | Data dir layout, every `LEAN_CTX_*` var, every config key                                                                                                |
 | [Glossary](appendix-glossary.md)                         | MCP, CCP, hooks, modes, profiles, proxy — in one place                                                                                                   |
 | [JetBrains-Plugin](appendix-jetbrains-plugin.md)        | Compact agent lookup for the JetBrains plugin — every `ctx_refactor` action, endpoint, guard, error. Full guide: [Journey 19](19-jetbrains-plugin.md)   |
+
+- [SDK Conformance Matrix](sdk-conformance-matrix.md) — SDK status against `/v1` contract
+- [Phase Evidence Index](phase-evidence-index.md) — Traceability from requirements to delivered code
 
 > **Generated, always-current appendices** (rendered directly from the code, so
 > they can never drift): [MCP tools](generated/mcp-tools.md) (every registered
