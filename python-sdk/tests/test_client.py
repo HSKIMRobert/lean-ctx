@@ -5,8 +5,18 @@ import json
 from unittest.mock import AsyncMock, Mock
 
 import httpx
+from pydantic import TypeAdapter
 
-from lean_ctx import OclaClient
+from lean_ctx import (
+    MessageV1,
+    MessagesPayload,
+    OclaClient,
+    StreamChunkPayload,
+    ToolCallPayload,
+    UsagePayload,
+)
+from lean_ctx.models import EnvelopePayload
+from lean_ctx.streaming import stream_events
 
 
 def run(coroutine):
@@ -81,6 +91,10 @@ def test_validate_envelope_and_ledger_summary() -> None:
         "route_ref": "route-1",
         "policy_ref": None,
         "idempotency_key": "request-1:input",
+        "payload": {
+            "type": "messages",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
     }
     routes = {
         ("POST", "/ocla/v1/envelope"): {
@@ -100,6 +114,7 @@ def test_validate_envelope_and_ledger_summary() -> None:
         summary = await sdk.ledger_summary()
         assert response.context.request_id == "request-1"
         assert response.token_balance.delivered_tokens == 60
+        assert isinstance(response.payload, MessagesPayload)
         assert summary.events == 3
         assert summary.tokens == 120
         assert summary.usd == 0.42
@@ -146,5 +161,69 @@ def test_capsule_endpoints() -> None:
         http_client.get.assert_awaited_once_with(
             "https://ocla.test/ocla/v1/capsule/capsule:1"
         )
+
+    run(scenario())
+
+
+def test_envelope_payload_models_validate_and_round_trip() -> None:
+    payloads = [
+        MessagesPayload(messages=[MessageV1(role="user", content="hello")]),
+        StreamChunkPayload(chunk_index=0, delta="hel", finish_reason=None),
+        ToolCallPayload(tool_name="ctx_read", arguments='{"path":"README.md"}'),
+        UsagePayload(input_cost_usd=0.01, output_cost_usd=0.02, total_cost_usd=0.03),
+    ]
+    adapter = TypeAdapter(EnvelopePayload)
+
+    for payload in payloads:
+        restored = adapter.validate_json(payload.model_dump_json())
+        assert restored == payload
+
+
+def test_stream_events_parses_multiple_events() -> None:
+    async def scenario() -> None:
+        body = (
+            'event: envelope\n'
+            'data: {"schema_version":1}\n\n'
+            'event: heartbeat\n'
+            'data: {"alive":true}\n\n'
+            'event: envelope\n'
+            'data: {"schema_version":1,"payload":{"type":"stream_chunk"}}\n\n'
+        )
+        response = httpx.Response(200, content=body)
+        events = [event async for event in stream_events(response)]
+        assert events == [
+            {"type": "envelope", "data": {"schema_version": 1}},
+            {"type": "heartbeat", "data": {"alive": True}},
+            {
+                "type": "envelope",
+                "data": {
+                    "schema_version": 1,
+                    "payload": {"type": "stream_chunk"},
+                },
+            },
+        ]
+
+    run(scenario())
+
+
+def test_stream_envelopes_yields_envelope_events_only() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["accept"] == "text/event-stream"
+        return httpx.Response(
+            200,
+            content=(
+                'event: heartbeat\n'
+                'data: {"alive":true}\n\n'
+                'event: envelope\n'
+                'data: {"schema_version":1}\n\n'
+            ),
+        )
+
+    async def scenario() -> None:
+        http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        sdk = OclaClient("https://ocla.test", client=http_client)
+        events = [event async for event in sdk.stream_envelopes()]
+        assert events == [{"schema_version": 1}]
+        await http_client.aclose()
 
     run(scenario())
