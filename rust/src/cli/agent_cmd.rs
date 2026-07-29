@@ -1,7 +1,7 @@
 //! `lean-ctx agent` — first-class agent identities (GL #433).
 //!
 //! Subcommands: register, list, show, heartbeat, suspend, resume,
-//! decommission, offboard-owner, check.
+//! decommission, offboard-owner, check, gc.
 
 use crate::core::agent_registry::{self, AgentStatus};
 
@@ -53,6 +53,7 @@ pub(crate) fn cmd_agent(args: &[String]) {
             }
         }
         Some("list") => {
+            let _ = agent_registry::gc();
             let records = agent_registry::list();
             if as_json {
                 print_json_or_exit(&records);
@@ -84,6 +85,11 @@ pub(crate) fn cmd_agent(args: &[String]) {
                 );
             }
         }
+        Some("gc") => match agent_registry::gc() {
+            Ok(0) => println!("gc: all agents alive, nothing to clean"),
+            Ok(n) => println!("gc: decommissioned {n} dead agent(s)"),
+            Err(e) => exit_err(&e),
+        },
         Some("show") => {
             let Some(agent_id) = positional(0) else {
                 exit_usage("agent show <agent-id> [--trust-domain org.example]");
@@ -179,6 +185,7 @@ pub(crate) fn cmd_agent(args: &[String]) {
 USAGE:\n\
   lean-ctx agent register --id <agent-id> --role <role> --owner <user@org>\n\
   lean-ctx agent list [--json]\n\
+  lean-ctx agent gc                          remove dead agents (PID check)\n\
   lean-ctx agent show <agent-id> [--trust-domain org.example]\n\
   lean-ctx agent heartbeat <agent-id>        liveness + attestation drift check\n\
   lean-ctx agent suspend <agent-id> [--reason <text>]\n\
