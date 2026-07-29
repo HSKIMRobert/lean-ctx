@@ -38,7 +38,6 @@ mod handlers;
 use handlers::*;
 
 pub mod kernel_api;
-pub mod team;
 
 /// Wrapper stream that calls `record_sse_disconnect` on drop.
 use std::pin::Pin;
