@@ -27,6 +27,137 @@ var testEnvelope = EnvelopeRequest{
 
 func stringPointer(value string) *string { return &value }
 
+func intPointer(value int) *int { return &value }
+
+func float64Pointer(value float64) *float64 { return &value }
+
+func TestEnvelopePayloadJSONMarshaling(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload EnvelopePayload
+		keys    []string
+	}{
+		{
+			name: "messages",
+			payload: EnvelopePayload{
+				Type: "messages",
+				Messages: []MessageV1{{
+					Role:    RoleUser,
+					Content: json.RawMessage(`"hello"`),
+				}},
+			},
+			keys: []string{"type", "messages"},
+		},
+		{
+			name: "stream chunk",
+			payload: EnvelopePayload{
+				Type: "stream_chunk", ChunkIndex: intPointer(2), Delta: "world", FinishReason: "stop",
+			},
+			keys: []string{"type", "chunk_index", "delta", "finish_reason"},
+		},
+		{
+			name: "tool call",
+			payload: EnvelopePayload{
+				Type: "tool_call", ToolName: "ctx_read", Arguments: `{"path":"go-sdk/types.go"}`, Result: "ok",
+			},
+			keys: []string{"type", "tool_name", "arguments", "result"},
+		},
+		{
+			name: "usage",
+			payload: EnvelopePayload{
+				Type: "usage", InputCostUSD: float64Pointer(0.01), OutputCostUSD: float64Pointer(0.02),
+				TotalCostUSD: float64Pointer(0.03), Currency: "USD",
+			},
+			keys: []string{"type", "input_cost_usd", "output_cost_usd", "total_cost_usd", "currency"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(EnvelopeRequest{Payload: &tt.payload})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(got, &envelope); err != nil {
+				t.Fatal(err)
+			}
+			var payload EnvelopePayload
+			if err := json.Unmarshal(envelope["payload"], &payload); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(payload, tt.payload) {
+				t.Fatalf("payload = %#v, want %#v", payload, tt.payload)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(envelope["payload"], &fields); err != nil {
+				t.Fatal(err)
+			}
+			if len(fields) != len(tt.keys) {
+				t.Fatalf("payload fields = %#v, want keys %#v", fields, tt.keys)
+			}
+			for _, key := range tt.keys {
+				if _, ok := fields[key]; !ok {
+					t.Fatalf("payload fields = %#v, missing %q", fields, key)
+				}
+			}
+		})
+	}
+}
+
+func TestParseSSEStreamJoinsMultilineData(t *testing.T) {
+	events := ParseSSEStream(strings.NewReader("event: envelope\ndata: first\ndata: second\n\nevent: ignored\ndata: third\n\n"))
+	got := make([]StreamEvent, 0, 2)
+	for event := range events {
+		got = append(got, event)
+	}
+	want := []StreamEvent{
+		{Type: "envelope", Data: json.RawMessage("first\nsecond")},
+		{Type: "ignored", Data: json.RawMessage("third")},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %#v, want %#v", got, want)
+	}
+}
+
+func TestStreamEnvelopes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q", r.Method)
+		}
+		if r.URL.Path != "/v1/events" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Accept"); got != "text/event-stream" {
+			t.Errorf("accept = %q", got)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer stream-key" {
+			t.Errorf("authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: envelope\ndata: {\"schema_version\":1,\"context\":{\"request_id\":\"request-1\"},\"payload\":{\"type\":\"stream_chunk\",\"chunk_index\":0,\"delta\":\"hello\"}}\n\n")
+		_, _ = io.WriteString(w, "event: heartbeat\ndata: {}\n\n")
+	}))
+	defer server.Close()
+
+	envelopes, errs := NewClient(server.URL, WithAPIKey("stream-key")).StreamEnvelopes(context.Background())
+	var got []EnvelopeRequest
+	for env := range envelopes {
+		got = append(got, env)
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("streamed envelopes = %#v", got)
+	}
+	if got[0].Payload == nil || got[0].Payload.Type != "stream_chunk" || got[0].Payload.Delta != "hello" {
+		t.Fatalf("payload = %#v", got[0].Payload)
+	}
+}
+
 func TestClientCallsEveryEndpoint(t *testing.T) {
 	requests := make([]string, 0, 7)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
