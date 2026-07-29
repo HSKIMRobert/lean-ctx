@@ -49,6 +49,24 @@ use super::helpers::internal_error;
 /// TTLs (10-min login states, 60-s handoff codes) are enforced in SQL, where
 /// the rows live.
 const DISCOVERY_TTL: Duration = Duration::from_hours(1);
+const SSO_STATE_TOKEN_BYTES: usize = 32;
+
+/// Return a syntactically valid, single-label email domain for SSO lookup.
+/// The billing-plane lookup only returns an org after that exact domain has
+/// been verified, so this guard must run before the IdP redirect is built.
+fn sso_email_domain(email: &str) -> Option<&str> {
+    let (local, domain) = email.rsplit_once('@')?;
+    (!local.is_empty() && !local.contains('@') && domain.contains('.') && !domain.is_empty())
+        .then_some(domain)
+}
+
+/// `generate_token` encodes 32 random bytes as hexadecimal. Keep this guard
+/// at the flow boundary so a future generator change cannot weaken SSO state.
+fn state_token_has_minimum_entropy(state_token: &str) -> bool {
+    state_token.len() >= SSO_STATE_TOKEN_BYTES * 2
+        && state_token.len().is_multiple_of(2)
+        && state_token.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
 
 // ── Issuer metadata cache ────────────────────────────────────────────────────
 
@@ -252,12 +270,7 @@ pub(super) async fn sso_start(
     Json(body): Json<StartBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let email = body.email.trim().to_lowercase();
-    let Some(domain) = email
-        .rsplit('@')
-        .next()
-        .filter(|d| d.contains('.') && !d.is_empty())
-        .map(str::to_string)
-    else {
+    let Some(domain) = sso_email_domain(&email).map(str::to_string) else {
         return Err((StatusCode::BAD_REQUEST, "Invalid email".into()));
     };
 
@@ -299,6 +312,13 @@ pub(super) async fn sso_start(
     let state_token = generate_token();
     let nonce = generate_token();
     let pkce_verifier = generate_token();
+    if !state_token_has_minimum_entropy(&state_token) {
+        tracing::error!("sso state token did not meet the minimum entropy requirement");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "SSO is temporarily unavailable".into(),
+        ));
+    }
     let pkce_challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .encode(Sha256::digest(pkce_verifier.as_bytes()));
 
@@ -790,5 +810,27 @@ mod tests {
             email.rsplit('@').next().map(str::to_ascii_lowercase),
             Some("sub.acme.com".to_string())
         );
+    }
+
+    #[test]
+    fn sso_start_email_domain_rejects_malformed_addresses() {
+        assert_eq!(sso_email_domain("user@acme.com"), Some("acme.com"));
+        assert_eq!(sso_email_domain("user@sub.acme.com"), Some("sub.acme.com"));
+        assert_eq!(sso_email_domain("@acme.com"), None);
+        assert_eq!(sso_email_domain("user@@acme.com"), None);
+        assert_eq!(sso_email_domain("user@localhost"), None);
+    }
+
+    #[test]
+    fn sso_state_token_requires_at_least_32_random_bytes() {
+        assert!(state_token_has_minimum_entropy(
+            &"a1".repeat(SSO_STATE_TOKEN_BYTES)
+        ));
+        assert!(!state_token_has_minimum_entropy(
+            &"a1".repeat(SSO_STATE_TOKEN_BYTES - 1)
+        ));
+        assert!(!state_token_has_minimum_entropy(
+            &"zz".repeat(SSO_STATE_TOKEN_BYTES)
+        ));
     }
 }

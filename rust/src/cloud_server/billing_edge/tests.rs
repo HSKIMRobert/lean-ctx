@@ -1,4 +1,5 @@
 //! Tests for the billing edge (sync gate, entitlements cache, audit query).
+use std::sync::Arc;
 
 use super::supporters::{
     SUPPORTER_MESSAGE_MAX, SUPPORTER_NAME_MAX, SUPPORTERS_CACHE_TTL, SupportersCacheSlot,
@@ -253,4 +254,34 @@ fn prune_entitlements_cache_evicts_only_very_old_entries() {
         "entries past the stale-retain window are dropped"
     );
     assert!(map.contains_key(&recent), "recent entries are kept");
+}
+
+#[test]
+fn enterprise_downgrade_to_team_removes_sso_oidc_entitlement() {
+    assert!(Plan::Enterprise.entitlements().sso_oidc);
+    assert!(!Plan::Team.entitlements().sso_oidc);
+}
+
+#[test]
+fn concurrent_plan_cache_mutations_remain_well_formed() {
+    let slot = Arc::new(Mutex::new(HashMap::new()));
+    let user_id = Uuid::new_v4();
+    let now = Instant::now();
+
+    std::thread::scope(|scope| {
+        for plan in ["team", "enterprise"] {
+            let slot = Arc::clone(&slot);
+            scope.spawn(move || {
+                for _ in 0..100 {
+                    entitlements_cache_store(&slot, user_id, now, &json!({ "plan": plan }));
+                }
+            });
+        }
+    });
+
+    let value = entitlements_cache_any(&slot, user_id).expect("concurrent store retained a value");
+    assert!(matches!(
+        value["plan"].as_str(),
+        Some("team" | "enterprise")
+    ));
 }
