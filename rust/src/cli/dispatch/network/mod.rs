@@ -1,9 +1,5 @@
 use crate::{core, dashboard, tui};
 
-#[cfg(feature = "gateway-server")]
-mod gateway;
-#[cfg(feature = "gateway-server")]
-pub(crate) use gateway::*;
 mod provider;
 pub(crate) use provider::*;
 mod proxy;

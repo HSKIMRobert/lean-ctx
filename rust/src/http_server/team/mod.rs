@@ -65,6 +65,3 @@ const CHANNEL_ARG_KEY: &str = "channelId";
 /// model as local `ctx_agent register`).
 const AGENT_ARG_KEY: &str = "agentId";
 const WORKSPACE_HEADER: &str = "x-leanctx-workspace";
-
-#[cfg(test)]
-mod tests;

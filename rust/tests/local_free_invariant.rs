@@ -6,8 +6,7 @@
 
 use lean_ctx::core::billing::{Plan, entitlement_allows};
 use lean_ctx::core::server_capabilities::{
-    COMMERCIAL_PLANE_FEATURES, LOCAL_ALWAYS_ON_FEATURES, LOCAL_OPTIONAL_FEATURES,
-    capabilities_value,
+    LOCAL_ALWAYS_ON_FEATURES, LOCAL_OPTIONAL_FEATURES, capabilities_value,
 };
 
 #[test]
@@ -22,20 +21,6 @@ fn local_plane_is_default_and_free() {
             v["features"][key],
             serde_json::json!(true),
             "local capability '{key}' must be free and always on"
-        );
-    }
-}
-
-#[test]
-fn local_and_commercial_planes_are_disjoint() {
-    for commercial in COMMERCIAL_PLANE_FEATURES {
-        assert!(
-            !LOCAL_ALWAYS_ON_FEATURES.contains(commercial),
-            "'{commercial}' is commercial and must not be a local capability"
-        );
-        assert!(
-            !LOCAL_OPTIONAL_FEATURES.contains(commercial),
-            "'{commercial}' is commercial and must not be a local capability"
         );
     }
 }

@@ -17,11 +17,6 @@ pub struct TeamState {
     pub(super) auth: Arc<Vec<TeamTokenConfig>>,
     pub(super) engine: Arc<TeamContextEngine>,
     pub(super) audit: Arc<tokio::sync::Mutex<tokio::fs::File>>,
-    pub savings_store_dir: Arc<tokio::sync::Mutex<std::path::PathBuf>>,
-    /// Measurement roots for the billing-plane storage report (GL #463).
-    pub storage_roots: crate::http_server::team_billing::StorageRoots,
-    /// 60 s cache for the measured storage report.
-    pub storage_cache: Arc<tokio::sync::Mutex<crate::http_server::team_billing::StorageCache>>,
     /// Configured managed connectors (#281), secret-bearing — never serialized
     /// back out; [`connectors::v1_connectors`] exposes a secret-free view.
     pub connectors: Arc<Vec<connectors::ConnectorConfig>>,

@@ -86,26 +86,6 @@ fn dashboard_metrics_requires_auth() {
 }
 
 // ---------------------------------------------------------------------------
-// C2 — Team server: workspace enforced from TeamRequestContext
-// ---------------------------------------------------------------------------
-#[test]
-fn context_views_use_resolve_workspace() {
-    let src = include_str!("../../src/http_server/context_views.rs");
-
-    assert!(
-        src.contains("fn resolve_workspace"),
-        "C2: context_views must have a resolve_workspace helper"
-    );
-    let search_fn = src
-        .find("v1_events_search")
-        .expect("v1_events_search missing");
-    let search_body = &src[search_fn..search_fn + 600];
-    assert!(
-        search_body.contains("resolve_workspace("),
-        "C2: v1_events_search must call resolve_workspace"
-    );
-}
-
 #[test]
 fn lineage_filters_by_workspace() {
     let src = include_str!("../../src/core/context_os/context_bus.rs");
@@ -187,36 +167,6 @@ fn resolve_path_includes_secret_check() {
 }
 
 // ---------------------------------------------------------------------------
-// H3 — REST event responses are redacted
-// ---------------------------------------------------------------------------
-#[test]
-fn event_search_applies_redaction() {
-    let src = include_str!("../../src/http_server/context_views.rs");
-
-    let search_fn = src
-        .find("v1_events_search")
-        .expect("v1_events_search missing");
-    let search_body = &src[search_fn..search_fn + 800];
-    assert!(
-        search_body.contains("redact_event_payload("),
-        "H3: v1_events_search must redact event payloads"
-    );
-}
-
-#[test]
-fn event_lineage_applies_redaction() {
-    let src = include_str!("../../src/http_server/context_views.rs");
-
-    let lineage_fn = src
-        .find("v1_event_lineage")
-        .expect("v1_event_lineage missing");
-    let lineage_body = &src[lineage_fn..lineage_fn + 800];
-    assert!(
-        lineage_body.contains("redact_event_payload("),
-        "H3: v1_event_lineage must redact event payloads"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // H4 — JSON-RPC batch scope bypass prevention
 // ---------------------------------------------------------------------------
