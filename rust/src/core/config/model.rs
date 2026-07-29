@@ -63,6 +63,8 @@ pub struct Config {
     pub response_shaping: ResponseShapingConfig,
     #[serde(default)]
     pub ocla: OclaConfig,
+    #[serde(default)]
+    pub agents: sections::AgentsConfig,
     /// Whether the API proxy is enabled. Tri-state:
     /// - None: undecided (fresh install, will prompt on interactive setup)
     /// - Some(true): user opted in, proxy managed by lean-ctx
