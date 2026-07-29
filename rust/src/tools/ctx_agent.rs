@@ -2,7 +2,21 @@ use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 use crate::core::a2a::task::TaskStore;
 use crate::core::agents::{AgentDiary, AgentRegistry, AgentStatus, DiaryEntryType};
 use crate::core::evidence_ledger::EvidenceLedgerV1;
+use crate::core::ocla::capsule::global_capsule_store;
 use crate::core::ocla::registry::OclaRegistry;
+use crate::core::ocla::types::{AGENT_ENVELOPE_SCHEMA_VERSION, AgentEnvelope, OclaRequestContext};
+
+fn presence_ttl_hours() -> u64 {
+    crate::core::config::Config::load()
+        .agents
+        .presence_ttl_hours
+}
+
+fn scratchpad_default_ttl_hours() -> u64 {
+    crate::core::config::Config::load()
+        .agents
+        .scratchpad_default_ttl_hours
+}
 
 #[allow(clippy::too_many_arguments)]
 pub fn handle(
@@ -26,7 +40,7 @@ pub fn handle(
         "register" => {
             let atype = agent_type.unwrap_or("unknown");
             match AgentRegistry::mutate_locked(|registry| {
-                registry.cleanup_stale(24);
+                registry.cleanup_stale(presence_ttl_hours());
                 registry.register(atype, role, project_root)
             }) {
                 Ok((_, agent_id)) => format!(
@@ -39,7 +53,7 @@ pub fn handle(
 
         "list" => {
             let registry = match AgentRegistry::mutate_locked(|registry| {
-                registry.cleanup_stale(24);
+                registry.cleanup_stale(presence_ttl_hours());
             }) {
                 Ok((registry, ())) => registry,
                 Err(e) => {
@@ -78,6 +92,7 @@ pub fn handle(
             let from = current_agent_id.unwrap_or("anonymous");
             let msg_privacy = privacy.map_or(PrivacyLevel::Team, PrivacyLevel::parse_str);
             let msg_priority = priority.map_or(MessagePriority::Normal, MessagePriority::parse_str);
+            let ttl_hours = _ttl_hours.or(Some(scratchpad_default_ttl_hours()));
             if msg_privacy == PrivacyLevel::Private && to_agent.is_none() {
                 return "Error: private messages require to_agent".to_string();
             }
@@ -88,7 +103,7 @@ pub fn handle(
                 msg,
                 msg_privacy,
                 msg_priority,
-                _ttl_hours,
+                ttl_hours,
             ) {
                 Ok(msg_id) => {
                     let target = to_agent.unwrap_or("all agents (broadcast)");
@@ -184,16 +199,45 @@ pub fn handle(
                 return "Error: to_agent is required for handoff".to_string();
             };
             let summary = message.unwrap_or("(no summary provided)");
+            let scratchpad_ttl = scratchpad_default_ttl_hours();
 
             let _ = AgentRegistry::mutate_locked(|registry| {
-                registry.post_message(
+                registry.post_message_full(
                     from,
                     Some(target),
                     "handoff",
                     &format!("HANDOFF from {from}: {summary}"),
+                    PrivacyLevel::Team,
+                    MessagePriority::Normal,
+                    Some(scratchpad_ttl),
                 );
                 registry.set_status(from, AgentStatus::Finished, Some("handed off"));
             });
+
+            // Route through OCLA AgentGateway for cross-process visibility.
+            let handoff_message = format!("HANDOFF: {summary}");
+            let capsule_ref = global_capsule_store().register(handoff_message.as_bytes());
+            let mut envelope = AgentEnvelope {
+                schema_version: AGENT_ENVELOPE_SCHEMA_VERSION,
+                relay_id: String::new(),
+                context: OclaRequestContext::new(
+                    format!("handoff:{capsule_ref}"),
+                    project_root.to_string(),
+                    from.to_string(),
+                    capsule_ref.clone(),
+                    None,
+                    Some(format!("handoff:{from}:{target}")),
+                ),
+                from_agent_id: from.to_string(),
+                to_agent_id: target.to_string(),
+                capsule_ref,
+                budget_tokens: handoff_message.len().max(1) as u64,
+            };
+            if let Err(error) = envelope.assign_relay_id() {
+                tracing::debug!("OCLA relay setup failed (non-fatal): {error}");
+            } else if let Err(error) = OclaRegistry::global().agent_gateway.relay_agent(envelope) {
+                tracing::debug!("OCLA relay failed (non-fatal): {error}");
+            }
 
             // Stigmergy (#540): mark the handed-off work as Done in the field
             // so other agents see it arithmetically, without reading messages.
@@ -482,7 +526,7 @@ pub fn handle(
 
             let now = chrono::Utc::now();
             let mut registry = AgentRegistry::load_or_create();
-            registry.cleanup_stale(24);
+            registry.cleanup_stale(presence_ttl_hours());
 
             let mut agents: Vec<ExportAgentV1> = registry
                 .list_active(Some(project_root))
