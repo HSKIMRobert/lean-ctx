@@ -129,7 +129,7 @@ mod tests {
             chain_valid,
             totals: BatchTotals {
                 total_events: events,
-                saved_tokens: net + 10,
+                saved_tokens: net.saturating_add(10),
                 net_saved_tokens: net,
                 saved_usd: usd,
                 bounce_tokens: 10,
@@ -169,6 +169,41 @@ mod tests {
         let json = serde_json::to_string(&Usage::from_roi(&roi(2, 100, 0.01, true, true))).unwrap();
         for forbidden in ["path", "prompt", "content", "cwd", "\"file\""] {
             assert!(!json.contains(forbidden), "usage leaked '{forbidden}'");
+        }
+    }
+
+    #[test]
+    fn zero_token_usage_is_preserved_and_billable_when_provenance_is_valid() {
+        let usage = Usage::from_roi(&roi(0, 0, 0.0, true, true));
+        assert_eq!(usage.metered_events, 0);
+        assert_eq!(usage.net_saved_tokens, 0);
+        assert!(usage.is_billable());
+    }
+
+    #[test]
+    fn usage_preserves_maximum_token_count_without_overflow() {
+        let usage = Usage::from_roi(&roi(1, u64::MAX, 0.0, true, true));
+        assert_eq!(usage.net_saved_tokens, u64::MAX);
+        assert!(usage.headline().contains(&u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn concurrent_usage_derivation_is_independent() {
+        let workers = std::thread::available_parallelism()
+            .map_or(2, std::num::NonZeroUsize::get)
+            .max(2);
+        let mut handles = Vec::with_capacity(workers);
+        for i in 0..workers {
+            handles.push(std::thread::spawn(move || {
+                Usage::from_roi(&roi(i, i as u64, 0.0, true, true))
+            }));
+        }
+
+        for (i, handle) in handles.into_iter().enumerate() {
+            let usage = handle.join().expect("metering worker must not panic");
+            assert_eq!(usage.metered_events, i);
+            assert_eq!(usage.net_saved_tokens, i as u64);
+            assert!(usage.is_billable());
         }
     }
 }
