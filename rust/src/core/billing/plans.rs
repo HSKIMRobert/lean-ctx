@@ -324,6 +324,13 @@ mod tests {
         assert_eq!(Plan::parse("biz"), Plan::Business);
     }
 
+    #[test]
+    fn unknown_billing_plan_defaults_to_free_entitlements() {
+        let plan = Plan::parse("not-a-plan");
+        assert_eq!(plan, Plan::Free);
+        assert!(!plan.entitlements().sso_oidc);
+    }
+
     /// GL #533: Business sits strictly between Team and Enterprise — adds
     /// self-serve OIDC SSO and a 1-year audit window, but never the negotiated
     /// Enterprise surface (SAML/SCIM, unbounded quotas).
@@ -356,6 +363,43 @@ mod tests {
         for feature in LOCAL_ALWAYS_ON_FEATURES {
             assert!(entitlement_allows(Plan::Business, feature));
         }
+    }
+
+    #[test]
+    fn business_plan_has_sso_oidc() {
+        let business = Plan::Business.entitlements();
+        assert!(
+            business.sso_oidc,
+            "Business must enable self-serve OIDC SSO"
+        );
+        assert!(
+            !business.sso_scim,
+            "SCIM remains a negotiated Enterprise entitlement"
+        );
+    }
+
+    #[test]
+    fn plan_ladder_is_ordered_by_seats() {
+        for plans in Plan::all().windows(2) {
+            let lower = plans[0].entitlements();
+            let upper = plans[1].entitlements();
+            assert!(
+                upper.seats >= lower.seats,
+                "{} should include at least as many seats as {}",
+                upper.plan.as_str(),
+                lower.plan.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn min_plan_for_sso_oidc_is_business() {
+        assert_eq!(min_plan_for("sso_oidc"), Some(Plan::Business));
+    }
+
+    #[test]
+    fn min_plan_for_sso_scim_is_enterprise() {
+        assert_eq!(min_plan_for("sso_scim"), Some(Plan::Enterprise));
     }
 
     #[test]
