@@ -8,6 +8,84 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Typed E12 payload carried by a canonical token envelope.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EnvelopePayload {
+    /// A complete list of provider-neutral messages.
+    Messages(MessagesPayload),
+    /// An incremental streaming response chunk.
+    StreamChunk(StreamChunkPayload),
+    /// A tool invocation and optional result.
+    ToolCall(ToolCallPayload),
+    /// Provider-neutral cost accounting.
+    Usage(UsagePayload),
+}
+
+/// Message-list envelope payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MessagesPayload {
+    /// Ordered messages presented to the provider.
+    pub messages: Vec<MessageV1>,
+}
+
+/// Provider-neutral message representation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MessageV1 {
+    /// Provider-neutral message role.
+    pub role: String,
+    /// Text content or an array of provider-neutral content parts.
+    pub content: Value,
+    /// Optional provider-visible message name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Stream chunk envelope payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct StreamChunkPayload {
+    /// Zero-based chunk position.
+    pub chunk_index: u64,
+    /// Incremental generated text.
+    pub delta: String,
+    /// Optional terminal reason supplied by the provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
+}
+
+/// Tool-call envelope payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolCallPayload {
+    /// Invoked tool name.
+    pub tool_name: String,
+    /// Serialized tool arguments.
+    pub arguments: String,
+    /// Optional serialized tool result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
+}
+
+/// Usage envelope payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UsagePayload {
+    /// Optional input token cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_cost_usd: Option<f64>,
+    /// Optional output token cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_cost_usd: Option<f64>,
+    /// Optional aggregate token cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_cost_usd: Option<f64>,
+    /// ISO-style currency identifier; defaults to USD for omitted values.
+    #[serde(default = "default_currency")]
+    pub currency: String,
+}
+
+fn default_currency() -> String {
+    "USD".into()
+}
+
 /// Response of `GET /v1/tools` (paginated tool list).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListToolsResponse {

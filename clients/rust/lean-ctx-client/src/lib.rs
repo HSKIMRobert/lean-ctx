@@ -104,4 +104,7 @@ pub use ocla::{
     CANONICAL_TOKEN_ENVELOPE_SCHEMA_VERSION, MAX_OCLA_WIRE_BYTES, OCLA_API_VERSION,
 };
 pub use tool_text::tool_result_to_text;
-pub use types::{CallContext, ContextEventV1, ListToolsResponse, ToolCallResponse};
+pub use types::{
+    CallContext, ContextEventV1, EnvelopePayload, ListToolsResponse, MessageV1, MessagesPayload,
+    StreamChunkPayload, ToolCallPayload, ToolCallResponse, UsagePayload,
+};
