@@ -110,6 +110,73 @@ fn eligible_manifest() -> SettlementEvidenceManifestV2 {
 }
 
 #[test]
+fn receipt_claim_bridge_preserves_quality_and_bounded_attribution() {
+    use crate::core::context_kernel::types::{ContextReceiptV1, QualitySignal, ReceiptOutcome};
+    use std::collections::HashMap;
+
+    let receipt = ContextReceiptV1 {
+        receipt_id: "receipt:test".to_string(),
+        plan_id: "plan:test".to_string(),
+        delivered_tokens: 250,
+        cache_hits: 0,
+        cache_misses: 0,
+        outcome: ReceiptOutcome::Accepted,
+        quality_signals: vec![QualitySignal {
+            signal_type: "outcome".to_string(),
+            value: 1.0,
+        }],
+        feedback_attribution: HashMap::from([
+            ("source-b".to_string(), 0.4),
+            ("source-a".to_string(), 0.6),
+        ]),
+    };
+
+    let claims = claims_from_receipt(&receipt);
+    assert!(matches!(
+        &claims[0],
+        SettlementEvidenceClaimV2::Quality { passed: true, .. }
+    ));
+    let SettlementEvidenceClaimV2::Attribution {
+        exclusive,
+        attributed_tokens,
+        attributed_minor_units,
+        source_evidence_ids,
+        ..
+    } = &claims[1]
+    else {
+        panic!("receipt attribution must produce an attribution claim");
+    };
+    assert!(!exclusive);
+    assert_eq!(*attributed_tokens, 250);
+    assert_eq!(*attributed_minor_units, 0);
+    assert_eq!(source_evidence_ids.len(), 2);
+    assert!(source_evidence_ids.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn evidence_chain_and_gap_analysis_track_required_roles() {
+    let complete = eligible_manifest();
+    assert!(has_complete_evidence_chain(&complete));
+    assert!(evidence_gap_analysis(&complete).missing_roles.is_empty());
+
+    let mut incomplete = complete.clone();
+    incomplete
+        .evidence
+        .retain(|item| item.claim.role() != SettlementEvidenceRoleV2::Quality);
+    let report = evidence_gap_analysis(&incomplete);
+    assert!(!has_complete_evidence_chain(&incomplete));
+    assert!(
+        report
+            .present_roles
+            .contains(&SettlementEvidenceRoleV2::Attribution)
+    );
+    assert_eq!(
+        report.missing_roles,
+        BTreeSet::from([SettlementEvidenceRoleV2::Quality])
+    );
+}
+
+#[test]
 fn complete_trusted_manifest_is_structurally_eligible_only() {
     let manifest = eligible_manifest();
     let result = reconcile_settlement_evidence_v2(&manifest, &trust_store_for(&manifest));

@@ -233,6 +233,90 @@ impl SettlementEvidenceClaimV2 {
     }
 }
 
+/// Bridge OCLA context-receipt signals into payload-free settlement claims.
+///
+/// Receipts contribute only quality and attribution observations. Baseline,
+/// price, contract, period completion, and customer approval remain
+/// private-plane responsibilities. The attribution claim is deliberately
+/// non-exclusive and carries no monetary amount because a receipt cannot prove
+/// either property.
+#[must_use]
+pub fn claims_from_receipt(
+    receipt: &crate::core::context_kernel::types::ContextReceiptV1,
+) -> Vec<SettlementEvidenceClaimV2> {
+    let mut claims = Vec::new();
+
+    if !receipt.quality_signals.is_empty() {
+        let passed = receipt
+            .quality_signals
+            .iter()
+            .all(|signal| signal.value.is_finite() && signal.value > 0.0);
+        claims.push(SettlementEvidenceClaimV2::Quality {
+            quality_gate_id: receipt_evidence_id(receipt, "quality"),
+            passed,
+        });
+    }
+
+    let mut source_evidence_ids: Vec<_> = receipt
+        .feedback_attribution
+        .keys()
+        .filter(|source_id| !source_id.is_empty())
+        .map(|source_id| receipt_source_evidence_id(receipt, source_id))
+        .collect();
+    source_evidence_ids.sort();
+    source_evidence_ids.truncate(MAX_ATTRIBUTION_SOURCE_IDS);
+    if !source_evidence_ids.is_empty() {
+        claims.push(SettlementEvidenceClaimV2::Attribution {
+            mechanism_id: receipt_mechanism_id(receipt, "attribution"),
+            exclusive: false,
+            attributed_tokens: u64::try_from(receipt.delivered_tokens).unwrap_or(u64::MAX),
+            attributed_minor_units: 0,
+            source_evidence_ids,
+        });
+    }
+
+    claims
+}
+
+fn receipt_evidence_id(
+    receipt: &crate::core::context_kernel::types::ContextReceiptV1,
+    kind: &str,
+) -> String {
+    format!(
+        "artifact:blake3:{}",
+        blake3::hash(format!("settlement-receipt-v1:{kind}:{}", receipt.receipt_id).as_bytes())
+            .to_hex()
+    )
+}
+
+fn receipt_source_evidence_id(
+    receipt: &crate::core::context_kernel::types::ContextReceiptV1,
+    source_id: &str,
+) -> String {
+    format!(
+        "artifact:blake3:{}",
+        blake3::hash(
+            format!(
+                "settlement-receipt-v1:source:{}:{source_id}",
+                receipt.receipt_id
+            )
+            .as_bytes(),
+        )
+        .to_hex()
+    )
+}
+
+fn receipt_mechanism_id(
+    receipt: &crate::core::context_kernel::types::ContextReceiptV1,
+    kind: &str,
+) -> String {
+    format!(
+        "mechanism:blake3:{}",
+        blake3::hash(format!("settlement-receipt-v1:{kind}:{}", receipt.receipt_id).as_bytes())
+            .to_hex()
+    )
+}
+
 /// One self-contained evidence projection. `evidence_id` commits to every
 /// other field using canonical JSON and BLAKE3.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -416,6 +500,44 @@ impl SettlementEvidenceManifestV2 {
             "manifest:blake3:{}",
             hash_bounded_json(&identity)?.to_hex()
         ))
+    }
+}
+
+/// Presence and absence of the public receipt-to-settlement evidence chain.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvidenceGapReport {
+    pub present_roles: BTreeSet<SettlementEvidenceRoleV2>,
+    pub missing_roles: BTreeSet<SettlementEvidenceRoleV2>,
+}
+
+const RECEIPT_EVIDENCE_CHAIN_ROLES: [SettlementEvidenceRoleV2; 4] = [
+    SettlementEvidenceRoleV2::Baseline,
+    SettlementEvidenceRoleV2::Quality,
+    SettlementEvidenceRoleV2::Attribution,
+    SettlementEvidenceRoleV2::PeriodCompletion,
+];
+
+/// Check whether a manifest includes the public receipt-to-settlement chain.
+#[must_use]
+pub fn has_complete_evidence_chain(manifest: &SettlementEvidenceManifestV2) -> bool {
+    evidence_gap_analysis(manifest).missing_roles.is_empty()
+}
+
+/// Report the required receipt-to-settlement roles present in a manifest.
+#[must_use]
+pub fn evidence_gap_analysis(manifest: &SettlementEvidenceManifestV2) -> EvidenceGapReport {
+    let present_roles: BTreeSet<_> = manifest
+        .evidence
+        .iter()
+        .map(|item| item.claim.role())
+        .collect();
+    let missing_roles = RECEIPT_EVIDENCE_CHAIN_ROLES
+        .into_iter()
+        .filter(|role| !present_roles.contains(role))
+        .collect();
+    EvidenceGapReport {
+        present_roles,
+        missing_roles,
     }
 }
 
