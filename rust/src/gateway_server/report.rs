@@ -9,8 +9,190 @@
 
 use std::fmt::Write as _;
 
+use serde::{Deserialize, Serialize};
+
 use super::admin_api::{UsageBreakdownResponse, usage_breakdown};
 use super::admin_timeseries::{TimeseriesResponse, timeseries};
+
+/// Pilot summary: aggregated metrics for the Shadow Pilot period.
+///
+/// The gateway usage ledger supplies the request and token totals. Coverage
+/// and quality observations are accepted separately so this report never
+/// infers language or quality from unrelated request metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PilotSummaryReport {
+    pub period_start: String,
+    pub period_end: String,
+    pub total_requests: u64,
+    pub total_raw_tokens: u64,
+    pub total_compressed_tokens: u64,
+    pub savings_pct: f64,
+    pub coverage_classes: Vec<CoverageClass>,
+    pub quality_distribution: QualityDistribution,
+}
+
+/// Aggregated Shadow Pilot measurements for one coverage class.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CoverageClass {
+    /// Language or file-type identifier, for example `rust` or `typescript`.
+    pub name: String,
+    pub request_count: u64,
+    pub savings_pct: f64,
+    pub quality_avg: f64,
+}
+
+/// Counts of observed quality scores, bucketed by the pilot thresholds.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct QualityDistribution {
+    /// Scores greater than or equal to 0.9.
+    pub excellent: u64,
+    /// Scores greater than or equal to 0.7 and below 0.9.
+    pub good: u64,
+    /// Scores greater than or equal to 0.5 and below 0.7.
+    pub acceptable: u64,
+    /// Scores below 0.5.
+    pub poor: u64,
+}
+
+/// One measured request supplied by a coverage or quality collector.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PilotObservation {
+    pub coverage_class: String,
+    pub raw_tokens: u64,
+    pub compressed_tokens: u64,
+    /// `None` means the request did not carry a quality signal.
+    pub quality_score: Option<f64>,
+}
+
+#[derive(Default)]
+struct CoverageAggregate {
+    request_count: u64,
+    raw_tokens: u64,
+    compressed_tokens: u64,
+    quality_total: f64,
+    quality_count: u64,
+}
+
+/// Builds the pilot report from measured coverage and quality observations.
+///
+/// Classes are returned in lexical order to keep JSON exports deterministic.
+#[must_use]
+pub fn build_pilot_summary(
+    period_start: String,
+    period_end: String,
+    observations: impl IntoIterator<Item = PilotObservation>,
+) -> PilotSummaryReport {
+    let mut coverage = std::collections::BTreeMap::<String, CoverageAggregate>::new();
+    let mut total_requests: u64 = 0;
+    let mut total_raw_tokens: u64 = 0;
+    let mut total_compressed_tokens: u64 = 0;
+    let mut quality_distribution = QualityDistribution::default();
+
+    for observation in observations {
+        total_requests += 1;
+        total_raw_tokens = total_raw_tokens.saturating_add(observation.raw_tokens);
+        total_compressed_tokens =
+            total_compressed_tokens.saturating_add(observation.compressed_tokens);
+
+        let aggregate = coverage.entry(observation.coverage_class).or_default();
+        aggregate.request_count += 1;
+        aggregate.raw_tokens = aggregate.raw_tokens.saturating_add(observation.raw_tokens);
+        aggregate.compressed_tokens = aggregate
+            .compressed_tokens
+            .saturating_add(observation.compressed_tokens);
+        if let Some(score) = observation.quality_score {
+            record_quality_score(&mut quality_distribution, score);
+            aggregate.quality_total += score;
+            aggregate.quality_count += 1;
+        }
+    }
+
+    let coverage_classes = coverage
+        .into_iter()
+        .map(|(name, aggregate)| CoverageClass {
+            name,
+            request_count: aggregate.request_count,
+            savings_pct: savings_pct(aggregate.raw_tokens, aggregate.compressed_tokens),
+            quality_avg: if aggregate.quality_count == 0 {
+                0.0
+            } else {
+                aggregate.quality_total / aggregate.quality_count as f64
+            },
+        })
+        .collect();
+
+    PilotSummaryReport {
+        period_start,
+        period_end,
+        total_requests,
+        total_raw_tokens,
+        total_compressed_tokens,
+        savings_pct: savings_pct(total_raw_tokens, total_compressed_tokens),
+        coverage_classes,
+        quality_distribution,
+    }
+}
+
+/// Queries the usage ledger for a pilot-period summary.
+///
+/// `usage_events` deliberately does not persist language/file-type or quality
+/// signals. The endpoint therefore reports empty coverage and quality sections
+/// until collectors provide [`PilotObservation`] values to
+/// [`build_pilot_summary`], rather than fabricating measurements.
+pub async fn pilot_summary(
+    pool: &deadpool_postgres::Pool,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<PilotSummaryReport> {
+    let client = pool.get().await?;
+    let row = client
+        .query_one(
+            "SELECT count(*)::BIGINT AS requests, \
+                    coalesce(sum(uncompressed_input_tokens), 0)::BIGINT AS raw_tokens, \
+                    coalesce(sum(input_tokens), 0)::BIGINT AS compressed_tokens \
+             FROM usage_events WHERE ts >= $1 AND ts <= $2",
+            &[&from, &to],
+        )
+        .await?;
+    let requests = nonnegative_u64(row.get("requests"), "request count")?;
+    let raw_tokens = nonnegative_u64(row.get("raw_tokens"), "raw token count")?;
+    let compressed_tokens =
+        nonnegative_u64(row.get("compressed_tokens"), "compressed token count")?;
+
+    Ok(PilotSummaryReport {
+        period_start: from.to_rfc3339(),
+        period_end: to.to_rfc3339(),
+        total_requests: requests,
+        total_raw_tokens: raw_tokens,
+        total_compressed_tokens: compressed_tokens,
+        savings_pct: savings_pct(raw_tokens, compressed_tokens),
+        coverage_classes: Vec::new(),
+        quality_distribution: QualityDistribution::default(),
+    })
+}
+
+fn nonnegative_u64(value: i64, name: &str) -> anyhow::Result<u64> {
+    u64::try_from(value).map_err(|_| anyhow::anyhow!("{name} must not be negative"))
+}
+
+fn savings_pct(raw_tokens: u64, compressed_tokens: u64) -> f64 {
+    if raw_tokens == 0 {
+        return 0.0;
+    }
+    (raw_tokens.saturating_sub(compressed_tokens) as f64 / raw_tokens as f64) * 100.0
+}
+
+fn record_quality_score(distribution: &mut QualityDistribution, score: f64) {
+    if score >= 0.9 {
+        distribution.excellent += 1;
+    } else if score >= 0.7 {
+        distribution.good += 1;
+    } else if score >= 0.5 {
+        distribution.acceptable += 1;
+    } else {
+        distribution.poor += 1;
+    }
+}
 
 /// Inputs assembled by the CLI layer.
 #[derive(Debug, Clone)]
@@ -461,5 +643,76 @@ mod tests {
         );
         assert!(html.contains("No events in this window"));
         assert!(html.contains("reference_model"));
+    }
+
+    #[test]
+    fn pilot_summary_serializes_the_public_shape() {
+        let report = build_pilot_summary(
+            "2026-07-01T00:00:00Z".into(),
+            "2026-07-02T00:00:00Z".into(),
+            [PilotObservation {
+                coverage_class: "rust".into(),
+                raw_tokens: 1_000,
+                compressed_tokens: 600,
+                quality_score: Some(0.95),
+            }],
+        );
+
+        let value = serde_json::to_value(report).expect("pilot summary serializes");
+        assert_eq!(value["total_requests"], 1);
+        assert_eq!(value["total_raw_tokens"], 1_000);
+        assert_eq!(value["total_compressed_tokens"], 600);
+        assert_eq!(value["savings_pct"], 40.0);
+        assert_eq!(value["coverage_classes"][0]["name"], "rust");
+        assert_eq!(value["quality_distribution"]["excellent"], 1);
+    }
+
+    #[test]
+    fn pilot_summary_aggregates_coverage_classes_and_quality_buckets() {
+        let report = build_pilot_summary(
+            "2026-07-01T00:00:00Z".into(),
+            "2026-07-02T00:00:00Z".into(),
+            [
+                PilotObservation {
+                    coverage_class: "rust".into(),
+                    raw_tokens: 1_000,
+                    compressed_tokens: 700,
+                    quality_score: Some(0.95),
+                },
+                PilotObservation {
+                    coverage_class: "typescript".into(),
+                    raw_tokens: 500,
+                    compressed_tokens: 500,
+                    quality_score: Some(0.72),
+                },
+                PilotObservation {
+                    coverage_class: "rust".into(),
+                    raw_tokens: 1_000,
+                    compressed_tokens: 500,
+                    quality_score: Some(0.50),
+                },
+                PilotObservation {
+                    coverage_class: "rust".into(),
+                    raw_tokens: 0,
+                    compressed_tokens: 0,
+                    quality_score: Some(0.49),
+                },
+            ],
+        );
+
+        assert_eq!(report.total_requests, 4);
+        assert_eq!(report.total_raw_tokens, 2_500);
+        assert_eq!(report.total_compressed_tokens, 1_700);
+        assert!((report.savings_pct - 32.0).abs() < f64::EPSILON);
+        assert_eq!(report.coverage_classes.len(), 2);
+        assert_eq!(report.coverage_classes[0].name, "rust");
+        assert_eq!(report.coverage_classes[0].request_count, 3);
+        assert!((report.coverage_classes[0].savings_pct - 40.0).abs() < f64::EPSILON);
+        assert!((report.coverage_classes[0].quality_avg - (1.94 / 3.0)).abs() < f64::EPSILON);
+        assert_eq!(report.coverage_classes[1].name, "typescript");
+        assert_eq!(report.quality_distribution.excellent, 1);
+        assert_eq!(report.quality_distribution.good, 1);
+        assert_eq!(report.quality_distribution.acceptable, 1);
+        assert_eq!(report.quality_distribution.poor, 1);
     }
 }
