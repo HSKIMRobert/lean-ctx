@@ -1094,11 +1094,13 @@ impl CtxReadTool {
             None
         };
 
-        // Cross-source hints: if the property graph has cross-source edges
-        // pointing to this file, append compact hints so the agent knows about
-        // related issues/PRs/schemas without a separate tool call (#682). Only
-        // touch the DB when it already exists — never create graph.db on a read.
-        let hints_suffix = {
+        // Cross-source hints: gated by profile `cross_source_hint` (default off).
+        // When enabled, appends issue/PR/schema references from the property
+        // graph. Skipped when graph.db doesn't exist (#682).
+        let hints_suffix = if crate::core::profiles::active_profile()
+            .output_hints
+            .cross_source_hint()
+        {
             let graph_db =
                 crate::core::property_graph::graph_dir(&ctx.project_root).join("graph.db");
             let graph = graph_db
@@ -1128,6 +1130,8 @@ impl CtxReadTool {
                     crate::core::cross_source_hints::format_hints(&hints)
                 }
             })
+        } else {
+            String::new()
         };
 
         // Rule injection (#1325): discover and append rules scoped to this file
@@ -1171,14 +1175,24 @@ impl CtxReadTool {
         } else {
             format!("{output}{hints_suffix}{graph_suffix}{rules_suffix}")
         };
-        let proactive_query = format!(
-            "ctx_read path={path} mode={resolved_mode} task={}",
-            task_ref.unwrap_or_default()
-        );
-        let final_output = if let Some(block) =
-            crate::core::relevance_tracker::proactive_context_for_path(&proactive_query, path)
+        // Proactive context: gated by profile `proactive_context` (default off).
+        // When enabled, auto-expands previously compressed content that is
+        // keyword-relevant to the current read (up to 2000 tokens).
+        let final_output = if crate::core::profiles::active_profile()
+            .output_hints
+            .proactive_context()
         {
-            format!("{final_output}{block}")
+            let proactive_query = format!(
+                "ctx_read path={path} mode={resolved_mode} task={}",
+                task_ref.unwrap_or_default()
+            );
+            if let Some(block) =
+                crate::core::relevance_tracker::proactive_context_for_path(&proactive_query, path)
+            {
+                format!("{final_output}{block}")
+            } else {
+                final_output
+            }
         } else {
             final_output
         };

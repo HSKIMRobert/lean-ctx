@@ -81,6 +81,8 @@ pub(super) fn builtin_exploration() -> Profile {
         output_hints: OutputHints {
             related_hint: Some(true),
             compressed_hint: Some(true),
+            cross_source_hint: Some(true),
+            proactive_context: Some(true),
             ..OutputHints::default()
         },
     }

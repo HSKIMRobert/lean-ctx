@@ -334,6 +334,14 @@ pub(super) fn merge_profiles(parent: Profile, child: Profile) -> Profile {
             .output_hints
             .efficiency_hint
             .or(parent.output_hints.efficiency_hint),
+        cross_source_hint: child
+            .output_hints
+            .cross_source_hint
+            .or(parent.output_hints.cross_source_hint),
+        proactive_context: child
+            .output_hints
+            .proactive_context
+            .or(parent.output_hints.proactive_context),
     };
     Profile {
         profile: ProfileMeta {

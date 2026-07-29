@@ -191,6 +191,13 @@ pub struct OutputHints {
     pub checkpoint_in_output: Option<bool>,
     pub graph_context_block: Option<bool>,
     pub efficiency_hint: Option<bool>,
+    /// Cross-source hints: append issue/PR/schema references from the property
+    /// graph when reading a file. Default: off (speculative, costs tokens).
+    pub cross_source_hint: Option<bool>,
+    /// Proactive context: auto-expand previously compressed content when
+    /// keyword-relevant to the current read. Default: off (speculative, up to
+    /// 2000 tokens per read).
+    pub proactive_context: Option<bool>,
 }
 
 impl OutputHints {
@@ -220,6 +227,12 @@ impl OutputHints {
     }
     pub fn efficiency_hint(&self) -> bool {
         self.efficiency_hint.unwrap_or(false)
+    }
+    pub fn cross_source_hint(&self) -> bool {
+        self.cross_source_hint.unwrap_or(false)
+    }
+    pub fn proactive_context(&self) -> bool {
+        self.proactive_context.unwrap_or(false)
     }
 }
 

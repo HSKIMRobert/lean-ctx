@@ -589,6 +589,14 @@ fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
     let (hash, mtime) = file_blake3_prefix(path)?;
     let reg = crate::core::ocla::OclaRegistry::global();
     let record = reg.delivery_registry.check_delivery(&hash, mtime)?;
+
+    let current_agent = std::env::var("CURSOR_TASK_ID")
+        .or_else(|_| std::env::var("CLAUDECODE"))
+        .unwrap_or_else(|_| format!("proc:{}", std::process::id()));
+    if record.agent_id == current_agent {
+        return None;
+    }
+
     let short = protocol::shorten_path(path);
     let stub = format!(
         "{short} [cross-agent · {lines}L · read by {agent} · use fresh=true to force]",
