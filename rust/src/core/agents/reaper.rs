@@ -2,7 +2,7 @@
 //! and stale logical sessions across both registries.
 //!
 //! Spawned once by the daemon; runs until the process exits.
-//! Interval and TTLs are hardcoded defaults for now (Round 2 wires config).
+//! Reaper TTLs are configured through `[agents]`; interval wiring remains pending.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,10 +14,10 @@ static RUNNING: OnceLock<AtomicBool> = OnceLock::new();
 const DEFAULT_INTERVAL: Duration = Duration::from_secs(10 * 60);
 /// Default identity TTL (48 hours).
 const DEFAULT_IDENTITY_TTL_HOURS: u64 = 48;
-/// Default presence TTL (24 hours).
-const DEFAULT_PRESENCE_TTL_HOURS: u64 = 24;
-/// Default logical session TTL (180 seconds).
-const DEFAULT_SESSION_TTL_SECONDS: u64 = 180;
+
+fn load_config() -> crate::core::config::AgentsConfig {
+    crate::core::config::Config::load().agents
+}
 
 /// Spawn the background reaper thread. Safe to call multiple times -- only the
 /// first call starts the thread; subsequent calls are no-ops.
@@ -44,6 +44,7 @@ fn reaper_loop(interval: Duration) {
 /// Run one reap cycle. Public for testing.
 pub fn reap_cycle() -> Result<ReapStats, String> {
     let mut stats = ReapStats::default();
+    let cfg = load_config();
 
     // Presence registry: cleanup_stale marks dead PIDs as Finished and removes
     // old Finished entries.
@@ -53,14 +54,14 @@ pub fn reap_cycle() -> Result<ReapStats, String> {
 
         // cleanup_stale handles: dead PIDs → Finished, old agents removal,
         // AND expired scratchpad entries (since #502).
-        registry.cleanup_stale(DEFAULT_PRESENCE_TTL_HOURS);
+        registry.cleanup_stale(cfg.presence_ttl_hours);
 
         stats.presence_removed = agents_before.saturating_sub(registry.agents.len());
         stats.scratchpad_expired = scratchpad_before.saturating_sub(registry.scratchpad.len());
 
         // Logical sessions: cleanup stale.
         let sessions_before = registry.logical_sessions.len();
-        registry.cleanup_stale_logical_sessions(DEFAULT_SESSION_TTL_SECONDS);
+        registry.cleanup_stale_logical_sessions(cfg.logical_session_ttl_seconds);
         stats.sessions_expired = sessions_before.saturating_sub(registry.logical_sessions.len());
     }) {}
 
