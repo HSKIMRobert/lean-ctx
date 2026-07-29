@@ -170,23 +170,8 @@ fn resolve_path_includes_secret_check() {
 // ---------------------------------------------------------------------------
 // H4 — JSON-RPC batch scope bypass prevention
 // ---------------------------------------------------------------------------
-#[test]
-fn team_auth_rejects_batch_requests() {
-    let src = [
-        include_str!("../../src/http_server/team/mod.rs"),
-        include_str!("../../src/http_server/team/request_pipeline.rs"),
-    ]
-    .join("\n");
-
-    assert!(
-        src.contains("batch_requests_not_supported"),
-        "H4: team auth must reject JSON-RPC batch (array) requests"
-    );
-    assert!(
-        src.contains("let mut allow = false;"),
-        "H4: team auth must default allow to false"
-    );
-}
+// Moved to lean-ctx-enterprise: team auth logic is proprietary (ADR-023).
+// The H4 invariant is enforced by the enterprise test suite.
 
 // ---------------------------------------------------------------------------
 // H5 — npm postinstall SHA256 verification

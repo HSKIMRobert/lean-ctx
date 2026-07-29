@@ -492,7 +492,6 @@ fn is_code(ext: &str) -> bool {
             | "yaml"
             | "yml"
             | "json"
-            | "md"
             | "sh"
             | "bash"
             | "svelte"
@@ -788,24 +787,28 @@ mod tests {
     }
 
     #[test]
-    fn heuristic_structure_first_keeps_tiny_and_plain_text_full() {
+    fn heuristic_structure_first_keeps_tiny_and_prose_full() {
         // Below the 500-token floor `full` is already best.
         assert_eq!(heuristic_mode("rs", 400, true), "full");
-        // Plain text is never structure-first mapped.
+        // Prose / markup is never structure-first mapped — it benefits from
+        // `aggressive` at large sizes, not code-oriented `map`.
+        assert_eq!(heuristic_mode("md", 4000, true), "full");
         assert_eq!(heuristic_mode("txt", 1000, true), "full");
     }
 
     #[test]
-    fn code_extensions_cover_progressive_formats() {
+    fn code_and_data_extensions_cover_progressive_formats() {
         for ext in [
             "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "h", "rb", "swift",
-            "kt", "scala", "toml", "yaml", "yml", "json", "md", "sh", "bash",
+            "kt", "scala", "toml", "yaml", "yml", "json", "sh", "bash",
         ] {
             assert!(
                 is_code(ext),
                 "{ext} should participate in structure-first modes"
             );
         }
+        // Markdown is prose, not code — must NOT be in is_code().
+        assert!(!is_code("md"));
     }
 
     #[test]

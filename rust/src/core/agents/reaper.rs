@@ -11,7 +11,7 @@ use std::time::Duration;
 static RUNNING: OnceLock<AtomicBool> = OnceLock::new();
 
 /// Default reaper interval (10 minutes).
-const DEFAULT_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const DEFAULT_INTERVAL: Duration = Duration::from_mins(10);
 /// Default identity TTL (48 hours).
 const DEFAULT_IDENTITY_TTL_HOURS: u64 = 48;
 
