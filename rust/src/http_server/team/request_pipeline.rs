@@ -173,14 +173,9 @@ pub(super) async fn team_auth_middleware(
         }
     }
 
-    // Billing-plane reads (savings roll-up, storage/usage reports) share the
-    // audit sensitivity class: owner/admin + the control plane's audit token.
+    // Managed connector reads share the audit sensitivity class.
     let audit_gated = match path0 {
-        "/v1/savings/summary" => Some("savings_summary"),
-        "/v1/storage" => Some("storage"),
-        "/v1/usage" => Some("usage"),
         "/v1/connectors" => Some("connectors"),
-        p if p.starts_with("/v1/savings/member/") => Some("savings_member"),
         _ => None,
     };
     if let Some(action) = audit_gated {

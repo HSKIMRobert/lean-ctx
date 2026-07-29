@@ -29,7 +29,6 @@ lean-ctx = { path = "../..", default-features = false, features = [
   "tree-sitter",
   "embeddings",
   "http-server",
-  "team-server",
   "secure-update",
 ] }
 # Multi-thread runtime: the engine's tool handlers use `block_in_place` /

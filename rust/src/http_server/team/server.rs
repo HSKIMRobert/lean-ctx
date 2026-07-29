@@ -26,23 +26,8 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         .await
         .with_context(|| format!("open audit log {}", cfg.audit_log_path.display()))?;
 
-    let savings_dir = cfg
-        .audit_log_path
-        .parent()
-        .unwrap_or(std::path::Path::new("."))
-        .join("savings");
-    let workspace_roots: Vec<(String, std::path::PathBuf)> = cfg
-        .workspaces
-        .iter()
-        .map(|w| (w.id.clone(), w.root.clone()))
-        .collect();
-    let storage_roots = crate::http_server::team_billing::storage_roots_from_config(
-        &cfg.audit_log_path,
-        &workspace_roots,
-        cfg.storage_quota_bytes,
-    );
-    // Connector run state lives next to the audit log / savings store on the
-    // persistent data volume, so per-connector cursors survive redeploys.
+    // Connector run state lives next to the audit log on the persistent data
+    // volume, so per-connector cursors survive redeploys.
     let connectors_state_dir = cfg
         .audit_log_path
         .parent()
@@ -51,15 +36,12 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
     let connectors = Arc::new(cfg.connectors.clone());
 
     // Hosted managed-connector scheduler (#281): scheduled in-process syncs of
-    // each configured source into the workspace's BM25/graph/knowledge stores,
-    // paused by the storage quota backstop (#282). A no-op with no connectors.
+    // each configured source into the workspace's BM25/graph/knowledge stores.
     connectors::spawn_scheduler(
         connectors.clone(),
         team_server.roots.clone(),
         cfg.default_workspace_id.clone(),
         connectors_state_dir.clone(),
-        storage_roots.data_root.clone(),
-        storage_roots.quota_bytes,
         Duration::from_mins(1),
     );
 
@@ -67,11 +49,6 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         auth: Arc::new(cfg.tokens.clone()),
         engine,
         audit: Arc::new(tokio::sync::Mutex::new(audit_file)),
-        savings_store_dir: Arc::new(tokio::sync::Mutex::new(savings_dir)),
-        storage_roots,
-        storage_cache: Arc::new(tokio::sync::Mutex::new(
-            crate::http_server::team_billing::StorageCache::default(),
-        )),
         connectors,
         connectors_state_dir: Arc::new(connectors_state_dir),
     });
@@ -97,52 +74,14 @@ pub async fn serve_team(cfg: TeamServerConfig) -> Result<()> {
         streamable_http_config(&cfg),
     );
 
-    // Weekly team-ROI webhook (GL #388): validated at boot so a bad URL is a
-    // loud startup error, not a silent weekly no-op.
-    if let Some(url) = &cfg.roi_webhook_url {
-        crate::http_server::roi_webhook::validate_webhook_url(url)
-            .map_err(|e| anyhow!("invalid roiWebhookUrl in team config: {e}"))?;
-        crate::http_server::roi_webhook::spawn_weekly_roi_webhook(state.clone(), url.clone());
-        tracing::info!("team ROI webhook enabled (weekly)");
-    }
-
     let app = Router::new()
         .route("/health", get(crate::http_server::health))
         .route("/v1/manifest", get(v1_manifest))
         .route("/v1/tools", get(v1_tools))
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
-        .route(
-            "/v1/context/summary",
-            get(crate::http_server::context_views::v1_context_summary),
-        )
-        .route(
-            "/v1/events/search",
-            get(crate::http_server::context_views::v1_events_search),
-        )
-        .route(
-            "/v1/events/lineage",
-            get(crate::http_server::context_views::v1_event_lineage),
-        )
         .route("/v1/metrics", get(v1_team_metrics))
-        .route(
-            "/v1/savings/summary",
-            get(crate::http_server::savings_summary::v1_savings_summary),
-        )
-        .route(
-            "/v1/savings/member/{signer}",
-            get(crate::http_server::savings_summary::v1_savings_member),
-        )
-        .route(
-            "/v1/storage",
-            get(crate::http_server::team_billing::v1_storage),
-        )
-        .route("/v1/usage", get(crate::http_server::team_billing::v1_usage))
         .route("/v1/connectors", get(connectors::v1_connectors))
-        .route(
-            "/api/v1/savings/ingest",
-            axum::routing::post(crate::http_server::savings_ingest::v1_savings_ingest),
-        )
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(

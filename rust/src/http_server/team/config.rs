@@ -29,17 +29,6 @@ pub struct TeamServerConfig {
     pub stateful_mode: bool,
     #[serde(default = "default_true")]
     pub json_response: bool,
-    /// Hosted-storage quota in bytes (`storageQuotaBytes` in `team.json`),
-    /// rendered per plan by the control plane's provisioning bridge (#282).
-    /// Omitted ⇒ the server defaults to the Team tier's 5 GiB; the
-    /// `LEANCTX_TEAM_STORAGE_QUOTA_BYTES` env var overrides both.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage_quota_bytes: Option<u64>,
-    /// Slack/Discord/generic webhook for the weekly team-ROI summary
-    /// (`roiWebhookUrl` in `team.json`, GL #388). HTTPS only — the server
-    /// refuses to start with a plaintext URL. Omitted ⇒ no webhook posts.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub roi_webhook_url: Option<String>,
     /// Managed connectors (#281): scheduled hosted source syncs, rendered into
     /// `team.json` by the control plane (which enforces the `managed_connectors`
     /// entitlement count and encrypts each `secret` at rest). Omitted ⇒ none.

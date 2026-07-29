@@ -235,11 +235,6 @@ pub fn run() {
                 cmd_proxy(&rest);
                 return;
             }
-            #[cfg(feature = "gateway-server")]
-            "gateway" => {
-                cmd_gateway(&rest);
-                return;
-            }
             "daemon" => {
                 cmd_daemon(&rest);
                 return;

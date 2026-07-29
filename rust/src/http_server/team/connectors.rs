@@ -33,7 +33,6 @@ use crate::core::providers::gitlab::GitLabProvider;
 use crate::core::providers::provider_trait::{ContextProvider, ProviderParams};
 use crate::core::providers::{ProviderResult, registry};
 
-use super::super::team_billing;
 use super::TeamAppState;
 
 /// Smallest sync cadence we accept (defends external APIs from a hot loop).
@@ -273,8 +272,6 @@ pub fn spawn_scheduler(
     roots: Arc<HashMap<String, String>>,
     default_workspace_id: String,
     state_dir: PathBuf,
-    data_dir: PathBuf,
-    quota_bytes: u64,
     tick: Duration,
 ) {
     if connectors.iter().all(|c| !c.enabled) {
@@ -284,26 +281,9 @@ pub fn spawn_scheduler(
         // Let the server finish binding before the first sync.
         tokio::time::sleep(Duration::from_secs(5)).await;
         loop {
-            // Quota backstop (#282): once the hosted index hits quota we pause
-            // ingestion (never delete, never gate reads). Checked once per tick.
-            let over_quota = team_billing::is_over_quota(&data_dir, quota_bytes);
             for c in connectors.iter().filter(|c| c.enabled) {
                 let st = load_state(&state_dir, &c.id);
                 if !is_due(now_secs(), st.last_run_secs, c.effective_interval()) {
-                    continue;
-                }
-                if over_quota {
-                    let mut st = st;
-                    st.last_status = Some("error".to_string());
-                    st.last_error = Some("storage quota exceeded — hosted sync paused".to_string());
-                    st.last_run_secs = Some(now_secs());
-                    st.last_run_at = Some(chrono::Utc::now().to_rfc3339());
-                    st.total_runs = st.total_runs.saturating_add(1);
-                    save_state(&state_dir, &c.id, &st);
-                    tracing::warn!(
-                        connector = %c.id,
-                        "skipping connector sync: storage quota exceeded"
-                    );
                     continue;
                 }
                 let ws = c

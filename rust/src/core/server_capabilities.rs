@@ -101,16 +101,9 @@ pub const LOCAL_OPTIONAL_FEATURES: &[&str] = &[
     "semantic_search",
     "http_server",
     "wasm_runtime",
-    // Self-hosted org gateway run-mode (remote bind + usage store + admin API).
-    // Free to self-host; only compile-gated (`gateway-server` Cargo feature).
-    "gateway_server",
     // Cross-shape routing Anthropic→OpenAI (enterprise#16, `shape-xlat`).
     "shape_translation",
 ];
-
-/// Commercial-plane capabilities — additive, opt-in, and never required for any
-/// local feature. Compiled in via opt-in Cargo features.
-pub const COMMERCIAL_PLANE_FEATURES: &[&str] = &["team_server", "cloud_server"];
 
 /// Always-on capabilities plus compiled-in feature flags. Booleans reflect what
 /// this binary can actually do.
@@ -129,10 +122,7 @@ fn features() -> Value {
         "semantic_search": cfg!(feature = "embeddings"),
         "http_server": cfg!(feature = "http-server"),
         "wasm_runtime": cfg!(feature = "wasm"),
-        "gateway_server": cfg!(feature = "gateway-server"),
         "shape_translation": cfg!(feature = "shape-xlat"),
-        "team_server": cfg!(feature = "team-server"),
-        "cloud_server": cfg!(feature = "cloud-server"),
     })
 }
 
@@ -239,7 +229,6 @@ mod tests {
         for k in LOCAL_ALWAYS_ON_FEATURES
             .iter()
             .chain(LOCAL_OPTIONAL_FEATURES)
-            .chain(COMMERCIAL_PLANE_FEATURES)
         {
             classified.insert((*k).to_string());
         }
