@@ -34,6 +34,8 @@ type OclaRequestContext struct {
 	SessionID  string  `json:"session_id"`
 	AgentID    string  `json:"agent_id"`
 	ContentRef string  `json:"content_ref"`
+	ProviderLabel *string `json:"provider_label,omitempty"`
+	ModelLabel    *string `json:"model_label,omitempty"`
 	TenantID   *string `json:"tenant_id"`
 	TraceID    string  `json:"trace_id,omitempty"`
 }
@@ -45,8 +47,11 @@ type TokenBalance struct {
 	ProviderBilledTokens uint64 `json:"provider_billed_tokens"`
 }
 
+// TokenBalanceV1 is the current wire-contract name for TokenBalance.
+type TokenBalanceV1 = TokenBalance
+
 type EnvelopeRequest struct {
-	SchemaVersion  uint16              `json:"schema_version"`
+	SchemaVersion  uint32              `json:"schema_version"`
 	Context        OclaRequestContext   `json:"context"`
 	Surface        string              `json:"surface"`
 	Direction      string              `json:"direction"`
@@ -56,10 +61,15 @@ type EnvelopeRequest struct {
 	RouteRef       *string             `json:"route_ref"`
 	PolicyRef      *string             `json:"policy_ref"`
 	IdempotencyKey string              `json:"idempotency_key"`
+	Payload        *EnvelopePayload    `json:"payload,omitempty"`
+	PromptTokens     *uint64             `json:"prompt_tokens,omitempty"`
+	CompletionTokens *uint64             `json:"completion_tokens,omitempty"`
+	TotalTokens      *uint64             `json:"total_tokens,omitempty"`
+	Balance          *TokenBalanceV1     `json:"balance,omitempty"`
 }
 
 type EnvelopeResponse struct {
-	SchemaVersion  uint16              `json:"schema_version"`
+	SchemaVersion  uint32              `json:"schema_version"`
 	Context        OclaRequestContext   `json:"context"`
 	Surface        string              `json:"surface"`
 	Direction      string              `json:"direction"`
@@ -106,6 +116,49 @@ type ErrorResponse struct {
 	Code  string `json:"code,omitempty"`
 }
 
+// E12 payload types.
+
+type MessageRole string
+
+const (
+	RoleSystem    MessageRole = "system"
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+	RoleTool      MessageRole = "tool"
+)
+
+type ContentPart struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+}
+
+type MessageV1 struct {
+	Role    MessageRole     `json:"role"`
+	Content json.RawMessage `json:"content"`
+	Name    string          `json:"name,omitempty"`
+}
+
+type EnvelopePayload struct {
+	Type string `json:"type"`
+
+	// messages
+	Messages []MessageV1 `json:"messages,omitempty"`
+	// stream_chunk
+	ChunkIndex   *int   `json:"chunk_index,omitempty"`
+	Delta        string `json:"delta,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
+	// tool_call
+	ToolName  string `json:"tool_name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Result    string `json:"result,omitempty"`
+	// usage
+	InputCostUSD  *float64 `json:"input_cost_usd,omitempty"`
+	OutputCostUSD *float64 `json:"output_cost_usd,omitempty"`
+	TotalCostUSD  *float64 `json:"total_cost_usd,omitempty"`
+	Currency      string   `json:"currency,omitempty"`
+}
+
 // --- Context Kernel Wire Types ---
 
 type SensitivityLevel string
@@ -127,13 +180,19 @@ const (
 )
 
 type QualitySignal struct {
-	Name  string  `json:"name"`
-	Value float64 `json:"value"`
+	Name                string   `json:"name"`
+	Value               float64  `json:"value"`
+	Fidelity            *float64 `json:"fidelity,omitempty"`
+	CalibrationAccuracy *float64 `json:"calibration_accuracy,omitempty"`
+	CompressionRatio    *float64 `json:"compression_ratio,omitempty"`
 }
 
 type PlanBudget struct {
-	Total uint64 `json:"total"`
-	Used  uint64 `json:"used"`
+	Total          uint64  `json:"total"`
+	Used           uint64  `json:"used"`
+	MaxTokens      *uint64 `json:"max_tokens,omitempty"`
+	ReservedTokens *uint64 `json:"reserved_tokens,omitempty"`
+	Priority       *int    `json:"priority,omitempty"`
 }
 
 type PlanEntry struct {
@@ -153,6 +212,9 @@ type ContextPlanV1 struct {
 	Excluded      []ExcludedEntry         `json:"excluded"`
 	Deferred      []ExcludedEntry         `json:"deferred"`
 	ProviderStats map[string]ProviderStat `json:"provider_stats"`
+	Timestamp     *string                 `json:"timestamp,omitempty"`
+	Entries       []PlanEntry             `json:"entries,omitempty"`
+	Policy        *ContextPolicy          `json:"policy,omitempty"`
 }
 
 type ExcludedEntry struct {
@@ -174,6 +236,9 @@ type ContextReceiptV1 struct {
 	Outcome             ReceiptOutcome     `json:"outcome"`
 	QualitySignals      []QualitySignal    `json:"quality_signals"`
 	FeedbackAttribution map[string]float64 `json:"feedback_attribution"`
+	Timestamp           *string            `json:"timestamp,omitempty"`
+	SavedTokens         *uint64            `json:"saved_tokens,omitempty"`
+	Quality             *QualitySignal     `json:"quality,omitempty"`
 }
 
 type ContextPolicy struct {
@@ -197,4 +262,6 @@ type AttributionReport struct {
 	TotalTokensDelivered uint64             `json:"total_tokens_delivered"`
 	TotalTokensSaved     uint64             `json:"total_tokens_saved"`
 	Entries              []AttributionEntry `json:"entries"`
+	TotalOriginal        *uint64            `json:"total_original,omitempty"`
+	TotalDelivered       *uint64            `json:"total_delivered,omitempty"`
 }
