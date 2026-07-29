@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { OclaClient } from "../src/client.js";
-import type { CanonicalTokenEnvelopeV1 } from "../src/types.js";
+import { streamEvents } from "../src/streaming.js";
+import type { CanonicalTokenEnvelopeV1, EnvelopePayload } from "../src/types.js";
 
 const envelope: CanonicalTokenEnvelopeV1 = {
   schema_version: 1,
@@ -36,6 +37,51 @@ describe("OclaClient", () => {
     expect(new OclaClient(" https://example.test/// ").baseUrl).toBe(
       "https://example.test",
     );
+  });
+
+  it("accepts an API key", () => {
+    expect(new OclaClient("https://example.test", "api-key").apiKey).toBe("api-key");
+  });
+
+  it("supports every envelope payload variant", () => {
+    const payloads: EnvelopePayload[] = [
+      { type: "messages", messages: [{ role: "user", content: "hello" }] },
+      { type: "stream_chunk", chunk_index: 0, delta: "hello" },
+      { type: "tool_call", tool_name: "ctx_read", arguments: "{}", result: "{}" },
+      { type: "usage", input_cost_usd: 0.01, output_cost_usd: 0.02, currency: "USD" },
+    ];
+
+    expect(payloads.map((payload) => ({ ...envelope, payload }).payload)).toEqual(payloads);
+  });
+
+  it("parses multi-line SSE data", async () => {
+    const response = new Response(
+      "event: envelope\ndata: {\"provider\":\"openai\",\ndata: \"model\":\"gpt-5\"}\n\n",
+    );
+    const events = [];
+    for await (const event of streamEvents(response)) events.push(event);
+
+    expect(events).toEqual([
+      { type: "envelope", data: { provider: "openai", model: "gpt-5" } },
+    ]);
+  });
+
+  it("streams envelope events with bearer authentication", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.headers).toEqual({
+        Accept: "text/event-stream",
+        Authorization: "Bearer api-key",
+      });
+      return new Response(`event: envelope\ndata: ${JSON.stringify(envelope)}\n\n`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const received: CanonicalTokenEnvelopeV1[] = [];
+    for await (const item of new OclaClient("https://example.test", "api-key").streamEnvelopes()) {
+      received.push(item);
+    }
+
+    expect(received).toEqual([envelope]);
   });
 
   it("calls all OCLA endpoints with the expected methods and paths", async () => {

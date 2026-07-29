@@ -1,10 +1,12 @@
 import type {
   CapabilitiesResponse,
+  CanonicalTokenEnvelopeV1,
   EnvelopeResponse,
   HealthResponse,
   JsonObject,
   LedgerSummary,
 } from "./types.js";
+import { streamEvents } from "./streaming.js";
 
 export type CapsuleData = { capsule_ref: string; data: string };
 
@@ -16,13 +18,15 @@ function stripTrailingSlashes(value: string): string {
 
 export class OclaClient {
   readonly baseUrl: string;
+  readonly apiKey: string;
 
-  constructor(baseUrl: string) {
+  constructor(baseUrl: string, apiKey = "") {
     const normalized = stripTrailingSlashes(baseUrl.trim());
     if (!normalized) {
       throw new Error("OclaClient: baseUrl is required");
     }
     this.baseUrl = normalized;
+    this.apiKey = apiKey;
   }
 
   async health(): Promise<HealthResponse> {
@@ -63,6 +67,24 @@ export class OclaClient {
   }
   async ledgerSummary(): Promise<LedgerSummary> {
     return this.get<LedgerSummary>("/ocla/v1/ledger/summary");
+  }
+  async *streamEnvelopes(): AsyncGenerator<CanonicalTokenEnvelopeV1> {
+    const resp = await fetch(`${this.baseUrl}/v1/events`, {
+      headers: {
+        Accept: "text/event-stream",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+    if (!resp.ok) {
+      const detail = await resp.text();
+      const suffix = detail.trim() ? `: ${detail.trim()}` : "";
+      throw new Error(`OCLA stream failed (${resp.status})${suffix}`);
+    }
+    for await (const event of streamEvents(resp)) {
+      if (event.type === "envelope") {
+        yield event.data as CanonicalTokenEnvelopeV1;
+      }
+    }
   }
   private async get<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: "GET" });

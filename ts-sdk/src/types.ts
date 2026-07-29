@@ -36,9 +36,11 @@ export interface OclaRequestContext {
   session_id: string;
   agent_id: string;
   content_ref: string;
-  tenant_id: string | null;
+  tenant_id?: string | null;
+  provider_label?: string;
+  model_label?: string;
 }
-export type TokenEnvelopeSurface = "mcp" | "proxy" | "shell" | "agent";
+export type TokenEnvelopeSurface = "mcp" | "proxy" | "gateway" | "shell" | "agent";
 export type TokenFlowDirection = "input" | "output";
 export interface TokenBalanceV1 {
   original_tokens: number;
@@ -46,17 +48,70 @@ export interface TokenBalanceV1 {
   delivered_tokens: number;
   provider_billed_tokens: number;
 }
+
+export type MessageRole = "system" | "user" | "assistant" | "tool";
+
+export interface ContentPart {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: string;
+}
+
+export interface MessageV1 {
+  role: MessageRole;
+  content: string | ContentPart[];
+  name?: string;
+}
+
+export interface MessagesPayload {
+  type: "messages";
+  messages: MessageV1[];
+}
+
+export interface StreamChunkPayload {
+  type: "stream_chunk";
+  chunk_index: number;
+  delta: string;
+  finish_reason?: string;
+}
+
+export interface ToolCallPayload {
+  type: "tool_call";
+  tool_name: string;
+  arguments: string;
+  result?: string;
+}
+
+export interface UsagePayload {
+  type: "usage";
+  input_cost_usd?: number;
+  output_cost_usd?: number;
+  total_cost_usd?: number;
+  currency: string;
+}
+
+export type EnvelopePayload =
+  | MessagesPayload
+  | StreamChunkPayload
+  | ToolCallPayload
+  | UsagePayload;
+
 export interface CanonicalTokenEnvelopeV1 {
-  schema_version: 1;
+  schema_version: number;
   context: OclaRequestContext;
   surface: TokenEnvelopeSurface;
   direction: TokenFlowDirection;
   provider: string;
   model: string;
-  token_balance: TokenBalanceV1;
-  route_ref: string | null;
-  policy_ref: string | null;
-  idempotency_key: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  balance?: TokenBalanceV1;
+  payload?: EnvelopePayload;
+  token_balance?: TokenBalanceV1;
+  route_ref?: string | null;
+  policy_ref?: string | null;
+  idempotency_key?: string;
 }
 export interface AgentEnvelopeV1 {
   schema_version: 1;
@@ -83,13 +138,19 @@ export type SensitivityLevel = "public" | "internal" | "confidential" | "restric
 export type ReceiptOutcome = "accepted" | "rejected" | "partial" | "unknown";
 
 export interface QualitySignal {
-  name: string;
-  value: number;
+  fidelity?: number;
+  calibration_accuracy?: number;
+  compression_ratio?: number;
+  name?: string;
+  value?: number;
 }
 
 export interface PlanBudget {
-  total: number;
-  used: number;
+  max_tokens?: number;
+  reserved_tokens?: number;
+  priority?: number;
+  total?: number;
+  used?: number;
 }
 
 export interface PlanEntry {
@@ -108,23 +169,29 @@ export interface ExcludedEntry {
 
 export interface ContextPlanV1 {
   plan_id: string;
-  intent: string;
+  timestamp?: string;
+  entries?: PlanEntry[];
+  policy?: ContextPolicy;
+  intent?: string;
   budget: PlanBudget;
-  selected: PlanEntry[];
-  excluded: ExcludedEntry[];
-  deferred: ExcludedEntry[];
-  provider_stats: Record<string, { candidates: number; selected: number }>;
+  selected?: PlanEntry[];
+  excluded?: ExcludedEntry[];
+  deferred?: ExcludedEntry[];
+  provider_stats?: Record<string, { candidates: number; selected: number }>;
 }
 
 export interface ContextReceiptV1 {
   receipt_id: string;
   plan_id: string;
   delivered_tokens: number;
-  cache_hits: number;
-  cache_misses: number;
+  timestamp?: string;
+  saved_tokens?: number;
+  quality?: QualitySignal;
+  cache_hits?: number;
+  cache_misses?: number;
   outcome: ReceiptOutcome;
-  quality_signals: QualitySignal[];
-  feedback_attribution: Record<string, number>;
+  quality_signals?: QualitySignal[];
+  feedback_attribution?: Record<string, number>;
 }
 
 export interface ContextPolicy {
@@ -143,9 +210,11 @@ export interface AttributionEntry {
 }
 
 export interface AttributionReport {
-  plan_id: string;
-  receipt_id: string;
-  total_tokens_delivered: number;
-  total_tokens_saved: number;
+  total_original?: number;
+  total_delivered?: number;
+  plan_id?: string;
+  receipt_id?: string;
+  total_tokens_delivered?: number;
+  total_tokens_saved?: number;
   entries: AttributionEntry[];
 }
