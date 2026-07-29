@@ -1,0 +1,47 @@
+{
+  "schema_version": "leanctx.branch-protection-policy/v1",
+  "github": {
+    "owner": "yvgude",
+    "repo": "lean-ctx",
+    "branches": {
+      "main": {
+        "enforce_admins": true,
+        "required_status_checks": {
+          "strict": false,
+          "contexts": [
+            "Format",
+            "Clippy",
+            "Test (ubuntu-latest)",
+            "Security Scan",
+            "public-clean-room"
+          ]
+        },
+        "required_pull_request_reviews": null,
+        "required_signatures": false,
+        "allow_force_pushes": false,
+        "allow_deletions": false,
+        "required_linear_history": false
+      }
+    }
+  },
+  "gitlab": {
+    "host": "gitlab.pounce.ch",
+    "project": "root/lean-ctx",
+    "branches": {
+      "main": {
+        "push_access_level": 40,
+        "merge_access_level": 40,
+        "allow_force_push": false
+      }
+    }
+  },
+  "scanner_source_paths": [
+    "security/branch-protection-policy-v1.json",
+    "scripts/apply-branch-protection.py",
+    "scripts/verify-branch-protection.py"
+  ],
+  "scanner_source_sha256": {
+    "scripts/apply-branch-protection.py": "40f9ecd4513b754627800b3216eb6b1e093592df614dc8dd08f041a3c4656937",
+    "scripts/verify-branch-protection.py": "c8c0b346c8bb38e9b4d325064aa86c0d7fe5ddee3b89848ac63a4756b4337dd0"
+  }
+}
