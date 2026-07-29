@@ -12,8 +12,17 @@
 //! deterministic function of the database contents and the window — exporting
 //! twice yields byte-identical rows (stable ORDER BY, rounded sums).
 
+use std::sync::Arc;
+
+use axum::extract::{Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Json, Response};
 use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
+
+use crate::core::billing::settlement_evidence::SettlementEvidenceRoleV2;
+
+use super::admin_api::{AdminState, UsageQuery};
 
 /// Schema discriminator for [`EvidenceExportV1`].
 pub const EVIDENCE_SCHEMA_V1: &str = "leanctx.evidence.v1";
@@ -49,6 +58,45 @@ pub struct EvidenceTotals {
     pub reference_cost_usd: f64,
     pub persons: u64,
 }
+
+/// OCLA-compatible period envelope for a gateway evidence export.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OclaEvidencePeriodV2 {
+    /// Inclusive RFC 3339 UTC timestamp.
+    pub start: String,
+    /// Inclusive RFC 3339 UTC timestamp.
+    pub end: String,
+}
+
+/// Explicit settlement-evidence roles not represented by a gateway usage export.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OclaEvidenceGapAnalysisV2 {
+    pub missing_roles: Vec<SettlementEvidenceRoleV2>,
+}
+
+/// Payload-free OCLA envelope for private-plane evidence discovery.
+///
+/// A gateway usage export proves signed usage integrity. It does not fabricate
+/// settlement claims, so every settlement role that is absent is reported as a
+/// gap for the private plane to supply and trust out of band.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OclaEvidenceSummaryV2 {
+    pub schema_version: u16,
+    pub evidence_count: u64,
+    pub roles_present: Vec<SettlementEvidenceRoleV2>,
+    pub period: OclaEvidencePeriodV2,
+    pub gap_analysis: OclaEvidenceGapAnalysisV2,
+}
+
+const SETTLEMENT_EVIDENCE_ROLES_V2: [SettlementEvidenceRoleV2; 7] = [
+    SettlementEvidenceRoleV2::Baseline,
+    SettlementEvidenceRoleV2::Price,
+    SettlementEvidenceRoleV2::Contract,
+    SettlementEvidenceRoleV2::Quality,
+    SettlementEvidenceRoleV2::Attribution,
+    SettlementEvidenceRoleV2::PeriodCompletion,
+    SettlementEvidenceRoleV2::CustomerApproval,
+];
 
 /// Outcome of [`EvidenceExportV1::verify`].
 #[derive(Debug, Clone)]
@@ -162,6 +210,62 @@ impl EvidenceExportV1 {
                 error: None,
             },
             Err(_) => fail(digest_valid, "signature does not match canonical payload"),
+        }
+    }
+}
+
+impl OclaEvidenceSummaryV2 {
+    /// Builds an OCLA discovery envelope without upgrading usage data into a
+    /// settlement claim. The private plane must provide missing v2 roles.
+    #[must_use]
+    pub fn from_usage_export(export: &EvidenceExportV1) -> Self {
+        Self {
+            schema_version: 2,
+            evidence_count: export.row_count,
+            roles_present: Vec::new(),
+            period: OclaEvidencePeriodV2 {
+                start: export.from.clone(),
+                end: export.to.clone(),
+            },
+            gap_analysis: OclaEvidenceGapAnalysisV2 {
+                missing_roles: SETTLEMENT_EVIDENCE_ROLES_V2.to_vec(),
+            },
+        }
+    }
+}
+
+/// GET /api/admin/evidence/ocla
+///
+/// Returns evidence in an OCLA-compatible envelope for private-plane
+/// consumption. The summary is intentionally payload-free and never treats a
+/// signed usage export as settlement-eligible evidence.
+pub async fn ocla_evidence_summary(
+    State(state): State<Arc<AdminState>>,
+    Query(query): Query<UsageQuery>,
+) -> Response {
+    let (from, to) =
+        match super::admin_api::resolve_window(query.from.as_deref(), query.to.as_deref()) {
+            Ok(window) => window,
+            Err(message) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": message })),
+                )
+                    .into_response();
+            }
+        };
+
+    match generate(&state.pool, from, to).await {
+        Ok(export) => Json(OclaEvidenceSummaryV2::from_usage_export(&export)).into_response(),
+        Err(error) => {
+            tracing::warn!("OCLA evidence summary failed: {error:#}");
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "evidence summary failed — see gateway logs"
+                })),
+            )
+                .into_response()
         }
     }
 }
@@ -297,5 +401,24 @@ mod tests {
             b.canonical_bytes().unwrap(),
             "same inputs must produce byte-identical canonical payloads"
         );
+    }
+
+    #[test]
+    fn ocla_summary_reports_usage_evidence_without_inventing_settlement_roles() {
+        let summary = OclaEvidenceSummaryV2::from_usage_export(&sample());
+
+        assert_eq!(summary.schema_version, 2);
+        assert_eq!(summary.evidence_count, 2);
+        assert!(summary.roles_present.is_empty());
+        assert_eq!(summary.period.start, "2026-06-01T00:00:00Z");
+        assert_eq!(summary.period.end, "2026-06-30T23:59:59Z");
+        assert_eq!(
+            summary.gap_analysis.missing_roles,
+            SETTLEMENT_EVIDENCE_ROLES_V2
+        );
+
+        let json = serde_json::to_value(summary).expect("summary serializes");
+        assert_eq!(json["schema_version"], 2);
+        assert_eq!(json["gap_analysis"]["missing_roles"][0], "baseline");
     }
 }
