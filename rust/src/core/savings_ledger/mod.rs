@@ -4,6 +4,7 @@
 //! leaves the machine; opt-in org roll-up + cryptographic signing are later phases. See
 //! `docs/business/03-verified-savings-ledger.md`.
 
+pub mod combined;
 pub mod event;
 pub mod evidence_projection;
 pub mod push;
@@ -14,6 +15,7 @@ pub mod store;
 #[cfg(test)]
 mod migration_tests;
 
+pub use combined::CombinedSavingsReport;
 pub use event::{MECHANISM_CACHING, MECHANISM_COMPRESSION, MECHANISM_ROUTING, SavingsEvent};
 pub use evidence_projection::{
     LedgerAttributionLinkV2, LedgerEvidenceProjectionV2, LedgerEvidenceSourceBindingV2,
@@ -233,6 +235,9 @@ pub fn record_tool_event(
     };
 
     let mut event = new_event(tool);
+    event.attribution_group = Some(
+        crate::core::attribution::attribution_group_for_mechanism(&event.mechanism).to_string(),
+    );
     event.baseline_tokens = baseline_tokens as u64;
     event.actual_tokens = actual_tokens as u64;
     event.saved_tokens = saved as u64;
@@ -263,6 +268,9 @@ pub fn record_tool_event_with_stream(
 
     let quote = crate::core::gain::model_pricing::ModelPricing::load().quote(None);
     let mut event = new_event(tool);
+    event.attribution_group = Some(
+        crate::core::attribution::attribution_group_for_mechanism(&event.mechanism).to_string(),
+    );
     event.baseline_tokens = baseline_tokens as u64;
     event.actual_tokens = actual_tokens as u64;
     event.saved_tokens = saved as u64;
@@ -301,6 +309,10 @@ pub fn record_routing_event(requested_model: &str, serving_model: &str, input_to
 
     let mut event = new_event("proxy_route");
     event.mechanism = event::MECHANISM_ROUTING.to_string();
+    event.attribution_group = Some(
+        crate::core::attribution::attribution_group_for_mechanism(event::MECHANISM_ROUTING)
+            .to_string(),
+    );
     // The event is denominated in the *serving* model (what actually ran); the
     // rate delta to the requested model is captured in saved_usd.
     let quote = pricing.quote(Some(serving_model));
@@ -330,6 +342,10 @@ pub fn record_caching_event(model: &str, cache_read_tokens: u64, discount_usd: f
 
     let mut event = new_event("proxy_cache");
     event.mechanism = event::MECHANISM_CACHING.to_string();
+    event.attribution_group = Some(
+        crate::core::attribution::attribution_group_for_mechanism(event::MECHANISM_CACHING)
+            .to_string(),
+    );
     let quote = crate::core::gain::model_pricing::ModelPricing::load().quote(Some(model));
     event.model_id = quote.model_key;
     event.unit_price_per_m_usd = quote.cost.input_per_m;
@@ -352,6 +368,9 @@ pub fn record_bounce_event(wasted_tokens: usize) {
     let wasted = wasted_tokens as u64;
 
     let mut event = new_event("bounce");
+    event.attribution_group = Some(
+        crate::core::attribution::attribution_group_for_mechanism(&event.mechanism).to_string(),
+    );
     event.baseline_tokens = wasted;
     event.actual_tokens = wasted;
     event.bounce_adjustment = wasted;
@@ -611,5 +630,29 @@ mod tests {
         assert_eq!(ev.saved_tokens, 0, "routing saves dollars, not tokens");
         // 10k tokens × (5.00 − 0.125)/MTok = $0.04875.
         assert!((ev.saved_usd - 0.048_75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn record_tool_event_sets_attribution_group() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        let dir = std::env::temp_dir().join(format!("lctx-ledger-attr-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::test_env::set_var("LEAN_CTX_DATA_DIR", dir.to_str().unwrap());
+
+        record_tool_event("ctx_read", 1000, 200, None, None);
+
+        let ledger = dir.join("savings").join("ledger.jsonl");
+        let content = std::fs::read_to_string(&ledger).expect("ledger written");
+        crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let ev: SavingsEvent =
+            serde_json::from_str(content.lines().next().unwrap()).expect("valid event JSON");
+        assert_eq!(
+            ev.attribution_group.as_deref(),
+            Some("input_optimization"),
+            "compression events must have attribution_group set"
+        );
     }
 }

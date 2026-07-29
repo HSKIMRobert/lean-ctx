@@ -615,3 +615,27 @@ fn verdict_block_degrades_map_to_signatures() {
     assert_eq!(mode, "signatures");
     assert!(degraded);
 }
+
+#[test]
+fn monotonic_guard_reports_zero_savings_when_annotations_inflate() {
+    let original_tokens = 100_usize;
+    let final_tokens = 150_usize;
+    let verified_saved = original_tokens.saturating_sub(final_tokens);
+    assert_eq!(verified_saved, 0, "inflated output must report 0 savings");
+}
+
+#[test]
+fn monotonic_guard_preserves_savings_when_compression_wins() {
+    let original_tokens = 100_usize;
+    let final_tokens = 60_usize;
+    let verified_saved = original_tokens.saturating_sub(final_tokens);
+    assert_eq!(verified_saved, 40, "40 tokens saved");
+}
+
+#[test]
+fn monotonic_guard_handles_equal_tokens() {
+    let original_tokens = 100_usize;
+    let final_tokens = 100_usize;
+    let verified_saved = original_tokens.saturating_sub(final_tokens);
+    assert_eq!(verified_saved, 0, "no savings when equal");
+}

@@ -1,12 +1,19 @@
 //! Adapter between proxy routing events and OCLA quality tracking.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::core::ocla::routing_quality::{RoutingDecision, RoutingOutcome, RoutingQualityTracker};
 
 const MAX_PENDING_DECISIONS: usize = 1_000;
 type PendingDecisions = HashMap<(String, String), VecDeque<RoutingDecision>>;
+
+static GLOBAL_FEEDBACK: OnceLock<RoutingFeedback> = OnceLock::new();
+
+/// Process-wide routing feedback collector used by the proxy router.
+pub fn global_feedback() -> &'static RoutingFeedback {
+    GLOBAL_FEEDBACK.get_or_init(RoutingFeedback::new)
+}
 
 /// Collects proxy routing decisions and their measured outcomes.
 #[derive(Clone, Debug)]

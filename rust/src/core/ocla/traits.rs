@@ -2,10 +2,11 @@ use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 
 use super::types::{
     AgentEnvelope, CompressionRequest, CompressionResult, ConfigProposal, ConfigTuningRequest,
-    ConnectorJob, EfficiencyAnalysis, EfficiencySample, ExperimentRequest, ExperimentResult,
-    IntentDecision, IntentRequest, MetricPoint, ModelRouteRequest, Observation, OclaCapability,
-    OclaResult, Outcome, ResponseOptimizationRequest, ResponseOptimizationResult, RoutingDecision,
-    SavingsEvidence, ScheduledJob, UsageRecord,
+    ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryStats, EfficiencyAnalysis,
+    EfficiencySample, ExperimentRequest, ExperimentResult, IntentDecision, IntentRequest,
+    MetricPoint, ModelRouteRequest, Observation, OclaCapability, OclaResult, Outcome,
+    ResponseOptimizationRequest, ResponseOptimizationResult, RoutingDecision, SavingsEvidence,
+    ScheduledJob, UsageRecord,
 };
 
 /// Common, versioned discovery surface for every OCLA capability.
@@ -82,6 +83,12 @@ pub trait AgentGateway: OclaService {
     ) -> OclaResult<String>;
 }
 
+pub trait DeliveryRegistry: OclaService {
+    fn check_delivery(&self, blake3: &[u8; 12], mtime: u64) -> Option<DeliveryRecord>;
+    fn record_delivery(&self, entry: DeliveryEntry);
+    fn delivery_stats(&self) -> DeliveryStats;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +110,6 @@ mod tests {
         assert_object_safe::<dyn ExperimentRunner>();
         assert_object_safe::<dyn ConnectorScheduler>();
         assert_object_safe::<dyn AgentGateway>();
+        assert_object_safe::<dyn DeliveryRegistry>();
     }
 }

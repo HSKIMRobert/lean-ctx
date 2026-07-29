@@ -23,15 +23,12 @@
 //! shape mismatch, unextractable query — routes nothing: the request forwards
 //! unchanged. A routing bug can cost savings, never availability.
 
-use super::routing_feedback::RoutingFeedback;
+use super::routing_feedback::global_feedback;
 use crate::core::config::{
     ResolvedProvider, RoutingRules, Upstreams, WireShape, parse_route_target,
 };
 use crate::core::ocla::registry::OclaRegistry;
 use crate::core::ocla::types::{ModelRouteRequest, OclaRequestContext};
-use std::sync::OnceLock;
-
-static ROUTING_FEEDBACK: OnceLock<RoutingFeedback> = OnceLock::new();
 
 #[cfg(test)]
 use crate::core::ocla::builtin::model_router::BuiltinModelRouter;
@@ -86,10 +83,7 @@ pub fn route_request(
     rules: &RoutingRules,
     xlat_ok: bool,
 ) -> Option<RouteDecision> {
-    if ROUTING_FEEDBACK
-        .get_or_init(RoutingFeedback::new)
-        .should_use_fallback()
-    {
+    if global_feedback().should_use_fallback() {
         tracing::warn!("routing quality below threshold, using fallback");
         return None;
     }
@@ -159,6 +153,11 @@ pub fn route_request(
     }
 
     parsed["model"] = serde_json::Value::String(new_model.clone());
+    let route_reason = if rules.aliases.contains_key(&requested) {
+        "alias"
+    } else {
+        "intent_tier"
+    };
     let decision = RouteDecision {
         model: new_model,
         routed_from: requested,
@@ -168,6 +167,7 @@ pub fn route_request(
         local: resolved.local,
         xlat: resolved.xlat,
     };
+    global_feedback().record_decision(&decision.routed_from, &decision.model, route_reason);
     Some(decision)
 }
 
@@ -376,7 +376,7 @@ mod tests {
 
     #[test]
     fn route_decision_does_not_record_feedback_before_outcome() {
-        let feedback = ROUTING_FEEDBACK.get_or_init(RoutingFeedback::new);
+        let feedback = global_feedback();
         let before = feedback.stats();
         let mut body = json!({"model":"expensive","messages":[{"role":"user","content":"hi"}]});
 
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn poor_feedback_triggers_fallback() {
-        let feedback = RoutingFeedback::new();
+        let feedback = crate::proxy::routing_feedback::RoutingFeedback::new();
         feedback.record_outcome("expensive", "fast", 0.4, 0, 0);
         assert!(feedback.should_use_fallback());
     }

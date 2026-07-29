@@ -8,6 +8,7 @@ pub mod agent_gateway;
 pub mod compression_provider;
 pub mod config_tuner;
 pub mod connector_scheduler;
+pub mod delivery_registry;
 pub mod efficiency_analyzer;
 pub mod experiment_runner;
 pub mod intent_classifier;

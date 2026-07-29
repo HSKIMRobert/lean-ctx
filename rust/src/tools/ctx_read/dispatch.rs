@@ -226,6 +226,10 @@ fn handle_with_options_resolved_preread(
     // correctness over cache savings for short-lived sub-agent contexts.
     let effective_fresh = fresh || force_fresh_env() || is_subagent_context();
 
+    if !effective_fresh && let Some(stub) = try_cross_agent_stub(path, mode) {
+        return stub;
+    }
+
     if PluginManager::has_listener("pre_read") {
         PluginManager::fire_hook_background(HookPoint::PreRead {
             path: path.to_string(),
@@ -256,6 +260,10 @@ fn handle_with_options_resolved_preread(
         if !matches!(result.resolved_mode.as_str(), "full" | "full-compact") {
             entry.full_content_delivered = false;
         }
+    }
+
+    if !result.is_cache_hit {
+        record_cross_agent_delivery(path, result.output_tokens);
     }
 
     // SSOT via [`ReadMode`] (#528): lossy summaries may elide shared blocks.
@@ -555,10 +563,81 @@ pub fn resolve_explicit_delta_mode(
     unchanged
 }
 
+fn file_blake3_prefix(path: &str) -> Option<([u8; 12], u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let bytes = std::fs::read(path).ok()?;
+    let hash = blake3::hash(&bytes);
+    let full = hash.as_bytes();
+    let mut prefix = [0u8; 12];
+    prefix.copy_from_slice(&full[..12]);
+    Some((prefix, mtime))
+}
+
+fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
+    if !crate::core::config::Config::load().ocla.delivery_enabled() {
+        return None;
+    }
+    if matches!(mode, "full" | "raw" | "diff") {
+        return None;
+    }
+    let (hash, mtime) = file_blake3_prefix(path)?;
+    let reg = crate::core::ocla::OclaRegistry::global();
+    let record = reg.delivery_registry.check_delivery(&hash, mtime)?;
+    let short = protocol::shorten_path(path);
+    let stub = format!(
+        "{short} [cross-agent · {lines}L · read by {agent} · use fresh=true to force]",
+        lines = record.line_count,
+        agent = record.agent_id,
+    );
+    let tokens = count_tokens(&stub);
+    Some(ReadOutput {
+        content: stub,
+        resolved_mode: "cross-agent-stub".into(),
+        output_tokens: tokens,
+        is_cache_hit: true,
+    })
+}
+
+fn record_cross_agent_delivery(path: &str, _tokens: usize) {
+    if !crate::core::config::Config::load().ocla.delivery_enabled() {
+        return;
+    }
+    let Some((hash, mtime)) = file_blake3_prefix(path) else {
+        return;
+    };
+    let line_count = std::fs::read_to_string(path).map_or(0, |c| c.lines().count() as u32);
+    let agent_id = std::env::var("CURSOR_TASK_ID")
+        .or_else(|_| std::env::var("CLAUDECODE"))
+        .unwrap_or_else(|_| format!("proc:{}", std::process::id()));
+    let conversation_id = agent_id.clone();
+    let entry = crate::core::ocla::types::DeliveryEntry {
+        blake3: hash,
+        path: path.into(),
+        line_count,
+        agent_id,
+        conversation_id,
+        mtime,
+    };
+    let reg = crate::core::ocla::OclaRegistry::global();
+    reg.delivery_registry.record_delivery(entry);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn cross_agent_stub_miss_returns_none() {
+        let stub = try_cross_agent_stub("/nonexistent/file.rs", "auto");
+        assert!(stub.is_none());
+    }
 
     #[test]
     fn warm_stub_hit_records_central_telemetry() {

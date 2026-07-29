@@ -1,4 +1,4 @@
-//! OclaRegistry — singleton that wires all 14 builtin trait implementations.
+//! OclaRegistry — singleton that wires all 15 builtin trait implementations.
 //!
 //! Provides `OclaRegistry::global()` for production code to access any OCLA
 //! capability through its trait interface. The Strangler Fig adoption pattern
@@ -13,16 +13,17 @@ use std::cell::Cell;
 use super::builtin::{
     agent_gateway::BuiltinAgentGateway, compression_provider::BuiltinCompressionProvider,
     config_tuner::BuiltinConfigTuner, connector_scheduler::BuiltinConnectorScheduler,
-    efficiency_analyzer::BuiltinEfficiencyAnalyzer, experiment_runner::BuiltinExperimentRunner,
-    intent_classifier::BuiltinIntentClassifier, metrics_exporter::BuiltinMetricsExporter,
-    model_router::BuiltinModelRouter, observation_hook::BuiltinObservationHook,
-    outcome_tracker::BuiltinOutcomeTracker, response_optimizer::BuiltinResponseOptimizer,
-    savings_ledger::BuiltinSavingsLedger, usage_sink::BuiltinUsageSink,
+    delivery_registry::BuiltinDeliveryRegistry, efficiency_analyzer::BuiltinEfficiencyAnalyzer,
+    experiment_runner::BuiltinExperimentRunner, intent_classifier::BuiltinIntentClassifier,
+    metrics_exporter::BuiltinMetricsExporter, model_router::BuiltinModelRouter,
+    observation_hook::BuiltinObservationHook, outcome_tracker::BuiltinOutcomeTracker,
+    response_optimizer::BuiltinResponseOptimizer, savings_ledger::BuiltinSavingsLedger,
+    usage_sink::BuiltinUsageSink,
 };
 use super::traits::{
-    AgentGateway, CompressionProvider, ConfigTuner, ConnectorScheduler, EfficiencyAnalyzer,
-    ExperimentRunner, IntentClassifier, MetricsExporter, ModelRouter, ObservationHook,
-    OutcomeTracker, ResponseOptimizer, SavingsLedger, UsageSink,
+    AgentGateway, CompressionProvider, ConfigTuner, ConnectorScheduler, DeliveryRegistry,
+    EfficiencyAnalyzer, ExperimentRunner, IntentClassifier, MetricsExporter, ModelRouter,
+    ObservationHook, OutcomeTracker, ResponseOptimizer, SavingsLedger, UsageSink,
 };
 
 static GLOBAL_REGISTRY: OnceLock<OclaRegistry> = OnceLock::new();
@@ -47,6 +48,7 @@ pub struct OclaRegistry {
     pub experiment_runner: Arc<dyn ExperimentRunner>,
     pub connector_scheduler: Arc<dyn ConnectorScheduler>,
     pub agent_gateway: Arc<dyn AgentGateway>,
+    pub delivery_registry: Arc<dyn DeliveryRegistry>,
 }
 
 impl OclaRegistry {
@@ -82,6 +84,7 @@ impl OclaRegistry {
             experiment_runner: Arc::new(BuiltinExperimentRunner::new()),
             connector_scheduler: Arc::new(BuiltinConnectorScheduler::new()),
             agent_gateway: Arc::new(BuiltinAgentGateway::new()),
+            delivery_registry: Arc::new(BuiltinDeliveryRegistry::new()),
         }
     }
 }
@@ -196,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_exposes_all_fourteen_capabilities() {
+    fn registry_exposes_all_fifteen_capabilities() {
         let reg = OclaRegistry::with_builtins();
         assert_eq!(
             reg.observation_hook.capability().kind,
@@ -209,6 +212,10 @@ mod tests {
         assert_eq!(
             reg.model_router.capability().kind,
             OclaCapabilityKind::ModelRouter
+        );
+        assert_eq!(
+            reg.delivery_registry.capability().kind,
+            OclaCapabilityKind::DeliveryRegistry
         );
     }
 
@@ -281,6 +288,10 @@ mod tests {
             (
                 reg.agent_gateway.capability(),
                 OclaCapabilityKind::AgentGateway,
+            ),
+            (
+                reg.delivery_registry.capability(),
+                OclaCapabilityKind::DeliveryRegistry,
             ),
         ];
 
@@ -394,6 +405,17 @@ mod tests {
                 capsule_ref: "capsule:registry-smoke".into(),
                 budget_tokens: 100,
             });
+            reg.delivery_registry
+                .record_delivery(crate::core::ocla::types::DeliveryEntry {
+                    blake3: [0u8; 12],
+                    path: "test.rs".into(),
+                    line_count: 42,
+                    agent_id: "agent-1".into(),
+                    conversation_id: "conv-1".into(),
+                    mtime: 1000,
+                });
+            let _ = reg.delivery_registry.check_delivery(&[0u8; 12], 1000);
+            let _ = reg.delivery_registry.delivery_stats();
         }));
 
         assert!(result.is_ok(), "builtin method panicked");

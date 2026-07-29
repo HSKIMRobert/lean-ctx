@@ -43,6 +43,9 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/capsule", post(capsule_register))
         .route("/ocla/v1/capsule/{ref}", get(capsule_resolve))
         .route("/ocla/v1/capsule/{ref}/fork", post(capsule_fork))
+        .route("/ocla/v1/delivery/check", post(delivery_check))
+        .route("/ocla/v1/delivery/record", post(delivery_record))
+        .route("/ocla/v1/delivery/stats", get(delivery_stats))
 }
 
 #[derive(Default)]
@@ -395,6 +398,53 @@ async fn capsule_fork(
     }
 }
 
+#[derive(Deserialize)]
+struct DeliveryCheckRequest {
+    blake3: [u8; 12],
+    mtime: u64,
+}
+
+async fn delivery_check(
+    Json(req): Json<DeliveryCheckRequest>,
+) -> (StatusCode, Json<Value>) {
+    let reg = OclaRegistry::global();
+    match reg.delivery_registry.check_delivery(&req.blake3, req.mtime) {
+        Some(record) => (
+            StatusCode::OK,
+            Json(json!({
+                "hit": true,
+                "path": record.path,
+                "line_count": record.line_count,
+                "agent_id": record.agent_id,
+                "conversation_id": record.conversation_id,
+                "read_at": record.read_at,
+                "fresh": record.fresh,
+            })),
+        ),
+        None => (StatusCode::OK, Json(json!({"hit": false}))),
+    }
+}
+
+async fn delivery_record(
+    Json(entry): Json<crate::core::ocla::types::DeliveryEntry>,
+) -> StatusCode {
+    let reg = OclaRegistry::global();
+    reg.delivery_registry.record_delivery(entry);
+    StatusCode::NO_CONTENT
+}
+
+async fn delivery_stats() -> Json<Value> {
+    let reg = OclaRegistry::global();
+    let stats = reg.delivery_registry.delivery_stats();
+    Json(json!({
+        "total_entries": stats.total_entries,
+        "stubs_served": stats.stubs_served,
+        "tokens_saved": stats.tokens_saved,
+        "unique_paths": stats.unique_paths,
+        "unique_agents": stats.unique_agents,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{CanonicalTokenEnvelopeV1, OCLA_API_VERSION, ocla_router};
@@ -732,5 +782,91 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(delete.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delivery_check_miss_returns_no_hit() {
+        let app = ocla_router();
+        let body = json!({"blake3": [0,0,0,0,0,0,0,0,0,0,0,0], "mtime": 1000});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/delivery/check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let val: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(val["hit"], false);
+    }
+
+    #[tokio::test]
+    async fn delivery_record_then_check_returns_hit() {
+        let app = ocla_router();
+
+        let entry = json!({
+            "blake3": [1,2,3,4,5,6,7,8,9,10,11,12],
+            "path": "src/test.rs",
+            "line_count": 42,
+            "agent_id": "agent-x",
+            "conversation_id": "conv-x",
+            "mtime": 2000
+        });
+        let record_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/delivery/record")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&entry).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(record_resp.status(), StatusCode::NO_CONTENT);
+
+        let check_body = json!({"blake3": [1,2,3,4,5,6,7,8,9,10,11,12], "mtime": 2000});
+        let check_resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/delivery/check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&check_body).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(check_resp.status(), StatusCode::OK);
+        let bytes = to_bytes(check_resp.into_body(), usize::MAX).await.unwrap();
+        let val: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(val["hit"], true);
+        assert_eq!(val["path"], "src/test.rs");
+        assert_eq!(val["agent_id"], "agent-x");
+    }
+
+    #[tokio::test]
+    async fn delivery_stats_returns_counts() {
+        let app = ocla_router();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/ocla/v1/delivery/stats")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let val: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(val["total_entries"].is_number());
+        assert!(val["stubs_served"].is_number());
     }
 }

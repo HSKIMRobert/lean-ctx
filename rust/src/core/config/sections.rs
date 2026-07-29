@@ -19,6 +19,31 @@ use serde::{Deserialize, Serialize};
 pub struct OclaConfig {
     pub sidecar: crate::core::ocla::sidecar::SidecarConfig,
     pub grpc: crate::core::ocla::grpc_bridge::GrpcConfig,
+    pub delivery: DeliveryConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DeliveryConfig {
+    pub enabled: bool,
+    pub max_entries: usize,
+    pub ttl_minutes: u64,
+}
+
+impl Default for DeliveryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_entries: 4096,
+            ttl_minutes: 30,
+        }
+    }
+}
+
+impl OclaConfig {
+    pub fn delivery_enabled(&self) -> bool {
+        self.delivery.enabled
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
