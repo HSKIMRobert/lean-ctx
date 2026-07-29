@@ -46,6 +46,72 @@ impl OclaConfig {
     }
 }
 
+/// Agent lifecycle configuration: TTLs, GC intervals, scratchpad limits.
+///
+/// Maps to `[agents]` in config.toml. All fields have sane defaults so existing
+/// configs without this section continue to work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentsConfig {
+    /// How often the background reaper runs (minutes). 0 = disabled.
+    pub gc_interval_minutes: u64,
+    /// Identity registry: decommission agents not seen for this many hours.
+    pub identity_ttl_hours: u64,
+    /// Presence registry: remove finished agents older than this (hours).
+    pub presence_ttl_hours: u64,
+    /// Default TTL for scratchpad messages without explicit expiry (hours).
+    pub scratchpad_default_ttl_hours: u64,
+    /// Logical session timeout (seconds).
+    pub logical_session_ttl_seconds: u64,
+    /// Max scratchpad entries before oldest are evicted.
+    pub max_scratchpad_entries: usize,
+}
+
+impl Default for AgentsConfig {
+    fn default() -> Self {
+        Self {
+            gc_interval_minutes: 10,
+            identity_ttl_hours: 48,
+            presence_ttl_hours: 24,
+            scratchpad_default_ttl_hours: 12,
+            logical_session_ttl_seconds: 180,
+            max_scratchpad_entries: 200,
+        }
+    }
+}
+
+#[cfg(test)]
+mod agents_config_tests {
+    use super::AgentsConfig;
+
+    #[test]
+    fn default_values_are_sane() {
+        let cfg = AgentsConfig::default();
+        assert_eq!(cfg.gc_interval_minutes, 10);
+        assert_eq!(cfg.identity_ttl_hours, 48);
+        assert_eq!(cfg.presence_ttl_hours, 24);
+        assert_eq!(cfg.scratchpad_default_ttl_hours, 12);
+        assert_eq!(cfg.logical_session_ttl_seconds, 180);
+        assert_eq!(cfg.max_scratchpad_entries, 200);
+    }
+
+    #[test]
+    fn deserializes_with_missing_fields() {
+        let json = r"{}";
+        let cfg: AgentsConfig = serde_json::from_str(json).expect("empty object → defaults");
+        assert_eq!(cfg.gc_interval_minutes, 10);
+    }
+
+    #[test]
+    fn partial_override() {
+        let json = r#"{"gc_interval_minutes": 5, "presence_ttl_hours": 12}"#;
+        let cfg: AgentsConfig = serde_json::from_str(json).expect("partial");
+        assert_eq!(cfg.gc_interval_minutes, 5);
+        assert_eq!(cfg.presence_ttl_hours, 12);
+        assert_eq!(cfg.identity_ttl_hours, 48);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SecretDetectionConfig {
