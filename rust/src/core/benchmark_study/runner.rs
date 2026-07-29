@@ -59,11 +59,18 @@ fn run_arm(config: &StudyConfig, dataset: &str, arm: Arm) -> ArmResult {
 
 fn build_llm_config(config: &StudyConfig, arm: Arm) -> Result<LlmClientConfig, String> {
     let model = select_model(config, arm);
-    if arm.uses_compression() {
-        LlmClientConfig::via_proxy(&model)
-    } else {
-        LlmClientConfig::direct(&model)
+
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY")
+        && !key.is_empty()
+    {
+        return if arm.uses_compression() {
+            LlmClientConfig::via_proxy_anthropic(&model)
+        } else {
+            LlmClientConfig::direct_anthropic(&model)
+        };
     }
+
+    Ok(LlmClientConfig::via_proxy_openai(&model))
 }
 
 fn select_model(config: &StudyConfig, arm: Arm) -> String {

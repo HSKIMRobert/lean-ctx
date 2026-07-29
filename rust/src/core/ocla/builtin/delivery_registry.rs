@@ -5,7 +5,7 @@
 //! a stub is served instead of re-reading and re-compressing, saving tokens.
 //!
 //! Storage: in-process DashMap keyed by blake3[..12]. The daemon wire_api
-//! endpoints mirror this store for cross-process coordination.
+//! endpoints expose this store for cross-process coordination via IPC.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,12 +19,12 @@ use crate::core::ocla::types::{
 };
 use crate::core::ocla_bus::{self, OclaEvent};
 
-const MAX_ENTRIES: usize = 4096;
-
 pub struct BuiltinDeliveryRegistry {
     store: DashMap<[u8; 12], DeliveryRecord>,
     stubs_served: AtomicU64,
     tokens_saved: AtomicU64,
+    max_entries: usize,
+    ttl_secs: u64,
 }
 
 impl Default for BuiltinDeliveryRegistry {
@@ -35,10 +35,24 @@ impl Default for BuiltinDeliveryRegistry {
 
 impl BuiltinDeliveryRegistry {
     pub fn new() -> Self {
+        let cfg = crate::core::config::Config::load().ocla.delivery.clone();
         Self {
             store: DashMap::with_capacity(256),
             stubs_served: AtomicU64::new(0),
             tokens_saved: AtomicU64::new(0),
+            max_entries: cfg.max_entries,
+            ttl_secs: cfg.ttl_minutes * 60,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_limits(max_entries: usize, ttl_secs: u64) -> Self {
+        Self {
+            store: DashMap::with_capacity(256),
+            stubs_served: AtomicU64::new(0),
+            tokens_saved: AtomicU64::new(0),
+            max_entries,
+            ttl_secs,
         }
     }
 
@@ -49,8 +63,20 @@ impl BuiltinDeliveryRegistry {
             .as_secs()
     }
 
+    fn is_expired(&self, record: &DeliveryRecord) -> bool {
+        Self::now_epoch().saturating_sub(record.read_at) > self.ttl_secs
+    }
+
+    fn evict_expired(&self) {
+        let now = Self::now_epoch();
+        let ttl = self.ttl_secs;
+        self.store
+            .retain(|_, record| now.saturating_sub(record.read_at) <= ttl);
+    }
+
     fn evict_oldest_if_full(&self) {
-        if self.store.len() < MAX_ENTRIES {
+        self.evict_expired();
+        if self.store.len() < self.max_entries {
             return;
         }
         let oldest = self
@@ -74,6 +100,11 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
     fn check_delivery(&self, blake3: &[u8; 12], mtime: u64) -> Option<DeliveryRecord> {
         let entry = self.store.get(blake3)?;
         if entry.mtime != mtime {
+            return None;
+        }
+        if self.is_expired(entry.value()) {
+            drop(entry);
+            self.store.remove(blake3);
             return None;
         }
         let record = entry.value().clone();
@@ -185,14 +216,14 @@ mod tests {
 
     #[test]
     fn eviction_keeps_store_bounded() {
-        let reg = BuiltinDeliveryRegistry::new();
-        for i in 0..MAX_ENTRIES + 10 {
+        let reg = BuiltinDeliveryRegistry::with_limits(100, 3600);
+        for i in 0..110 {
             let mut hash = [0u8; 12];
             hash[0] = (i & 0xFF) as u8;
             hash[1] = ((i >> 8) & 0xFF) as u8;
             reg.record_delivery(test_entry("f.rs", "a", hash, i as u64));
         }
-        assert!(reg.store.len() <= MAX_ENTRIES);
+        assert!(reg.store.len() <= 100);
     }
 
     #[test]
@@ -207,5 +238,35 @@ mod tests {
         let stats = reg.delivery_stats();
         assert_eq!(stats.stubs_served, 2);
         assert!(stats.tokens_saved > 0);
+    }
+
+    #[test]
+    fn expired_entry_returns_miss_and_is_removed() {
+        let reg = BuiltinDeliveryRegistry::with_limits(4096, 60);
+        let hash = [5u8; 12];
+        reg.record_delivery(test_entry("ttl.rs", "agent-ttl", hash, 1000));
+
+        reg.store.get_mut(&hash).unwrap().read_at =
+            BuiltinDeliveryRegistry::now_epoch().saturating_sub(120);
+
+        assert!(
+            reg.check_delivery(&hash, 1000).is_none(),
+            "expired entry must return miss"
+        );
+        assert_eq!(reg.store.len(), 0, "expired entry must be removed on check");
+    }
+
+    #[test]
+    fn evict_expired_clears_old_entries() {
+        let reg = BuiltinDeliveryRegistry::with_limits(4096, 60);
+        reg.record_delivery(test_entry("a.rs", "a1", [20u8; 12], 100));
+        reg.record_delivery(test_entry("b.rs", "a2", [21u8; 12], 200));
+
+        let past = BuiltinDeliveryRegistry::now_epoch().saturating_sub(120);
+        reg.store.get_mut(&[20u8; 12]).unwrap().read_at = past;
+        reg.store.get_mut(&[21u8; 12]).unwrap().read_at = past;
+
+        reg.evict_expired();
+        assert_eq!(reg.store.len(), 0);
     }
 }

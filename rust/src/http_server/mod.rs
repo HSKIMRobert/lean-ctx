@@ -870,6 +870,7 @@ fn build_app_router_with_auth(cfg: &HttpServerConfig, require_auth: bool) -> Rou
             "/v1/kernel/reset",
             axum::routing::post(kernel_api::reset_state),
         )
+        .merge(crate::core::ocla::wire_api::ocla_router().with_state(()))
         .fallback_service(mcp_http)
         .layer(axum::extract::DefaultBodyLimit::max(cfg.max_body_bytes))
         .layer(middleware::from_fn_with_state(

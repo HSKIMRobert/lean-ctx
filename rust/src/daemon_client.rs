@@ -298,3 +298,57 @@ pub fn try_daemon_tool_call_blocking_text(
     }
     Some(unwrap_mcp_tool_text(&body).unwrap_or(body))
 }
+
+/// Check the daemon's cross-agent delivery registry for a content hash.
+/// Returns `None` if daemon unreachable or no hit. Connect-only — never
+/// auto-starts a daemon (delivery is best-effort).
+pub fn try_delivery_check_blocking(
+    blake3: &[u8; 12],
+    mtime: u64,
+) -> Option<crate::core::ocla::types::DeliveryRecord> {
+    if !daemon::is_daemon_running() {
+        return None;
+    }
+    let rt = tokio::runtime::Runtime::new().ok()?;
+    let body = serde_json::json!({ "blake3": blake3, "mtime": mtime });
+    let resp = rt.block_on(async {
+        try_daemon_request("POST", "/ocla/v1/delivery/check", &body.to_string()).await
+    })?;
+    let v: serde_json::Value = serde_json::from_str(&resp).ok()?;
+    if !v.get("hit")?.as_bool()? {
+        return None;
+    }
+    Some(crate::core::ocla::types::DeliveryRecord {
+        blake3: *blake3,
+        path: v.get("path")?.as_str()?.to_string(),
+        line_count: v.get("line_count")?.as_u64()? as u32,
+        agent_id: v.get("agent_id")?.as_str()?.to_string(),
+        conversation_id: v.get("conversation_id")?.as_str()?.to_string(),
+        read_at: v.get("read_at")?.as_u64()?,
+        mtime: v
+            .get("mtime")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(mtime),
+        fresh: v
+            .get("fresh")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+    })
+}
+
+/// Record a delivery in the daemon's cross-agent registry.
+/// Fire-and-forget: silently drops errors (daemon down, serialization).
+pub fn try_delivery_record_blocking(entry: &crate::core::ocla::types::DeliveryEntry) {
+    if !daemon::is_daemon_running() {
+        return;
+    }
+    let Ok(body) = serde_json::to_string(entry) else {
+        return;
+    };
+    let Ok(rt) = tokio::runtime::Runtime::new() else {
+        return;
+    };
+    rt.block_on(async {
+        let _ = try_daemon_request("POST", "/ocla/v1/delivery/record", &body).await;
+    });
+}

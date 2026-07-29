@@ -426,9 +426,11 @@ pub(crate) fn try_stub_hit_readonly_scoped(
             crate::core::cache_telemetry::record_conversation_mismatch();
             return None;
         }
-        cache.record_cache_hit(path);
+        let original_tokens = cache.record_cache_hit(path)?.original_tokens;
         crate::core::telemetry::global_metrics().record_cache(true);
-        return Some(render_unchanged_stub(&file_ref, path, line_count));
+        let stub = render_unchanged_stub(&file_ref, path, line_count);
+        crate::core::stats::record_reread(original_tokens.saturating_sub(stub.output_tokens));
+        return Some(stub);
     }
 
     // Cold fallback (#955): no live entry (e.g. after a daemon restart or idle
@@ -587,8 +589,11 @@ fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
         return None;
     }
     let (hash, mtime) = file_blake3_prefix(path)?;
-    let reg = crate::core::ocla::OclaRegistry::global();
-    let record = reg.delivery_registry.check_delivery(&hash, mtime)?;
+
+    let record = crate::daemon_client::try_delivery_check_blocking(&hash, mtime).or_else(|| {
+        let reg = crate::core::ocla::OclaRegistry::global();
+        reg.delivery_registry.check_delivery(&hash, mtime)
+    })?;
 
     let current_agent = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
@@ -632,6 +637,7 @@ fn record_cross_agent_delivery(path: &str, _tokens: usize) {
         conversation_id,
         mtime,
     };
+    crate::daemon_client::try_delivery_record_blocking(&entry);
     let reg = crate::core::ocla::OclaRegistry::global();
     reg.delivery_registry.record_delivery(entry);
 }

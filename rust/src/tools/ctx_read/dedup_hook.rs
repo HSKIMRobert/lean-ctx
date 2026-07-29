@@ -8,7 +8,11 @@ pub fn maybe_dedup(path: &str, content: &str, mode: &str) -> Option<String> {
     if !ctx_read_dedup::should_dedup(mode) {
         return None;
     }
-    ctx_read_dedup::try_dedup(path, content)
+    let stub = ctx_read_dedup::try_dedup(path, content)?;
+    let original_tokens = crate::core::tokens::count_tokens(content);
+    let stub_tokens = crate::core::tokens::count_tokens(&stub);
+    crate::core::stats::record_reread(original_tokens.saturating_sub(stub_tokens));
+    Some(stub)
 }
 
 /// Invalidates cached content for `path` after a file write.

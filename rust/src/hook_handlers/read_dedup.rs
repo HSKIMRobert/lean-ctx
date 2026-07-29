@@ -130,6 +130,7 @@ fn compute_read_dedup(input: &str) -> Option<String> {
     let original_tokens = crate::core::tokens::count_tokens(original);
     let stub_tokens = crate::core::tokens::count_tokens(&stub);
     crate::core::stats::record("cli_read_dedup", original_tokens, stub_tokens);
+    crate::core::stats::record_reread(original_tokens.saturating_sub(stub_tokens));
     crate::core::stats::flush();
 
     debug_log::log_hook_decision(

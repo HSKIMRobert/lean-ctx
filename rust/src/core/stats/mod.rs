@@ -170,6 +170,27 @@ pub fn record(command: &str, input_tokens: usize, output_tokens: usize) {
     record_at_turn(command, input_tokens, output_tokens, 0);
 }
 
+pub fn record_reread(tokens_saved: usize) {
+    let mut guard = STATS_BUFFER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.is_none() {
+        let disk = io::load_from_disk();
+        *guard = Some((disk.clone(), disk, Instant::now()));
+    }
+    let Some((store, baseline, last_flush)) = guard.as_mut() else {
+        return;
+    };
+    store.reread_tokens_saved = store
+        .reread_tokens_saved
+        .saturating_add(tokens_saved as u64);
+    if let Some(merged) = io::merge_and_save(store, baseline) {
+        *store = merged.clone();
+        *baseline = merged;
+        *last_flush = Instant::now();
+    }
+}
+
 /// Records a tool result against an observed provider turn. `turn == 0` keeps
 /// daemon-free callers honest: first injection is known, re-read count is not.
 pub fn record_at_turn(command: &str, input_tokens: usize, output_tokens: usize, turn: u64) {

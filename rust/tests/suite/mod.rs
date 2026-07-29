@@ -24,6 +24,7 @@ mod context_cortex_phase3;
 mod context_radar_perf;
 mod contracts_frozen;
 mod cortex_wiring_integration;
+mod cross_agent_delivery_e2e;
 mod ctx_read_lmd_md_raw;
 mod daviddatu_powershell_scenarios;
 mod docs_tool_counts_up_to_date;
