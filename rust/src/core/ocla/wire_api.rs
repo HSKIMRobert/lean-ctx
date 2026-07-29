@@ -404,9 +404,7 @@ struct DeliveryCheckRequest {
     mtime: u64,
 }
 
-async fn delivery_check(
-    Json(req): Json<DeliveryCheckRequest>,
-) -> (StatusCode, Json<Value>) {
+async fn delivery_check(Json(req): Json<DeliveryCheckRequest>) -> (StatusCode, Json<Value>) {
     let reg = OclaRegistry::global();
     match reg.delivery_registry.check_delivery(&req.blake3, req.mtime) {
         Some(record) => (
@@ -425,9 +423,7 @@ async fn delivery_check(
     }
 }
 
-async fn delivery_record(
-    Json(entry): Json<crate::core::ocla::types::DeliveryEntry>,
-) -> StatusCode {
+async fn delivery_record(Json(entry): Json<crate::core::ocla::types::DeliveryEntry>) -> StatusCode {
     let reg = OclaRegistry::global();
     reg.delivery_registry.record_delivery(entry);
     StatusCode::NO_CONTENT
