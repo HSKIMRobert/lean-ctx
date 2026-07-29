@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -27,6 +28,7 @@ CASE_TIMEOUT_SECONDS = 5.0
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FIXTURES = ROOT / "clients/rust/lean-ctx-client/tests/fixtures"
 CONTRACT_PACK = ROOT / "docs/contracts/ocla-contract-pack-v1.json"
+ENGINE_MANIFEST = ROOT / "rust/Cargo.toml"
 CONTRACT_PACK_ARTIFACTS = frozenset(
     {
         "clients/rust/lean-ctx-client/tests/fixtures/agent-envelope-v1.json",
@@ -38,6 +40,10 @@ CONTRACT_PACK_ARTIFACTS = frozenset(
         "docs/contracts/capabilities-contract-v1.md",
         "docs/contracts/conformance-v1.md",
         "docs/contracts/ocla-agent-envelope-v1.schema.json",
+
+        "docs/contracts/README.md",
+        "docs/contracts/DEPRECATION.md",
+        "docs/contracts/certification-levels-v1.md",
         "docs/contracts/ocla-verifier-conformance-v1.md",
         "docs/contracts/ocla-wire-v1.schema.json",
         "scripts/verify-ocla-contract-suite.py",
@@ -47,6 +53,10 @@ SCHEMA_MIRRORS = (
     "ocla-wire-v1.schema.json",
     "ocla-agent-envelope-v1.schema.json",
 )
+SEMVER_RE = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+ENGINE_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
+
+
 class SuiteError(ValueError):
     """A stable infrastructure error that is safe to expose."""
 
@@ -133,6 +143,77 @@ def read_contract_artifact(root: Path, relative: str) -> bytes:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def parse_semver(value: object, label: str) -> tuple[int, int, int]:
+    if not isinstance(value, str):
+        raise SuiteError(f"{label}_invalid")
+    match = SEMVER_RE.fullmatch(value)
+    if match is None:
+        raise SuiteError(f"{label}_invalid")
+    return tuple(int(part) for part in match.groups())
+
+
+def engine_version(root: Path = ROOT) -> str:
+    try:
+        manifest = (root / ENGINE_MANIFEST.relative_to(ROOT)).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise SuiteError("engine_version_unavailable") from error
+    match = ENGINE_VERSION_RE.search(manifest)
+    if match is None:
+        raise SuiteError("engine_version_unavailable")
+    parse_semver(match.group(1), "engine_version")
+    return match.group(1)
+
+
+def contract_pack_version_report(root: Path = ROOT, pack: object | None = None) -> dict[str, object]:
+    """Report whether the pack is complete and compatible with this engine major."""
+
+    if pack is None:
+        try:
+            pack = json.loads((root / CONTRACT_PACK.relative_to(ROOT)).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise SuiteError("contract_pack_invalid") from error
+    if not isinstance(pack, dict):
+        raise SuiteError("contract_pack_schema")
+    artifacts = pack.get("artifacts")
+    if not isinstance(artifacts, list):
+        raise SuiteError("contract_pack_artifacts")
+    seen = {
+        artifact.get("path")
+        for artifact in artifacts
+        if isinstance(artifact, dict) and isinstance(artifact.get("path"), str)
+    }
+    pack_version = pack.get("version")
+    pack_major, _, _ = parse_semver(pack_version, "contract_pack_version")
+    current_engine_version = engine_version(root)
+    engine_major, _, _ = parse_semver(current_engine_version, "engine_version")
+    compatibility = pack.get("compatibility")
+    supported: set[str] = set()
+    if isinstance(compatibility, dict) and isinstance(compatibility.get("supported"), list):
+        supported = {
+            version
+            for version in compatibility["supported"]
+            if isinstance(version, str) and SEMVER_RE.fullmatch(version)
+        }
+    expected_pack_version = f"{engine_major}.0.0"
+    expected_supported = {expected_pack_version}
+    if engine_major > 0:
+        expected_supported.add(f"{engine_major - 1}.0.0")
+    missing = sorted(CONTRACT_PACK_ARTIFACTS - seen)
+    unexpected = sorted(seen - CONTRACT_PACK_ARTIFACTS)
+    version_compatible = (
+        pack_version == expected_pack_version
+        and pack_major == engine_major
+        and expected_supported.issubset(supported)
+    )
+    return {
+        "contract_pack_version": pack_version,
+        "engine_version": current_engine_version,
+        "missing_artifacts": missing,
+        "unexpected_artifacts": unexpected,
+        "version_compatible": version_compatible,
+    }
 
 
 def validate_contract_pack(root: Path = ROOT, pack: object | None = None) -> None:
@@ -496,9 +577,29 @@ def run(verifier: Path, fixtures: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--verifier", required=True, type=Path)
+    parser.add_argument("--verifier", type=Path)
     parser.add_argument("--fixtures", default=DEFAULT_FIXTURES, type=Path)
+    parser.add_argument(
+        "--check-version",
+        action="store_true",
+        help="report contract-pack completeness and engine-major compatibility",
+    )
     args = parser.parse_args()
+    if args.check_version:
+        try:
+            report = contract_pack_version_report()
+        except (OSError, SuiteError):
+            print("OCLA contract suite failed: invalid_or_unsafe_input", file=sys.stderr)
+            return 2
+        report["compatible"] = (
+            report["version_compatible"]
+            and not report["missing_artifacts"]
+            and not report["unexpected_artifacts"]
+        )
+        sys.stdout.write(canonical_json(report))
+        return 0 if report["compatible"] else 1
+    if args.verifier is None:
+        parser.error("--verifier is required unless --check-version is used")
     try:
         report = run(args.verifier, args.fixtures)
     except (OSError, SuiteError):
