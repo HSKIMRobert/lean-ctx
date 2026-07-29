@@ -9,11 +9,21 @@ use super::persistence::{
 use super::{AgentEntry, AgentRegistry, AgentStatus, LogicalSessionPresence, ScratchpadEntry};
 use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 
-const MAX_SCRATCHPAD_ENTRIES: usize = 200;
-pub(crate) const LOGICAL_SESSION_TTL_SECONDS: u64 = 180;
 const LOGICAL_SESSION_SOURCE_MAX_BYTES: usize = 64;
 const LOGICAL_SESSION_WORKSPACE_MAX_BYTES: usize = 4096;
 const LOGICAL_SESSION_ID_MAX_BYTES: usize = 256;
+
+fn presence_ttl() -> u64 {
+    crate::core::config::Config::load()
+        .agents
+        .presence_ttl_hours
+}
+
+fn max_scratchpad() -> usize {
+    crate::core::config::Config::load()
+        .agents
+        .max_scratchpad_entries
+}
 
 impl AgentRegistry {
     pub fn new() -> Self {
@@ -70,7 +80,7 @@ impl AgentRegistry {
     /// Atomically registers this MCP process in the shared on-disk registry.
     pub fn register_mcp_process(project_root: &str) -> Result<String, String> {
         mutate_persistent(|registry| {
-            registry.cleanup_stale(24);
+            registry.cleanup_stale(presence_ttl());
             registry.register("mcp", Some("context-engine"), project_root)
         })
     }
@@ -176,8 +186,11 @@ impl AgentRegistry {
             return Err("event must be open, heartbeat, or close".to_string());
         }
 
+        let ttl = crate::core::config::Config::load()
+            .agents
+            .logical_session_ttl_seconds;
         mutate_persistent(|registry| {
-            registry.cleanup_stale_logical_sessions(LOGICAL_SESSION_TTL_SECONDS);
+            registry.cleanup_stale_logical_sessions(ttl);
             match event {
                 "open" | "heartbeat" => {
                     registry.open_or_heartbeat_logical_session(source, workspace, session_id);
@@ -236,7 +249,9 @@ impl AgentRegistry {
         ttl_hours: Option<u64>,
     ) -> String {
         let id = generate_short_id();
-        let default_ttl_hours: u64 = 12;
+        let default_ttl_hours = crate::core::config::Config::load()
+            .agents
+            .scratchpad_default_ttl_hours;
         let expires_at = Some(match ttl_hours {
             Some(hours) => Utc::now() + chrono::Duration::hours(hours as i64),
             None => Utc::now() + chrono::Duration::hours(default_ttl_hours as i64),
@@ -257,9 +272,10 @@ impl AgentRegistry {
             expires_at,
         });
 
-        if self.scratchpad.len() > MAX_SCRATCHPAD_ENTRIES {
+        let max_scratchpad_entries = max_scratchpad();
+        if self.scratchpad.len() > max_scratchpad_entries {
             self.scratchpad
-                .drain(0..self.scratchpad.len() - MAX_SCRATCHPAD_ENTRIES);
+                .drain(0..self.scratchpad.len() - max_scratchpad_entries);
         }
 
         self.updated_at = Utc::now();
@@ -501,7 +517,7 @@ mod tests {
             expires_at: Some(Utc::now() - chrono::Duration::hours(1)),
         });
 
-        reg.cleanup_stale(24);
+        reg.cleanup_stale(super::presence_ttl());
 
         assert!(reg.scratchpad.is_empty());
     }
@@ -689,7 +705,7 @@ mod tests {
         reg.agents
             .push(test_entry("live", "/proj/a", std::process::id()));
 
-        reg.cleanup_stale(24);
+        reg.cleanup_stale(super::presence_ttl());
 
         let ids: Vec<&str> = reg
             .list_active(Some("/proj/a"))

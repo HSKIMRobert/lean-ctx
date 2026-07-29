@@ -56,8 +56,9 @@ pub(super) fn handle(
 
 fn build_agents_json() -> String {
     let mut registry = crate::core::agents::AgentRegistry::load_or_create();
-    registry.cleanup_stale(24);
-    registry.cleanup_stale_logical_sessions(crate::core::agents::LOGICAL_SESSION_TTL_SECONDS);
+    let cfg = crate::core::config::Config::load().agents;
+    registry.cleanup_stale(cfg.presence_ttl_hours);
+    registry.cleanup_stale_logical_sessions(cfg.logical_session_ttl_seconds);
 
     let transports: Vec<serde_json::Value> = registry
         .agents
