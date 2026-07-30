@@ -33,6 +33,28 @@ pub fn build_instructions(crp_mode: CrpMode) -> String {
 
 #[must_use]
 pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> String {
+    build_instructions_with_client_and_optional_session(crp_mode, client_name, None)
+}
+
+/// Builds MCP instructions using state owned by the current server instance.
+///
+/// Callers that do not own a live session deliberately get static instructions:
+/// loading a persisted "latest" session here would make one MCP process inject
+/// another process's state.
+#[must_use]
+pub fn build_instructions_with_client_and_session(
+    crp_mode: CrpMode,
+    client_name: &str,
+    session: &crate::core::session::SessionState,
+) -> String {
+    build_instructions_with_client_and_optional_session(crp_mode, client_name, Some(session))
+}
+
+fn build_instructions_with_client_and_optional_session(
+    crp_mode: CrpMode,
+    client_name: &str,
+    session: Option<&crate::core::session::SessionState>,
+) -> String {
     let cfg = crate::core::config::Config::load();
     let minimal = cfg.minimal_overhead_effective_for_client(client_name);
     let shadow = cfg.shadow_mode;
@@ -54,6 +76,7 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
         level,
         shadow,
         &persona_block,
+        session,
     )
 }
 
@@ -67,7 +90,15 @@ pub fn build_instructions_with_client(crp_mode: CrpMode, client_name: &str) -> S
 /// deterministic (#498) for every contributor, not just clean CI.
 #[must_use]
 pub fn claude_code_static_instructions_for_test() -> String {
-    build_full_instructions(CrpMode::Off, "", true, CompressionLevel::Off, false, "")
+    build_full_instructions(
+        CrpMode::Off,
+        "",
+        true,
+        CompressionLevel::Off,
+        false,
+        "",
+        None,
+    )
 }
 
 /// Deterministic variant for tests (no session/knowledge state).
@@ -93,8 +124,8 @@ pub fn build_instructions_for_test(crp_mode: CrpMode) -> String {
     );
 
     match crp_mode_suffix(crp_mode) {
-        "" => format!("{base}\n\n{}", rc::INTELLIGENCE),
-        crp => format!("{base}\n\n{crp}\n\n{}", rc::INTELLIGENCE),
+        "" => base,
+        crp => format!("{base}\n\n{crp}"),
     }
 }
 
@@ -125,8 +156,8 @@ pub fn build_instructions_with_client_for_compiler(
     let _ = client_name;
 
     match crp_mode_suffix(crp_mode) {
-        "" => format!("{base}\n\n{}", rc::INTELLIGENCE),
-        crp => format!("{base}\n\n{crp}\n\n{}", rc::INTELLIGENCE),
+        "" => base,
+        crp => format!("{base}\n\n{crp}"),
     }
 }
 
@@ -207,13 +238,10 @@ fn build_full_instructions(
     level: CompressionLevel,
     shadow: bool,
     persona_block: &str,
+    session: Option<&crate::core::session::SessionState>,
 ) -> String {
     let profile = crate::core::litm::LitmProfile::from_client_name(client_name);
-    let loaded_session = if minimal {
-        None
-    } else {
-        crate::core::session::SessionState::load_latest()
-    };
+    let loaded_session = (!minimal).then_some(session).flatten();
 
     let (session_block, litm_end_block) = match loaded_session {
         Some(ref session) => {
@@ -371,12 +399,9 @@ fn build_full_instructions(
         litm_end_block = litm_end_block
     );
 
-    // Guidance suffix: CRP mode + general output rule.
+    // Guidance suffix: CRP mode.
     // This is the operational contract — protected from truncation.
-    let guidance_suffix = match crp_mode_suffix(crp_mode) {
-        "" => rc::INTELLIGENCE.to_string(),
-        crp => format!("{crp}\n\n{}", rc::INTELLIGENCE),
-    };
+    let guidance_suffix = crp_mode_suffix(crp_mode).to_string();
 
     assemble_within_cap(&base, &guidance_suffix, INSTRUCTION_CAP_TOKENS)
 }
@@ -536,6 +561,28 @@ mod tests {
     fn empty_client_never_dedups_compression() {
         assert!(!client_loads_compression_from_file(""));
         assert!(!client_loads_compression_from_file("totally-unknown-agent"));
+    }
+
+    #[test]
+    fn live_session_instructions_include_only_the_owned_session() {
+        let mut current = crate::core::session::SessionState::new();
+        current.add_finding(None, None, "current-instance-marker");
+        let mut other = crate::core::session::SessionState::new();
+        other.add_finding(None, None, "other-instance-marker");
+
+        let out = build_full_instructions(
+            CrpMode::Off,
+            "",
+            false,
+            CompressionLevel::Off,
+            false,
+            "",
+            Some(&current),
+        );
+
+        assert!(out.contains("current-instance-marker"));
+        assert!(!out.contains("other-instance-marker"));
+        assert!(!out.contains("never echo tool output"));
     }
 
     #[test]

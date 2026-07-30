@@ -49,7 +49,9 @@ pub(crate) fn generate_session_id() -> String {
     let ts = now.format("%Y%m%d-%H%M%S").to_string();
     let nanos = now.timestamp_subsec_micros();
     let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    format!("{ts}-{nanos:06}s{seq}")
+    // The session file name is also its storage key. Include the MCP process ID
+    // so concurrently launched servers cannot share or overwrite state.
+    format!("{ts}-{nanos:06}p{}s{seq}", std::process::id())
 }
 
 /// Extracts the `cd` target from a command string.
@@ -221,6 +223,12 @@ mod tests {
     #[test]
     fn not_a_cd_command() {
         assert!(extract_cd_target("ls -la", "/home").is_none());
+    }
+
+    #[test]
+    fn session_id_is_qualified_by_process() {
+        let id = generate_session_id();
+        assert!(id.contains(&format!("p{}s", std::process::id())));
     }
 
     #[test]

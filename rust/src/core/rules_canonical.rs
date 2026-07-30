@@ -194,10 +194,6 @@ pub const RECOVER_COMPACT: &str = "RECOVER: compression is reversible — read t
 pub const CEP: &str = "CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) \
      4.ONE LINE PER ACTION 5.QUALITY ANCHOR";
 
-/// Output style rule.
-pub const INTELLIGENCE: &str =
-    "OUTPUT: never echo tool output, no narration comments, show only changed code.";
-
 /// LITM end-of-instructions preference line.
 pub const LITM_END: &str = "TOOL PREFERENCE (END): ctx_compose>chain ctx_read>Read ctx_shell>Shell \
      ctx_search>Grep ctx_glob>Glob ctx_tree>ls | Edit/Write/Delete=native";
@@ -323,7 +319,6 @@ fn longform_non_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Vec<St
         s(AUTO),
         s(RECOVER),
         s(CEP),
-        s(INTELLIGENCE),
         rs::litm_end_section(p),
     ];
     if let Some(fb) = rs::ctx_call_fallback(p) {
@@ -344,7 +339,6 @@ fn full_non_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Vec<String
         s(PARALLEL),
         s(AUTO),
         s(RECOVER_COMPACT),
-        s(INTELLIGENCE),
         rs::litm_end_section(p),
     ];
     if let Some(fb) = rs::ctx_call_fallback(p) {
@@ -355,7 +349,7 @@ fn full_non_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Vec<String
 
 fn full_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Vec<String> {
     use super::rules_sections as rs;
-    vec![rs::shadow_minimal_section(p), s(INTELLIGENCE)]
+    vec![rs::shadow_minimal_section(p)]
 }
 
 fn hook_covered_non_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Vec<String> {
@@ -365,7 +359,6 @@ fn hook_covered_non_shadow_sections(p: &super::tool_profiles::ToolProfile) -> Ve
         rs::hook_covered_tools_section(p),
         s(PARALLEL),
         s(RECOVER_COMPACT),
-        s(INTELLIGENCE),
     ];
     if let Some(fb) = rs::ctx_call_fallback(p) {
         v.push(fb);
@@ -550,7 +543,6 @@ mod tests {
         assert!(!PARALLEL.is_empty());
         assert!(!AUTO.is_empty());
         assert!(!CEP.is_empty());
-        assert!(!INTELLIGENCE.is_empty());
         assert!(!LITM_END.is_empty());
         assert!(!CRITICAL.is_empty());
     }
@@ -764,8 +756,7 @@ mod tests {
     #[test]
     fn dedicated_shadow_is_minimal() {
         // #963: shadow drops the whole tool-mapping AND routing playbook —
-        // interception makes them redundant. Only the exclusive-tool advert and
-        // the output style remain.
+        // interception makes them redundant. Only the exclusive-tool advert remains.
         let out = render(true, Wrapper::Dedicated, CompressionLevel::Off, &tp());
         assert!(out.contains(START_MARK));
         assert!(!out.contains("MANDATORY MAPPING"), "no BULLETS in shadow");
@@ -783,7 +774,6 @@ mod tests {
             out.contains("shadow mode") && out.contains("ctx_compose"),
             "shadow keeps the exclusive-tool advert"
         );
-        assert!(out.contains(INTELLIGENCE), "shadow keeps the output style");
     }
 
     #[test]
