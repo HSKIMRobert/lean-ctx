@@ -7,12 +7,52 @@ mod granular;
 pub use granular::{granular_tool_defs, unified_tool_defs};
 
 pub fn tool_def(name: &'static str, description: &'static str, schema_value: Value) -> Tool {
-    let mut schema: Map<String, Value> = match schema_value {
+    let mut schema: Map<String, Value> = match sanitize_schema(schema_value) {
         Value::Object(map) => map,
         _ => Map::new(),
     };
     normalize_for_strict_validators(&mut schema);
     Tool::new(name, description, Arc::new(schema))
+}
+
+/// Remove top-level schema combinators unsupported by Anthropic tool schemas.
+///
+/// `oneOf` branches commonly express alternative argument sets while keeping
+/// their properties at the top level. Their required fields are retained as a
+/// deduplicated top-level `required` array before the combinator is removed.
+fn sanitize_schema(schema: Value) -> Value {
+    let Value::Object(mut schema) = schema else {
+        return schema;
+    };
+
+    let mut required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    if let Some(Value::Array(variants)) = schema.remove("oneOf") {
+        for variant in variants {
+            let Some(variant_required) = variant
+                .as_object()
+                .and_then(|branch| branch.get("required"))
+                .and_then(Value::as_array)
+            else {
+                continue;
+            };
+
+            for field in variant_required {
+                if !required.contains(field) {
+                    required.push(field.clone());
+                }
+            }
+        }
+        schema.insert("required".into(), Value::Array(required));
+    }
+
+    schema.remove("allOf");
+    schema.remove("anyOf");
+    Value::Object(schema)
 }
 
 /// Tools that never mutate their environment (files, indexes, session state).
@@ -206,4 +246,46 @@ pub fn is_full_mode() -> bool {
     std::env::var("LEAN_CTX_FULL_TOOLS").is_ok_and(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
         || std::env::var("LEAN_CTX_LAZY_TOOLS")
             .is_ok_and(|v| v == "0" || v.eq_ignore_ascii_case("false"))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::sanitize_schema;
+
+    #[test]
+    fn sanitize_schema_removes_top_level_combinators_and_merges_one_of_required() {
+        let sanitized = sanitize_schema(json!({
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["base"],
+            "oneOf": [
+                {"required": ["command", "cwd"]},
+                {"required": ["command", "timeout"]}
+            ],
+            "allOf": [{"type": "object"}],
+            "anyOf": [{"type": "object"}]
+        }));
+
+        assert_eq!(
+            sanitized,
+            json!({
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["base", "command", "cwd", "timeout"]
+            })
+        );
+    }
+
+    #[test]
+    fn sanitize_schema_preserves_schema_without_one_of() {
+        let schema = json!({
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"]
+        });
+
+        assert_eq!(sanitize_schema(schema.clone()), schema);
+    }
 }
