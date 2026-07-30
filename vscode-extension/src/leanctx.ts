@@ -1,5 +1,8 @@
-import { spawn, execFileSync } from "child_process";
+import { spawn, execFile } from "child_process";
+import { promisify } from "util";
 import * as vscode from "vscode";
+
+const execFileAsync = promisify(execFile);
 
 export interface KnowledgeFact {
   category: string;
@@ -35,6 +38,7 @@ export interface SearchResult {
 }
 
 let cachedBinaryPath: string | null = null;
+let binaryPathProbe: Promise<string> | null = null;
 
 /**
  * Resolves the lean-ctx binary. An explicit `leanctx.binaryPath` setting always wins.
@@ -43,7 +47,7 @@ let cachedBinaryPath: string | null = null;
  * `~/.local/bin`, `~/.cargo/bin`, and Homebrew — the usual reason "lean-ctx not found" despite a
  * working terminal. The first responsive candidate is cached for the session.
  */
-function getBinaryPath(): string {
+async function getBinaryPath(): Promise<string> {
   const inspected = vscode.workspace
     .getConfiguration("leanctx")
     .inspect<string>("binaryPath");
@@ -59,36 +63,48 @@ function getBinaryPath(): string {
     return cachedBinaryPath;
   }
 
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-  const candidates = [
-    "lean-ctx",
-    home ? `${home}/.local/bin/lean-ctx` : "",
-    home ? `${home}/.cargo/bin/lean-ctx` : "",
-    "/opt/homebrew/bin/lean-ctx",
-    "/usr/local/bin/lean-ctx",
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    try {
-      execFileSync(candidate, ["--version"], { timeout: 5_000, stdio: "pipe" });
-      cachedBinaryPath = candidate;
-      return candidate;
-    } catch {
-      continue;
-    }
+  if (binaryPathProbe) {
+    return binaryPathProbe;
   }
 
-  // Nothing responded — fall back to the bare name so the caller surfaces a
-  // clear "not found" error rather than silently doing nothing.
-  return "lean-ctx";
+  binaryPathProbe = (async () => {
+    const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+    const candidates = [
+      "lean-ctx",
+      home ? `${home}/.local/bin/lean-ctx` : "",
+      home ? `${home}/.cargo/bin/lean-ctx` : "",
+      "/opt/homebrew/bin/lean-ctx",
+      "/usr/local/bin/lean-ctx",
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      try {
+        await execFileAsync(candidate, ["--version"], { timeout: 5_000 });
+        cachedBinaryPath = candidate;
+        return candidate;
+      } catch {
+        continue;
+      }
+    }
+
+    // Nothing responded — fall back to the bare name so the caller surfaces a
+    // clear "not found" error rather than silently doing nothing.
+    return "lean-ctx";
+  })();
+
+  try {
+    return await binaryPathProbe;
+  } finally {
+    binaryPathProbe = null;
+  }
 }
 
-export function runLeanCtx(
+export async function runLeanCtx(
   args: string[],
   cwd?: string
 ): Promise<string> {
+  const bin = await getBinaryPath();
   return new Promise((resolve, reject) => {
-    const bin = getBinaryPath();
     const workspaceCwd =
       cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
@@ -129,7 +145,7 @@ export function runLeanCtx(
 
 /** Exposes the resolved binary path (incl. auto-detection) to other modules,
  *  e.g. for writing an MCP `command` that the editor's launcher can find. */
-export function resolveBinaryPath(): string {
+export async function resolveBinaryPath(): Promise<string> {
   return getBinaryPath();
 }
 
@@ -145,12 +161,12 @@ export interface CommandResult {
  * `heatmap`) where a non-zero exit (e.g. `doctor` reporting findings) is still a
  * result worth showing verbatim rather than an error to swallow.
  */
-export function runLeanCtxCapture(
+export async function runLeanCtxCapture(
   args: string[],
   cwd?: string
 ): Promise<CommandResult> {
+  const bin = await getBinaryPath();
   return new Promise((resolve) => {
-    const bin = getBinaryPath();
     const workspaceCwd =
       cwd ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 

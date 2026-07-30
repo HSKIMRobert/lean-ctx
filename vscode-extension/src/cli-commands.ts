@@ -140,7 +140,7 @@ export async function cmdConfigureMcp(): Promise<void> {
     }
     config.servers["lean-ctx"] = {
       type: "stdio",
-      command: resolveBinaryPath(),
+      command: await resolveBinaryPath(),
       env: { LEAN_CTX_PROJECT_ROOT: "${workspaceFolder}" },
     };
 
