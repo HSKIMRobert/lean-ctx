@@ -216,6 +216,21 @@ pub fn binary_file_message(path: &str) -> String {
         .and_then(|e| e.to_str())
         .unwrap_or("unknown");
     let label = file_type_label(path);
+    if matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "parquet" | "avro" | "orc" | "arrow" | "feather"
+    ) {
+        let size_info = std::fs::metadata(path).ok().map_or_else(
+            || "unknown size".to_string(),
+            |metadata| format_file_size(metadata.len()),
+        );
+        return format!(
+            "Binary {label} (.{ext}, {size_info}). \\
+             Cannot read as text. \\
+             Inspect with: duckdb \"SELECT * FROM '{path}' LIMIT 5\" \\
+             or: python -c \"import pyarrow.parquet as pq; print(pq.read_schema('{path}'))\""
+        );
+    }
     format!(
         "Binary file detected (.{ext}, {label}). \
          lean-ctx cannot read binary files as text. \
@@ -223,9 +238,24 @@ pub fn binary_file_message(path: &str) -> String {
     )
 }
 
+fn format_file_size(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        binary_file_message, has_binary_content, has_binary_extension, image_mime_type,
+        is_llm_viewable_image,
+    };
 
     #[test]
     fn detects_binary_extensions() {
@@ -249,6 +279,13 @@ mod tests {
         let msg = binary_file_message("data.parquet");
         assert!(msg.contains("columnar data file"));
         assert!(msg.contains(".parquet"));
+    }
+
+    #[test]
+    fn parquet_message_includes_tool_suggestion() {
+        let msg = binary_file_message("data.parquet");
+        assert!(msg.contains("duckdb"));
+        assert!(msg.contains("columnar data"));
     }
 
     #[test]

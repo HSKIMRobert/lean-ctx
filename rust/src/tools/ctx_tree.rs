@@ -1,9 +1,17 @@
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 
 use crate::core::protocol;
 use crate::core::tokens::count_tokens;
+
+struct Entry {
+    depth: usize,
+    name: String,
+    is_dir: bool,
+    path: PathBuf,
+}
 
 /// Generates a compact directory tree listing with file counts.
 /// When `respect_gitignore` is true, entries matching .gitignore patterns are excluded.
@@ -62,12 +70,6 @@ fn generate_compact_tree(
 ) -> String {
     let mut lines = Vec::new();
 
-    struct Entry {
-        depth: usize,
-        name: String,
-        is_dir: bool,
-        path: std::path::PathBuf,
-    }
     let mut entries: Vec<Entry> = Vec::new();
 
     // Vendor dirs (node_modules, …) follow the gitignore toggle: explicitly
@@ -101,8 +103,7 @@ fn generate_compact_tree(
         });
     }
 
-    let mut dir_file_counts: std::collections::HashMap<&std::path::Path, usize> =
-        std::collections::HashMap::new();
+    let mut dir_file_counts: HashMap<&Path, usize> = HashMap::new();
     for e in &entries {
         if !e.is_dir
             && let Some(parent) = e.path.parent()
@@ -111,17 +112,107 @@ fn generate_compact_tree(
         }
     }
 
+    let (hive_summaries, hive_skipped) = detect_hive_partitions(&entries, &dir_file_counts);
+    if let Some(summary) = hive_summaries.get(root) {
+        let root_name = root.file_name().map_or_else(
+            || root.display().to_string(),
+            |name| name.to_string_lossy().to_string(),
+        );
+        lines.push(format!("{root_name}/ ({summary})"));
+    }
+
     for e in &entries {
+        if hive_skipped.contains(&e.path) {
+            continue;
+        }
         let indent = "  ".repeat(e.depth.saturating_sub(1));
         if e.is_dir {
-            let count = dir_file_counts.get(e.path.as_path()).copied().unwrap_or(0);
-            lines.push(format!("{indent}{}/ ({count})", e.name));
+            if let Some(summary) = hive_summaries.get(&e.path) {
+                lines.push(format!("{indent}{}/ ({summary})", e.name));
+            } else {
+                let count = dir_file_counts.get(e.path.as_path()).copied().unwrap_or(0);
+                lines.push(format!("{indent}{}/ ({count})", e.name));
+            }
         } else {
             lines.push(format!("{indent}{}", e.name));
         }
     }
 
     lines.join("\n")
+}
+
+/// Detects Hive-partitioned directories and returns summaries plus paths to omit.
+fn detect_hive_partitions(
+    entries: &[Entry],
+    dir_file_counts: &HashMap<&Path, usize>,
+) -> (HashMap<PathBuf, String>, HashSet<PathBuf>) {
+    let mut children_by_parent: HashMap<&Path, Vec<&Entry>> = HashMap::new();
+    for entry in entries.iter().filter(|entry| entry.is_dir) {
+        if let Some(parent) = entry.path.parent() {
+            children_by_parent.entry(parent).or_default().push(entry);
+        }
+    }
+
+    let mut summaries = HashMap::new();
+    let mut skipped = HashSet::new();
+    for (parent, children) in children_by_parent {
+        let Some(key) = children
+            .first()
+            .and_then(|entry| hive_partition_key(&entry.name))
+        else {
+            continue;
+        };
+        if children.len() < 3
+            || children
+                .iter()
+                .any(|entry| hive_partition_key(&entry.name) != Some(key))
+        {
+            continue;
+        }
+
+        let file_count = children
+            .iter()
+            .map(|entry| {
+                dir_file_counts
+                    .get(entry.path.as_path())
+                    .copied()
+                    .unwrap_or(0)
+            })
+            .sum::<usize>();
+        summaries.insert(
+            parent.to_path_buf(),
+            format!(
+                "hive: {key}=* — {} partitions, {file_count} files",
+                children.len()
+            ),
+        );
+        for entry in entries {
+            if children
+                .iter()
+                .any(|child| entry.path.starts_with(&child.path))
+            {
+                skipped.insert(entry.path.clone());
+            }
+        }
+    }
+
+    (summaries, skipped)
+}
+
+fn hive_partition_key(name: &str) -> Option<&str> {
+    let (key, value) = name.split_once('=')?;
+    if value.is_empty() {
+        return None;
+    }
+
+    let mut chars = key.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_')
+        || !chars.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return None;
+    }
+    Some(key)
 }
 
 fn generate_raw_tree(
@@ -158,7 +249,7 @@ fn generate_raw_tree(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{count_tokens, handle};
 
     /// Builds a deterministic source-tree fixture so the assertions do not
     /// depend on the live repository size or platform path separators (the live
@@ -252,6 +343,29 @@ mod tests {
         assert!(
             opt_out.contains("node_modules"),
             "respect_gitignore=false must reveal vendor dirs: {opt_out}"
+        );
+    }
+
+    #[test]
+    fn hive_partition_detection() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for year in 2020..=2024 {
+            let partition = root.join(format!("year={year}"));
+            std::fs::create_dir_all(&partition).expect("mkdir");
+            std::fs::write(partition.join("data.parquet"), "fake").expect("write");
+        }
+
+        let (output, _) = handle(&root.display().to_string(), 3, false, false);
+        assert!(output.contains("hive:"), "expected Hive summary: {output}");
+        assert!(
+            output.contains("5 partitions"),
+            "expected partition count: {output}"
+        );
+        assert!(output.contains("5 files"), "expected file count: {output}");
+        assert!(
+            !output.contains("year=2020"),
+            "partition was not collapsed: {output}"
         );
     }
 
