@@ -2,7 +2,7 @@
 //!
 //! IMPORTANT for readers skimming the repo: this file is the *fallback*, not the
 //! primary engine. The default build extracts signatures with **tree-sitter** via
-//! declarative per-language queries in [`crate::core::signatures_ts`] (real ASTs,
+//! declarative per-language queries in `crate::core::signatures_ts` (real ASTs,
 //! real multi-line spans, ~27 languages). [`extract_signatures`] tries that path
 //! first and only drops to the line-oriented regex extractors here when the
 //! `tree-sitter` feature is off or a parse yields nothing usable for a file.
@@ -264,7 +264,7 @@ pub fn signature_backend_stats() -> (u64, u64) {
 }
 
 /// Which extractor produced a signature set: the primary tree-sitter AST path
-/// ([`crate::core::signatures_ts`]) or the line-oriented regex fallback in this
+/// (`crate::core::signatures_ts`) or the line-oriented regex fallback in this
 /// module. Surfaced so navigation output (`ctx_outline`) can label its backend
 /// honestly and verifiably instead of merely *claiming* "via tree-sitter"
 /// (gitlab #981).

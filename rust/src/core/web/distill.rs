@@ -46,7 +46,7 @@ const FILLER: &[&str] = &[
 
 /// Extract sentences carrying factual signals, ranked and de-duplicated. Each
 /// sentence carries a confidence (`[0.0, 1.0]`) so callers can build attributable
-/// [`crate::core::evidence::Claim`]s. Facts use an *absolute* mapping (more
+/// `crate::core::evidence::Claim`s. Facts use an *absolute* mapping (more
 /// factual signals → higher confidence) rather than min-max, so the score is
 /// meaningful even when the top sentences tie.
 pub fn facts_scored(text: &str, query: Option<&str>, max_items: usize) -> Vec<(String, f32)> {
@@ -111,7 +111,7 @@ fn quotes_ranked(text: &str, query: Option<&str>) -> Vec<(f64, usize, String)> {
 /// For inputs that already fit the budget this is exactly [`transcript_summary`]
 /// (filler-strip + adjacent-dedup, no truncation) — no behaviour change. For
 /// OVERSIZED inputs, where [`transcript_summary`] would FIFO-truncate to the
-/// prefix, it instead uses extractive ranking ([`crate::core::extractive`]) to
+/// prefix, it instead uses extractive ranking (`crate::core::extractive`) to
 /// keep the most query-relevant (or, without a query, the most central)
 /// sentences. Falls back to [`transcript_summary`] when the embedding engine is
 /// unavailable, so no build/OS regresses.

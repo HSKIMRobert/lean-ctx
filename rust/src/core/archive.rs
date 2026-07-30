@@ -373,7 +373,7 @@ pub fn remove_files(id: &str) {
 /// metadata, and FTS index are removed together so the two stores stay in sync.
 /// Returns the number of entries removed.
 ///
-/// Wired into MCP-start + periodic maintenance ([`super::storage_maintenance`])
+/// Wired into MCP-start + periodic maintenance (`super::storage_maintenance`)
 /// and `lean-ctx cache prune`; without an enforcer the archive grew unbounded on
 /// disk and starved the host of RAM via the page cache (#417).
 pub fn cleanup() -> u32 {
