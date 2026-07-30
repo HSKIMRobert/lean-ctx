@@ -363,8 +363,6 @@ impl CtxReadTool {
         let cancelled = Arc::new(AtomicBool::new(false));
         let (output, resolved_mode, original, is_cache_hit, file_ref, cache_stats) = {
             let crp_mode = ctx.crp_mode;
-            let task_ref = current_task.as_deref();
-
             let fast_result = 'fast: {
                 let file_lock = per_file_lock(path);
                 let Some(_file_guard) = file_lock.try_lock().ok() else {
@@ -397,40 +395,10 @@ impl CtxReadTool {
                     break 'fast Some((content, rmode, orig, hit, fref, stats_snapshot));
                 }
 
-                // Phase 2 (write lock): cache miss, changed file, or non-stub
-                // modes (map/signatures/diff/lines) that mutate cache state.
-                let Some(mut cache) = cache_lock.try_write().ok() else {
-                    break 'fast None;
-                };
-                let read_output = if fresh {
-                    crate::tools::ctx_read::handle_fresh_with_task_resolved_tuned(
-                        &mut cache,
-                        path,
-                        &mode,
-                        crp_mode,
-                        task_ref,
-                        aggressiveness,
-                        &protect,
-                    )
-                } else {
-                    crate::tools::ctx_read::handle_with_task_resolved_tuned(
-                        &mut cache,
-                        path,
-                        &mode,
-                        crp_mode,
-                        task_ref,
-                        aggressiveness,
-                        &protect,
-                    )
-                };
-                let hit = read_output.is_cache_hit;
-                let content = read_output.content;
-                let rmode = read_output.resolved_mode;
-                let orig = cache.get(path).map_or(0, |e| e.original_tokens);
-                let fref = cache.file_ref_map().get(path).cloned();
-                let stats = cache.get_stats();
-                let stats_snapshot = (stats.total_reads(), stats.cache_hits());
-                Some((content, rmode, orig, hit, fref, stats_snapshot))
+                // Misses use the slow path's double-check sequence: it does a
+                // second cache check, computes without the global lock, then
+                // briefly takes a write lock to store the result.
+                None
             };
 
             if let Some(result) = fast_result {
