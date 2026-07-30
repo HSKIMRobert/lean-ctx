@@ -54,6 +54,13 @@ mod http {
             return Ok(());
         }
 
+        if config.auth_token.as_ref().is_none_or(String::is_empty) {
+            return Err(anyhow!(
+                "OCLA sidecar requires auth_token when enabled — \\
+                 set [ocla.sidecar] auth_token in config.toml"
+            ));
+        }
+
         if config.tls_cert_path.is_some() != config.tls_key_path.is_some() {
             return Err(anyhow!(
                 "tls_cert_path and tls_key_path must be configured together"
@@ -118,7 +125,25 @@ mod http {
         use axum::http::{Request, StatusCode, header};
         use tower::ServiceExt;
 
-        use super::router;
+        use super::{SidecarConfig, router, start};
+
+        #[tokio::test]
+        async fn sidecar_requires_auth_when_enabled() {
+            for auth_token in [None, Some(String::new())] {
+                let config = SidecarConfig {
+                    enabled: true,
+                    auth_token,
+                    ..Default::default()
+                };
+
+                let error = start(&config).await.expect_err("missing auth token");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("OCLA sidecar requires auth_token when enabled")
+                );
+            }
+        }
 
         #[tokio::test]
         async fn auth_rejects_missing_and_wrong_bearer_tokens() {
