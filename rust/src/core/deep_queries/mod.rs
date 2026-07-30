@@ -11,6 +11,7 @@ mod ext_methods;
 mod imports;
 mod type_defs;
 mod type_uses;
+#[allow(dead_code)]
 mod types;
 
 pub(crate) use types::*;

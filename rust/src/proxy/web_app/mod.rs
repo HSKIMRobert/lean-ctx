@@ -1,4 +1,6 @@
+#[allow(dead_code)]
 pub(crate) mod conversation_tracker;
+#[allow(dead_code)]
 pub(crate) mod normalize;
 #[cfg(test)]
 mod proof_tests;

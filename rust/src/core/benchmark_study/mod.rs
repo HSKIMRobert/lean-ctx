@@ -6,11 +6,13 @@
 
 pub(crate) mod analysis;
 pub(crate) mod datasets;
+#[allow(dead_code)]
 pub(crate) mod experiment;
 pub(crate) mod llm_client;
 pub(crate) mod metrics;
 pub(crate) mod report;
 pub(crate) mod runner;
+#[allow(dead_code)]
 pub(crate) mod sandbox;
 pub(crate) mod stats;
 

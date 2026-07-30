@@ -3,4 +3,5 @@
 pub(crate) mod download;
 pub(crate) mod humaneval;
 pub(crate) mod mbpp;
+#[allow(dead_code)]
 pub(crate) mod swebench;

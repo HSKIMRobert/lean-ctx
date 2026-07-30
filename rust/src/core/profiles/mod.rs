@@ -11,6 +11,7 @@
 
 mod builtins;
 mod loading;
+#[allow(dead_code)]
 mod types;
 
 pub(crate) use loading::*;

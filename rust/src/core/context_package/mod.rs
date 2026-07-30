@@ -1,20 +1,26 @@
 pub(crate) mod auto_load;
+#[allow(dead_code)]
 pub(crate) mod builder;
 pub(crate) mod bundle;
 pub(crate) mod composition;
 pub(crate) mod content;
 pub(crate) mod deps;
 pub(crate) mod export;
+#[allow(dead_code)]
 pub(crate) mod graph_model;
 pub(crate) mod import;
 pub(crate) mod keys;
 pub(crate) mod loader;
 pub(crate) mod lockfile;
+#[allow(dead_code)]
 pub(crate) mod manifest;
+#[allow(dead_code)]
 pub(crate) mod registry;
 pub(crate) mod remote;
 pub(crate) mod signing;
+#[allow(dead_code)]
 pub(crate) mod skills;
+#[allow(dead_code)]
 pub(crate) mod verify;
 
 pub(crate) use auto_load::auto_load_packages;

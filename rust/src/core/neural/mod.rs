@@ -4,10 +4,15 @@
 //! When an ONNX model is present, switches from heuristic to neural scoring.
 //! Falls back gracefully to heuristic mode when no model is available.
 
+#[allow(dead_code)]
 pub(crate) mod attention_learned;
+#[allow(dead_code)]
 pub(crate) mod cache_alignment;
+#[allow(dead_code)]
 pub(crate) mod context_reorder;
+#[allow(dead_code)]
 pub(crate) mod line_scorer;
+#[allow(dead_code)]
 pub(crate) mod token_optimizer;
 
 use std::path::PathBuf;
