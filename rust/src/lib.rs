@@ -2,7 +2,6 @@
 // Every `unsafe` block must carry a `// SAFETY:` comment justifying soundness.
 // Enforced so the (mostly libc/Win32 syscall) unsafe surface stays documented.
 #![warn(clippy::undocumented_unsafe_blocks)]
-#![allow(rustdoc::private_intra_doc_links)]
 
 #[cfg(all(feature = "jemalloc", not(windows)))]
 #[global_allocator]
