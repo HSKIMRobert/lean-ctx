@@ -342,9 +342,9 @@ export LEAN_CTX_ROLE=bank
 | `localhost:PORT` | Dashboard (local TCP) | Don't start dashboard, or bind to loopback only |
 | UDS socket | Daemon IPC | Permissions `0o600`, owner-only access |
 
-### Team Server Hardening
+### Team Server Hardening (lean-ctx-enterprise)
 
-When running the team server (`lean-ctx team-server`):
+The team server is part of `lean-ctx-enterprise` (ADR-023). When deployed:
 
 1. **Token rotation**: Rotate workspace tokens periodically. Tokens are stored in the team config.
 2. **Scope minimization**: Grant only necessary scopes per workspace token (e.g., `read` only, no `shell`).

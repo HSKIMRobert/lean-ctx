@@ -391,7 +391,6 @@ pub mod debug_log;
 #[allow(unused)]
 pub mod delivered_ranges;
 pub mod delta_response;
-pub mod deployment_profile;
 pub mod diagnostics_store;
 pub mod editor_signal;
 pub mod egress;
@@ -539,7 +538,6 @@ pub mod task_briefing;
 #[cfg(target_os = "macos")]
 pub mod tcc_guard_sandbox;
 pub mod tdd_schema;
-pub mod team_slo;
 pub mod telemetry;
 pub mod terse;
 pub mod theme;

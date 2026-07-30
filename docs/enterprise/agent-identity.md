@@ -54,7 +54,7 @@ audits each suspension. Wire this to your IdP:
 
 * **SCIM** (ENT-2): on `active=false` for a user, call
   `agent_registry::suspend_agents_for_owner(user, "SCIM deactivated")`
-  (HTTP path: team-server SCIM handler) or run the CLI from your
+  (HTTP path: `lean-ctx-enterprise` team server SCIM handler, ADR-023) or run the CLI from your
   deprovisioning pipeline.
 * **Manual**: part of the leaver checklist.
 
@@ -99,7 +99,7 @@ spire-server entry create \
 ```
 
 The OIDC client-credentials path (agent visible as a service account in
-Entra/Okta) builds on the team-server token plane and is tracked as the
+Entra/Okta) builds on the `lean-ctx-enterprise` team server token plane (ADR-023) and is tracked as the
 hosted half of #433 — engine-side prerequisites (stable identity, status
 check, owner binding) are what this module provides.
 
@@ -107,6 +107,6 @@ check, owner binding) are what this module provides.
 
 `agent_registry::check(agent_id)` is the single decision point: not
 registered ⇒ deny; suspended/decommissioned ⇒ deny; active ⇒ allow.
-Call paths (team-server middleware, A2A handlers) consult it in enforce
+Call paths (`lean-ctx-enterprise` team server middleware, A2A handlers) consult it in enforce
 mode and only log in monitor mode — start in monitor, switch to enforce
 once your fleet is registered.

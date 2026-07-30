@@ -18,27 +18,26 @@ offline, with zero telemetry.
 
 **Feature flags:** none (always compiled).
 
-### Gateway (feature: `http-server` + `gateway-server`)
+### Gateway (lean-ctx-enterprise)
 
 The org-wide LLM reverse proxy with usage tracking, budget enforcement, and
 FinOps dashboards.
 
-**Top-level modules:** `proxy`, `proxy_autostart`, `proxy_setup`,
-`gateway_server`.
+**Top-level modules:** `proxy`, `proxy_autostart`, `proxy_setup` (OSS);
+`gateway_server` (enterprise).
 
-**Feature flags:** `http-server` (proxy binary), `gateway-server` (admin +
-usage store).
+**Feature flags:** `engine-integration` (enterprise) — links OSS proxy to
+enterprise gateway admin + usage store.
 
-### Cloud (feature: `cloud-server`)
+### Cloud (lean-ctx-enterprise)
 
 Hosted coordination: accounts, team provisioning, knowledge sync, billing
 edge, context package registry.
 
 **Top-level modules:** `cloud_server`, `cloud_client`, `cloud_sync`,
-`http_server`.
+`http_server` (team/billing surfaces) — all in `lean-ctx-enterprise`.
 
-**Feature flags:** `cloud-server`, `http-server` (shared transport),
-`team-server` (team/billing submodules in `http_server`).
+**Feature flags:** enterprise build only (ADR-023).
 
 ### Shared (always compiled)
 
@@ -55,22 +54,21 @@ CLI, IPC, config, diagnostics — consumed by all three pillars.
 3. **Cloud depends on Engine** — sync and billing reference `core::config`,
    `core::savings_ledger`.
 4. **Gateway ↔ Cloud are independent** — no direct imports between
-   `proxy`/`gateway_server` and `cloud_server`/`cloud_sync`.
-5. **`http_server` is cross-pillar** — it hosts both Engine HTTP MCP
-   transport and Cloud team surfaces. Submodules are documented with their
-   pillar assignment in `http_server/mod.rs`.
+   OSS `proxy` and enterprise `gateway_server` / `cloud_server` / `cloud_sync`.
+5. **`http_server` (OSS)** — Engine HTTP MCP transport only. Team/Cloud
+   HTTP surfaces live in `lean-ctx-enterprise`.
 
 ## Cross-pillar coupling (documented exceptions)
 
-### proxy ↔ gateway_server
+### proxy ↔ gateway_server (lean-ctx-enterprise)
 
-The self-hosted org gateway runs as a single process:
-- `gateway_server::serve` calls `proxy::start_proxy`
-- `proxy` mounts `gateway_server::user_api` and `gateway_server::mcp::proxy`
-  routes (feature-gated)
+The self-hosted org gateway runs as a single enterprise process:
+- `gateway_server::serve` (enterprise) calls `proxy::start_proxy` (OSS)
+- `proxy` mounts enterprise `gateway_server::user_api` and
+  `gateway_server::mcp::proxy` routes via `engine-integration`
 
-This bidirectional dependency is intentional and documented in both `mod.rs`
-files.
+This cross-repo dependency is intentional (ADR-023) and documented in both
+repositories.
 
 ## Local-Free Invariant
 

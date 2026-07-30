@@ -24,9 +24,9 @@ shareable URL (`https://leanctx.com/w/<id>`). No login is required to publish; a
 
 ## Version (SSOT)
 
-- Runtime: `rust/src/cloud_server/wrapped.rs`
-- Schema: `rust/src/cloud_server/db.rs` (`init_schema`, table `wrapped_cards`)
-- Routing + CORS: `rust/src/cloud_server/mod.rs`
+- Runtime: `lean-ctx-enterprise: cloud_server/wrapped.rs` (ADR-023)
+- Schema: `lean-ctx-enterprise: cloud_server/db.rs` (`init_schema`, table `wrapped_cards`)
+- Routing + CORS: `lean-ctx-enterprise: cloud_server/mod.rs`
 - Login-less identity (Ed25519): `rust/src/core/agent_identity.rs` (sign/verify, shared with the signed savings ledger)
 - Client (publish/unpublish/leaderboard): `rust/src/cli/wrapped_publish.rs` (`gain --publish [--leaderboard] [--name=…]`, `[gain] auto_publish`)
 - Permalink + leaderboard pages: server-rendered by the cloud API; `leanctx.com` proxies `/w/` and

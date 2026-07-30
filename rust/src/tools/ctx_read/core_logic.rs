@@ -629,4 +629,55 @@ mod tests {
                 .any(|(key, _)| *key == "test_compressed_cache_hit")
         );
     }
+
+    #[test]
+    fn compressed_cache_hit_fires_on_second_map_read() {
+        use super::*;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cachehit.rs");
+        std::fs::write(
+            &file,
+            "pub struct Foo {\n    bar: u32,\n    baz: String,\n}\nimpl Foo {\n    pub fn new() -> Self { Self { bar: 0, baz: String::new() } }\n}\n",
+        )
+        .unwrap();
+        let path = file.to_string_lossy();
+        let mut cache = SessionCache::new();
+        let tuning = ReadTuning::default();
+
+        let r1 = handle_with_options_inner(
+            &mut cache,
+            &path,
+            "map",
+            false,
+            CrpMode::Off,
+            Some("test task"),
+            tuning,
+            None,
+        );
+        assert!(!r1.is_cache_hit, "first map read must be a miss");
+        assert_eq!(r1.resolved_mode, "map");
+
+        let r2 = handle_with_options_inner(
+            &mut cache,
+            &path,
+            "map",
+            false,
+            CrpMode::Off,
+            Some("test task"),
+            tuning,
+            None,
+        );
+        assert!(r2.is_cache_hit, "second map read must hit compressed cache");
+        assert_eq!(
+            r2.content, r1.content,
+            "cached output must be byte-identical"
+        );
+
+        let counts = crate::core::auto_mode_resolver::source_counts();
+        assert!(
+            counts.iter().any(|(k, _)| *k == "compressed_cache_hit"),
+            "compressed_cache_hit counter must fire; got: {counts:?}"
+        );
+    }
 }

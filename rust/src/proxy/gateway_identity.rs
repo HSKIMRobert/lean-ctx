@@ -12,8 +12,7 @@
 //! default_project = "ai-gateway"
 //! ```
 //!
-//! Only the hash is ever stored (same rule as `TeamTokenConfig` /
-//! `cloud_server::auth`); the plaintext key lives with the person. The file
+//! Only the hash is ever stored; the plaintext key lives with the person. The file
 //! path resolves via `LEAN_CTX_GATEWAY_KEYS`, falling back to
 //! `<config_dir>/gateway-keys.toml` — deployments mount it as a secret.
 //!

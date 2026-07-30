@@ -100,16 +100,21 @@ lean-ctx dev-install
 ```
 
 Do not use `dev-install` for normal production upgrades; use `lean-ctx update`.
-To build the gateway binary or image, enable its feature:
+
+> **Enterprise:** Gateway and Cloud binaries ship in the separate
+> [`lean-ctx-enterprise`](https://github.com/yvgude/lean-ctx-enterprise) repository
+> (see [ADR-023](../business/adr-023-open-core-split.md)).
+
+To build the gateway binary or image, use the enterprise repository:
 
 ```bash
-cd rust
-cargo build --release --features gateway-server
+# Build from lean-ctx-enterprise (not this OSS repo)
+# cd lean-ctx-enterprise && cargo build --release
 ```
 
 ### 4. Run the Docker gateway proxy
 
-The repository provides a Dockerfile for the `gateway-server` feature rather
+The enterprise repository provides a Dockerfile for the gateway rather
 than a generic workstation container. Generate an instance first; it creates
 configuration, a secrets file, Compose definition, and README without replacing
 an existing instance:

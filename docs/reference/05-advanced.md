@@ -398,8 +398,8 @@ never clamped. Anthropic only — OpenAI/Gemini have no free counting endpoint.
 lean-ctx config set proxy.counterfactual_metering true
 ```
 
-**Self-hosted org gateway — `lean-ctx gateway serve`** (build with
-`--features gateway-server`). One process bundling the hardened proxy, the
+**Self-hosted org gateway — `lean-ctx gateway serve`** (lean-ctx-enterprise,
+[ADR-023](../../docs/business/adr-023-open-core-split.md)). One process bundling the hardened proxy, the
 Postgres usage store and an admin listener:
 
 ```bash
@@ -460,7 +460,7 @@ admin_bind_host = "127.0.0.1"
 admin_url = "https://gateway.internal:8485"
 ```
 
-**Gateway lifecycle CLI** (all under `lean-ctx gateway …`, `gateway-server`
+**Gateway lifecycle CLI** (all under `lean-ctx gateway …`, enterprise
 builds):
 
 ```bash
@@ -823,6 +823,4 @@ gateway at an arbitrary command or endpoint. It is a complete no-op until you se
 - "profile" is overloaded: tool profile (Journey 2) vs. context profile (here).
   Both journeys cross-reference each other to defuse the confusion.
 
---- lean-ctx: ctx_compose bundles search+read+symbols in one call ---
 
---- lean-ctx: ctx_compose bundles search+read+symbols in one call ---

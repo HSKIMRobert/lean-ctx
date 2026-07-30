@@ -12,7 +12,7 @@ enforces it.
 | Plane | What it is | How it ships | Gating |
 |-------|-----------|--------------|--------|
 | **Personal (local)** | The full single-developer experience: every MCP tool, all read modes, compression, caching, knowledge, sessions, gateway, sensitivity floor, savings ledger, audit trail, personas, plugins, extensions. | Always compiled into the binary (some capabilities are optional **compile** features, never license features). | **None.** No account, license, or plan — ever. |
-| **Team / Cloud (commercial)** | Cross-machine sync, shared knowledge graph, RBAC/SSO/SCIM, hosted ingestion, marketplace, domain packs, billing. | Opt-in `team-server` / `cloud-server` Cargo features + separate services. | Account / plan, by design — but strictly **additive**. |
+| **Team / Cloud (commercial)** | Cross-machine sync, shared knowledge graph, RBAC/SSO/SCIM, hosted ingestion, marketplace, domain packs, billing. | `lean-ctx-enterprise` (separate repo, ADR-023). | Account / plan, by design — but strictly **additive**. |
 
 `GET /v1/capabilities` reports the active `plane` (default `personal`).
 
@@ -29,7 +29,7 @@ enforces it.
 
 - `LOCAL_ALWAYS_ON_FEATURES` — free, ungated, in every build.
 - `LOCAL_OPTIONAL_FEATURES` — free, gated by **compilation** only (Cargo features).
-- `COMMERCIAL_PLANE_FEATURES` — additive, opt-in (`team_server`, `cloud_server`).
+- `COMMERCIAL_PLANE_FEATURES` — additive, enterprise-only (`lean-ctx-enterprise`).
 
 Every feature flag must belong to exactly one of these sets.
 

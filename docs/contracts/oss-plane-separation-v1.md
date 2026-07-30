@@ -35,14 +35,12 @@ Open by design — transparency is a feature, not a leak:
   full local runtime: all read modes, compression, caching, knowledge, sessions,
   personas, gateway, security (PathJail, shell allowlist, sensitivity).
 - **First-party SDKs + `/v1` contract** (`clients/`, `packages/`, `cookbook/`).
-- **Self-hostable Team server** (`http_server/team`, `team-server` feature) —
-  self-hosting is a free capability.
+- ~~Self-hostable Team server~~ — **moved to `lean-ctx-enterprise`** (ADR-023).
 - **Plugin + WASM extension system** (`core/plugins`, `core/wasm_ext`).
 - **Billing *plan catalog* + entitlements** (`core/billing/plans.rs`) — the tier
   *definitions* are public so the Local-Free Invariant is independently
   verifiable. **No prices, no payment secrets, no enforcement of paid gating.**
-- **Reference community cloud** (`cloud_server/` — auth, sync, wrapped) — a
-  self-hostable backend with **no billing tables and no customer data**.
+- ~~Reference community cloud~~ — **moved to `lean-ctx-enterprise`** (ADR-023).
 
 ## What stays private (never on GitHub)
 

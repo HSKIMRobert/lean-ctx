@@ -6,7 +6,7 @@ Scope: monthly Pro digest, weekly Team/Business/Enterprise digest, opt-out
 ## Behaviour
 
 The cloud server (`api.leanctx.com`) runs an hourly background job
-(`cloud_server/digest.rs`) that sends each eligible account at most one
+(`lean-ctx-enterprise: cloud_server/digest.rs`, ADR-023) that sends each eligible account at most one
 digest per period:
 
 | Plan | Cadence | Period key | Data source |

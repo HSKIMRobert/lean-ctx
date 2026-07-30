@@ -1,8 +1,8 @@
 # personal-cloud-encryption-v1 — Zero-Knowledge Vaults (Knowledge + Gotchas)
 
 Status: **active** (GL #467) · Engine: `core/knowledge_vault.rs` ·
-Server: `cloud_server/knowledge.rs` (`knowledge_blobs`),
-`cloud_server/gotchas.rs` (`gotcha_blobs`)
+Server: `lean-ctx-enterprise: cloud_server/knowledge.rs` (`knowledge_blobs`),
+`lean-ctx-enterprise: cloud_server/gotchas.rs` (`gotcha_blobs`) (ADR-023)
 
 ## Claim
 

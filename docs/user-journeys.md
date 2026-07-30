@@ -509,7 +509,7 @@ lean-ctx team serve --config team.json
 lean-ctx savings roi                 # net tokens, USD, top tools — SHA-256 chain + Ed25519 signature
 ```
 
-**Under the hood:** the Team/Org plane is `rust/src/http_server/team/` (bearer
+**Under the hood:** the Team/Org plane is `lean-ctx-enterprise: http_server/team/` (ADR-023; bearer
 auth, `TeamRole` → scope expansion in `roles.rs`, per-request audit). Billing is
 `rust/src/core/billing/` — `entitlement_allows` returns **`true` for every local
 feature on every plan**, the billing-layer expression of the **Local-Free
@@ -573,7 +573,7 @@ coordination *around* the runtime without ever reaching in to gate a local featu
 | **Context Personas** | `core/persona.rs`, `core/config` resolution | persona resolution + tool-surface tests | `LEAN_CTX_PERSONA`, `config.persona`; `<personas_dir>/*.toml` |
 | **Universal Intake** | `core/ingestion.rs`, `core/extractors/{json,csv,eml,html,pdf,text}.rs` | extractor + chunker conformance | `ctx_index`; auto per-format |
 | **Open Core (plugins + WASM)** | `core/plugins/`, `core/wasm_ext.rs` (`wasm-abi-v1`) | plugin/hook + WASM host tests; `conformance` | `plugin.toml` `[[tools]]`, hooks; `LEAN_CTX_WASM_DIR` |
-| **Commercial Plane** | `http_server/team/`, `core/billing/`, `core/savings_ledger/` | RBAC + billing + `local-free-invariant` CI gate | `lean-ctx team`, `billing`, `savings roi` |
+| **Commercial Plane** | `lean-ctx-enterprise` (`http_server/team/`), `core/billing/`, `core/savings_ledger/` | RBAC + billing + `local-free-invariant` CI gate | `lean-ctx team`, `billing`, `savings roi` |
 
 **Cross-cutting consistency (this pass):** every "tool count" reference across
 README, `ARCHITECTURE.md`, `VISION.md`, guides, comparisons, Discord FAQ,

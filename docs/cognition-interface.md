@@ -59,7 +59,7 @@ Evidence:
 
 Evidence:
 - `rust/src/http_server/mod.rs`
-- `rust/src/http_server/team.rs`
+- `lean-ctx-enterprise: http_server/team.rs` (ADR-023)
 - `cookbook/sdk/src/client.e2e.test.ts`
 
 ## Contract: deterministic steering, not “prompt magic”

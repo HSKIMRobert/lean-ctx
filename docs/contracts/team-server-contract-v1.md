@@ -103,6 +103,6 @@ Raw arguments are never stored in the audit log.
 
 ## Implementation
 
-- `rust/src/http_server/team.rs`
+- `lean-ctx-enterprise: http_server/team.rs` (ADR-023)
 - CLI dispatch: `rust/src/cli/dispatch.rs` (`lean-ctx team ...`)
 

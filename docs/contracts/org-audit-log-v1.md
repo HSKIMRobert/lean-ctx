@@ -11,7 +11,7 @@ scope for v1.
 | Plane | Repo | Responsibility |
 |---|---|---|
 | Control plane | `lean-ctx-cloud` (private) | System of record: `org_audit_log`, best-effort writes from every governance path, owner read API + CSV, daily fleet retention sweep |
-| Edge | `lean-ctx` OSS `cloud_server::billing_edge` | Owner-bearer proxies: `GET /api/account/org/audit` (+ `/export.csv`) |
+| Edge | `lean-ctx-enterprise` `cloud_server::billing_edge` (ADR-023) | Owner-bearer proxies: `GET /api/account/org/audit` (+ `/export.csv`) |
 | Website | `lean-ctx-deploy` | `/account/audit` — filterable table, relative timestamps, retention notice, CSV download; owner link from the billing org card |
 
 ## Storage

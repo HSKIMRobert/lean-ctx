@@ -18,9 +18,7 @@ organizational — managed with the same rigor as code.
 | **Gateway** | Org-wide LLM proxy — usage tracking, budget enforcement, FinOps, compliance | Companies, Ops, FinOps, CISOs |
 | **Cloud** | Hosted services — accounts, sync, team provisioning, billing, registry | Teams, Pro users, managed enterprise |
 
-All three pillars ship in **one binary** (`lean-ctx`). Every feature works
-self-hosted for free. Cloud and Enterprise tiers add hosting, support, and
-managed infrastructure — never features.
+The **Engine** ships in the open-source binary (`lean-ctx`). **Gateway** and **Cloud** capabilities are available through `lean-ctx-enterprise` (see [ADR-023](docs/business/adr-023-open-core-split.md)). Enterprise tiers add org-scale governance, hosting, and managed infrastructure.
 
 ### Engine
 
@@ -34,8 +32,7 @@ of ~50K cold start). Ships as MCP tools (`ctx_read`, `ctx_compose`,
 
 The org-wide LLM reverse proxy: intercepts Anthropic, OpenAI, Gemini and
 ChatGPT traffic, compresses prompts in-flight, meters per-request cost
-attribution, enforces budgets, and provides FinOps dashboards. Self-hosted with
-`--features gateway-server`, no license required.
+attribution, enforces budgets, and provides FinOps dashboards. Available through `lean-ctx-enterprise` ([ADR-023](docs/business/adr-023-open-core-split.md)).
 
 ### Cloud
 

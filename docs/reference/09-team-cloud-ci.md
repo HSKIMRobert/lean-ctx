@@ -93,7 +93,7 @@ Behaviour worth knowing:
 - **Status.** `GET /v1/connectors` (audit scope) returns a secret-free roster
   with each connector's last run, status and item count.
 
-See the [Team Server Contract](../contracts/team-server-contract-v2.md#managed-connectors-281)
+See the [Team Server Contract](../contracts/team-server-contract-v2.md#managed-connectors-281) (`lean-ctx-enterprise`, ADR-023)
 for the full `ConnectorConfig` schema.
 
 ---

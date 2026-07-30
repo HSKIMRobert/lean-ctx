@@ -131,7 +131,7 @@ export PROPTEST_CASES="${PROPTEST_CASES:-64}"
 # a plain dev box), so we cross-*check* with the default feature set minus
 # jemalloc — enough to exercise the same cfg/dead-code analysis that bit us.
 WIN_TARGET="x86_64-pc-windows-gnu"
-WIN_FEATURES="tree-sitter,embeddings,http-server,team-server,secure-update"
+WIN_FEATURES="tree-sitter,embeddings,http-server,secure-update"
 
 BOLD="\033[1m"; CYAN="\033[1;36m"; GREEN="\033[1;32m"; RED="\033[1;31m"
 YELLOW="\033[1;33m"; RESET="\033[0m"

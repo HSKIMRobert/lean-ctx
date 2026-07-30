@@ -90,11 +90,9 @@ must be verified**. The Context OS is the Cognition Interface made *open and uni
 This is the **open-core / local-first** model (Tailscale, Sentry, GitLab). lean-ctx
 already half-lives it:
 
-- `rust/src/cloud_server/` is a full account backend, opt-in via the `cloud-server`
-  Cargo feature (`deadpool-postgres`, `tokio-postgres`, `lettre`/SMTP, `jsonwebtoken`,
-  `argon2`, `uuid`, …) — i.e., accounts, email verification, auth.
-- `team-server` ships **in the default feature set** (`Cargo.toml` `default = [… "team-server" …]`)
-  — local/self-host stays free.
+- `lean-ctx-enterprise` hosts the full account backend (`cloud_server/`) — accounts,
+  email verification, auth (ADR-023).
+- Team/Cloud server capabilities moved to `lean-ctx-enterprise` (ADR-023).
 - `lean-ctx upgrade` already models a plan-upgrade flow (`docs/reference/09-team-cloud-ci.md`).
 - The Ed25519-**signed savings ledger** (`rust/src/core/savings_ledger/`,
   `rust/src/core/agent_identity.rs`) is a ready-made ROI / metering substrate.
@@ -173,7 +171,7 @@ touching the local path.
 
 | Pillar | Free (Personal plane, forever) | Commercial (Team/Cloud plane, additive) |
 |--------|-------------------------------|------------------------------------------|
-| 1 — API/SDK | Local server, all SDKs, all tools | **lean-ctx Cloud**: hosted Context-OS endpoint, cross-machine sync, hosted embeddings/retrieval at scale (`cloud_server/`, `upgrade`) |
+| 1 — API/SDK | Local server, all SDKs, all tools | **lean-ctx Cloud**: hosted Context-OS endpoint, cross-machine sync, hosted embeddings/retrieval at scale (`lean-ctx-enterprise`, `upgrade`) |
 | 2 — Extensions | Build/run any extension locally, full SDK | **Marketplace**: hosting, signed/verified publishing, private org registries, revenue share |
 | 3 — Ingestion | All local extractors/chunkers/indexes | **Managed connectors**: hosted continuous sync (CRM/Drive/Notion), large managed indexes |
 | 4 — Personas | All built-in + self-authored personas | **Curated domain packs**: maintained personas + eval suites + support (sales/support/legal) |
@@ -183,7 +181,7 @@ touching the local path.
 
 1. **Plane separation** — a clean seam between Personal and Team/Cloud planes, so the
    commercial layer is purely additive over a process/service boundary
-   (`rust/src/http_server/team.rs`, `rust/src/cloud_server/`). Ticket **12.19**.
+   (`lean-ctx-enterprise`). Ticket **12.19**.
 2. **Local-Free-Invariant conformance test** — CI fails if any local capability becomes
    gated behind account/license/plan. Ticket **12.19**.
 3. **Metering / ROI substrate** — the signed savings ledger
@@ -352,7 +350,7 @@ prerequisite for any local feature.
 
 | Ticket | Scope |
 |--------|-------|
-| 13.1 | lean-ctx Cloud — hosted Context-OS endpoint + cross-machine sync (on `cloud_server/`) |
+| 13.1 | lean-ctx Cloud — hosted Context-OS endpoint + cross-machine sync (`lean-ctx-enterprise`) |
 | 13.2 | Team/Org plane — RBAC/SSO/SCIM, shared knowledge graph, audit retention |
 | 13.3 | Extension/persona Marketplace — hosting, signing, revenue share, private registries |
 | 13.4 | Managed connectors / hosted ingestion |

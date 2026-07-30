@@ -82,7 +82,7 @@ All of `billing-plane-v1`'s invariants, plus
 
 ## Team-server report endpoints (GL #463)
 
-The team server serves both reports itself (`rust/src/http_server/team_billing.rs`);
+The team server (`lean-ctx-enterprise`) serves both reports itself (`http_server/team_billing.rs`);
 the control plane proxies them. Both are gated by the `audit` scope — the same
 sensitivity class as `/v1/metrics`, and the scope of the audit-only control token.
 Sizing is allocated-blocks-based (`st_blocks * 512` on Unix), symlinks are not
@@ -108,7 +108,7 @@ followed, hard links count once, and reports are cached for 60 s per process.
 - `quotaBytes` (always present) resolves as: `LEANCTX_TEAM_STORAGE_QUOTA_BYTES`
   env override → `storageQuotaBytes` from `team.json` (rendered per plan by
   provisioning, #282: Team 5 GiB, Enterprise unbounded per catalog) → Team-tier
-  5 GiB default. (Note: "50 GiB" was the initial team-server provisioning
+  5 GiB default. (Note: "50 GiB" was the initial team server provisioning
   default; the Enterprise entitlement is `UNBOUNDED` per
   `billing-plane-v1-catalog.json`.)
   A concrete quota keeps the control plane's metering out of the degenerate

@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn commercial_entitlements_exist_only_above_free() {
-        // Self-hosting (team_server/cloud_server) stays free; the real commercial
+        // Commercial entitlements (ADR-023: enforcement in lean-ctx-enterprise).
         // gates are the hosted/governance entitlement keys. Free grants none of
         // them; higher plans add them. This keeps the plan ladder honest.
         assert!(!entitlement_allows(Plan::Free, "sso_scim"));

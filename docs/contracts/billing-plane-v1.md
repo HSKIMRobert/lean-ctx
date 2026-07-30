@@ -41,7 +41,7 @@ identical to `free` for every Team/Cloud capability — it can never gate a loca
 feature and grants none of the coordination entitlements; it only sets the
 account-level `supporter` flag (also `true` for `pro`/`team`/`enterprise`, since
 every paid plan is at minimum a supporter). Self-serve checkout for it never
-triggers team-server provisioning (only `team` does).
+triggers team provisioning via `lean-ctx-enterprise` (only `team` does).
 
 `pro` is the **paid** "Personal Cloud" subscription — its **own** plan (`pro`
 parses to `Plan::Pro`; it is no longer an alias of `supporter`). It adds exactly
@@ -68,9 +68,8 @@ capability; none can restrict a local feature.
   `audit_retention`) resolve from the plan's entitlements.
 - Unknown features default to **allowed** (fail-open for the user — never
   fail-closed against the local experience).
-- Self-hosting `team_server`/`cloud_server` stays free: those are compile-time
-  capabilities, not entitlement keys. The commercial plane is the *hosted*
-  version.
+- Team/Cloud server capabilities live in `lean-ctx-enterprise` (ADR-023); the
+  commercial plane is the *hosted* version. Entitlements gate hosted services only.
 
 ## Metering
 
@@ -113,12 +112,12 @@ control plane, the single place an account/plan is consulted.
 ## Production wiring (out of scope for the local engine)
 
 Self-serve checkout and plan provisioning are a **hosted control-plane**
-concern, built on the existing `cloud_server` backend (`rust/src/cloud_server/`)
+concern, built on the `lean-ctx-enterprise` cloud backend (ADR-023)
 and `lean-ctx upgrade` flow (`rust/src/cli/cloud.rs`):
 
 1. A payment processor (e.g. Stripe) handles checkout + subscription lifecycle;
    its webhooks update the account's plan in the cloud Postgres
-   (`cloud_server/db.rs`, `models.rs`).
+   (`lean-ctx-enterprise: cloud_server/db.rs`, `models.rs`).
 2. The hosted `/v1` endpoint maps an authenticated account → `Plan`, then uses
    `entitlement_allows` to gate **hosted** capabilities only.
 3. Usage is reported by clients submitting signed savings batches

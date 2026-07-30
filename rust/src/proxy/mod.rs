@@ -3,14 +3,10 @@
 //! Intercepts Anthropic, OpenAI, Gemini and ChatGPT traffic, compresses
 //! prompts, meters usage, and optionally translates request shapes.
 //!
-//! # Cross-pillar coupling
+//! # Org gateway coupling (ADR-023)
 //!
-//! When the `gateway-server` feature is active, `start_proxy` mounts
-//! `gateway_server::user_api` and `gateway_server::mcp::proxy` routes into
-//! the Axum router. This is intentional: the self-hosted org gateway is a
-//! single process that combines the proxy with the admin/usage store.
-//! The dependency is feature-gated and uni-directional at the route level
-//! (proxy owns the router, gateway_server provides route handlers).
+//! The self-hosted org gateway (lean-ctx-enterprise) extends this proxy with
+//! admin/usage-store routes. In the OSS build the proxy runs standalone.
 
 pub mod anthropic;
 #[cfg(test)]

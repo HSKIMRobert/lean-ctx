@@ -90,7 +90,7 @@ more than was checked.
 
 ## Publisher self-service (leanctx.com account → edge → control plane)
 
-Edge routes (session auth, open `cloud_server`):
+Edge routes (session auth, `lean-ctx-enterprise` `cloud_server`, ADR-023):
 
 | Edge route | Forwards to (internal-key auth) |
 |---|---|
@@ -164,5 +164,5 @@ registry = "https://ctxpkg.com/api"
 | Client: remote calls | `rust/src/core/context_package/remote.rs` |
 | Client: signing keys | `rust/src/core/context_package/keys.rs` |
 | Client: lockfile | `rust/src/core/context_package/lockfile.rs` |
-| Edge proxies | `rust/src/cloud_server/billing_edge.rs` |
+| Edge proxies | `lean-ctx-enterprise: cloud_server/billing_edge.rs` |
 | CLI | `rust/src/cli/pack_cmd.rs` |

@@ -14,7 +14,7 @@ served by the same `axum` server that handles MCP protocol messages via fallback
 ## Version (SSOT)
 
 - Runtime (local): `rust/src/http_server/mod.rs`
-- Runtime (team): `rust/src/http_server/team.rs`
+- Runtime (team): `lean-ctx-enterprise: http_server/team.rs` (ADR-023)
 - Events: `rust/src/core/context_os/context_bus.rs`
 - Metrics: `rust/src/core/context_os/metrics.rs`
 - Redaction: `rust/src/core/context_os/redaction.rs`
@@ -553,7 +553,7 @@ newline-delimited JSON:
 ### Team Server (`TeamServerConfig`)
 
 Extends the local server with multi-workspace support, token-based auth, and audit logging.
-See `rust/src/http_server/team.rs` for the full config schema.
+See `lean-ctx-enterprise: http_server/team.rs` for the full config schema (ADR-023).
 
 ---
 

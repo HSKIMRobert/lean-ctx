@@ -10,7 +10,7 @@ SAML and SCIM are out of scope for v1 (deferred to the full #398).
 | Plane | Repo | Responsibility |
 |---|---|---|
 | Control plane | `lean-ctx-cloud` (private) | System of record: `billing_org_sso` config (secret sealed via AEAD), DNS-TXT domain verification, JIT membership, `billing_sso_audit` trail |
-| Edge | `lean-ctx` OSS `cloud_server::sso` | OIDC Relying Party: Authorization Code + PKCE, discovery/JWKS cache, ID-token verification, session + handoff |
+| Edge | `lean-ctx-enterprise` `cloud_server::sso` (ADR-023) | OIDC Relying Party: Authorization Code + PKCE, discovery/JWKS cache, ID-token verification, session + handoff |
 
 ## Login flow
 
