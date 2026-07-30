@@ -3,7 +3,7 @@
 //!
 //! Composes the engine's existing evidence surfaces into one signed,
 //! exportable artifact over a date range:
-//! - **OWASP** Top-10-for-Agents alignment ([`crate::core::owasp_alignment`]);
+//! - **OWASP** Top-10-for-Agents alignment (`crate::core::owasp_alignment`);
 //! - **Framework** coverage — EU AI Act / ISO 42001 / SOC 2
 //!   ([`crate::core::compliance`]), verified live against a resolved pack;
 //! - **Enforcement** — what was *blocked* / *redacted* over the period, folded

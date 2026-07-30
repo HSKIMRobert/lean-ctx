@@ -115,7 +115,7 @@ fn marker_has_data(path: &std::path::Path) -> bool {
 
 /// Returns all known data directories that contain stats data, in resolution
 /// priority order (legacy → mixed config → XDG data). Used by the dual-dir
-/// consolidation ([`crate::core::data_consolidate`]) and doctor diagnostics.
+/// consolidation (`crate::core::data_consolidate`) and doctor diagnostics.
 ///
 /// `$XDG_DATA_HOME/lean-ctx` is included (GH #414): after the #408 default flip
 /// a fresh install writes stats there, so a user who *also* has a legacy/mixed

@@ -9,7 +9,7 @@
 //! sidecar `addon_registry.json.sig` carries a valid signature **by a trusted
 //! org key** — the same pinned-key trust anchor as the signed org-policy floor
 //! ([`crate::core::policy::org::trust`]). This reuses the engine's Ed25519
-//! primitives ([`crate::core::agent_identity`]); the signature covers the exact
+//! primitives (`crate::core::agent_identity`); the signature covers the exact
 //! file bytes, so any tampering invalidates it.
 
 use ed25519_dalek::SigningKey;

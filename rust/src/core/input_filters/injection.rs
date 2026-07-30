@@ -1,6 +1,6 @@
 //! Prompt-injection filtering (OWASP LLM01) for inbound content (GL #675).
 //!
-//! Reuses the conservative heuristic in [`crate::core::output_sanitizer`] (the
+//! Reuses the conservative heuristic in `crate::core::output_sanitizer` (the
 //! same patterns already trusted elsewhere) and adds policy actions: count the
 //! signals for a block decision, or redact the offending lines so the rest of
 //! the file still reaches the agent.

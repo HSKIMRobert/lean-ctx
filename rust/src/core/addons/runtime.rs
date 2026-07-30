@@ -5,7 +5,7 @@
 //! secret it read) and a prompt-injection surface. Before the gateway hands a
 //! downstream result to the model ([`crate::core::mcp_catalog::proxy`]), it runs the
 //! output through the same redaction the shell layer uses (single source of
-//! truth: [`crate::core::redaction`] + [`crate::core::secret_detection`]) and
+//! truth: `crate::core::redaction` + `crate::core::secret_detection`) and
 //! records an audit line tagging the bytes as untrusted, attributed to the
 //! originating server.
 
