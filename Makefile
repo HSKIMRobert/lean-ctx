@@ -1,4 +1,6 @@
-.PHONY: setup-hooks install dev test preflight preflight-fast help
+.PHONY: setup-hooks install dev test preflight preflight-fast enterprise-ci-check help
+
+ENTERPRISE_DIR ?= ../lean-ctx-enterprise
 
 # ── Setup ─────────────────────────────────────────────────
 
@@ -30,6 +32,14 @@ preflight: ## Full local CI-parity gate (fmt, clippy, doc, gen_docs, win-check, 
 
 preflight-fast: ## Static CI-parity gate (no full test run) — what pre-push runs
 	scripts/preflight.sh fast
+
+# ── Enterprise CI ────────────────────────────────────────────
+
+enterprise-ci-check: ## Validate the separate enterprise checkout for feature-flag CI
+	@test -d "$(ENTERPRISE_DIR)" || { echo "Enterprise checkout not found: $(ENTERPRISE_DIR)"; exit 1; }
+	@test -f "$(ENTERPRISE_DIR)/Cargo.toml" || { echo "Missing Cargo.toml in $(ENTERPRISE_DIR)"; exit 1; }
+	@cd "$(ENTERPRISE_DIR)" && cargo metadata --no-deps --format-version 1 >/dev/null
+	@echo "Enterprise checkout ready: $(ENTERPRISE_DIR)"
 
 # ── Help ──────────────────────────────────────────────────
 
