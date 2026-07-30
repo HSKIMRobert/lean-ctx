@@ -170,7 +170,12 @@ pub fn contract_docs() -> Vec<ContractDoc> {
         doc("deprecation-policy", "DEPRECATION.md", 1, Stable),
         doc("audit-schedule", "audit-schedule-v1.md", 1, Stable),
         doc("branch-protection", "branch-protection-v1.md", 1, Stable),
-        doc("certification-levels", "certification-levels-v1.md", 1, Stable),
+        doc(
+            "certification-levels",
+            "certification-levels-v1.md",
+            1,
+            Stable,
+        ),
         doc("release-integrity", "release-integrity-v1.md", 1, Stable),
         doc(
             "gotchas-reminders",

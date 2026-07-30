@@ -401,27 +401,40 @@ mod tests {
         let hash = [5u8; 12];
         reg.record_delivery(test_entry("ttl.rs", "agent-ttl", hash, 1000));
 
-        reg.store.get_mut(&hash).unwrap().read_at =
+        let key = DeliveryKey {
+            blake3: hash,
+            path: "ttl.rs".into(),
+        };
+        reg.store.get_mut(&key).unwrap().read_at =
             BuiltinDeliveryRegistry::now_epoch().saturating_sub(120);
 
         assert!(
-            reg.check_delivery(&hash, 1000).is_none(),
+            reg.check_delivery(&hash, 1000, "ttl.rs", Some("agent-other"), None)
+                .is_none(),
             "expired entry must return miss"
         );
         assert_eq!(reg.store.len(), 0, "expired entry must be removed on check");
     }
 
     #[test]
-    fn evict_expired_clears_old_entries() {
+    fn purge_expired_clears_old_entries() {
         let reg = BuiltinDeliveryRegistry::with_limits(4096, 60);
         reg.record_delivery(test_entry("a.rs", "a1", [20u8; 12], 100));
         reg.record_delivery(test_entry("b.rs", "a2", [21u8; 12], 200));
 
         let past = BuiltinDeliveryRegistry::now_epoch().saturating_sub(120);
-        reg.store.get_mut(&[20u8; 12]).unwrap().read_at = past;
-        reg.store.get_mut(&[21u8; 12]).unwrap().read_at = past;
+        let key_a = DeliveryKey {
+            blake3: [20u8; 12],
+            path: "a.rs".into(),
+        };
+        let key_b = DeliveryKey {
+            blake3: [21u8; 12],
+            path: "b.rs".into(),
+        };
+        reg.store.get_mut(&key_a).unwrap().read_at = past;
+        reg.store.get_mut(&key_b).unwrap().read_at = past;
 
-        reg.evict_expired();
+        reg.purge_expired();
         assert_eq!(reg.store.len(), 0);
     }
 }

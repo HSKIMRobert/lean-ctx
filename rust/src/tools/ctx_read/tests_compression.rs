@@ -24,11 +24,17 @@ fn compressed_cache_key_distinguishes_task() {
     let tdd_no_task = compressed_cache_key("map", CrpMode::Tdd, None, None, &[]);
     let with_task = compressed_cache_key("map", CrpMode::Off, Some("fix login"), None, &[]);
     let other_task = compressed_cache_key("map", CrpMode::Off, Some("refactor db"), None, &[]);
-    // Versioned so stale pre-line-range entries cannot be served.
     assert_eq!(no_task, "map:v2");
     assert_eq!(tdd_no_task, "map:v2:tdd");
-    assert_ne!(with_task, no_task);
-    assert_ne!(with_task, other_task);
+    // #E26: map/signatures are structure-preserving and task-independent.
+    // Their cache key must NOT vary with task to improve provider cache hits.
+    assert_eq!(with_task, no_task, "map key must be task-independent");
+    assert_eq!(with_task, other_task, "map key must be task-independent");
+
+    // Task-dependent modes MUST still distinguish tasks.
+    let density_a = compressed_cache_key("density:0.3", CrpMode::Off, Some("fix login"), None, &[]);
+    let density_b = compressed_cache_key("density:0.3", CrpMode::Off, Some("refactor db"), None, &[]);
+    assert_ne!(density_a, density_b, "density key must vary with task");
 }
 
 #[test]
@@ -311,3 +317,4 @@ fn resolve_auto_mode_returns_full_for_instruction_files() {
     let mode = resolve_auto_mode(None, "/workspace/.cursorrules", 2000, None, None);
     assert_eq!(mode, "full", ".cursorrules must always be read in full");
 }
+

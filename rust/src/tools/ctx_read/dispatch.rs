@@ -600,8 +600,6 @@ fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
     let (hash, mtime) = file_blake3_prefix(path)?;
     let current_agent = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
-    let current_agent = std::env::var("CURSOR_TASK_ID")
-        .or_else(|_| std::env::var("CLAUDECODE"))
         .unwrap_or_else(|_| "local-agent".to_string());
     let current_conversation = current_agent.clone();
     let reg = crate::core::ocla::OclaRegistry::global();
