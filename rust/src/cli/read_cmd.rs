@@ -222,6 +222,11 @@ pub fn cmd_read(args: &[String]) {
     } else {
         mode.to_string()
     };
+    let mode = if (mode == "map" || mode == "signatures") && original_tokens <= 400 {
+        "full".to_string()
+    } else {
+        mode
+    };
     let mode = mode.as_str();
 
     match mode {

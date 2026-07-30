@@ -238,7 +238,7 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
 
     // Show passed test names when count is small (preserves identifiers for debugging)
     let named_passed: Vec<&String> = passed.iter().filter(|s| !s.is_empty()).collect();
-    if !named_passed.is_empty() && named_passed.len() <= 10 {
+    if !named_passed.is_empty() && named_passed.len() <= 30 {
         let names: Vec<&str> = named_passed.iter().map(|s| s.as_str()).collect();
         result.push_str(&format!("\n  ran: {}", names.join(", ")));
     }
@@ -246,11 +246,11 @@ pub fn compress(command: &str, output: &str) -> Option<String> {
     // Show failed test names (up to 5)
     let named_failures: Vec<&String> = failed.iter().filter(|s| !s.is_empty()).collect();
     if !named_failures.is_empty() {
-        for f in named_failures.iter().take(5) {
+        for f in named_failures.iter().take(10) {
             result.push_str(&format!("\n  FAIL: {f}"));
         }
-        if named_failures.len() > 5 {
-            result.push_str(&format!("\n  ...+{} more", named_failures.len() - 5));
+        if named_failures.len() > 10 {
+            result.push_str(&format!("\n  ...+{} more", named_failures.len() - 10));
         }
     }
 
@@ -306,8 +306,10 @@ fn extract_test_name(line: &str) -> String {
         .rsplit_once(' ')
         .map_or(without_pct, |(name, _status)| name.trim());
 
-    // Shorten: keep filename::test_name, drop intermediate path
-    if let Some(last_slash) = name_part.rfind('/') {
+    // Shorten: prefer just test function name (after last ::), else filename
+    if let Some(last_sep) = name_part.rfind("::") {
+        name_part[last_sep + 2..].to_string()
+    } else if let Some(last_slash) = name_part.rfind('/') {
         name_part[last_slash + 1..].to_string()
     } else {
         name_part.to_string()

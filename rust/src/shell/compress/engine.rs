@@ -406,6 +406,34 @@ pub(crate) fn compress_if_beneficial_for(
     compress_if_beneficial_with_exit(command, output, -1, family)
 }
 
+/// Per-tool minimum token threshold for compression.
+/// Test runners and structured commands benefit from compression even at lower
+/// token counts because their output has high structural redundancy.
+fn min_compression_tokens(command: &str) -> usize {
+    let cmd = command.to_ascii_lowercase();
+    if cmd.starts_with("cargo test")
+        || cmd.starts_with("pytest")
+        || cmd.starts_with("python -m pytest")
+        || cmd.starts_with("go test")
+        || cmd.starts_with("npm test")
+        || cmd.starts_with("npx jest")
+        || cmd.starts_with("dotnet test")
+    {
+        return 100;
+    }
+    if cmd.starts_with("git ") {
+        return 80;
+    }
+    if cmd.starts_with("npm audit") || cmd.starts_with("pip list") || cmd.starts_with("pip install")
+    {
+        return 100;
+    }
+    if cmd.starts_with("kubectl ") || cmd.starts_with("docker ") {
+        return 100;
+    }
+    200
+}
+
 fn compress_if_beneficial_with_exit(
     command: &str,
     output: &str,
@@ -479,7 +507,9 @@ fn compress_if_beneficial_with_exit(
     // #1129: small outputs are cheaper verbatim than compressed + tee-log round-trip.
     // The tee-log pointer alone costs ~50 tokens; a second read-back call doubles
     // the token cost. Outputs below this floor are never worth compressing.
-    if original_tokens < 200 {
+    // Tool-specific thresholds: test runners and structured commands benefit from
+    // compression even at lower token counts.
+    if original_tokens < min_compression_tokens(command) {
         return output.to_string();
     }
 

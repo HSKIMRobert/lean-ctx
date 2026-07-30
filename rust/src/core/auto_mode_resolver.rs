@@ -192,6 +192,10 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         .and_then(|e| e.to_str())
         .unwrap_or("");
 
+    if ctx.token_count <= 400 && is_code(ext) {
+        return resolved("full", "small_code_file");
+    }
+
     if is_config_or_data(ext, ctx.path) {
         return resolved("full", "config_data");
     }
