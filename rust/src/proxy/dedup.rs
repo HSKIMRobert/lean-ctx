@@ -12,7 +12,7 @@ const FIRST_LINE_MAX: usize = 120;
 pub struct ToolResultCache {
     entries: DashMap<u64, CacheEntry>,
     current_turn: AtomicU64,
-    #[allow(dead_code)]
+    // TODO(#1354): remove dead code or implement
     created_at: Instant,
 }
 

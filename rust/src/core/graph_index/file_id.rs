@@ -9,7 +9,6 @@ use std::fmt;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FileId(u32);
 
-#[allow(dead_code)] // Reserved for graph index consumers
 impl FileId {
     /// Sentinel for "no file" / placeholder contexts. Never returned by
     /// [`PathInterner::intern`]; safe to use as a default or error marker.
@@ -62,7 +61,6 @@ impl PathInterner {
     }
 }
 
-#[allow(dead_code)] // Reserved for graph index consumers
 impl PathInterner {
     /// Intern an already-owned `String`, avoiding a clone when the path is new.
     pub fn intern_owned(&mut self, path: String) -> FileId {

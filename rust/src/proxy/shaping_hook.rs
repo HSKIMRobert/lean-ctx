@@ -20,7 +20,7 @@ pub(crate) fn shape_response(resp_bytes: &[u8], mode: &str) -> Option<ShapingRes
 
 /// Create a streaming shaper when response shaping is enabled.
 /// Returns `None` if disabled or mode is "off".
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn create_stream_shaper() -> Option<StreamShaper> {
     let config = Config::load();
     if !config.response_shaping.enabled {

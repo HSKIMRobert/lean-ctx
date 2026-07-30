@@ -178,7 +178,6 @@ impl FileUnifiedLedger {
     /// Returns unified events associated with the supplied trace identifier.
     ///
     /// Consumed by the P5 unified-ledger query surface in E14 phase 3.
-    #[allow(dead_code)]
     pub(crate) fn query_by_trace(&self, trace_id: &str) -> Vec<UnifiedSavingsEventV2> {
         self.read_events()
             .unwrap_or_default()
