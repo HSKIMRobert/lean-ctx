@@ -1,10 +1,13 @@
 pub(crate) mod achievements;
 mod ascension;
+#[allow(dead_code)]
 pub(crate) mod evolution;
+#[allow(dead_code)]
 mod format;
 mod mascot_art;
 mod rpg;
 mod sprite;
+#[allow(dead_code)]
 mod types;
 
 pub(crate) use format::{format_buddy_block_at, format_buddy_full};

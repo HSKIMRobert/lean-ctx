@@ -12,7 +12,9 @@
 pub(crate) mod annotate;
 #[cfg(feature = "tree-sitter")]
 pub(crate) mod astutil;
+#[allow(dead_code)]
 pub(crate) mod cognitive;
+#[allow(dead_code)]
 pub(crate) mod coupling;
 pub(crate) mod delta;
 pub(crate) mod fabric;
