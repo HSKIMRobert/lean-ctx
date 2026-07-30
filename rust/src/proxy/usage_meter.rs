@@ -28,7 +28,7 @@ fn project_ocla_usage(u: &super::usage::RealUsage, sink: &dyn UsageSink) {
     let Ok(Some(record)) = u.to_ocla_usage_record() else {
         return;
     };
-    let _ = sink.record_usage(record);
+    drop(sink.record_usage(record));
 }
 
 /// Cumulative real token counts for one model. Cost is derived at read time so a

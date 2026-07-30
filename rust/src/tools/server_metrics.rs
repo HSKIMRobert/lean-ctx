@@ -191,7 +191,7 @@ impl LeanCtxServer {
             let hook = crate::core::ocla::OclaRegistry::global()
                 .observation_hook
                 .as_ref();
-            let _ = hook.observe(observation);
+            let _ = hook.observe(observation).await;
 
             let outcome = crate::core::ocla::Outcome {
                 context: ctx.clone(),
@@ -213,7 +213,8 @@ impl LeanCtxServer {
             let metrics = ocla_metric_points(&ctx, tool, original, saved, duration_ms);
             let _ = crate::core::ocla::OclaRegistry::global()
                 .metrics_exporter
-                .export_metrics(metrics);
+                .export_metrics(metrics)
+                .await;
         }
         let mut session = self.session.write().await;
         session.record_tool_call(saved as u64, original as u64);
@@ -779,3 +780,4 @@ mod activity_score_tests {
         assert!(saturated.iter().all(|point| point.value_milli == i64::MAX));
     }
 }
+
