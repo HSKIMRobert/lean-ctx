@@ -311,7 +311,7 @@ jobs:
       - name: Docs
         working-directory: clients/rust/lean-ctx-client
         env:
-      RUSTDOCFLAGS: -D warnings
+          RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps
 
   embed-sdk:
@@ -347,7 +347,7 @@ jobs:
       - name: Docs
         working-directory: rust
         env:
-      RUSTDOCFLAGS: -D warnings
+          RUSTDOCFLAGS: -D warnings
         run: cargo doc -p lean-ctx-sdk --no-deps
 
   python-sdk:
@@ -654,7 +654,7 @@ jobs:
       - name: Check docs compile
         working-directory: rust
         env:
-      RUSTDOCFLAGS: -D warnings
+          RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps --all-features
       - name: Check generated reference docs are current
         working-directory: rust
