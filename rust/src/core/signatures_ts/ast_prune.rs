@@ -18,10 +18,10 @@ pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
     })?;
     let query = get_cached_sig_query(file_ext)?;
 
-    let def_idx = find_capture_index(query, "def")?;
+    let def_idx = find_capture_index(&query, "def")?;
     let source = content.as_bytes();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(query, tree.root_node(), source);
+    let mut matches = cursor.matches(&query, tree.root_node(), source);
 
     let lines: Vec<&str> = content.lines().collect();
     let mut keep = vec![false; lines.len()];
