@@ -7,6 +7,9 @@ use super::*;
 #[path = "tests_compression.rs"]
 mod tests_compression;
 #[cfg(test)]
+#[path = "tests_e26_benchmark.rs"]
+mod tests_e26_benchmark;
+#[cfg(test)]
 #[path = "tests_inflation.rs"]
 mod tests_inflation;
 #[cfg(test)]
