@@ -105,7 +105,7 @@ export async function cmdDashboard(
       }
 
       const token = randomToken();
-      const bin = resolveBinaryPath();
+      const bin = await resolveBinaryPath();
       const cwd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const projectArg = cwd ? [`--project=${cwd}`] : [];
 
