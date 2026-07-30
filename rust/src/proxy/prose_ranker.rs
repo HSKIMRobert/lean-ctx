@@ -3,7 +3,7 @@
 //! The proxy rewrites prose in the frozen request region and re-squeezes every
 //! tool result on each turn. Those rewrites MUST be byte-identical across turns
 //! or the provider prompt-cache prefix is invalidated (#448/#498). Extractive
-//! ranking ([`crate::core::extractive`]) depends on the embedding engine, whose
+//! ranking (`crate::core::extractive`) depends on the embedding engine, whose
 //! availability transitions cold→warm exactly once per process — so the naive
 //! "extractive when warm, truncate when cold" would flip an already-emitted
 //! frozen rewrite the first time it is recompressed after warmup.

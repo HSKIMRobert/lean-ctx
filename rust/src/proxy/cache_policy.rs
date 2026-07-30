@@ -13,7 +13,7 @@
 //!   *before* compression, so it can only weigh the measurable precondition: is
 //!   the cacheable prefix even large enough to be worth re-seeding?
 //! - [`net_cost_decision`] / [`repack_saving_usd`] — the fully priced primitive
-//!   (before/after token counts × [`ModelCost`]) for callers that already know
+//!   (before/after token counts × `ModelCost`) for callers that already know
 //!   the compressed size (tests today, cache-edit batching later).
 //!
 //! Pure functions, no globals; gated behind the opt-in `proxy.cache_policy` at

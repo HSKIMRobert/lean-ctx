@@ -2,7 +2,7 @@
 //!
 //! Headroom's per-model cost breakdown was the one metric a tester found clearer
 //! than lean-ctx's single flat number. This module buckets request-side savings
-//! by model and prices them with the shared [`ModelPricing`] table so `/status`
+//! by model and prices them with the shared `ModelPricing` table so `/status`
 //! can report estimated USD avoided per model.
 //!
 //! Honesty contract: token counts here are request-side *estimates* (the bytes

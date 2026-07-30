@@ -1,6 +1,6 @@
 //! Intent-based model routing (P8 / DIM 3 — Leistungsstufe).
 //!
-//! Classifies each request's last user message via [`crate::core::intent_engine`]
+//! Classifies each request's last user message via `crate::core::intent_engine`
 //! and resolves the resulting a model tier to a concrete routing target using
 //! `[proxy.routing.tiers]`. The forward path then rewrites the request body's
 //! `model` field (and optionally re-targets the upstream provider).
