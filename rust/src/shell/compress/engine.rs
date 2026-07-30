@@ -518,7 +518,12 @@ fn compress_if_beneficial_with_exit(
     // reattribution (e.g. for-loop output with `===== #N` delimiters).
     if let Some(boundary_spans) = super::boundaries::detect_record_boundaries(output) {
         if let Some(result) = super::boundaries::compress_preserving_boundaries(
-            command, output, exit_code, family, &boundary_spans, original_tokens,
+            command,
+            output,
+            exit_code,
+            family,
+            &boundary_spans,
+            original_tokens,
         ) {
             return result;
         }
