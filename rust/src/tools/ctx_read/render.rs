@@ -1,10 +1,28 @@
 //! Output rendering: full-output framing, header building, per-mode
 //! processing, task-relevant filtering and line-range extraction.
-//! Split out of `ctx_read/mod.rs`; `use super::*` re-imports parent items.
+//! Split out of `ctx_read/mod.rs`.
 
-#[allow(clippy::wildcard_imports)]
-use super::*;
+use super::{
+    CrpMode, SymbolMap, append_compressed_hint, compressor, count_tokens, deps,
+    detect_project_root, entropy, protocol, resolve_auto_mode, signatures, symbol_map,
+};
 use crate::core::aggressiveness::AggressivenessProfile;
+
+fn monotonic_check(original: usize, compressed: usize) -> bool {
+    compressed < original
+}
+
+fn raw_fallback(
+    path: &str,
+    content: &str,
+    original_tokens: usize,
+    compressed: usize,
+) -> (String, usize) {
+    tracing::debug!(
+        "monotonic guard: {path} compressed {compressed} >= original {original_tokens}, using raw"
+    );
+    (content.to_string(), original_tokens)
+}
 
 /// Per-read tuning threaded into the per-mode renderers. `Default` reproduces
 /// the behaviour from before the aggressiveness knob existed (no override), so
@@ -89,6 +107,9 @@ pub(crate) fn format_full_output(
 
     let output = format!("{metadata}\n{content}");
     let sent = count_tokens(&output);
+    if !monotonic_check(tokens, sent) {
+        return raw_fallback(file_ref, content, tokens, sent);
+    }
     (protocol::append_savings(&output, tokens, sent), sent)
 }
 
@@ -309,6 +330,9 @@ pub(crate) fn process_mode_tuned(
                 format!("{short}: {line_count} lines, {tok} tok ({ext})")
             };
             let sent = count_tokens(&output);
+            if !monotonic_check(original_tokens, sent) {
+                return raw_fallback(file_path, content, original_tokens, sent);
+            }
             let savings = protocol::format_savings(original_tokens, sent);
             (format!("{output}\n{savings}"), sent)
         }
@@ -329,6 +353,9 @@ pub(crate) fn process_mode_tuned(
                 ""
             };
             let sent = count_tokens(&extracted);
+            if !monotonic_check(original_tokens, sent) {
+                return raw_fallback(file_path, content, original_tokens, sent);
+            }
             let savings = protocol::format_savings(original_tokens, sent);
             (
                 format!("{header}\n{extracted}{multi_hint}\n{savings}"),
@@ -368,6 +395,9 @@ pub(crate) fn process_mode_tuned(
             };
             let output = format!("{header}\n{guarded_output}");
             let sent = count_tokens(&output);
+            if !monotonic_check(original_tokens, sent) {
+                return raw_fallback(file_path, content, original_tokens, sent);
+            }
             let savings = protocol::format_savings(original_tokens, sent);
             (
                 append_compressed_hint(&format!("{output}\n{savings}"), file_path),
@@ -660,6 +690,9 @@ fn render_signatures(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
     }
     let sent = count_tokens(&output);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     (
         append_compressed_hint(
             &protocol::append_savings(&output, original_tokens, sent),
@@ -689,6 +722,9 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
             format!("{short} {line_count}L\n{php_map}")
         };
         let sent = count_tokens(&output);
+        if !monotonic_check(original_tokens, sent) {
+            return raw_fallback(file_path, content, original_tokens, sent);
+        }
         let output = protocol::append_savings(&output, original_tokens, sent);
         return (append_compressed_hint(&output, file_path), sent);
     }
@@ -713,6 +749,9 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
             format!("{short} {line_count}L\n{structured}")
         };
         let sent = count_tokens(&output);
+        if !monotonic_check(original_tokens, sent) {
+            return raw_fallback(file_path, content, original_tokens, sent);
+        }
         output = protocol::append_savings(&output, original_tokens, sent);
         return (append_compressed_hint(&output, file_path), sent);
     }
@@ -789,6 +828,9 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     }
 
     let sent = count_tokens(&output);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     (
         append_compressed_hint(
             &protocol::append_savings(&output, original_tokens, sent),
@@ -819,13 +861,14 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         let header = build_header(file_ref, short, ext, content, line_count, true);
         let body = format!("{header}\n{crushed}");
         let sent = count_tokens(&body);
-        if sent < original_tokens {
+        if monotonic_check(original_tokens, sent) {
             let savings = protocol::format_savings(original_tokens, sent);
             return (
                 append_compressed_hint(&format!("{body}\n{savings}"), file_path),
                 sent,
             );
         }
+        return raw_fallback(file_path, content, original_tokens, sent);
     }
 
     // Tabular data (CSV/TSV, #982): a redundant table hoists its constant
@@ -837,13 +880,14 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         let header = build_header(file_ref, short, ext, content, line_count, true);
         let body = format!("{header}\n{crushed}");
         let sent = count_tokens(&body);
-        if sent < original_tokens {
+        if monotonic_check(original_tokens, sent) {
             let savings = protocol::format_savings(original_tokens, sent);
             return (
                 append_compressed_hint(&format!("{body}\n{savings}"), file_path),
                 sent,
             );
         }
+        return raw_fallback(file_path, content, original_tokens, sent);
     }
 
     // YAML (#985): a verbose document compacts losslessly to compact JSON
@@ -856,13 +900,14 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         let header = build_header(file_ref, short, ext, content, line_count, true);
         let body = format!("{header}\n{crushed}");
         let sent = count_tokens(&body);
-        if sent < original_tokens {
+        if monotonic_check(original_tokens, sent) {
             let savings = protocol::format_savings(original_tokens, sent);
             return (
                 append_compressed_hint(&format!("{body}\n{savings}"), file_path),
                 sent,
             );
         }
+        return raw_fallback(file_path, content, original_tokens, sent);
     }
 
     #[cfg(feature = "tree-sitter")]
@@ -895,6 +940,9 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         let comp_tok = count_tokens(&sym_applied) + count_tokens(&sym_table);
         let net = orig_tok.saturating_sub(comp_tok);
         if orig_tok > 0 && net * 100 / orig_tok >= 5 {
+            if !monotonic_check(original_tokens, comp_tok) {
+                return raw_fallback(file_path, content, original_tokens, comp_tok);
+            }
             let savings = protocol::format_savings(original_tokens, comp_tok);
             return (
                 append_compressed_hint(
@@ -904,6 +952,9 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
                 comp_tok,
             );
         }
+        if !monotonic_check(original_tokens, orig_tok) {
+            return raw_fallback(file_path, content, original_tokens, orig_tok);
+        }
         let savings = protocol::format_savings(original_tokens, orig_tok);
         return (
             append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
@@ -912,6 +963,9 @@ fn render_aggressive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     }
 
     let sent = count_tokens(&compressed);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     let savings = protocol::format_savings(original_tokens, sent);
     (
         append_compressed_hint(&format!("{header}\n{compressed}\n{savings}"), file_path),
@@ -974,6 +1028,9 @@ fn render_entropy(content: &str, ctx: RenderCtx<'_>, tuning: &ReadTuning<'_>) ->
         result.output
     );
     let sent = count_tokens(&output);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     let savings = protocol::format_savings(original_tokens, sent);
     let compression_ratio = if original_tokens > 0 {
         1.0 - (sent as f64 / original_tokens as f64)
@@ -1065,6 +1122,9 @@ fn render_task_mode(content: &str, ctx: RenderCtx<'_>, tuning: &ReadTuning<'_>) 
     };
 
     let sent = count_tokens(&filtered) + count_tokens(&header) + count_tokens(&graph_ctx);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     let savings = protocol::format_savings(original_tokens, sent);
     (
         append_compressed_hint(
