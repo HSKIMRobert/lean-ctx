@@ -145,7 +145,7 @@ fn post_overlay(body: &str) -> (&'static str, &'static str, String) {
                 crate::core::context_overlay::OverlayOp::Exclude {
                     reason: "evicted via dashboard".into(),
                 },
-                crate::core::context_overlay::OverlayScope::Session,
+                crate::core::context_overlay::OverlayScope::Project,
                 String::new(),
                 crate::core::context_overlay::OverlayAuthor::User,
             ));
@@ -177,6 +177,28 @@ fn post_overlay(body: &str) -> (&'static str, &'static str, String) {
         });
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
         return ("200 OK", "application/json", json);
+    }
+
+    if action == "compress" {
+        let item_id = crate::core::context_field::ContextItemId::from_file(&path_norm);
+        overlays.add(crate::core::context_overlay::ContextOverlay::new(
+            item_id,
+            crate::core::context_overlay::OverlayOp::SetView(
+                crate::core::context_field::ViewKind::Map,
+            ),
+            crate::core::context_overlay::OverlayScope::Project,
+            String::new(),
+            crate::core::context_overlay::OverlayAuthor::User,
+        ));
+        ledger.save();
+        if let Err(e) = overlays.save_project(&root_path) {
+            return (
+                "500 Internal Server Error",
+                "application/json",
+                json_err(&e),
+            );
+        }
+        return ("200 OK", "application/json", json_ok());
     }
 
     if action == "expire" {

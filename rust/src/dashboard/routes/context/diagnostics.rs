@@ -347,11 +347,11 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
     let now = chrono::Utc::now().timestamp();
 
     let project_root = detect_project_root_for_dashboard();
-    let overlays = crate::core::context_overlay::OverlayStore::load_project(
+    let overlay_store = crate::core::context_overlay::OverlayStore::load_project(
         &std::path::PathBuf::from(&project_root),
     );
 
-    let pinned_paths: std::collections::HashSet<String> = overlays
+    let pinned_paths: std::collections::HashSet<String> = overlay_store
         .all()
         .iter()
         .filter(|o| {
@@ -500,7 +500,7 @@ fn build_triage_response() -> (&'static str, &'static str, String) {
         sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let actions = build_action_recommendations(&items, band);
+    let actions = build_action_recommendations(&items, band, &overlay_store);
 
     let payload = serde_json::json!({
         "budget": {
@@ -575,7 +575,11 @@ fn build_source_trail(
     trail
 }
 
-fn build_action_recommendations(items: &[serde_json::Value], band: &str) -> Vec<serde_json::Value> {
+fn build_action_recommendations(
+    items: &[serde_json::Value],
+    band: &str,
+    overlay_store: &crate::core::context_overlay::OverlayStore,
+) -> Vec<serde_json::Value> {
     if band == "green" {
         return Vec::new();
     }
@@ -601,6 +605,10 @@ fn build_action_recommendations(items: &[serde_json::Value], band: &str) -> Vec<
         let mode = item["mode"].as_str().unwrap_or("");
         let path = item["path"].as_str().unwrap_or("");
         let eviction_score = item["eviction_score"].as_f64().unwrap_or(0.0);
+        let item_id = crate::core::context_field::ContextItemId::from_file(path);
+        if !overlay_store.for_item(&item_id).is_empty() {
+            continue;
+        }
         // Never recommend compressing/evicting a file the build is failing on (#499).
         let has_error_flag = item["risk_flags"]
             .as_array()
