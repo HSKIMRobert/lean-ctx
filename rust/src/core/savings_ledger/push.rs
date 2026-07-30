@@ -2,7 +2,7 @@
 //! server's ingest endpoint.
 //!
 //! Shared by the `lean-ctx savings push` CLI and the opt-in daemon auto-push
-//! ([`crate::core::savings_autopush`]) so there is exactly **one** push path.
+//! (`crate::core::savings_autopush`) so there is exactly **one** push path.
 //! The batch is a cumulative whole-ledger snapshot (`period = "all"`), so
 //! re-pushing is idempotent on the server (the summary takes each signer's
 //! latest batch). It carries only counts, model names, tool names and chain

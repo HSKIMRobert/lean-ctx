@@ -426,7 +426,7 @@ impl SessionCache {
     /// Marks that full (uncompressed) content was delivered for this file,
     /// tagging it with the current conversation so a later re-read only serves
     /// the `[unchanged]` stub to the same conversation (see
-    /// [`crate::core::conversation`]).
+    /// `crate::core::conversation`).
     pub fn mark_full_delivered(&mut self, path: &str) {
         let conversation = crate::core::conversation::current_conversation_id();
         let key = normalize_key(path);

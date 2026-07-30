@@ -574,7 +574,7 @@ pub struct AdmissionPolicy {
     /// High by default so only genuine near-duplicates collapse; `0.0` disables
     /// auto-merge.
     pub auto_merge_similarity: f32,
-    /// Facts whose content salience ([`crate::core::memory_salience::text_salience`])
+    /// Facts whose content salience (`crate::core::memory_salience::text_salience`)
     /// is below this floor are not admitted as normal facts. `0` (default)
     /// disables the floor — the lossless choice; raise it to curate a noisy store.
     pub min_salience: u32,

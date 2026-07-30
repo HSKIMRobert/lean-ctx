@@ -82,7 +82,7 @@ pub struct CacheEntry {
     /// Prevents cache-stub loops when upgrading from compressed to full mode.
     pub full_content_delivered: bool,
     /// Conversation id that received the full content (see
-    /// [`crate::core::conversation`]). The `[unchanged]` stub is only valid for
+    /// `crate::core::conversation`). The `[unchanged]` stub is only valid for
     /// a re-read from this same conversation; `None` means delivered without a
     /// known conversation context (legacy / hooks absent).
     pub delivered_conversation: Option<String>,

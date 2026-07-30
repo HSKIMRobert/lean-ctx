@@ -147,7 +147,7 @@ impl FilterRules {
 
 /// The `[egress]` section — output/DLP enforcement on agent writes & actions
 /// (GL #676). Gates `ctx_edit` writes and `ctx_shell` actions before they
-/// execute. Compiled into a [`crate::core::egress::EgressConfig`] at load time.
+/// execute. Compiled into a `crate::core::egress::EgressConfig` at load time.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EgressRules {
