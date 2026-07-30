@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { spawn, ChildProcess } from "child_process";
+import * as crypto from "crypto";
 import * as net from "net";
 import * as http from "http";
 import { resolveBinaryPath } from "./leanctx";
@@ -35,12 +36,7 @@ function findFreePort(): Promise<number> {
 
 /** A URL-safe random token to pin the dashboard's Bearer auth for this session. */
 function randomToken(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let t = "";
-  for (let i = 0; i < 32; i++) {
-    t += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return t;
+  return crypto.randomBytes(32).toString("hex");
 }
 
 /** Poll the dashboard root until it answers (any HTTP reply = server is up). */
@@ -162,6 +158,8 @@ export async function cmdDashboard(
 
       // Tunnel the loopback URL so the iframe loads both on desktop (returns the
       // same URI) and in remote/Codespaces (returns a forwarded https host).
+      // Token in query string is acceptable for localhost-only connections;
+      // prefer Authorization headers for remote/non-loopback scenarios.
       const baseUri = await vscode.env.asExternalUri(
         vscode.Uri.parse(`http://127.0.0.1:${port}/?token=${token}`)
       );
