@@ -6,8 +6,9 @@ all-features = true
 # cargo-deny >= 0.19 removed `vulnerability` and `notice` config knobs:
 # all vulnerability/notice advisories now emit errors unless explicitly ignored.
 # `unmaintained`/`unsound` now control which dependencies can fail the check.
-unmaintained = "workspace"
-yanked = "warn"
+# cargo-deny treats `all` as the strict equivalent of a deny policy.
+unmaintained = "all"
+yanked = "deny"
 unused-ignored-advisory = "warn"
 ignore = []
 
