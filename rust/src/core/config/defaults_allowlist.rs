@@ -1,9 +1,15 @@
 //! Default shell command allowlist.
 //!
-//! The curated set of executables that lean-ctx permits by default in
-//! restricted shell mode. Kept in its own module so the (long, frequently
-//! reviewed) data table does not bloat `config/mod.rs`. Users extend this
-//! additively via `shell_allowlist_extra` / `lean-ctx allow`.
+/// # Threat Model
+/// The shell allowlist prevents shell INJECTION (e.g., "; rm -rf /") but
+/// does NOT prevent workspace-controlled execution (e.g., malicious Makefile).
+/// For untrusted workspaces, OS-level sandboxing is required.
+/// See: https://github.com/yvgude/lean-ctx/issues/1367
+//
+// The curated set of executables that lean-ctx permits by default in
+// restricted shell mode. Kept in its own module so the (long, frequently
+// reviewed) data table does not bloat `config/mod.rs`. Users extend this
+// additively via `shell_allowlist_extra` / `lean-ctx allow`.
 
 pub(crate) fn default_shell_allowlist() -> Vec<String> {
     [

@@ -145,6 +145,8 @@ mod tests {
             workflow: None,
             ledger: None,
             client_name: None,
+            client_role: None,
+            shell_access: None,
             pipeline_stats: None,
             call_count: None,
             autonomy: None,

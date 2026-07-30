@@ -49,6 +49,14 @@ impl McpTool for CtxShellTool {
         args: &Map<String, Value>,
         ctx: &ToolContext,
     ) -> Result<ToolOutput, ErrorData> {
+        if let Some(message) = shell_access_denial(ctx) {
+            return Ok(ToolOutput {
+                shell_outcome: Some(ShellOutcome::Blocked),
+                content_blocks: None,
+                ..ToolOutput::simple(message)
+            });
+        }
+
         if let Some(action) = get_str(args, "background_action") {
             let id = get_str(args, "job_id").ok_or_else(|| {
                 ErrorData::invalid_params("job_id is required with background_action", None)
@@ -429,6 +437,27 @@ impl McpTool for CtxShellTool {
     }
 }
 
+/// Deny shell execution for explicitly restricted MCP clients. Missing client
+/// context remains allowed so existing integrations retain their current access.
+fn shell_access_denial(ctx: &ToolContext) -> Option<String> {
+    if let Some(role) = ctx.client_role.as_deref()
+        && (role.eq_ignore_ascii_case("untrusted") || role.eq_ignore_ascii_case("readonly"))
+    {
+        return Some(format!(
+            "[SHELL ACCESS DENIED] ctx_shell is unavailable to MCP clients with role '{role}'."
+        ));
+    }
+
+    if ctx.shell_access == Some(false) {
+        return Some(
+            "[SHELL ACCESS DENIED] ctx_shell requires shell_access=true in the MCP session/request context."
+                .to_string(),
+        );
+    }
+
+    None
+}
+
 fn resolve_effective_cwd(
     session: Option<tokio::sync::OwnedRwLockReadGuard<crate::core::session::SessionState>>,
     explicit_cwd: Option<&str>,
@@ -751,10 +780,11 @@ fn detect_bare_cat_file(command: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        format_background_state, is_timeout_notice_only, resolve_effective_cwd,
-        should_auto_background,
+        CtxShellTool, format_background_state, is_timeout_notice_only, resolve_effective_cwd,
+        shell_access_denial, should_auto_background,
     };
     use crate::server::background_shell::JobState;
+    use crate::server::tool_trait::{McpTool, ShellOutcome, ToolContext};
 
     /// #1246: a cancel must never come back as a tool error, and must not read
     /// like a status poll that did nothing.
@@ -853,5 +883,45 @@ mod tests {
             error.message.contains("cannot validate working directory"),
             "{error:?}"
         );
+    }
+
+    #[test]
+    fn untrusted_and_readonly_clients_cannot_run_shell_commands() {
+        for role in ["untrusted", "readonly"] {
+            let ctx = ToolContext {
+                client_role: Some(role.to_string()),
+                ..ToolContext::default()
+            };
+            let output = CtxShellTool
+                .handle(&serde_json::Map::new(), &ctx)
+                .expect("role denial must be a tool result");
+
+            assert_eq!(output.shell_outcome, Some(ShellOutcome::Blocked));
+            assert!(
+                output.text.contains("SHELL ACCESS DENIED"),
+                "{role}: {}",
+                output.text
+            );
+            assert!(output.text.contains(role), "{role}: {}", output.text);
+        }
+    }
+
+    #[test]
+    fn absent_shell_context_preserves_default_access() {
+        assert!(shell_access_denial(&ToolContext::default()).is_none());
+    }
+
+    #[test]
+    fn explicitly_disabled_shell_access_blocks_the_request() {
+        let ctx = ToolContext {
+            shell_access: Some(false),
+            ..ToolContext::default()
+        };
+        let output = CtxShellTool
+            .handle(&serde_json::Map::new(), &ctx)
+            .expect("shell-access denial must be a tool result");
+
+        assert_eq!(output.shell_outcome, Some(ShellOutcome::Blocked));
+        assert!(output.text.contains("shell_access=true"), "{}", output.text);
     }
 }

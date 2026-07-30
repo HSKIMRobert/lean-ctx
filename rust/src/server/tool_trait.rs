@@ -184,6 +184,12 @@ pub struct ToolContext {
         Option<std::sync::Arc<tokio::sync::RwLock<crate::core::context_ledger::ContextLedger>>>,
     /// Client name (cursor, claude, etc.).
     pub client_name: Option<std::sync::Arc<tokio::sync::RwLock<String>>>,
+    /// Optional MCP client role supplied by the session/request context.
+    /// Absent preserves the backward-compatible permissive default.
+    pub client_role: Option<String>,
+    /// Optional shell permission supplied by the session/request context.
+    /// `None` preserves the backward-compatible permissive default.
+    pub shell_access: Option<bool>,
     /// Pipeline stats for metrics/proof tools.
     pub pipeline_stats:
         Option<std::sync::Arc<tokio::sync::RwLock<crate::core::pipeline::PipelineStats>>>,
@@ -220,6 +226,8 @@ impl Default for ToolContext {
             workflow: None,
             ledger: None,
             client_name: None,
+            client_role: None,
+            shell_access: None,
             pipeline_stats: None,
             call_count: None,
             autonomy: None,

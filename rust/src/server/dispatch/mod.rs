@@ -302,6 +302,8 @@ impl LeanCtxServer {
                 workflow: Some(self.workflow.clone()),
                 ledger: Some(self.ledger.clone()),
                 client_name: Some(self.client_name.clone()),
+                client_role: None,
+                shell_access: None,
                 pipeline_stats: Some(self.pipeline_stats.clone()),
                 call_count: Some(self.call_count.clone()),
                 autonomy: Some(self.autonomy.clone()),
