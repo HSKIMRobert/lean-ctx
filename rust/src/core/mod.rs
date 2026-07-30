@@ -394,7 +394,7 @@ pub(crate) mod delta_response;
 pub(crate) mod diagnostics_store;
 pub(crate) mod editor_signal;
 pub(crate) mod egress;
-pub mod error;
+pub(crate) mod error;
 pub mod events;
 pub(crate) mod eviction_orchestrator;
 pub(crate) mod evidence;

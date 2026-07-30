@@ -3,26 +3,26 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum LeanCtxError {
-    #[error("IO error: {0}")]
+    #[error("configuration error: {0}")]
+    Config(String),
+
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error(transparent)]
-    Config(#[from] ConfigError),
-
     #[error("parse error: {0}")]
-    Parse(String),
+    Parse(#[from] serde_json::Error),
 
-    #[error(transparent)]
-    PathJail(#[from] PathJailError),
-
-    #[error("tool execution failed: {0}")]
-    ToolExecution(String),
+    #[error("lock error: {0}")]
+    Lock(String),
 
     #[error("network error: {0}")]
     Network(String),
 
-    #[error("{0}")]
-    Other(String),
+    #[error("plugin error: {0}")]
+    Plugin(String),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 #[derive(Error, Debug)]
@@ -162,13 +162,7 @@ impl From<&str> for ConfigError {
 
 impl From<toml::de::Error> for LeanCtxError {
     fn from(e: toml::de::Error) -> Self {
-        LeanCtxError::Config(ConfigError::Message(e.to_string()))
-    }
-}
-
-impl From<serde_json::Error> for LeanCtxError {
-    fn from(e: serde_json::Error) -> Self {
-        LeanCtxError::Parse(e.to_string())
+        LeanCtxError::Config(e.to_string())
     }
 }
 
