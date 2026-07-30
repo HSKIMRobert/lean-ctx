@@ -1,5 +1,7 @@
-#[allow(clippy::wildcard_imports)]
-use super::super::*;
+use super::super::{
+    CallToolRequestParams, CallToolResult, CrpMode, ErrorData, LeanCtxServer, elicitation, helpers,
+    is_shell_tool_name, permission_inheritance, post_process,
+};
 use super::dispatch_and_post_process;
 use crate::core::ocla::response_cache::{
     CachedResponse, ResponseCache, ResponseCacheKey, global_response_cache,
@@ -9,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use std::time::{Duration, Instant};
 
-const CACHEABLE_TOOLS: [&str; 4] = ["ctx_read", "ctx_search", "ctx_tree", "ctx_glob"];
+const CACHEABLE_TOOLS: [&str; 3] = ["ctx_search", "ctx_tree", "ctx_glob"];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -365,12 +367,15 @@ impl LeanCtxServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{
+        CallToolResult, ContentBlock, Duration, Meta, ResponseCache, Value, cache_call_result,
+        cached_call_result, response_cache_key,
+    };
 
     #[test]
     fn cached_result_preserves_meta() {
         let cache = ResponseCache::new(8, Duration::from_mins(1));
-        let key = response_cache_key("ctx_read", None, "/project").expect("cacheable tool");
+        let key = response_cache_key("ctx_search", None, "/project").expect("cacheable tool");
         let mut result = CallToolResult::success(vec![ContentBlock::text("cached")]);
         let mut meta = Meta::new();
         meta.0
@@ -381,5 +386,17 @@ mod tests {
 
         let cached = cached_call_result(&cache, &key).expect("response should be cached");
         assert_eq!(cached.meta, result.meta);
+    }
+
+    #[test]
+    fn ctx_read_is_not_response_cached() {
+        assert!(response_cache_key("ctx_read", None, "/project").is_none());
+    }
+
+    #[test]
+    fn remaining_response_cache_tools_are_cacheable() {
+        for tool_name in ["ctx_search", "ctx_tree", "ctx_glob"] {
+            assert!(response_cache_key(tool_name, None, "/project").is_some());
+        }
     }
 }
