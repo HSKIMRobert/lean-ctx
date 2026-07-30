@@ -9,7 +9,8 @@
 //!
 //! **Opt-in & backward-compatible:** with no project pack present, [`active`]
 //! returns `None` and nothing is gated — existing behavior is preserved
-//! exactly. An invalid pack is ignored (logged), never bricking the agent.
+//! exactly. An invalid local pack activates a deny-all policy so enforcement
+//! never fails open.
 //!
 //! **Local-Free Invariant:** enforcement derived from this view only ever
 //! constrains the *agent* pipeline; it never gates a human's own local reads.
@@ -68,6 +69,26 @@ impl ActivePolicy {
         }
     }
 
+    /// Block every tool after a local policy pack fails to load.
+    pub(crate) fn deny_all() -> Self {
+        Self::from_resolved(ResolvedPolicy {
+            name: "invalid-local-policy".into(),
+            version: "0.0.0".into(),
+            description: "deny all because the local policy pack is invalid".into(),
+            chain: Vec::new(),
+            default_read_mode: None,
+            allow_tools: Some(Vec::new()),
+            deny_tools: Vec::new(),
+            max_context_tokens: None,
+            audit_retention_days: None,
+            redaction: std::collections::BTreeMap::new(),
+            filters: crate::core::policy::FilterRules::default(),
+            egress: crate::core::policy::EgressRules::default(),
+            routing: crate::core::policy::RoutingPolicyRules::default(),
+            budgets: crate::core::policy::BudgetRules::default(),
+        })
+    }
+
     /// Whether `tool` is permitted by this policy's allow/deny lists.
     /// `deny_tools` always wins; an `allow_tools` allowlist, when set, is
     /// exclusive (only listed tools pass).
@@ -107,7 +128,15 @@ fn cache() -> &'static RwLock<Cache> {
 }
 
 fn load_from_disk() -> Option<Arc<ActivePolicy>> {
-    let local = load_local_pack();
+    let local = match load_local_pack() {
+        Ok(local) => local,
+        Err(msg) => {
+            tracing::error!(
+                "policy: failed to load invalid {PROJECT_PACK_PATH} ({msg}); enforcing deny-all"
+            );
+            return Some(Arc::new(ActivePolicy::deny_all()));
+        }
+    };
     // A central org policy (GL #674), when present + signed + trusted, is folded
     // in as an un-bypassable floor *beneath* the local pack: the local pack can
     // only ever tighten it. Untrusted/invalid org policies are ignored here
@@ -119,27 +148,20 @@ fn load_from_disk() -> Option<Arc<ActivePolicy>> {
     Some(Arc::new(ActivePolicy::from_resolved(effective)))
 }
 
-/// The project-local pack (`.lean-ctx/policy.toml`), resolved. `None` when the
-/// file is absent or invalid — a malformed local pack must never brick the
-/// agent (fail-open); `lean-ctx policy validate` surfaces the same error.
-fn load_local_pack() -> Option<ResolvedPolicy> {
+/// The project-local pack (`.lean-ctx/policy.toml`), resolved. `None` only when
+/// the file is absent; malformed packs return an error so callers fail closed.
+fn load_local_pack() -> Result<Option<ResolvedPolicy>, String> {
     let path = PathBuf::from(PROJECT_PACK_PATH);
     if !path.exists() {
-        return None;
+        return Ok(None);
     }
     match parse_file(&path).and_then(|p| resolve(&p)) {
-        Ok(resolved) => Some(resolved),
-        Err(e) => {
-            tracing::warn!(
-                "policy: ignoring invalid {} ({e}); no local policy enforced",
-                path.display()
-            );
-            None
-        }
+        Ok(resolved) => Ok(Some(resolved)),
+        Err(e) => Err(format!("{}: {e}", path.display())),
     }
 }
 
-/// The active resolved policy, or `None` when no (valid) project pack exists.
+/// The active resolved policy, or `None` when no project or org pack exists.
 /// Loaded once and cached; call [`reload`] after the pack changes.
 #[must_use]
 pub fn active() -> Option<Arc<ActivePolicy>> {
@@ -186,6 +208,34 @@ pub fn set_active_for_test(resolved: Option<ResolvedPolicy>) {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    use std::fs;
+
+    struct CurrentDirGuard {
+        previous: std::path::PathBuf,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl CurrentDirGuard {
+        fn enter(dir: &std::path::Path) -> Self {
+            static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+            let lock = LOCK.get_or_init(|| std::sync::Mutex::new(()));
+            let guard = lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let previous = std::env::current_dir().expect("read current directory");
+            std::env::set_current_dir(dir).expect("enter temporary directory");
+            Self {
+                previous,
+                _lock: guard,
+            }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.previous).expect("restore current directory");
+        }
+    }
 
     fn rp(allow: Option<Vec<&str>>, deny: Vec<&str>, redaction: &[(&str, &str)]) -> ResolvedPolicy {
         ResolvedPolicy {
@@ -228,5 +278,19 @@ mod tests {
         let p = ActivePolicy::from_resolved(rp(None, vec![], &[("emp", r"EMP-\d{4}")]));
         assert_eq!(p.redaction.len(), 1);
         assert_eq!(p.redaction[0].0, "emp");
+    }
+
+    #[test]
+    fn load_from_disk_fails_closed_on_invalid_pack() {
+        let temp = tempfile::tempdir().expect("create temporary directory");
+        let policy_dir = temp.path().join(".lean-ctx");
+        fs::create_dir(&policy_dir).expect("create policy directory");
+        fs::write(policy_dir.join("policy.toml"), "[policy\n").expect("write invalid policy");
+        let _cwd = CurrentDirGuard::enter(temp.path());
+
+        let policy = load_from_disk().expect("invalid pack activates deny-all");
+
+        assert!(!policy.tool_allowed("ctx_read"));
+        assert!(!policy.tool_allowed("ctx_shell"));
     }
 }
