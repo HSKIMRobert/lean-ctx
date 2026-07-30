@@ -16,6 +16,7 @@ use crate::core::signatures;
 mod edges;
 pub(crate) use edges::*;
 #[allow(unreachable_pub)]
+#[allow(dead_code)]
 pub(crate) mod file_id;
 #[cfg(test)]
 mod tests;

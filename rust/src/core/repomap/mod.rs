@@ -4,6 +4,7 @@
 //! personalized by session context (recent files, focus files).
 
 pub(crate) mod budget;
+#[allow(dead_code)]
 pub(crate) mod graph;
 pub(crate) mod ranking;
 
