@@ -2421,6 +2421,7 @@ dependencies = [
 name = "lean-ctx-ocla"
 version = "1.0.0"
 dependencies = [
+ "async-trait",
  "blake3",
  "getrandom 0.4.3",
  "serde",
