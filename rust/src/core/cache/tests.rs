@@ -19,6 +19,47 @@ fn cache_hit_on_same_content() {
 }
 
 #[test]
+fn full_delivery_rereads_are_counted() {
+    let entry = CacheEntry::new(
+        "content",
+        "hash".to_string(),
+        1,
+        1,
+        "/test.rs".to_string(),
+        None,
+    );
+    assert_eq!(entry.bump_reread(), 1);
+    assert_eq!(entry.bump_reread(), 2);
+}
+
+#[test]
+fn marking_full_delivery_resets_rereads() {
+    let mut entry = CacheEntry::new(
+        "content",
+        "hash".to_string(),
+        1,
+        1,
+        "/test.rs".to_string(),
+        None,
+    );
+    entry.bump_reread();
+    entry.mark_full_delivered(None);
+    assert_eq!(entry.bump_reread(), 1);
+}
+
+#[test]
+fn full_degradation_threshold_uses_positive_env_value() {
+    let _env_lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LCTX_FULL_DEGRADATION_THRESHOLD", "3");
+    assert_eq!(full_degradation_threshold(), 3);
+    crate::test_env::remove_var("LCTX_FULL_DEGRADATION_THRESHOLD");
+    assert_eq!(
+        full_degradation_threshold(),
+        DEFAULT_FULL_DEGRADATION_THRESHOLD
+    );
+}
+
+#[test]
 fn cache_miss_on_changed_content() {
     let mut cache = SessionCache::new();
     cache.store("/test/file.rs", "old content");

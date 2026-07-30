@@ -261,6 +261,15 @@ fn handle_with_options_resolved_preread(
 
     if let Some(entry) = cache.get_mut(path) {
         entry.last_mode.clone_from(&result.resolved_mode);
+        if matches!(result.resolved_mode.as_str(), "full" | "full-compact")
+            && entry.full_content_delivered
+            && result.is_cache_hit
+            && entry.bump_reread() >= crate::core::cache::full_degradation_threshold()
+        {
+            entry.full_content_delivered = false;
+            entry.reset_reread_count();
+            crate::core::auto_mode_resolver::count_source("full_delivery_degraded");
+        }
         // #841: a partial/filtered read means the model's most recent view is NOT
         // the full content. Clear the delivery flag so a subsequent mode="full"
         // re-delivers real content instead of the [unchanged] stub. Without this,
@@ -268,6 +277,7 @@ fn handle_with_options_resolved_preread(
         // earlier full delivery and never cleared by the intervening non-full read.
         if !matches!(result.resolved_mode.as_str(), "full" | "full-compact") {
             entry.full_content_delivered = false;
+            entry.reset_reread_count();
         }
     }
 

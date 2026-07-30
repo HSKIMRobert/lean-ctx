@@ -72,6 +72,7 @@ pub struct CacheEntry {
     pub line_count: usize,
     pub original_tokens: usize,
     read_count: AtomicU32,
+    reread_since_full_delivery: AtomicU32,
     pub path: String,
     last_access: AtomicU64,
     pub stored_mtime: Option<SystemTime>,
@@ -118,6 +119,7 @@ impl CacheEntry {
             line_count,
             original_tokens,
             read_count: AtomicU32::new(1),
+            reread_since_full_delivery: AtomicU32::new(0),
             path,
             last_access: AtomicU64::new(encode_instant(Instant::now())),
             stored_mtime,
@@ -136,6 +138,18 @@ impl CacheEntry {
     /// Atomically increments the read count and returns the new value (lock-free).
     pub fn bump_read_count(&self) -> u32 {
         self.read_count.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    /// Atomically increments full-delivery re-reads and returns the new value.
+    pub fn bump_reread(&self) -> u32 {
+        self.reread_since_full_delivery
+            .fetch_add(1, Ordering::Relaxed)
+            + 1
+    }
+
+    /// Resets the full-delivery re-read count.
+    pub fn reset_reread_count(&self) {
+        self.reread_since_full_delivery.store(0, Ordering::Relaxed);
     }
 
     /// Overwrites the read count (used by `store` and tests).
@@ -217,6 +231,7 @@ impl CacheEntry {
 
     pub fn mark_full_delivered(&mut self, conversation: Option<String>) {
         self.full_content_delivered = true;
+        self.reset_reread_count();
         self.delivered_conversation = conversation;
     }
 }

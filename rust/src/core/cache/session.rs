@@ -9,6 +9,16 @@ use super::entry::{
 use super::validation::{compute_md5, is_cache_entry_stale_verified};
 use crate::core::tokens::count_tokens;
 
+pub(crate) const DEFAULT_FULL_DEGRADATION_THRESHOLD: u32 = 2;
+
+pub(crate) fn full_degradation_threshold() -> u32 {
+    std::env::var("LCTX_FULL_DEGRADATION_THRESHOLD")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|&threshold| threshold > 0)
+        .unwrap_or(DEFAULT_FULL_DEGRADATION_THRESHOLD)
+}
+
 /// In-memory file cache with segmented LRU eviction (probationary vs protected),
 /// file references, and cross-file dedup.
 pub struct SessionCache {
