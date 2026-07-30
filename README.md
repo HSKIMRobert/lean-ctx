@@ -11,16 +11,16 @@
 
 ### **Control what your AI can see.**
 
-**LeanCTX — Lean Context Engineering for AI agents**
+**LeanCTX — Context Engineering Layer for AI Coding Agents**
 
-LeanCTX — short for **Lean Context** — is the context engineering layer for
-AI agents. It runs as a single local binary between your agents and everything
-they touch — your code, shell, data, and the model itself: it **decides** what
-they read, **compresses** what they send (an optional local proxy shrinks every
-request — system prompt, history and tool results — prompt-cache-safe),
-**remembers** what they learn, **guards** what they touch — and **proves** what
-they save with a signed, verifiable savings ledger. The result: 60–90% fewer
-tokens. 
+LeanCTX — short for **Lean Context** — is the context engineering layer for AI
+coding agents. It runs locally alongside your coding agent, helping it read
+repositories, run development commands, and send focused context to the model:
+it **decides** what agents read, **compresses** what they send (an optional
+local proxy shrinks every request — system prompt, history and tool results —
+prompt-cache-safe), **remembers** what they learn, **guards** what they touch —
+and **proves** what they save with a signed, verifiable savings ledger. The
+result: 60–90% fewer tokens.
 Zero config required.
 Local-first.
 
@@ -57,7 +57,7 @@ Local-first.
 
 ---
 
-> **Control what your AI can see.** LeanCTX — short for **Lean Context** — is the **context engineering layer** for AI agents: one local Rust binary that decides what your agents read, compresses what they send to the model, remembers what they learn, guards what they touch — and proves what they save.
+> **Control what your AI can see.** LeanCTX — short for **Lean Context** — is the **context engineering layer for AI coding agents**: one local Rust binary that helps agents read repositories, run development commands, compress context sent to the model, remember what they learn, guard what they touch — and prove what they save.
 
 > Token savings are the receipt. Intelligence is the product. Works with **Cursor, Claude Code, Copilot, Windsurf, Codex, Gemini** and 30+ other agents — no config needed.
 
