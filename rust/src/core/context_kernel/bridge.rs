@@ -160,6 +160,8 @@ fn append_provider_block(
         .iter()
         .copied()
         .filter(|entry| entry.provider == provider)
+        .filter(|entry| !entry.reason.trim().is_empty())
+        .filter(|entry| entry.reason != "selected by compiler")
     {
         if !found {
             output.push_str("\n## ");
@@ -306,6 +308,13 @@ mod tests {
         let verdict = verdict_from_blocks(String::new(), 150);
         assert!(verdict.supplement.is_none());
         assert_eq!(verdict.budget_used, 0);
+    }
+
+    #[test]
+    fn compiler_selection_placeholders_are_omitted() {
+        let placeholder = entry("selected by compiler");
+
+        assert!(format_enrichment_blocks(&[&placeholder]).is_empty());
     }
     #[test]
     fn verdict_has_correct_budget_used() {
