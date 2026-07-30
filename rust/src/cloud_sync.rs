@@ -90,7 +90,7 @@ pub fn cloud_background_tasks() {
     }
 
     if crate::cloud_client::is_logged_in() {
-        if !already_synced {
+        if config.cloud.sync_stats_enabled && !already_synced {
             let store = crate::core::stats::load();
             let entries = build_sync_entries(&store);
             if !entries.is_empty() && crate::cloud_client::sync_stats(&entries).is_ok() {
@@ -98,7 +98,7 @@ pub fn cloud_background_tasks() {
             }
         }
 
-        if !already_gain_synced {
+        if config.cloud.sync_gain_enabled && !already_gain_synced {
             let engine = crate::core::gain::GainEngine::load();
             let summary = engine.summary(None);
             let trend = match summary.score.trend {
@@ -124,7 +124,10 @@ pub fn cloud_background_tasks() {
             }
         }
 
-        if !already_pulled && let Ok(data) = crate::cloud_client::pull_cloud_models() {
+        if config.cloud.sync_models_enabled
+            && !already_pulled
+            && let Ok(data) = crate::cloud_client::pull_cloud_models()
+        {
             let _ = crate::cloud_client::save_cloud_models(&data);
             config.cloud.last_model_pull = Some(today.clone());
         }

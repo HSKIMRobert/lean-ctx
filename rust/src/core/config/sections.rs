@@ -635,8 +635,17 @@ impl AutonomyConfig {
 pub struct CloudConfig {
     pub contribute_enabled: bool,
     pub last_contribute: Option<String>,
+    /// Allow background upload of aggregate usage statistics. Disabled by default.
+    #[serde(default)]
+    pub sync_stats_enabled: bool,
     pub last_sync: Option<String>,
+    /// Allow background upload of aggregate GAIN scores. Disabled by default.
+    #[serde(default)]
+    pub sync_gain_enabled: bool,
     pub last_gain_sync: Option<String>,
+    /// Allow background retrieval of cloud model data. Disabled by default.
+    #[serde(default)]
+    pub sync_models_enabled: bool,
     pub last_model_pull: Option<String>,
     /// Auto-push the Pro Personal-Cloud surfaces (knowledge, commands, CEP,
     /// gotchas, buddy, feedback) from the background task — opt-in, once per
