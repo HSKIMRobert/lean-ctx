@@ -362,3 +362,24 @@ impl LeanCtxServer {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cached_result_preserves_meta() {
+        let cache = ResponseCache::new(8, Duration::from_mins(1));
+        let key = response_cache_key("ctx_read", None, "/project").expect("cacheable tool");
+        let mut result = CallToolResult::success(vec![ContentBlock::text("cached")]);
+        let mut meta = Meta::new();
+        meta.0
+            .insert("cache_hint".to_owned(), Value::String("stable".to_owned()));
+        result.meta = Some(meta);
+
+        cache_call_result(&cache, key.clone(), &result);
+
+        let cached = cached_call_result(&cache, &key).expect("response should be cached");
+        assert_eq!(cached.meta, result.meta);
+    }
+}

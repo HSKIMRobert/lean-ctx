@@ -286,6 +286,10 @@ pub(in crate::server) async fn dispatch_and_post_process(
         result_text = format!("{result_text}\n{hint}");
     }
 
+    let had_auto_context = auto_context.is_some();
+    let had_budget_warning = budget_warning.is_some();
+    let had_throttle_warning = throttle_warning.is_some();
+
     // ═══════════════════════════════════════════════════════════════════════
     // Provider-Cache Zones (#E26)
     //
@@ -800,5 +804,13 @@ pub(in crate::server) async fn dispatch_and_post_process(
         result_text = budgeted;
     }
 
-    Ok(finalize_call_result(&result_text, shell_outcome))
+    let mut result = finalize_call_result(&result_text, shell_outcome);
+    let has_dynamic = had_auto_context || had_budget_warning || had_throttle_warning;
+    let mut meta = rmcp::model::Meta::new();
+    meta.0.insert(
+        "cache_hint".to_owned(),
+        serde_json::Value::String(if has_dynamic { "ephemeral" } else { "stable" }.to_owned()),
+    );
+    result.meta = Some(meta);
+    Ok(result)
 }
