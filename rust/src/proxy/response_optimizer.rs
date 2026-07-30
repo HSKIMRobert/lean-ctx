@@ -709,8 +709,8 @@ mod tests {
         assert_eq!(h1, h2);
     }
 
-    #[test]
-    fn ocla_registry_path_measures_response_tokens() {
+    #[tokio::test]
+    async fn ocla_registry_path_measures_response_tokens() {
         let _isolated = crate::core::data_dir::isolated_data_dir();
         let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
         let request = ResponseOptimizationRequest {
@@ -730,6 +730,7 @@ mod tests {
         let result = registry
             .response_optimizer
             .optimize_response(request)
+            .await
             .expect("registry response optimizer must succeed");
         assert_eq!(result.delivered_tokens, 400);
 

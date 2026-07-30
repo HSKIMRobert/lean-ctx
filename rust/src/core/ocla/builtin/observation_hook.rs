@@ -122,8 +122,9 @@ impl OclaService for BuiltinObservationHook {
     }
 }
 
+#[async_trait::async_trait]
 impl ObservationHook for BuiltinObservationHook {
-    fn observe(&self, mut observation: Observation) -> OclaResult<()> {
+    async fn observe(&self, mut observation: Observation) -> OclaResult<()> {
         let (original, saved) = Self::enrich(&mut observation);
         let session_id = observation.context.session_id.clone();
         let name = observation.name.clone();
@@ -183,8 +184,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn observe_stores_and_bounds() {
+    #[tokio::test]
+    async fn observe_stores_and_bounds() {
         let hook = BuiltinObservationHook::new();
         for i in 0..600 {
             let obs = Observation {
@@ -192,14 +193,14 @@ mod tests {
                 name: format!("obs-{i}"),
                 attributes: BTreeMap::new(),
             };
-            hook.observe(obs).unwrap();
+            hook.observe(obs).await.unwrap();
         }
         let state = hook.state.lock().unwrap();
         assert_eq!(state.ring.get("s1").unwrap().len(), MAX_OBSERVATIONS);
     }
 
-    #[test]
-    fn observe_enriches_tokens_and_projects_file_access() {
+    #[tokio::test]
+    async fn observe_enriches_tokens_and_projects_file_access() {
         let hook = BuiltinObservationHook::new();
         let mut context = ctx("s1");
         context.content_ref = "file:src/observed.rs".into();
@@ -212,7 +213,7 @@ mod tests {
             ]),
         };
 
-        hook.observe(observation).unwrap();
+        hook.observe(observation).await.unwrap();
 
         let state = hook.state.lock().unwrap();
         let stored = state.ring.get("s1").unwrap().back().unwrap();
@@ -221,8 +222,8 @@ mod tests {
         assert_eq!(stored.context.content_ref, "file:src/observed.rs");
     }
 
-    #[test]
-    fn observe_valid_input_is_returned_by_recent() {
+    #[tokio::test]
+    async fn observe_valid_input_is_returned_by_recent() {
         let hook = BuiltinObservationHook::new();
         let observation = Observation {
             context: ctx("session-valid"),
@@ -233,7 +234,7 @@ mod tests {
             ]),
         };
 
-        hook.observe(observation).unwrap();
+        hook.observe(observation).await.unwrap();
 
         let recent = hook.recent("session-valid", 1);
         assert_eq!(recent.len(), 1);
@@ -242,8 +243,8 @@ mod tests {
         assert_eq!(recent[0].attributes[COMPRESSION_RATIO_MILLI], "250");
     }
 
-    #[test]
-    fn observe_zero_tokens_reports_zero_ratio() {
+    #[tokio::test]
+    async fn observe_zero_tokens_reports_zero_ratio() {
         let hook = BuiltinObservationHook::new();
         let observation = Observation {
             context: ctx("session-empty"),
@@ -254,15 +255,15 @@ mod tests {
             ]),
         };
 
-        hook.observe(observation).unwrap();
+        hook.observe(observation).await.unwrap();
 
         let stored = hook.recent("session-empty", 1);
         assert_eq!(stored[0].attributes[DELIVERED_TOKENS], "0");
         assert_eq!(stored[0].attributes[COMPRESSION_RATIO_MILLI], "0");
     }
 
-    #[test]
-    fn observe_clamps_invalid_savings() {
+    #[tokio::test]
+    async fn observe_clamps_invalid_savings() {
         let hook = BuiltinObservationHook::new();
         let observation = Observation {
             context: ctx("s1"),
@@ -273,7 +274,7 @@ mod tests {
             ]),
         };
 
-        hook.observe(observation).unwrap();
+        hook.observe(observation).await.unwrap();
 
         let state = hook.state.lock().unwrap();
         let stored = state.ring.get("s1").unwrap().back().unwrap();

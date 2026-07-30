@@ -130,10 +130,12 @@ pub fn route_request(
             maximum_cost_micros: None,
             maximum_latency_ms: None,
         };
-        let decision = OclaRegistry::global()
-            .model_router
-            .route_model(request)
-            .ok()?;
+        let decision = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(
+                OclaRegistry::global().model_router.route_model(request),
+            )
+        })
+        .ok()?;
         if decision.model == requested {
             None
         } else if decision.provider.is_empty() {

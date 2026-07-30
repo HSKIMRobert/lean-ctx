@@ -146,8 +146,9 @@ pub struct RoutingDecisionWithRationale {
     pub routing_rationale: String,
 }
 
+#[async_trait::async_trait]
 impl ModelRouter for BuiltinModelRouter {
-    fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision> {
+    async fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision> {
         let result = self.route_model_with_intent(&request, None)?;
         if let Err(reason) = self.pep.enforce(&result.decision, &request) {
             ocla_bus::emit(OclaEvent::AgentChainEvent {
@@ -456,51 +457,53 @@ mod tests {
         }
     }
 
-    #[test]
-    fn routes_first_candidate() {
+    #[tokio::test]
+    async fn routes_first_candidate() {
         let router = BuiltinModelRouter::new();
         let decision = router
             .route_model(route_req(&["gpt-4o", "claude-3"]))
+            .await
             .unwrap();
         assert_eq!(decision.model, "gpt-4o");
         assert_eq!(decision.provider, "openai");
     }
 
-    #[test]
-    fn infers_anthropic_provider() {
+    #[tokio::test]
+    async fn infers_anthropic_provider() {
         let router = BuiltinModelRouter::new();
-        let decision = router.route_model(route_req(&["claude-sonnet-4"])).unwrap();
+        let decision = router.route_model(route_req(&["claude-sonnet-4"])).await.unwrap();
         assert_eq!(decision.provider, "anthropic");
     }
 
-    #[test]
-    fn delegates_tier_selection_to_proxy_router() {
+    #[tokio::test]
+    async fn delegates_tier_selection_to_proxy_router() {
         let router =
             BuiltinModelRouter::with_rules(active_rules(&[("fast", "anthropic:claude-haiku-4-5")]));
         let mut request = route_req(&["claude-sonnet-4"]);
         request.context.content_ref = "explain how the cache works".into();
 
-        let decision = router.route_model(request).unwrap();
+        let decision = router.route_model(request).await.unwrap();
 
         assert_eq!(decision.model, "claude-haiku-4-5");
         assert_eq!(decision.provider, "anthropic");
     }
 
-    #[test]
-    fn unknown_model_falls_back_to_default() {
+    #[tokio::test]
+    async fn unknown_model_falls_back_to_default() {
         let router = BuiltinModelRouter::new();
-        let decision = router.route_model(route_req(&[])).unwrap();
+        let decision = router.route_model(route_req(&[])).await.unwrap();
         assert_eq!(decision.model, "default");
         assert_eq!(decision.provider, "unknown");
         assert_eq!(decision.decision_ref, "route:r1");
     }
 
-    #[test]
-    fn registry_path_routes_with_configured_budget() {
+    #[tokio::test]
+    async fn registry_path_routes_with_configured_budget() {
         let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
         let decision = registry
             .model_router
             .route_model(route_req(&["gpt-4o"]))
+            .await
             .unwrap();
 
         assert_eq!(decision.model, "gpt-4o");

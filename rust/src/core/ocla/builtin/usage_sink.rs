@@ -53,8 +53,9 @@ impl OclaService for BuiltinUsageSink {
     }
 }
 
+#[async_trait::async_trait]
 impl UsageSink for BuiltinUsageSink {
-    fn record_usage(&self, usage: UsageRecord) -> OclaResult<()> {
+    async fn record_usage(&self, usage: UsageRecord) -> OclaResult<()> {
         let started_at = Instant::now();
         self.total_input
             .fetch_add(usage.input_tokens, Ordering::Relaxed);
@@ -99,23 +100,24 @@ mod tests {
         }
     }
 
-    #[test]
-    fn accumulates_totals() {
+    #[tokio::test]
+    async fn accumulates_totals() {
         let sink = BuiltinUsageSink::new();
-        sink.record_usage(usage("gpt-4", 100, 50)).unwrap();
-        sink.record_usage(usage("claude", 200, 80)).unwrap();
+        sink.record_usage(usage("gpt-4", 100, 50)).await.unwrap();
+        sink.record_usage(usage("claude", 200, 80)).await.unwrap();
 
         assert_eq!(sink.total_input_tokens(), 300);
         assert_eq!(sink.total_output_tokens(), 130);
         assert_eq!(sink.record_count(), 2);
     }
 
-    #[test]
-    fn registry_path_records_usage() {
+    #[tokio::test]
+    async fn registry_path_records_usage() {
         let registry = crate::core::ocla::registry::OclaRegistry::with_builtins();
         registry
             .usage_sink
             .record_usage(usage("registry-model", 12, 8))
+            .await
             .unwrap();
     }
 }

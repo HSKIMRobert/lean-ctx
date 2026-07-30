@@ -76,8 +76,9 @@ impl OclaService for BuiltinMetricsExporter {
     }
 }
 
+#[async_trait::async_trait]
 impl MetricsExporter for BuiltinMetricsExporter {
-    fn export_metrics(&self, metrics: Vec<MetricPoint>) -> OclaResult<()> {
+    async fn export_metrics(&self, metrics: Vec<MetricPoint>) -> OclaResult<()> {
         if metrics.is_empty() {
             return Err(crate::core::ocla::types::OclaError::InvalidRequest(
                 "metric batch must not be empty".into(),
@@ -130,11 +131,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn export_and_retrieve() {
+    #[tokio::test]
+    async fn export_and_retrieve() {
         let exporter = BuiltinMetricsExporter::new();
         exporter
             .export_metrics(vec![point("latency", 150), point("latency", 200)])
+            .await
             .unwrap();
 
         let recent = exporter.recent("latency", 10);
@@ -142,11 +144,11 @@ mod tests {
         assert_eq!(recent[0].value_milli, 150);
     }
 
-    #[test]
-    fn bounded_per_metric_fifo_eviction() {
+    #[tokio::test]
+    async fn bounded_per_metric_fifo_eviction() {
         let exporter = BuiltinMetricsExporter::new();
         let batch: Vec<_> = (0..1001).map(|i| point("x", i)).collect();
-        exporter.export_metrics(batch).unwrap();
+        exporter.export_metrics(batch).await.unwrap();
 
         let recent = exporter.recent("x", 2000);
         assert_eq!(recent.len(), 1000);
@@ -154,19 +156,19 @@ mod tests {
         assert_eq!(recent.last().unwrap().value_milli, 1000);
     }
 
-    #[test]
-    fn rejects_empty_and_invalid_batches_without_partial_export() {
+    #[tokio::test]
+    async fn rejects_empty_and_invalid_batches_without_partial_export() {
         let exporter = BuiltinMetricsExporter::new();
         assert!(matches!(
-            exporter.export_metrics(Vec::new()),
+            exporter.export_metrics(Vec::new()).await,
             Err(crate::core::ocla::types::OclaError::InvalidRequest(message))
                 if message == "metric batch must not be empty"
         ));
 
-        exporter.export_metrics(vec![point("latency", 1)]).unwrap();
+        exporter.export_metrics(vec![point("latency", 1)]).await.unwrap();
         let invalid = point("", 2);
         assert!(matches!(
-            exporter.export_metrics(vec![point("latency", 2), invalid]),
+            exporter.export_metrics(vec![point("latency", 2), invalid]).await,
             Err(crate::core::ocla::types::OclaError::InvalidRequest(message))
                 if message == "metric name is required"
         ));

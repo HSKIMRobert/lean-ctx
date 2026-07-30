@@ -2307,6 +2307,7 @@ name = "lean-ctx"
 version = "3.9.13"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "base64",
  "blake3",

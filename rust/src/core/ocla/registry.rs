@@ -166,8 +166,9 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl ObservationHook for SpyObservation {
-        fn observe(&self, _observation: Observation) -> OclaResult<()> {
+        async fn observe(&self, _observation: Observation) -> OclaResult<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
@@ -180,8 +181,9 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl UsageSink for SpyUsage {
-        fn record_usage(&self, _usage: UsageRecord) -> OclaResult<()> {
+        async fn record_usage(&self, _usage: UsageRecord) -> OclaResult<()> {
             self.0.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }

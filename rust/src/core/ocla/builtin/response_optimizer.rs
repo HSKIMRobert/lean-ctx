@@ -31,8 +31,9 @@ impl OclaService for BuiltinResponseOptimizer {
     }
 }
 
+#[async_trait::async_trait]
 impl ResponseOptimizer for BuiltinResponseOptimizer {
-    fn optimize_response(
+    async fn optimize_response(
         &self,
         request: ResponseOptimizationRequest,
     ) -> OclaResult<ResponseOptimizationResult> {
@@ -101,8 +102,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn optimization_caps_at_target() {
+    #[tokio::test]
+    async fn optimization_caps_at_target() {
         // optimize_response appends a `proxy_response_optimizer` event to the
         // savings ledger. Without an isolated data dir that write lands in
         // whatever LEAN_CTX_DATA_DIR currently points at — under parallel tests
@@ -110,22 +111,22 @@ mod tests {
         // a foreign event.
         let _iso = crate::core::data_dir::isolated_data_dir();
         let opt = BuiltinResponseOptimizer::new();
-        let result = opt.optimize_response(req("caps", 1000, 400)).unwrap();
+        let result = opt.optimize_response(req("caps", 1000, 400)).await.unwrap();
         assert_eq!(result.delivered_tokens, 400);
     }
 
-    #[test]
-    fn preserves_response_ref() {
+    #[tokio::test]
+    async fn preserves_response_ref() {
         // See `optimization_caps_at_target`: keeps this test's ledger write out
         // of another test's isolated data dir.
         let _iso = crate::core::data_dir::isolated_data_dir();
         let opt = BuiltinResponseOptimizer::new();
-        let result = opt.optimize_response(req("preserves", 500, 300)).unwrap();
+        let result = opt.optimize_response(req("preserves", 500, 300)).await.unwrap();
         assert_eq!(result.response_ref, "resp:preserves");
     }
 
-    #[test]
-    fn registry_path_reports_cache_as_zero_delivery() {
+    #[tokio::test]
+    async fn registry_path_reports_cache_as_zero_delivery() {
         // See `optimization_caps_at_target`: keeps this test's ledger write out
         // of another test's isolated data dir.
         let _iso = crate::core::data_dir::isolated_data_dir();
@@ -136,10 +137,12 @@ mod tests {
         let first = registry
             .response_optimizer
             .optimize_response(request.clone())
+            .await
             .unwrap();
         let cached = registry
             .response_optimizer
             .optimize_response(request)
+            .await
             .unwrap();
 
         assert_eq!(first.delivered_tokens, 400);

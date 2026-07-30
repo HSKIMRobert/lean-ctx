@@ -156,6 +156,7 @@ pub(crate) async fn build_response(
         if let Err(error) = crate::core::ocla::OclaRegistry::global()
             .response_optimizer
             .optimize_response(request)
+            .await
         {
             tracing::warn!("lean-ctx response optimizer unavailable: {error:?}");
         }
