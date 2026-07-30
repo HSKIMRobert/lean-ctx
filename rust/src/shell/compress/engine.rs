@@ -513,6 +513,17 @@ fn compress_if_beneficial_with_exit(
         return output.to_string();
     }
 
+    // #1387: detect record boundaries in multi-record output. When found,
+    // compress each segment independently to prevent cross-record content
+    // reattribution (e.g. for-loop output with `===== #N` delimiters).
+    if let Some(boundary_spans) = super::boundaries::detect_record_boundaries(output) {
+        if let Some(result) = super::boundaries::compress_preserving_boundaries(
+            command, output, exit_code, family, &boundary_spans, original_tokens,
+        ) {
+            return result;
+        }
+    }
+
     let min_output_tokens = 20;
 
     let cfg = crate::core::config::Config::load();
