@@ -44,6 +44,13 @@ fn should_allow(tool_name: &str, file_path: Option<&str>) -> bool {
         return true;
     }
 
+    // GH #1329: lean-ctx MCP tools must never be blocked by the deny hook.
+    // Devin (ex-Windsurf) routes MCP calls through its own PreToolUse
+    // pipeline, so ctx_* tool invocations hit the deny hook. Allow them.
+    if is_lean_ctx_tool(tool_name) {
+        return true;
+    }
+
     if !is_mcp_server_reachable() {
         return true;
     }
@@ -64,8 +71,11 @@ fn should_allow(tool_name: &str, file_path: Option<&str>) -> bool {
         return true;
     }
 
-    let _ = tool_name;
     false
+}
+
+fn is_lean_ctx_tool(tool_name: &str) -> bool {
+    tool_name.starts_with("ctx_") || tool_name == "shell"
 }
 
 fn is_mcp_server_reachable() -> bool {
@@ -482,6 +492,26 @@ mod tests {
             !has_compression_markers(&content),
             "clean StrReplace must not trigger the guard"
         );
+    }
+
+    #[test]
+    fn should_allow_lean_ctx_tools() {
+        assert!(should_allow("ctx_tree", None));
+        assert!(should_allow("ctx_read", Some("/tmp/test.rs")));
+        assert!(should_allow("ctx_search", None));
+        assert!(should_allow("ctx_shell", None));
+        assert!(should_allow("ctx_compose", None));
+        assert!(should_allow("shell", None));
+    }
+
+    #[test]
+    fn is_lean_ctx_tool_checks() {
+        assert!(is_lean_ctx_tool("ctx_tree"));
+        assert!(is_lean_ctx_tool("ctx_read"));
+        assert!(is_lean_ctx_tool("shell"));
+        assert!(!is_lean_ctx_tool("Read"));
+        assert!(!is_lean_ctx_tool("Grep"));
+        assert!(!is_lean_ctx_tool("Shell"));
     }
 
     #[test]

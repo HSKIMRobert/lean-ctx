@@ -73,6 +73,12 @@ pub fn execute_sandboxed(
         cmd.env(k, v);
     }
 
+    cmd.stdin(std::process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
@@ -99,7 +105,18 @@ fn wait_with_timeout(
             Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
             Ok(None) => {
                 if std::time::Instant::now() > deadline {
-                    let _ = child.kill();
+                    #[cfg(unix)]
+                    {
+                        let pid = child.id() as i32;
+                        // SAFETY: libc::kill with negative pid targets the process group
+                        // created by process_group(0). The pid is valid because we just
+                        // checked the child is still running via try_wait.
+                        unsafe { libc::kill(-pid, libc::SIGKILL) };
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = child.kill();
+                    }
                     return Err(format!("Execution timed out after {timeout_secs}s"));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));

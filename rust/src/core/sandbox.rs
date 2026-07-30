@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -407,8 +409,14 @@ fn execute_with_stdin(
     }
     cmd.arg(code);
     apply_sandbox_env(&mut cmd, runtime);
+    // GH #1347: isolate child into its own process group so an interactive
+    // shell (bash -ic) cannot SIGTSTP the MCP server, and close stdin to
+    // prevent terminal job-control attempts.
+    cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0);
 
     let child = cmd
         .spawn()
@@ -449,8 +457,11 @@ fn execute_with_file(
         }
         cmd.arg(&file_path);
         apply_sandbox_env(&mut cmd, runtime);
+        cmd.stdin(std::process::Stdio::null());
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        cmd.process_group(0);
 
         let child = cmd
             .spawn()
@@ -501,8 +512,11 @@ fn execute_rust(
         }
     }
     run_cmd.env("LEAN_CTX_SANDBOX", "1");
+    run_cmd.stdin(std::process::Stdio::null());
     run_cmd.stdout(std::process::Stdio::piped());
     run_cmd.stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
+    run_cmd.process_group(0);
 
     let child = run_cmd
         .spawn()
@@ -530,13 +544,32 @@ fn wait_with_timeout(
             Ok(Some(_)) => return child.wait_with_output().map_err(|e| e.to_string()),
             Ok(None) => {
                 if std::time::Instant::now() > deadline {
-                    let _ = child.kill();
+                    // GH #1347: kill the entire process group, not just the
+                    // direct child, so grandchildren (interactive shells etc.)
+                    // are cleaned up too.
+                    kill_process_tree(&mut child);
                     return Err(format!("Execution timed out after {timeout_secs}s"));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
             Err(e) => return Err(e.to_string()),
         }
+    }
+}
+
+/// Kill a child process and its entire process group (Unix) or just the child
+/// (non-Unix). Uses SIGKILL on the negative PID to hit the whole group created
+/// by `process_group(0)`.
+fn kill_process_tree(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id() as i32;
+        // SAFETY: libc::kill with negative pid targets the process group.
+        unsafe { libc::kill(-pid, libc::SIGKILL) };
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
     }
 }
 
