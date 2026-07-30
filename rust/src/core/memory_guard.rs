@@ -271,11 +271,61 @@ fn publish_pressure(level: PressureLevel) {
     ABORT_REQUESTED.store(pressure_requests_abort(level), Ordering::SeqCst);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CriticalEvictionSchedule {
+    RetryAfter(u64),
+    PauseFor(u64),
+}
+
+impl CriticalEvictionSchedule {
+    fn poll_secs(self) -> u64 {
+        match self {
+            Self::RetryAfter(secs) | Self::PauseFor(secs) => secs,
+        }
+    }
+}
+
+/// Backoff state for critical eviction rounds that reclaimed no memory.
+#[derive(Default)]
+struct CriticalEvictionBackoff {
+    consecutive_zero_progress: u32,
+}
+
+impl CriticalEvictionBackoff {
+    const BASE_POLL_SECS: u64 = 1;
+    const MAX_POLL_SECS: u64 = 60;
+    const PAUSE_AFTER_ZERO_PROGRESS_ROUNDS: u32 = 10;
+    const PAUSE_SECS: u64 = 5 * 60;
+
+    fn record(&mut self, made_progress: bool) -> CriticalEvictionSchedule {
+        if made_progress {
+            self.consecutive_zero_progress = 0;
+            return CriticalEvictionSchedule::RetryAfter(Self::BASE_POLL_SECS);
+        }
+
+        self.consecutive_zero_progress = self.consecutive_zero_progress.saturating_add(1);
+        if self.consecutive_zero_progress >= Self::PAUSE_AFTER_ZERO_PROGRESS_ROUNDS {
+            return CriticalEvictionSchedule::PauseFor(Self::PAUSE_SECS);
+        }
+
+        let exponent = self.consecutive_zero_progress.saturating_sub(2).min(6);
+        let poll_secs = Self::BASE_POLL_SECS
+            .saturating_mul(1u64 << exponent)
+            .min(Self::MAX_POLL_SECS);
+        CriticalEvictionSchedule::RetryAfter(poll_secs)
+    }
+
+    fn reset(&mut self) {
+        self.consecutive_zero_progress = 0;
+    }
+}
+
 /// Start the background memory guardian task (idempotent).
 /// Polls every 3s (normal), 1s (under pressure), or up to 15s once RSS has been
-/// stably calm (idle backoff). At Critical level, performs aggressive eviction
-/// and signals background tasks to abort — never exits the process.
-pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) {
+/// stably calm (idle backoff). Critical no-progress eviction rounds back off to
+/// 60s, then pause for five minutes. The callback returns whether it reclaimed
+/// memory so the guard can distinguish a real retry from an empty-cache loop.
+pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) -> bool + Send + Sync>) {
     // The guardian is a long-lived background monitor for the running
     // server/daemon. Under `cargo test` a single OS process executes the entire
     // suite, so its RSS routinely exceeds the per-operation pressure threshold
@@ -307,13 +357,17 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
             const IDLE_POLL_SECS: u64 = 15;
             let mut poll_secs = 3u64;
             let mut calm_ticks = 0u64;
+            let mut critical_backoff = CriticalEvictionBackoff::default();
 
             // #790: immediate first sample — close the 3s blind window so
             // builders that start right after start_guard() see real pressure.
             if let Some(snap) = MemorySnapshot::capture() {
                 publish_pressure(snap.pressure_level);
                 if snap.pressure_level >= PressureLevel::Soft {
-                    eviction_callback(snap.pressure_level);
+                    let made_progress = eviction_callback(snap.pressure_level);
+                    if snap.pressure_level == PressureLevel::Critical {
+                        poll_secs = critical_backoff.record(made_progress).poll_secs();
+                    }
                 }
             }
 
@@ -333,32 +387,23 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) + Send + Sync>) 
                         snap.rss_percent,
                         snap.system_ram_bytes as f64 / 1_073_741_824.0,
                     );
-                    (eviction_callback)(PressureLevel::Critical);
+                    let made_progress = (eviction_callback)(PressureLevel::Critical);
                     jemalloc_purge();
 
-                    for attempt in 1..=3 {
-                        std::thread::sleep(std::time::Duration::from_secs(2));
-                        (eviction_callback)(PressureLevel::Critical);
-                        jemalloc_purge();
-                        if let Some(recheck) = MemorySnapshot::capture() {
-                            if recheck.pressure_level < PressureLevel::Hard {
-                                tracing::info!(
-                                    "[memory_guard] eviction attempt {attempt} succeeded — \
-                                     RSS={:.0}MB, pressure={:?}",
-                                    recheck.rss_bytes as f64 / 1_048_576.0,
-                                    recheck.pressure_level,
-                                );
-                                break;
-                            }
-                            tracing::error!(
-                                "[memory_guard] eviction attempt {attempt}/3 — still {:?} \
-                                 (RSS={:.0}MB)",
-                                recheck.pressure_level,
-                                recheck.rss_bytes as f64 / 1_048_576.0,
-                            );
-                        }
+                    let schedule = critical_backoff.record(made_progress);
+                    poll_secs = schedule.poll_secs();
+                    if let CriticalEvictionSchedule::PauseFor(secs) = schedule {
+                        tracing::warn!(
+                            "[memory_guard] eviction made no progress for {} critical rounds; \
+                             pausing eviction for {secs}s",
+                            critical_backoff.consecutive_zero_progress,
+                        );
                     }
+                    calm_ticks = 0;
+                    continue;
                 }
+
+                critical_backoff.reset();
 
                 if snap.pressure_level >= PressureLevel::Soft {
                     poll_secs = 1;
@@ -556,6 +601,46 @@ mod tests {
     }
 
     #[test]
+    fn critical_zero_progress_backoff_doubles_then_pauses_and_resets() {
+        let mut backoff = CriticalEvictionBackoff::default();
+
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::RetryAfter(1)
+        );
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::RetryAfter(1)
+        );
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::RetryAfter(2)
+        );
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::RetryAfter(4)
+        );
+
+        for _ in 0..4 {
+            backoff.record(false);
+        }
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::RetryAfter(60)
+        );
+        assert_eq!(
+            backoff.record(false),
+            CriticalEvictionSchedule::PauseFor(5 * 60)
+        );
+
+        assert_eq!(
+            backoff.record(true),
+            CriticalEvictionSchedule::RetryAfter(1)
+        );
+        assert_eq!(backoff.consecutive_zero_progress, 0);
+    }
+
+    #[test]
     fn atomic_pressure_defaults_to_normal() {
         assert_eq!(current_pressure(), PressureLevel::Normal);
     }
@@ -569,7 +654,10 @@ mod tests {
         // flake. `start_guard` must be a no-op under `cfg!(test)`.
         let fired = Arc::new(AtomicBool::new(false));
         let fired_cb = fired.clone();
-        start_guard(Arc::new(move |_| fired_cb.store(true, Ordering::SeqCst)));
+        start_guard(Arc::new(move |_| {
+            fired_cb.store(true, Ordering::SeqCst);
+            false
+        }));
 
         assert!(
             !GUARD_RUNNING.load(Ordering::Relaxed),

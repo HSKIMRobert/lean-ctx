@@ -57,23 +57,30 @@ pub fn register(target: &Arc<EvictionOrchestrator>) {
 }
 
 /// Fan process-wide RSS pressure out to every live server-local cache.
-pub fn on_memory_pressure(level: memory_guard::PressureLevel) {
+/// Returns whether any eviction target actually reclaimed resident memory.
+pub fn on_memory_pressure(level: memory_guard::PressureLevel) -> bool {
     let live = TARGETS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .live_targets();
 
+    let mut made_progress = false;
     for target in live {
-        target.on_pressure(level);
+        made_progress |= target.on_pressure(level);
     }
 
     // These caches are process-global rather than owned by a server target.
     if level >= memory_guard::PressureLevel::Hard {
+        let content_bytes = super::content_cache::memory_usage_bytes();
+        let ann_bytes = super::ann_cache::memory_usage_bytes();
         super::content_cache::clear();
         super::ann_cache::clear();
         super::search_index::clear_resident();
         super::graph_cache::invalidate(None);
+        made_progress |= content_bytes > 0 || ann_bytes > 0;
     }
+
+    made_progress
 }
 
 impl EvictionOrchestrator {
@@ -89,9 +96,9 @@ impl EvictionOrchestrator {
 
     /// Called by the memory_guard thread when pressure is detected.
     /// Runs on the guardian thread — must not block on async locks for too long.
-    pub fn on_pressure(&self, level: memory_guard::PressureLevel) {
+    pub fn on_pressure(&self, level: memory_guard::PressureLevel) -> bool {
         if level == memory_guard::PressureLevel::Normal {
-            return;
+            return false;
         }
 
         let current_tokens = self.try_read_cache_tokens();
@@ -121,7 +128,7 @@ impl EvictionOrchestrator {
         let action = floor_action_for_rss(level, action);
 
         if action == HomeostasisAction::None {
-            return;
+            return false;
         }
 
         tracing::info!(
@@ -137,11 +144,12 @@ impl EvictionOrchestrator {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         ctrl.report_outcome(pressure_reduced);
+        pressure_reduced
     }
 
     fn execute_action(&self, action: &HomeostasisAction, bm25_bytes: usize) -> bool {
         match action {
-            HomeostasisAction::None => true,
+            HomeostasisAction::None => false,
 
             HomeostasisAction::TrimOutputs => {
                 let trimmed = self.try_write_cache(SessionCache::trim_compressed_outputs);
@@ -186,16 +194,20 @@ impl EvictionOrchestrator {
             }
 
             HomeostasisAction::EvictProtected { target_tokens } => {
+                let before = self.try_read_cache_tokens();
                 self.try_write_cache(|cache| cache.evict_to_budget(*target_tokens));
+                let after = self.try_read_cache_tokens();
                 memory_guard::jemalloc_purge();
                 tracing::info!(
                     "[eviction] evicted protected entries to budget {target_tokens} tokens"
                 );
-                true
+                after < before
             }
 
             HomeostasisAction::EmergencyDrop => {
                 let cleared = self.try_write_cache(SessionCache::clear);
+                let content_freed = super::content_cache::memory_usage_bytes();
+                let ann_freed = super::ann_cache::memory_usage_bytes();
                 super::bm25_cache::unload(&self.bm25_cache);
                 super::content_cache::clear();
                 // #685: emergency must reach every resident structure.
@@ -207,7 +219,7 @@ impl EvictionOrchestrator {
                     "[eviction] EMERGENCY: cleared {cleared} cache entries + unloaded all indices \
                      (bm25, content, ann, search, graph)"
                 );
-                true
+                cleared > 0 || bm25_bytes > 0 || content_freed > 0 || ann_freed > 0
             }
         }
     }

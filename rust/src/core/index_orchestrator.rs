@@ -331,6 +331,7 @@ fn run_build_worker(root: &str) {
             crate::core::content_cache::clear();
         }
         crate::core::memory_guard::force_purge();
+        true
     }));
 
     // Graph, BM25, and the resident search index each retain substantial live

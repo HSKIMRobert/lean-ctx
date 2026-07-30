@@ -37,6 +37,7 @@ pub(crate) fn cmd_index(args: &[String]) {
                     crate::core::content_cache::clear();
                 }
                 crate::core::memory_guard::force_purge();
+                true
             }));
             crate::core::index_orchestrator::ensure_all_background(&project_root);
 
@@ -62,6 +63,7 @@ pub(crate) fn cmd_index(args: &[String]) {
                     crate::core::content_cache::clear();
                 }
                 crate::core::memory_guard::force_purge();
+                true
             }));
             crate::core::interrupt::install_ctrlc_handler();
             let bm25_path = crate::core::bm25_index::BM25Index::index_file_path(root);
@@ -150,6 +152,7 @@ pub(crate) fn cmd_index(args: &[String]) {
                     crate::core::content_cache::clear();
                 }
                 crate::core::memory_guard::force_purge();
+                true
             }));
             crate::core::interrupt::install_ctrlc_handler();
             // Build the dense embedding index on top of BM25.  If BM25 is not yet
