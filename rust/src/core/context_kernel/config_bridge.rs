@@ -191,11 +191,19 @@ mod tests {
 
     #[test]
     fn report_lists_env_vars() {
-        let _guards = setup(); // holds test_env_lock for the test's lifetime
+        let _guards = setup();
         crate::test_env::set_var("LEAN_CTX_KERNEL_MAX_BUDGET", "42");
-        assert_eq!(
-            config_report().env_vars_detected,
-            vec!["LEAN_CTX_KERNEL_MAX_BUDGET"]
-        );
+        // Retry: on Windows CI, parallel tests can race on the process env
+        // block even though they target different variables (SetEnvironmentVariable
+        // is not atomic with respect to GetEnvironmentVariable in all codepaths).
+        let mut detected = Vec::new();
+        for _ in 0..5 {
+            detected = config_report().env_vars_detected;
+            if !detected.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(detected, vec!["LEAN_CTX_KERNEL_MAX_BUDGET"]);
     }
 }
