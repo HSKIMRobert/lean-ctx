@@ -333,10 +333,29 @@ pub(crate) fn gc() -> Result<usize, String> {
 fn is_pid_alive(pid: u32) -> bool {
     #[cfg(unix)]
     {
-        // SAFETY: `kill` with signal 0 only checks process existence.
+        // SAFETY: kill with signal 0 only checks process existence, no side effects.
         unsafe { libc::kill(pid as i32, 0) == 0 }
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        const STILL_ACTIVE: u32 = 259;
+        // SAFETY: OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION is read-only.
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        let mut exit_code: u32 = 0;
+        // SAFETY: handle is valid (non-null) and exit_code is a valid mutable pointer.
+        let ok = unsafe { GetExitCodeProcess(handle, &mut exit_code) };
+        // SAFETY: handle is valid and will not be used after this call.
+        unsafe { CloseHandle(handle) };
+        ok != 0 && exit_code == STILL_ACTIVE
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
         true
