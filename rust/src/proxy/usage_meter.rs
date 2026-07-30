@@ -25,10 +25,11 @@ use crate::core::ocla::{OclaRegistry, UsageSink};
 /// authoritative for billing/ledger totals, while OCLA receives a validated
 /// payload-free projection only when complete lineage is present.
 fn project_ocla_usage(u: &super::usage::RealUsage, sink: &dyn UsageSink) {
+    use futures::FutureExt;
     let Ok(Some(record)) = u.to_ocla_usage_record() else {
         return;
     };
-    drop(sink.record_usage(record));
+    let _ = sink.record_usage(record).now_or_never();
 }
 
 /// Cumulative real token counts for one model. Cost is derived at read time so a

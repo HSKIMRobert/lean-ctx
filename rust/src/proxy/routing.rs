@@ -571,8 +571,8 @@ mod tests {
         assert_eq!(body, before);
     }
 
-    #[test]
-    fn tier_downgrade_routes_simple_queries_to_cheap_model() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn tier_downgrade_routes_simple_queries_to_cheap_model() {
         // An explore-style question lands on a non-premium tier (fast, or
         // standard when the classifier hedges on low confidence). Both map to
         // the cheap target here — this test pins the routing mechanics; tier
@@ -600,8 +600,8 @@ mod tests {
         assert_eq!(d.provider_id.as_deref(), Some("foundry"));
     }
 
-    #[test]
-    fn premium_tier_unset_keeps_requested_model() {
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn premium_tier_unset_keeps_requested_model() {
         // Generation work classifies premium; with no premium target the
         // request passes through untouched.
         let mut body = json!({

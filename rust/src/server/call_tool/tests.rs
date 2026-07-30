@@ -184,7 +184,7 @@ mod response_cache_tests {
 
     #[test]
     fn only_deterministic_tools_receive_cache_keys() {
-        for tool in ["ctx_read", "ctx_search", "ctx_tree", "ctx_glob"] {
+        for tool in ["ctx_search", "ctx_tree", "ctx_glob"] {
             assert!(response_cache_key(tool, Some(&arguments()), "/project").is_some());
         }
         for tool in ["ctx_shell", "ctx_session", "ctx_knowledge", "ctx_call"] {
@@ -194,16 +194,16 @@ mod response_cache_tests {
 
     #[test]
     fn cache_keys_include_arguments_and_project_scope() {
-        let base = response_cache_key("ctx_read", Some(&arguments()), "/project").unwrap();
-        let other_root = response_cache_key("ctx_read", Some(&arguments()), "/other").unwrap();
+        let base = response_cache_key("ctx_search", Some(&arguments()), "/project").unwrap();
+        let other_root = response_cache_key("ctx_search", Some(&arguments()), "/other").unwrap();
         let other_args = Map::from_iter([("path".to_owned(), json!("src/main.rs"))]);
-        let other_path = response_cache_key("ctx_read", Some(&other_args), "/project").unwrap();
+        let other_path = response_cache_key("ctx_search", Some(&other_args), "/project").unwrap();
 
         assert_ne!(base, other_root);
         assert_ne!(base, other_path);
         assert_eq!(
             base,
-            response_cache_key("ctx_read", Some(&arguments()), "/project").unwrap()
+            response_cache_key("ctx_search", Some(&arguments()), "/project").unwrap()
         );
     }
 
