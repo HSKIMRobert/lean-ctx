@@ -95,6 +95,7 @@ export class OclaClient {
       headers: {
         Accept: "application/json",
         ...(init.body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
         ...init.headers,
       },
     });
