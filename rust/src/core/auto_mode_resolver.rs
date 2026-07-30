@@ -11,7 +11,7 @@ use crate::core::ocla::types::{ConfigTuningRequest, OclaRequestContext};
 /// Surfaced by `ctx_metrics` so the learning loops are observable (#496).
 static SOURCE_COUNTS: Mutex<Option<HashMap<&'static str, u64>>> = Mutex::new(None);
 
-fn count_source(source: &'static str) {
+pub fn count_source(source: &'static str) {
     if let Ok(mut guard) = SOURCE_COUNTS.lock() {
         *guard
             .get_or_insert_with(HashMap::new)
