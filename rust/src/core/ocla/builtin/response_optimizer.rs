@@ -121,7 +121,10 @@ mod tests {
         // of another test's isolated data dir.
         let _iso = crate::core::data_dir::isolated_data_dir();
         let opt = BuiltinResponseOptimizer::new();
-        let result = opt.optimize_response(req("preserves", 500, 300)).await.unwrap();
+        let result = opt
+            .optimize_response(req("preserves", 500, 300))
+            .await
+            .unwrap();
         assert_eq!(result.response_ref, "resp:preserves");
     }
 

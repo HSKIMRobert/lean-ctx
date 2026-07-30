@@ -165,7 +165,10 @@ mod tests {
                 if message == "metric batch must not be empty"
         ));
 
-        exporter.export_metrics(vec![point("latency", 1)]).await.unwrap();
+        exporter
+            .export_metrics(vec![point("latency", 1)])
+            .await
+            .unwrap();
         let invalid = point("", 2);
         assert!(matches!(
             exporter.export_metrics(vec![point("latency", 2), invalid]).await,

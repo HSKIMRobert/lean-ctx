@@ -471,7 +471,10 @@ mod tests {
     #[tokio::test]
     async fn infers_anthropic_provider() {
         let router = BuiltinModelRouter::new();
-        let decision = router.route_model(route_req(&["claude-sonnet-4"])).await.unwrap();
+        let decision = router
+            .route_model(route_req(&["claude-sonnet-4"]))
+            .await
+            .unwrap();
         assert_eq!(decision.provider, "anthropic");
     }
 

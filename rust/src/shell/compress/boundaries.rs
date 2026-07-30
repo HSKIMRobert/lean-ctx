@@ -5,7 +5,7 @@
 //!
 //! See #1387.
 
-use crate::core::tokens::{count_tokens_for, TokenizerFamily};
+use crate::core::tokens::{TokenizerFamily, count_tokens_for};
 
 /// Minimum number of matching boundaries to activate per-segment compression.
 const MIN_BOUNDARIES: usize = 3;
@@ -306,8 +306,7 @@ mod tests {
 
     #[test]
     fn build_segments_splits_correctly() {
-        let output =
-            "preamble\n===== #1 =====\nfoo\n===== #2 =====\nbar\n===== #3 =====\nbaz\n";
+        let output = "preamble\n===== #1 =====\nfoo\n===== #2 =====\nbar\n===== #3 =====\nbaz\n";
         let boundaries = detect_record_boundaries(output).unwrap();
         let segments = build_segments(output, &boundaries);
 
