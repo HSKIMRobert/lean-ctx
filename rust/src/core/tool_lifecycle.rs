@@ -15,11 +15,15 @@ use crate::core::intent_engine::StructuredIntent;
 use crate::core::ocla::EfficiencyAnalyzer;
 use crate::core::session::SessionState;
 use crate::core::stats;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// How many recently-touched files form the "working set" a new read is
 /// associated with for traversal (co-access) edges (#289). Small, so the signal
 /// stays local to what the agent is actively juggling.
 const TRAVERSAL_WINDOW: usize = 6;
+
+const PERIODIC_FLUSH_INTERVAL: u32 = 50;
+static TOOL_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// Recent distinct file paths (excluding `current`), most-recent first, capped
 /// to the traversal window — the working set a new read co-occurs with.
@@ -182,6 +186,7 @@ pub fn record_file_read(
         project_ocla_compression(path, original_tokens as u64, output_tokens as u64);
         maybe_periodic_flush();
     }
+    maybe_periodic_flush();
 }
 
 /// Replicate the MCP read path's learning side effects (`registered/ctx_read.rs`
@@ -502,6 +507,13 @@ pub fn flush_all() {
     crate::core::litm_calibration::flush();
 }
 
+pub fn maybe_periodic_flush() {
+    let call_count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if call_count.is_multiple_of(PERIODIC_FLUSH_INTERVAL) {
+        let _ = std::thread::spawn(flush_all);
+    }
+}
+
 fn maybe_consolidate(project_root: Option<&str>, calls: u32) {
     let Some(root) = project_root else { return };
     let autonomy = crate::core::autonomy::AutonomyState::new();
@@ -680,6 +692,13 @@ mod tests {
         // (e.g. a CLI arm followed by an atexit path) must never panic.
         flush_all();
         flush_all();
+    }
+
+    #[test]
+    fn periodic_flush_counter_increments() {
+        TOOL_CALL_COUNT.store(0, Ordering::Relaxed);
+        maybe_periodic_flush();
+        assert_eq!(TOOL_CALL_COUNT.load(Ordering::Relaxed), 1);
     }
 
     #[test]
