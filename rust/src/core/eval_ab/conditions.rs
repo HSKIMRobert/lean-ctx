@@ -38,18 +38,18 @@ pub enum Condition {
     /// Treatment — "with lean-ctx".
     LeanCtx,
     /// Treatment variant that routes JSON/JSONL through the deduplicating
-    /// [`crate::core::json_crush`] core (lossless array crush) instead of the
+    /// `crate::core::json_crush` core (lossless array crush) instead of the
     /// whitespace-only compaction the generic [`aggressive_compress`] applies to
     /// structured data. Used to measure json_crush's token savings and its
     /// answer-preservation floor in isolation (#942).
     JsonCrush,
     /// Treatment variant that routes CSV/TSV through the columnar
-    /// [`crate::core::tabular_crush`] core (lossless constant-column hoisting)
+    /// `crate::core::tabular_crush` core (lossless constant-column hoisting)
     /// instead of the line-based compaction the generic [`aggressive_compress`]
     /// applies to delimited data. Measures tabular_crush's token savings and its
     /// answer-preservation floor in isolation (#982).
     TabularCrush,
-    /// Treatment variant that routes YAML through the [`crate::core::yaml_crush`]
+    /// Treatment variant that routes YAML through the `crate::core::yaml_crush`
     /// core (YAML → compact JSON + lossless array factoring) instead of the
     /// line-based compaction the generic [`aggressive_compress`] applies to YAML.
     /// Measures yaml_crush's token savings and its answer-preservation floor in

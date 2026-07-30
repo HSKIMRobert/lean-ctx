@@ -264,7 +264,7 @@ impl GraphProvider {
         }
     }
 
-    /// Resolve a stable [`SymbolHandle`](crate::core::handle::SymbolHandle) to
+    /// Resolve a stable `SymbolHandle` to
     /// its current [`SymbolInfo`], robust to line drift. Resolution order:
     ///
     /// 1. Exact `(path, name)` — the unique `{file}::{name}` index key, so the

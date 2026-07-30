@@ -729,7 +729,7 @@ fn detect_dimensions(
 /// Compute cosine similarity between two L2-normalized vectors.
 /// Both vectors must be pre-normalized for correct results.
 ///
-/// Uses the chunked, autovectorizable dot product from [`crate::core::embedding_quant`]
+/// Uses the chunked, autovectorizable dot product from `crate::core::embedding_quant`
 /// (turbovec-derived) so every semantic-search hot path gets SIMD throughput.
 pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len(), "vectors must have equal dimensions");

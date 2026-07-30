@@ -6,13 +6,13 @@
 //!
 //! * **off-arm**: every task is served by the model the client requested.
 //! * **on-arm**: the task's last user query runs through the *production*
-//!   classifier ([`classify`] → [`route_intent`]) and the configured
+//!   classifier (`classify` → `route_intent`) and the configured
 //!   [`RoutingRules`] — exactly the logic the proxy applies in-flight — and is
 //!   priced at the model the router selects.
 //!
 //! The savings claim is a pure **rate-card delta**: `input_rate(requested) −
 //! input_rate(serving)` per routed task, priced from the shared
-//! [`ModelPricing`] table (real provider list prices; enterprise#14). No token
+//! `ModelPricing` table (real provider list prices; enterprise#14). No token
 //! counts are invented — absolute USD amounts come from the usage ledger
 //! (enterprise#19), which applies the same formula to *measured*
 //! `usage_events` rows (`routed_from` × real input tokens). This eval proves

@@ -16,13 +16,13 @@
 //! ## Honesty contract
 //!
 //! * Token sizes are **measured**, not assumed: they come from
-//!   [`benchmark::run_project_benchmark`] over the deterministic scorecard corpus
+//!   `benchmark::run_project_benchmark` over the deterministic scorecard corpus
 //!   (the private `super::scenarios` matrix). No magic numbers, no mock data.
 //! * `output` tokens are identical across arms (same work), so they are set to 0:
 //!   this is a strict **input-side** comparison of exactly the dimension lean-ctx
 //!   affects. The headline therefore never borrows credit from output pricing.
-//! * Prices come from the shared embedded [`ModelPricing`] table via
-//!   [`ModelCost::estimate_usd`] — the same function that prices the user's real
+//! * Prices come from the shared embedded `ModelPricing` table via
+//!   `ModelCost::estimate_usd` — the same function that prices the user's real
 //!   proxy bill ([`crate::proxy::usage_meter`]).
 //! * The result is reproducible: every number is a deterministic function of the
 //!   corpus + pricing, captured in a BLAKE3 `determinism_digest` (#498).
