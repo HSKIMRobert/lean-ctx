@@ -225,9 +225,9 @@ pub fn binary_file_message(path: &str) -> String {
             |metadata| format_file_size(metadata.len()),
         );
         return format!(
-            "Binary {label} (.{ext}, {size_info}). \\
-             Cannot read as text. \\
-             Inspect with: duckdb \"SELECT * FROM '{path}' LIMIT 5\" \\
+            "Binary {label} (.{ext}, {size_info}). \
+             Cannot read as text. \
+             Inspect with: duckdb \"SELECT * FROM '{path}' LIMIT 5\" \
              or: python -c \"import pyarrow.parquet as pq; print(pq.read_schema('{path}'))\""
         );
     }
