@@ -83,7 +83,6 @@ pub(crate) fn compress_for_outcome_for(
 /// the output-token floor; otherwise `None`, so the caller keeps the output
 /// verbatim. Kept pure (env read stays in the caller) so the gate is unit-tested
 /// without mutating the process environment.
-#[allow(dead_code)]
 pub(crate) fn verbatim_json_crush(
     output: &str,
     original_tokens: usize,
@@ -132,7 +131,6 @@ const LOSSY_DROP_ENTROPY: f64 = 0.9;
 /// unless enabled, the crush both drops a column and clears the token floor, and
 /// the original is large enough to persist. The embedded handle is content-
 /// addressed, so the rewritten output stays byte-stable across turns (#448/#498).
-#[allow(dead_code)]
 pub(crate) fn verbatim_json_crush_lossy(
     output: &str,
     original_tokens: usize,
@@ -186,7 +184,7 @@ fn tabular_delim_crush<T>(output: &str, crush: impl Fn(&str, char) -> Option<T>)
 /// the columnar crusher — fully reconstructible, so no CCR handle is needed.
 /// Returns a footer'd reshape only when `enabled` and the crush both pays (at
 /// least halves the bytes) and clears the token floor; otherwise `None`.
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn verbatim_tabular_crush(
     output: &str,
     original_tokens: usize,
@@ -226,7 +224,7 @@ pub(crate) fn verbatim_tabular_crush_for(
 /// so a dropped datum is always recoverable out-of-band (never from the text).
 /// The embedded handle is content-addressed, so the output stays byte-stable
 /// across turns (#448/#498).
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn verbatim_tabular_crush_lossy(
     output: &str,
     original_tokens: usize,
@@ -275,7 +273,7 @@ pub(crate) fn verbatim_tabular_crush_lossy_for(
 /// text is a genuinely structured, redundant document). Returns a footer'd
 /// reshape only when `enabled` and the crush clears both the reduction gate and
 /// the token floor; otherwise `None`.
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn verbatim_yaml_crush(
     output: &str,
     original_tokens: usize,
@@ -314,7 +312,7 @@ pub(crate) fn verbatim_yaml_crush_for(
 /// datum is always recoverable out-of-band (never from the text). The embedded
 /// handle is content-addressed, so the output stays byte-stable across turns
 /// (#448/#498).
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn verbatim_yaml_crush_lossy(
     output: &str,
     original_tokens: usize,
@@ -357,7 +355,7 @@ pub(crate) fn verbatim_yaml_crush_lossy_for(
 /// pages and converts to clean markdown. Triggered for HTML content in the
 /// verbatim crusher ladder (curl, wget, fetch outputs). The full HTML is
 /// persisted to CCR under the `html_` prefix for recovery via `ctx_expand`.
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn verbatim_html_crush(
     output: &str,
     original_tokens: usize,
@@ -396,7 +394,6 @@ pub(crate) fn verbatim_html_crush_for(
     ))
 }
 
-#[allow(dead_code)]
 pub(crate) fn compress_if_beneficial(command: &str, output: &str) -> String {
     compress_if_beneficial_for(command, output, COUNTING_FAMILY)
 }
@@ -1170,7 +1167,7 @@ pub(crate) fn compress_if_beneficial_pub_for(
 /// build/test output but supplied no recognizable command — the engine's
 /// command-gated verbatim guards cannot fire, yet compiler errors, panics and
 /// test summaries must still reach the model intact for a bug-fix task.
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub(crate) fn preserve_verbatim_pub(output: &str) -> String {
     preserve_verbatim_pub_for(output, COUNTING_FAMILY)
 }

@@ -33,7 +33,7 @@ pub fn mark_auto_ctx_tool_used() {
 }
 
 /// Update the system prompt token estimate for Auto-profile resolution.
-#[allow(dead_code)]
+// TODO(#1354): remove dead code or implement
 pub fn set_auto_system_prompt_tokens(tokens: usize) {
     AUTO_SYSTEM_PROMPT_TOKENS.store(tokens, Ordering::Relaxed);
 }

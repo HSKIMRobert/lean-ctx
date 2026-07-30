@@ -261,14 +261,12 @@ fn compress_narration(text: &str) -> String {
 
 // ── Streaming Shaper ─────────────────────────────────────────────
 
-#[allow(dead_code)]
 const LOOKAHEAD_LIMIT: usize = 200;
 
 /// Incremental shaper for SSE streaming responses. Accumulates text deltas
 /// and applies ceremony detection on the fly. Text that cannot be part of a
 /// ceremony pattern is flushed immediately; suspected matches are held until
 /// confirmed or rejected (bounded by `LOOKAHEAD_LIMIT` chars).
-#[allow(dead_code)]
 pub(crate) struct StreamShaper {
     mode: ShapingMode,
     buffer: String,
@@ -277,7 +275,6 @@ pub(crate) struct StreamShaper {
     in_code_block: bool,
 }
 
-#[allow(dead_code)]
 impl StreamShaper {
     pub(crate) fn new(mode: ShapingMode) -> Self {
         Self {
