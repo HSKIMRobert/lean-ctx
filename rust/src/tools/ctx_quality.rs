@@ -1,7 +1,7 @@
 //! `ctx_quality` — code-health surface for agents.
 //!
 //! The agent-facing twin of `lean-ctx health`: it reads the same engine
-//! ([`crate::core::code_health`]) and surfaces the navigability score,
+//! (`crate::core::code_health`) and surfaces the navigability score,
 //! cognitive-complexity hotspots, and the estimated token "quality tax".
 //!
 //! Actions:

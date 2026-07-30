@@ -1,6 +1,6 @@
 //! `ctx_outline` — fast, syntax-aware code outline (a "table of contents").
 //!
-//! Backed by tree-sitter (primary, via [`crate::core::signatures_ts`]) with a
+//! Backed by tree-sitter (primary, via `crate::core::signatures_ts`) with a
 //! conservative regex fallback. Three navigation questions, one primitive:
 //! - a single **file** → its shape,
 //! - a **directory** → the folder surface (per-file symbols),

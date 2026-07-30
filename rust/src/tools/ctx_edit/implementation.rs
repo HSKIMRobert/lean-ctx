@@ -128,7 +128,7 @@ pub fn handle(cache: &mut SessionCache, params: &EditParams) -> String {
 }
 
 /// Quality loop (#494): classify the edit result and feed it into
-/// [`crate::core::edit_quality`]. Only two outcomes carry a compression
+/// `crate::core::edit_quality`. Only two outcomes carry a compression
 /// signal: a clean replacement (success) and an `old_string` miss
 /// (failure — the body the agent quoted wasn't what's on disk). Parameter
 /// mistakes (empty/identical strings, preimage mismatch, missing file) and

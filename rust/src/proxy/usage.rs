@@ -14,7 +14,7 @@
 //! - Gemini: every chunk carries `usageMetadata`; the last one has the totals.
 //!
 //! [`RealUsage`] normalizes every provider onto the four billable buckets that
-//! [`crate::core::gain::model_pricing::ModelCost::estimate_usd`] prices:
+//! `crate::core::gain::model_pricing::ModelCost::estimate_usd` prices:
 //! uncached input, output (incl. reasoning/thoughts), cache-read, cache-write.
 
 use futures::{Stream, StreamExt};
