@@ -15,6 +15,7 @@ pub mod bazel;
 pub mod buf;
 pub mod bun;
 pub mod cargo;
+pub mod cargo_diagnostics;
 pub mod clang;
 pub mod cmake;
 pub mod composer;
