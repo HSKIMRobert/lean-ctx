@@ -1,30 +1,25 @@
 use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
-use tree_sitter::Query;
+use tree_sitter::{Language, Query};
 
 use super::queries::{get_language, get_query};
 
-pub(crate) fn get_cached_sig_query(file_ext: &str) -> Option<&'static Query> {
-    static SIG_QUERY_CACHE: OnceLock<HashMap<&'static str, Query>> = OnceLock::new();
+pub(crate) fn get_cached_sig_query(file_ext: &str) -> Option<Arc<Query>> {
+    static SIG_QUERY_CACHE: OnceLock<Mutex<HashMap<Language, Arc<Query>>>> = OnceLock::new();
 
-    let cache = SIG_QUERY_CACHE.get_or_init(|| {
-        let mut map = HashMap::new();
-        let exts: &[&str] = &[
-            "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "c", "h", "cpp", "cc", "cxx",
-            "hpp", "rb", "cs", "kt", "kts", "swift", "php", "sh", "bash", "dart", "scala", "sc",
-            "ex", "exs", "zig", "gd", "lua", "luau", "ml", "mli", "hs", "jl", "sol", "nix", "ps1",
-            "psm1",
-        ];
-        for &ext in exts {
-            if let (Some(lang), Some(src)) = (get_language(ext), get_query(ext))
-                && let Ok(q) = Query::new(&lang, src)
-            {
-                map.insert(ext, q);
-            }
-        }
-        map
-    });
+    let language = get_language(file_ext)?;
+    let source = get_query(file_ext)?;
+    let mut cache = SIG_QUERY_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .expect("signature query cache lock poisoned");
 
-    cache.get(file_ext)
+    if let Some(query) = cache.get(&language) {
+        return Some(Arc::clone(query));
+    }
+
+    let query = Arc::new(Query::new(&language, source).ok()?);
+    cache.insert(language, Arc::clone(&query));
+    Some(query)
 }

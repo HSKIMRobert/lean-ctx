@@ -32,13 +32,13 @@ pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signat
     })?;
     let query = get_cached_sig_query(file_ext)?;
 
-    let def_idx = find_capture_index(query, "def")?;
-    let name_idx = find_capture_index(query, "name")?;
+    let def_idx = find_capture_index(&query, "def")?;
+    let name_idx = find_capture_index(&query, "name")?;
 
     let source = content.as_bytes();
     let mut sigs = Vec::new();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(query, tree.root_node(), source);
+    let mut matches = cursor.matches(&query, tree.root_node(), source);
 
     while let Some(m) = matches.next() {
         let mut def_node: Option<Node> = None;
