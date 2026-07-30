@@ -1,4 +1,6 @@
 use chrono::{DateTime, Utc};
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::core::memory_boundary::FactPrivacy;
@@ -147,6 +149,13 @@ impl Default for FidelityScore {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct KnowledgeIndex {
+    pub(super) token_positions: BTreeMap<String, Vec<usize>>,
+    pub(super) session_token_positions: BTreeMap<String, Vec<usize>>,
+    pub(super) category_positions: BTreeMap<String, Vec<usize>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectKnowledge {
     pub project_root: String,
@@ -157,6 +166,10 @@ pub struct ProjectKnowledge {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub judged_pairs: Vec<JudgedPair>,
+    /// Ephemeral recall index. It is rebuilt after JSON load and never persisted,
+    /// preserving the on-disk knowledge format for existing projects.
+    #[serde(skip)]
+    pub index: KnowledgeIndex,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

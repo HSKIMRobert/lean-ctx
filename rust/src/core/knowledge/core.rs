@@ -1,6 +1,8 @@
 use chrono::Utc;
 
-use super::ranking::{fact_version_id_v1, hash_project_root, string_similarity};
+use super::ranking::{
+    build_knowledge_index, fact_version_id_v1, hash_project_root, string_similarity,
+};
 use super::types::{
     AdmissionResult, Contradiction, ContradictionSeverity, KnowledgeArchetype, KnowledgeFact,
     ProjectKnowledge, ProjectPattern,
@@ -14,7 +16,11 @@ impl ProjectKnowledge {
         policy: &MemoryPolicy,
     ) -> Result<crate::core::memory_lifecycle::LifecycleReport, String> {
         let cfg = crate::core::memory_lifecycle::LifecycleConfig::from_policy(policy);
-        crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg)
+        let report = crate::core::memory_lifecycle::run_lifecycle(&mut self.facts, &cfg);
+        if report.is_ok() {
+            self.rebuild_index();
+        }
+        report
     }
 
     /// Cluster compaction (#971): collapse piles of low-value, mutually-similar
@@ -37,6 +43,7 @@ impl ProjectKnowledge {
         if !archived.is_empty() {
             let _ = crate::core::memory_lifecycle::archive_facts(&archived);
         }
+        self.rebuild_index();
         collapsed as u32
     }
 
@@ -49,7 +56,14 @@ impl ProjectKnowledge {
             history: Vec::new(),
             updated_at: Utc::now(),
             judged_pairs: Vec::new(),
+            index: Default::default(),
         }
+    }
+
+    /// Rebuilds the transient lookup tables after loading or changing facts.
+    /// The maps are intentionally excluded from JSON serialization.
+    pub fn rebuild_index(&mut self) {
+        self.index = build_knowledge_index(&self.facts);
     }
 
     pub fn check_contradiction(
@@ -207,6 +221,7 @@ impl ProjectKnowledge {
         }
 
         self.updated_at = Utc::now();
+        self.rebuild_index();
 
         let action = if contradiction.is_some() {
             "contradict"
@@ -313,12 +328,14 @@ impl ProjectKnowledge {
         if value.len() > f.value.len() {
             f.value = value.to_string();
         }
-        Some(AdmissionResult::Merged {
+        let result = AdmissionResult::Merged {
             category: f.category.clone(),
             key: f.key.clone(),
             confirmations: f.confirmation_count,
             value: f.value.clone(),
-        })
+        };
+        self.rebuild_index();
+        Some(result)
     }
 
     pub fn add_pattern(
@@ -379,6 +396,7 @@ impl ProjectKnowledge {
         let removed = self.facts.len() < before;
         if removed {
             self.updated_at = Utc::now();
+            self.rebuild_index();
         }
         removed
     }

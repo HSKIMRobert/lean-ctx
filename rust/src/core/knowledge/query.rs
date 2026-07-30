@@ -1,9 +1,39 @@
 use chrono::{DateTime, Utc};
 
-use super::ranking::{build_token_index, sort_fact_for_output};
+use super::ranking::sort_fact_for_output;
 use super::types::{KnowledgeFact, ProjectKnowledge};
 
 impl ProjectKnowledge {
+    fn matching_indices(&self, term: &str, include_session: bool) -> Vec<usize> {
+        let Some(indices) = self.index.token_positions.get(term) else {
+            return if include_session {
+                self.index
+                    .session_token_positions
+                    .get(term)
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+        };
+
+        if !include_session {
+            return indices.clone();
+        }
+
+        let Some(session_indices) = self.index.session_token_positions.get(term) else {
+            return indices.clone();
+        };
+        let mut merged = indices.clone();
+        merged.extend(
+            session_indices
+                .iter()
+                .copied()
+                .filter(|idx| indices.binary_search(idx).is_err()),
+        );
+        merged
+    }
+
     pub fn recall(&self, query: &str) -> Vec<&KnowledgeFact> {
         let q = query.to_lowercase();
         let terms: Vec<&str> = q.split_whitespace().collect();
@@ -11,15 +41,12 @@ impl ProjectKnowledge {
             return Vec::new();
         }
 
-        let index = build_token_index(&self.facts, true);
         let mut match_counts: std::collections::HashMap<usize, usize> =
             std::collections::HashMap::new();
         for term in &terms {
-            if let Some(indices) = index.get(*term) {
-                for &idx in indices {
-                    if self.facts[idx].is_current() {
-                        *match_counts.entry(idx).or_insert(0) += 1;
-                    }
+            for idx in self.matching_indices(term, true) {
+                if self.facts[idx].is_current() {
+                    *match_counts.entry(idx).or_insert(0) += 1;
                 }
             }
         }
@@ -38,9 +65,13 @@ impl ProjectKnowledge {
     }
 
     pub fn recall_by_category(&self, category: &str) -> Vec<&KnowledgeFact> {
-        self.facts
-            .iter()
-            .filter(|f| f.category == category && f.is_current())
+        self.index
+            .category_positions
+            .get(category)
+            .into_iter()
+            .flatten()
+            .filter_map(|&idx| self.facts.get(idx))
+            .filter(|f| f.is_current())
             .collect()
     }
 
@@ -51,15 +82,12 @@ impl ProjectKnowledge {
             return Vec::new();
         }
 
-        let index = build_token_index(&self.facts, false);
         let mut match_counts: std::collections::HashMap<usize, usize> =
             std::collections::HashMap::new();
         for term in &terms {
-            if let Some(indices) = index.get(*term) {
-                for &idx in indices {
-                    if self.facts[idx].was_valid_at(at) {
-                        *match_counts.entry(idx).or_insert(0) += 1;
-                    }
+            for idx in self.matching_indices(term, false) {
+                if self.facts[idx].was_valid_at(at) {
+                    *match_counts.entry(idx).or_insert(0) += 1;
                 }
             }
         }
@@ -78,9 +106,12 @@ impl ProjectKnowledge {
 
     pub fn timeline(&self, category: &str) -> Vec<&KnowledgeFact> {
         let mut facts: Vec<&KnowledgeFact> = self
-            .facts
-            .iter()
-            .filter(|f| f.category == category)
+            .index
+            .category_positions
+            .get(category)
+            .into_iter()
+            .flatten()
+            .filter_map(|&idx| self.facts.get(idx))
             .collect();
         facts.sort_by_key(|x| x.created_at);
         facts
@@ -104,15 +135,12 @@ impl ProjectKnowledge {
             return (Vec::new(), 0);
         }
 
-        let index = build_token_index(&self.facts, true);
         let mut match_counts: std::collections::HashMap<usize, usize> =
             std::collections::HashMap::new();
         for term in &terms {
-            if let Some(indices) = index.get(*term) {
-                for &idx in indices {
-                    if self.facts[idx].is_current() {
-                        *match_counts.entry(idx).or_insert(0) += 1;
-                    }
+            for idx in self.matching_indices(term, true) {
+                if self.facts[idx].is_current() {
+                    *match_counts.entry(idx).or_insert(0) += 1;
                 }
             }
         }
@@ -176,11 +204,13 @@ impl ProjectKnowledge {
         limit: usize,
     ) -> (Vec<KnowledgeFact>, usize) {
         let mut idxs: Vec<usize> = self
-            .facts
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.is_current() && f.category == category)
-            .map(|(i, _)| i)
+            .index
+            .category_positions
+            .get(category)
+            .into_iter()
+            .flatten()
+            .copied()
+            .filter(|&idx| self.facts[idx].is_current())
             .collect();
 
         // Within a category, synthesized observation summaries lead (#802) — a
