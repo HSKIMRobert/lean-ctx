@@ -256,8 +256,12 @@ impl ServerHandler for LeanCtxServer {
 
         crate::core::client_capabilities::set_detected(&client_caps);
 
-        let instructions =
-            crate::instructions::build_instructions_with_client(CrpMode::effective(), &name);
+        let session = self.session.read().await.clone();
+        let instructions = crate::instructions::build_instructions_with_client_and_session(
+            CrpMode::effective(),
+            &name,
+            &session,
+        );
 
         let capabilities = server_capabilities(client_caps.resources, client_caps.prompts);
 

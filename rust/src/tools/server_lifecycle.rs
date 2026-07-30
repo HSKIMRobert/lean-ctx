@@ -69,11 +69,10 @@ impl LeanCtxServer {
         let startup = detect_startup_context(project_root, startup_cwd);
         let (session, context_os) = match session_mode {
             SessionMode::Personal => {
-                let mut session = if let Some(ref root) = startup.project_root {
-                    SessionState::load_latest_for_project_root(root).unwrap_or_default()
-                } else {
-                    SessionState::load_latest().unwrap_or_default()
-                };
+                // A personal MCP server owns one fresh, PID-qualified session.
+                // Reusing a persisted project "latest" session lets concurrent
+                // servers inject each other's state during initialize.
+                let mut session = SessionState::new();
                 if let Some(ref root) = startup.project_root {
                     session.project_root = Some(root.clone());
                 }
