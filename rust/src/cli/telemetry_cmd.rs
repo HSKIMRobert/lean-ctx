@@ -14,6 +14,7 @@ pub(super) fn cmd_telemetry(args: &[String]) {
         "off" | "disable" => set_enabled(false),
         "reset-id" => reset_id(),
         "show" => show_payload(),
+        "history" | "log" => show_history(),
         "--help" | "-h" => print_help(),
         other => {
             eprintln!("telemetry: unknown subcommand '{other}'");
@@ -114,6 +115,32 @@ fn api_url() -> String {
     std::env::var("LEAN_CTX_API_URL").unwrap_or_else(|_| "https://api.leanctx.com".to_string())
 }
 
+fn show_history() {
+    let records = crate::core::telemetry_ledger::read_all();
+    if records.is_empty() {
+        println!("No heartbeats sent yet.");
+        println!("\x1b[2mEnable with: lean-ctx telemetry on\x1b[0m");
+        return;
+    }
+    let header = format!(
+        "  \x1b[1m{:<28} {:<12} {:<10} {}\x1b[0m",
+        "Timestamp", "Version", "OS", "Arch"
+    );
+    println!("{header}");
+    println!("  {}", "\u{2500}".repeat(65));
+    for record in records.iter().rev().take(50) {
+        println!(
+            "  {:<28} {:<12} {:<10} {}",
+            record.timestamp, record.version, record.os, record.arch,
+        );
+    }
+    println!();
+    println!(
+        "  \x1b[2m{} total heartbeats recorded\x1b[0m",
+        records.len()
+    );
+}
+
 fn print_help() {
     println!("Usage: lean-ctx telemetry [subcommand]");
     println!();
@@ -125,6 +152,7 @@ fn print_help() {
     println!("  off        Disable anonymous heartbeat");
     println!("  show       Display the exact payload that would be sent");
     println!("  reset-id   Regenerate the anonymous installation ID");
+    println!("  history    Show log of all sent heartbeats");
     println!();
     println!("The heartbeat sends only: version, OS, architecture, and a random");
     println!("installation UUID. No code, filenames, or personal data — ever.");

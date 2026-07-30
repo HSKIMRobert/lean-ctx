@@ -17,6 +17,7 @@ mod signals;
 mod snapshots;
 mod stats;
 mod system;
+mod telemetry;
 mod tools;
 mod usage_breakdown;
 
@@ -47,6 +48,7 @@ fn match_component_path(path: &str) -> Option<String> {
         "/static/components/cockpit-area-tabs.js" => super::COCKPIT_COMPONENT_AREA_TABS_JS,
         "/static/components/cockpit-protection.js" => super::COCKPIT_COMPONENT_PROTECTION_JS,
         "/static/components/cockpit-settings.js" => super::COCKPIT_COMPONENT_SETTINGS_JS,
+        "/static/components/cockpit-telemetry.js" => super::COCKPIT_COMPONENT_TELEMETRY_JS,
         _ => return None,
     };
     Some(content.to_string())
@@ -178,6 +180,7 @@ pub fn route_response(
         .or_else(|| doctor::handle(path, query_str, method, body))
         .or_else(|| leaderboard::handle(path, query_str, method, body))
         .or_else(|| usage_breakdown::handle(path, query_str, method, body))
+        .or_else(|| telemetry::handle(path, query_str, method, body))
         .or_else(|| system::handle(path, query_str, method, body))
         .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
 }

@@ -98,6 +98,14 @@ pub fn cloud_background_tasks() {
             });
             if crate::cloud_client::heartbeat(&payload).is_ok() {
                 config.telemetry.last_heartbeat = Some(today.clone());
+                let record = crate::core::telemetry_ledger::HeartbeatRecord {
+                    timestamp: chrono::Utc::now().to_rfc3339(),
+                    installation_id: id.clone(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    os: std::env::consts::OS.to_string(),
+                    arch: std::env::consts::ARCH.to_string(),
+                };
+                let _ = crate::core::telemetry_ledger::append(&record);
             }
         }
     }

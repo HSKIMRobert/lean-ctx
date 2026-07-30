@@ -52,6 +52,7 @@ const COCKPIT_AREAS = [
       { tab: 'replay', view: 'replay', label: 'Time Machine' },
       { tab: 'trends', view: 'learning', label: 'Trends' },
       { tab: 'leaderboard', view: 'leaderboard', label: 'Leaderboard' },
+      { tab: 'telemetry', view: 'telemetry', label: 'Telemetry' },
     ],
   },
   {

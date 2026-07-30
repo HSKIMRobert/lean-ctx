@@ -551,6 +551,7 @@ pub(crate) mod task_briefing;
 pub mod tcc_guard_sandbox;
 pub mod tdd_schema;
 pub mod telemetry;
+pub(crate) mod telemetry_ledger;
 pub mod terse;
 #[allow(dead_code)]
 pub(crate) mod theme;
