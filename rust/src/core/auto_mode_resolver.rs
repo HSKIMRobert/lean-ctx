@@ -100,6 +100,33 @@ pub struct ResolvedMode {
     pub source: &'static str,
 }
 
+/// Resolves read-mode sources with one documented precedence order:
+/// explicit request > configured default > learned selection > built-in default.
+pub fn resolve_mode_precedence(
+    explicit: Option<String>,
+    configured: Option<String>,
+    learned: Option<String>,
+    default: &str,
+) -> String {
+    explicit
+        .or(configured)
+        .or(learned)
+        .unwrap_or_else(|| default.to_string())
+}
+
+/// Returns the configured read-mode default, excluding the profile's `auto`
+/// sentinel so callers can ask the learned resolver for a per-file decision.
+pub fn configured_default_mode() -> Option<String> {
+    crate::core::policy::runtime::active()
+        .and_then(|policy| policy.resolved.default_read_mode.clone())
+        .or_else(|| crate::core::persona::active().read_mode_override())
+        .or_else(|| {
+            let profile = crate::core::profiles::active_profile();
+            let mode = profile.read.default_mode_effective();
+            (mode != "auto").then(|| mode.to_string())
+        })
+}
+
 /// Single entry point for auto-mode resolution.
 /// Merges Pipeline A (select_mode_with_task) and Pipeline B (resolve_auto_mode).
 pub fn resolve(ctx: &AutoModeContext) -> ResolvedMode {
@@ -541,6 +568,33 @@ fn resolved(mode: &str, source: &'static str) -> ResolvedMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mode_precedence_is_explicit_then_configured_then_learned_then_default() {
+        assert_eq!(
+            resolve_mode_precedence(
+                Some("raw".to_string()),
+                Some("map".to_string()),
+                Some("signatures".to_string()),
+                "full",
+            ),
+            "raw"
+        );
+        assert_eq!(
+            resolve_mode_precedence(
+                None,
+                Some("map".to_string()),
+                Some("signatures".to_string()),
+                "full",
+            ),
+            "map"
+        );
+        assert_eq!(
+            resolve_mode_precedence(None, None, Some("signatures".to_string()), "full"),
+            "signatures"
+        );
+        assert_eq!(resolve_mode_precedence(None, None, None, "full"), "full");
+    }
 
     #[test]
     fn pressure_suggest_full_to_map() {

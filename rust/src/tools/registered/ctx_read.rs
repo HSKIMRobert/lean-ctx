@@ -146,7 +146,6 @@ impl CtxReadTool {
             }
         };
         let task_ref = current_task.as_deref();
-        let profile = crate::core::profiles::active_profile();
         // #513: `raw=true` is the intuitive "give me the exact bytes" escape an
         // agent reaches for. Alias it to mode="raw" (verbatim, unframed) and
         // force a fresh disk read below so a re-read never collapses to an
@@ -167,44 +166,30 @@ impl CtxReadTool {
         {
             return Err(ErrorData::invalid_params(e.user_message(), None));
         }
-        // #673 — when the caller omits `mode`, a context policy pack's
-        // `default_read_mode` (if set) takes precedence over the profile/auto
-        // selection. An explicit `mode` arg always wins; line windows below may
-        // still narrow it (it is a default, not a pin).
-        let policy_default_mode = if explicit_mode {
-            None
-        } else {
-            crate::core::policy::runtime::active()
-                .and_then(|p| p.resolved.default_read_mode.clone())
-        };
-        // persona-spec-v1 — the active persona's `default_read_mode` is the
-        // domain default: after an explicit arg and the org policy pack,
-        // before the profile/auto selection. The `coding` default declares
-        // "auto" → no override, so existing installs are unaffected.
-        let persona_default_mode = if explicit_mode || policy_default_mode.is_some() {
-            None
-        } else {
-            crate::core::persona::active().read_mode_override()
-        };
-        let mut mode = if let Some(m) = explicit_mode_arg {
-            m
-        } else if let Some(pd) = policy_default_mode {
-            pd
-        } else if let Some(pm) = persona_default_mode {
-            pm
-        } else if profile.read.default_mode_effective() == "auto" {
+        let configured_mode = (!explicit_mode)
+            .then(crate::core::auto_mode_resolver::configured_default_mode)
+            .flatten();
+        let learned_mode = if !explicit_mode && configured_mode.is_none() {
             if let Ok(cache) = cache_lock.try_read() {
-                crate::tools::ctx_smart_read::select_mode_with_task(&cache, path, task_ref)
+                Some(crate::tools::ctx_smart_read::select_mode_with_task(
+                    &cache, path, task_ref,
+                ))
             } else {
                 tracing::debug!(
                     "cache lock contested during auto-mode selection for {path}; \
                      falling back to full"
                 );
-                "full".to_string()
+                None
             }
         } else {
-            profile.read.default_mode_effective().to_string()
+            None
         };
+        let mut mode = crate::core::auto_mode_resolver::resolve_mode_precedence(
+            explicit_mode_arg,
+            configured_mode,
+            learned_mode,
+            "full",
+        );
         let mut fresh = get_bool(args, "fresh").unwrap_or(false);
         // #513: a raw/verbatim request always reads from disk — the whole point
         // is exact current bytes, never a cached stub or delta.
