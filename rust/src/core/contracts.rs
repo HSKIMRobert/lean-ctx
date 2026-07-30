@@ -509,7 +509,11 @@ mod tests {
     fn doc_files_follow_versioned_naming() {
         // v1→v2 rule: every doc file carries its version suffix so a breaking
         // change lands as a NEW file instead of mutating the old one.
+        // Governance metadata (README, DEPRECATION) are exempt.
         for d in contract_docs() {
+            if d.doc_file == "README.md" || d.doc_file == "DEPRECATION.md" {
+                continue;
+            }
             assert!(
                 d.doc_file.ends_with(&format!("-v{}.md", d.version)),
                 "{} must end in -v{}.md",

@@ -33,7 +33,8 @@ fn compressed_cache_key_distinguishes_task() {
 
     // Task-dependent modes MUST still distinguish tasks.
     let density_a = compressed_cache_key("density:0.3", CrpMode::Off, Some("fix login"), None, &[]);
-    let density_b = compressed_cache_key("density:0.3", CrpMode::Off, Some("refactor db"), None, &[]);
+    let density_b =
+        compressed_cache_key("density:0.3", CrpMode::Off, Some("refactor db"), None, &[]);
     assert_ne!(density_a, density_b, "density key must vary with task");
 }
 
@@ -317,4 +318,3 @@ fn resolve_auto_mode_returns_full_for_instruction_files() {
     let mode = resolve_auto_mode(None, "/workspace/.cursorrules", 2000, None, None);
     assert_eq!(mode, "full", ".cursorrules must always be read in full");
 }
-
