@@ -95,6 +95,14 @@ fn compress_at_level(text: &str, tokens_before: u32, level: &CompressionLevel) -
             continue;
         }
 
+        // Section delimiters are semantic record boundaries. Dropping one then
+        // joining the surviving lines can attach a later record to an earlier
+        // heading, so they must remain hard breaks regardless of score.
+        if is_section_boundary(trimmed) {
+            kept_lines.push(*line);
+            continue;
+        }
+
         if is_pure_decoration(trimmed) {
             lines_removed += 1;
             continue;
@@ -222,6 +230,15 @@ fn is_pure_decoration(line: &str) -> bool {
     is_banner_chars(line)
 }
 
+/// True when a line uses a common section-header delimiter. These delimiters
+/// separate records in shell output and must never be removed during filtering.
+fn is_section_boundary(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    ["===", "---", "###", "***", "___", ":::"]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
 fn is_banner_chars(line: &str) -> bool {
     let chars: Vec<char> = line.chars().collect();
     if chars.len() < 4 {
@@ -276,6 +293,47 @@ mod tests {
         assert!(is_pure_decoration("--------------------"));
         assert!(is_pure_decoration("// ================"));
         assert!(!is_pure_decoration("error: mismatched types"));
+    }
+
+    #[test]
+    fn compress_preserves_multi_section_record_boundaries() {
+        let text = "record alpha payload remains associated with alpha\n\
+                    additional alpha detail for the first record\n\
+                    ===\n\
+                    record beta payload remains associated with beta\n\
+                    additional beta detail for the second record\n\
+                    ---\n\
+                    record gamma payload remains associated with gamma\n\
+                    ###\n\
+                    record delta payload remains associated with delta";
+
+        let result = compress(text, &CompressionLevel::Standard);
+
+        assert!(
+            result.output.contains("==="),
+            "first boundary missing: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("---"),
+            "second boundary missing: {}",
+            result.output
+        );
+        assert!(
+            result.output.contains("###"),
+            "third boundary missing: {}",
+            result.output
+        );
+        let alpha = result.output.find("record alpha").unwrap();
+        let first_boundary = result.output.find("===").unwrap();
+        let beta = result.output.find("record beta").unwrap();
+        let second_boundary = result.output.find("---").unwrap();
+        let gamma = result.output.find("record gamma").unwrap();
+        let third_boundary = result.output.find("###").unwrap();
+        let delta = result.output.find("record delta").unwrap();
+        assert!(alpha < first_boundary && first_boundary < beta);
+        assert!(beta < second_boundary && second_boundary < gamma);
+        assert!(gamma < third_boundary && third_boundary < delta);
     }
 
     #[test]
