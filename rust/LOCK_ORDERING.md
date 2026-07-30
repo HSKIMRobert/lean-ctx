@@ -101,6 +101,7 @@ All `std::sync::Mutex` unless noted otherwise.
 | L88 | `HANDLES` | `core/content_handle.rs:14` | `Mutex<Option<HandleStore>>` | Content-addressed file handle store for dedup re-reads (#1315); locked briefly to create, get, or invalidate handles; independent leaf lock, never nested |
 | L89 | `INJECTED` | `core/rule_discovery.rs:24` | `Mutex<Option<HashSet<String>>>` | Per-session rule injection deduplication for ctx_read (#1325); locked briefly to check/record a source/content key; independent leaf lock, never nested |
 | L90 | `DIR_CACHE` | `core/rule_discovery.rs:91` | `Mutex<Option<HashMap<String, Vec<DiscoveredRule>>>>` | Directory-scoped rule discovery cache for ctx_read (#1325); locked briefly to read or store discovered rules, then released before path filtering; independent leaf lock, never nested |
+| L91 | `SIG_QUERY_CACHE` | `core/signatures_ts/query_cache.rs:9` | `OnceLock<Mutex<HashMap<Language, Arc<Query>>>>` | Compiled tree-sitter signature queries per language; locked briefly to get or insert a cached query; independent leaf lock, never nested |
 
 ### Test / Environment Locks (serialise env-var mutations)
 

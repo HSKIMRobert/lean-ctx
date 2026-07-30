@@ -61,6 +61,11 @@ pub fn cloud_background_tasks() {
     let mut config = Config::load_global();
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
+    let already_heartbeated = config
+        .telemetry
+        .last_heartbeat
+        .as_deref()
+        .is_some_and(|d| d == today);
     let already_contributed = config
         .cloud
         .last_contribute
@@ -81,6 +86,21 @@ pub fn cloud_background_tasks() {
         .last_model_pull
         .as_deref()
         .is_some_and(|d| d == today);
+
+    // Anonymous telemetry heartbeat (opt-in, no auth required).
+    if config.telemetry.enabled && !already_heartbeated {
+        if let Ok(id) = crate::core::installation_id::get_or_create() {
+            let payload = serde_json::json!({
+                "installation_id": id,
+                "version": env!("CARGO_PKG_VERSION"),
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+            });
+            if crate::cloud_client::heartbeat(&payload).is_ok() {
+                config.telemetry.last_heartbeat = Some(today.clone());
+            }
+        }
+    }
 
     if config.cloud.contribute_enabled && !already_contributed {
         let entries = collect_contribute_entries();

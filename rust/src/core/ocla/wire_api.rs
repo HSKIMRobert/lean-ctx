@@ -399,6 +399,7 @@ async fn capsule_fork(
 struct DeliveryCheckRequest {
     blake3: [u8; 12],
     mtime: u64,
+    #[serde(default)]
     path: String,
     requester_agent_id: Option<String>,
     requester_conversation_id: Option<String>,
@@ -413,19 +414,22 @@ async fn delivery_check(Json(req): Json<DeliveryCheckRequest>) -> (StatusCode, J
         req.requester_agent_id.as_deref(),
         req.requester_conversation_id.as_deref(),
     ) {
-        Some(record) => (
-            StatusCode::OK,
-            Json(json!({
-                "hit": true,
-                "path": record.path,
-                "line_count": record.line_count,
-                "token_count": record.token_count,
-                "agent_id": record.agent_id,
-                "conversation_id": record.conversation_id,
-                "read_at": record.read_at,
-                "fresh": record.fresh,
-            })),
-        ),
+        Some(record) => {
+            reg.delivery_registry.record_stub_served(&record, 0);
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "hit": true,
+                    "path": record.path,
+                    "line_count": record.line_count,
+                    "token_count": record.token_count,
+                    "agent_id": record.agent_id,
+                    "conversation_id": record.conversation_id,
+                    "read_at": record.read_at,
+                    "fresh": record.fresh,
+                })),
+            )
+        }
         None => (StatusCode::OK, Json(json!({"hit": false}))),
     }
 }

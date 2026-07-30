@@ -86,6 +86,7 @@ In addition, roles can restrict **unsafe I/O**:
 **Optional network activity (fully disableable):**
 - **Update check**: a lightweight daily GET to `leanctx.com/version.txt` to notify you of new versions. Sends only the current version as User-Agent. Disable with `update_check_disabled = true` in `~/.lean-ctx/config.toml` or `LEAN_CTX_NO_UPDATE_CHECK=1`.
 - **Anonymous stats sharing** (opt-in, off by default): if you enable `contribute_enabled` in setup, anonymized compression statistics (token counts, compression ratios — no file names, no code, no PII) are periodically sent to `api.leanctx.com`.
+- **Telemetry heartbeat** (opt-in, off by default): if you enable `[telemetry] enabled = true` (via setup or `lean-ctx telemetry on`), a daily heartbeat sends only: lean-ctx version, OS, CPU architecture, and a random installation UUID. No code, no filenames, no personal data. Inspect the exact payload: `lean-ctx telemetry show`. Regenerate the installation ID: `lean-ctx telemetry reset-id`.
 
 **Does NOT:**
 - Collect tracking analytics, fingerprints, or PII
@@ -338,6 +339,7 @@ export LEAN_CTX_ROLE=bank
 |----------|---------|---------|
 | `leanctx.com/version.txt` | Update check (daily GET) | `update_check_disabled = true` |
 | `api.leanctx.com` | Opt-in anonymous stats | `contribute_enabled = false` (default) |
+| `api.leanctx.com` | Opt-in telemetry heartbeat (version, OS, arch, random install ID) | `[telemetry] enabled = false` (default) |
 | `huggingface.co` | Embedding model download | Pre-provision models, set `LEAN_CTX_EMBEDDING_MODEL_DIR` |
 | `localhost:PORT` | Dashboard (local TCP) | Don't start dashboard, or bind to loopback only |
 | UDS socket | Daemon IPC | Permissions `0o600`, owner-only access |

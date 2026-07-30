@@ -43,12 +43,12 @@ impl Usage {
 
     #[must_use]
     pub fn is_billable(&self) -> bool {
-        false
+        self.chain_valid && self.signed
     }
 
     #[must_use]
     pub fn source_integrity_verified(&self) -> bool {
-        false
+        self.chain_valid && self.signed
     }
 
     #[must_use]

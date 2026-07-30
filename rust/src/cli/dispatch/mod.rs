@@ -641,6 +641,10 @@ pub fn run() {
                 super::cloud::cmd_contribute();
                 return;
             }
+            "telemetry" => {
+                super::telemetry_cmd::cmd_telemetry(&rest);
+                return;
+            }
             "cloud" => {
                 super::cloud::cmd_cloud(&rest);
                 return;

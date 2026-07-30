@@ -629,6 +629,21 @@ impl AutonomyConfig {
     }
 }
 
+/// Anonymous opt-in telemetry heartbeat settings.
+///
+/// When enabled, lean-ctx sends a daily heartbeat to `api.leanctx.com` containing
+/// only: a random installation ID (UUID v4), the lean-ctx version, OS, and CPU
+/// architecture. No code, filenames, usage patterns, or personal data — ever.
+/// Disabled by default; enable during setup or with `lean-ctx telemetry on`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct TelemetryConfig {
+    /// Master switch for the anonymous heartbeat. Off by default (opt-in).
+    pub enabled: bool,
+    /// Daily debounce: YYYY-MM-DD of the last successful heartbeat.
+    pub last_heartbeat: Option<String>,
+}
+
 /// Cloud sync and contribution settings (pattern sharing, model pulls).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -1339,5 +1354,46 @@ mod ocla_tests {
         assert_eq!(config.ocla.grpc.listen, "127.0.0.1:60051");
         assert!(config.ocla.grpc.enabled);
         assert_eq!(GrpcConfig::default().listen, "127.0.0.1:50051");
+    }
+}
+
+#[cfg(test)]
+mod telemetry_tests {
+    use super::*;
+
+    #[test]
+    fn telemetry_config_defaults_to_disabled() {
+        let cfg = TelemetryConfig::default();
+        assert!(!cfg.enabled);
+        assert!(cfg.last_heartbeat.is_none());
+    }
+
+    #[test]
+    fn telemetry_config_serde_roundtrip() {
+        let toml_str = r#"
+[telemetry]
+enabled = true
+last_heartbeat = "2026-07-30"
+"#;
+        #[derive(serde::Deserialize)]
+        struct Wrap {
+            telemetry: TelemetryConfig,
+        }
+        let wrap: Wrap = toml::from_str(toml_str).expect("parse telemetry config");
+        assert!(wrap.telemetry.enabled);
+        assert_eq!(wrap.telemetry.last_heartbeat.as_deref(), Some("2026-07-30"));
+    }
+
+    #[test]
+    fn telemetry_config_missing_section_uses_defaults() {
+        let toml_str = "";
+        #[derive(serde::Deserialize, Default)]
+        #[serde(default)]
+        struct Wrap {
+            telemetry: TelemetryConfig,
+        }
+        let wrap: Wrap = toml::from_str(toml_str).expect("parse empty config");
+        assert!(!wrap.telemetry.enabled);
+        assert!(wrap.telemetry.last_heartbeat.is_none());
     }
 }

@@ -119,6 +119,7 @@ fn compress_test(output: &str) -> String {
     let mut skipped = 0u32;
     let mut time = String::new();
     let mut compile_lines = Vec::new();
+    let mut passed_names: Vec<String> = Vec::new();
     let mut in_test_phase = false;
 
     for line in output.lines() {
@@ -133,6 +134,14 @@ fn compress_test(output: &str) -> String {
             compile_lines.push(line);
         }
         let trimmed = line.trim();
+        if trimmed.starts_with("test ") && trimmed.ends_with("... ok") {
+            if let Some(name) = trimmed
+                .strip_prefix("test ")
+                .and_then(|r| r.strip_suffix(" ... ok"))
+            {
+                passed_names.push(name.to_string());
+            }
+        }
         if let Some(caps) = failed_test_re().captures(trimmed) {
             failed_tests.push(caps[1].to_string());
         } else if let Some(caps) = failed_test_header_re().captures(trimmed) {
@@ -163,6 +172,20 @@ fn compress_test(output: &str) -> String {
                 String::new()
             };
             result.push_str(&format!(" ({}){suffix}", shown.join(", ")));
+        }
+        if failed_tests.is_empty() && !passed_names.is_empty() {
+            let total = passed_names.len();
+            let shown: Vec<_> = passed_names.iter().take(5).cloned().collect();
+            let suffix = if total > 5 {
+                format!(" ...+{} more", total - 5)
+            } else {
+                String::new()
+            };
+            result.push_str(&format!(
+                "
+  ran: {}{suffix}",
+                shown.join(", ")
+            ));
         }
         parts.push(result);
     }

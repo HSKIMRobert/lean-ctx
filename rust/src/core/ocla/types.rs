@@ -548,6 +548,7 @@ pub struct DeliveryRecord {
     pub blake3: [u8; 12],
     pub path: String,
     pub line_count: u32,
+    #[serde(default)]
     pub token_count: u64,
     pub agent_id: String,
     pub conversation_id: String,
@@ -557,11 +558,13 @@ pub struct DeliveryRecord {
 }
 
 /// Entry for recording a new delivery.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct DeliveryEntry {
     pub blake3: [u8; 12],
     pub path: String,
     pub line_count: u32,
+    #[serde(default)]
     pub token_count: u64,
     pub agent_id: String,
     pub conversation_id: String,

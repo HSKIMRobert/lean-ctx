@@ -644,11 +644,21 @@ async fn v1_context_summary(
     let limit = q.limit.unwrap_or(100).min(1000);
     let rt = crate::core::context_os::runtime();
     let events = rt.bus.read(&ws, "default", 0, limit);
+    let mut counts_by_kind = serde_json::Map::new();
+    for ev in &events {
+        let counter = counts_by_kind
+            .entry(ev.kind.clone())
+            .or_insert(serde_json::Value::from(0u64));
+        if let Some(n) = counter.as_u64() {
+            *counter = serde_json::Value::from(n + 1);
+        }
+    }
     Json(serde_json::json!({
         "workspaceId": ws,
         "channelId": "default",
         "projectRoot": state.project_root,
-        "eventCount": events.len(),
+        "totalEvents": events.len(),
+        "eventCountsByKind": counts_by_kind,
         "limit": limit,
     }))
 }
@@ -678,7 +688,7 @@ async fn v1_events_search(Query(q): Query<EventsSearchQuery>) -> impl IntoRespon
     Json(serde_json::json!({
         "query": query,
         "results": results,
-        "total": results.len(),
+        "count": results.len(),
     }))
 }
 

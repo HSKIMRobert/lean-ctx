@@ -56,6 +56,7 @@ mod skillify_cmd;
 mod snapshot_cmd;
 mod summary_cmd;
 mod tee_cmd;
+mod telemetry_cmd;
 mod theme_cmd;
 mod tools_health_cmd;
 mod trust_cmd;

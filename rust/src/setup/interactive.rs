@@ -361,8 +361,13 @@ pub fn run_setup() {
     crate::core::layout_pin::heal();
 
     terminal_ui::print_step_header(9, 13, "Help Improve lean-ctx");
-    println!("  Share anonymous compression stats to make lean-ctx better.");
+    println!("  Share anonymous data to make lean-ctx better:");
+    println!(
+        "  \x1b[2m  • Telemetry heartbeat: version, OS, architecture, random install ID\x1b[0m"
+    );
+    println!("  \x1b[2m  • Compression stats: file-type, size bucket, mode, ratio\x1b[0m");
     println!("  \x1b[1mNo code, no file names, no personal data — ever.\x1b[0m");
+    println!("  \x1b[2mInspect anytime: lean-ctx telemetry show\x1b[0m");
     println!();
     print!("  Enable anonymous data sharing? \x1b[1m[y/N]\x1b[0m ");
     use std::io::Write;
@@ -388,11 +393,17 @@ pub fn run_setup() {
                 config_content.push('\n');
             }
             config_content.push_str("\n[cloud]\ncontribute_enabled = true\n");
-            let _ = crate::config_io::write_atomic_with_backup(&config_path, &config_content);
         }
+        if !config_content.contains("[telemetry]") {
+            if !config_content.ends_with('\n') {
+                config_content.push('\n');
+            }
+            config_content.push_str("\n[telemetry]\nenabled = true\n");
+        }
+        let _ = crate::config_io::write_atomic_with_backup(&config_path, &config_content);
         terminal_ui::print_status_ok("Enabled — thank you!");
     } else {
-        terminal_ui::print_status_skip("Skipped — enable later with: lean-ctx config");
+        terminal_ui::print_status_skip("Skipped — enable later with: lean-ctx telemetry on");
     }
 
     terminal_ui::print_step_header(10, 13, "Auto-Updates");

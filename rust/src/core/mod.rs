@@ -445,6 +445,7 @@ pub(crate) mod index_progress;
 #[allow(dead_code)]
 pub(crate) mod ingestion;
 pub mod input_filters;
+pub(crate) mod installation_id;
 pub(crate) mod instruction_compiler;
 pub(crate) mod integrity;
 #[allow(dead_code)]

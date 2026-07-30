@@ -39,6 +39,9 @@ pub struct Config {
     pub slow_command_threshold_ms: u64,
     #[serde(default = "serde_defaults::default_theme")]
     pub theme: String,
+    /// Anonymous opt-in telemetry heartbeat (version, OS, arch — no code/PII).
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
     #[serde(default)]
     pub cloud: CloudConfig,
     #[serde(default)]

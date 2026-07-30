@@ -37,6 +37,7 @@ fn try_cargo_test(output: &str) -> Option<String> {
     let mut total_filtered = 0u32;
     let mut time = String::new();
     let mut failures: Vec<String> = Vec::new();
+    let mut passed_names: Vec<String> = Vec::new();
     let mut suites = 0u32;
 
     for line in output.lines() {
@@ -57,6 +58,14 @@ fn try_cargo_test(output: &str) -> Option<String> {
             }
             if let Some(pos) = trimmed.find("finished in ") {
                 time = trimmed[pos + 12..].trim().to_string();
+            }
+        }
+        if trimmed.starts_with("test ") && trimmed.ends_with("... ok") {
+            if let Some(name) = trimmed
+                .strip_prefix("test ")
+                .and_then(|r| r.strip_suffix(" ... ok"))
+            {
+                passed_names.push(name.to_string());
             }
         }
         if (trimmed.starts_with("test ") && trimmed.ends_with("... FAILED"))

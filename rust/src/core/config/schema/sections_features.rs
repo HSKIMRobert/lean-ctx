@@ -736,6 +736,23 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
         },
     );
 
+    let mut telemetry = BTreeMap::new();
+    telemetry.insert(
+        "enabled".into(),
+        key(
+            "bool",
+            serde_json::json!(cfg.telemetry.enabled),
+            "Enable anonymous telemetry heartbeat (version, OS, arch, random install ID — no code or PII)",
+        ),
+    );
+    sections.insert(
+        "telemetry".into(),
+        SectionSchema {
+            description: "Anonymous opt-in telemetry heartbeat".into(),
+            keys: telemetry,
+        },
+    );
+
     let mut cloud = BTreeMap::new();
     cloud.insert(
         "contribute_enabled".into(),

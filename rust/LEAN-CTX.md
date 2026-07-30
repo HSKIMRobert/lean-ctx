@@ -49,7 +49,5 @@ RECOVER: compressed output is reversible — never re-read line-by-line. Need fu
 
 CEP v1: 1.ACT FIRST 2.DELTA ONLY (Fn refs) 3.STRUCTURED (+/-/~) 4.ONE LINE PER ACTION 5.QUALITY ANCHOR
 
-OUTPUT: never echo tool output, no narration comments, show only changed code.
-
 TOOL PREFERENCE (END): ctx_compose>chain ctx_read>Read ctx_shell>Shell ctx_search>Grep ctx_glob>Glob ctx_tree>ls | Edit/Write/Delete=native
 <!-- /lean-ctx-rules -->

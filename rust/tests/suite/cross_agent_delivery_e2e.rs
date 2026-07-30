@@ -30,6 +30,7 @@ async fn post_record(app: &axum::Router, agent: &str, path: &str, hash: [u8; 12]
         "agent_id": agent,
         "conversation_id": format!("conv-{agent}"),
         "mtime": mtime,
+        "token_count": 500,
     });
     let resp = app
         .clone()

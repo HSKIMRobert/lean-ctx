@@ -131,32 +131,45 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
         requester_agent_id: Option<&str>,
         requester_conversation_id: Option<&str>,
     ) -> Option<DeliveryRecord> {
-        let key = DeliveryKey {
-            blake3: *blake3,
-            path: path.to_string(),
+        let candidates: Vec<_> = if path.is_empty() {
+            self.store
+                .iter()
+                .filter(|entry| entry.key().blake3 == *blake3)
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .collect()
+        } else {
+            let key = DeliveryKey {
+                blake3: *blake3,
+                path: path.to_string(),
+            };
+            self.store
+                .get(&key)
+                .map(|entry| (entry.key().clone(), entry.value().clone()))
+                .into_iter()
+                .collect()
         };
-        let entry = self.store.get(&key)?;
-        if entry.mtime != mtime {
-            return None;
-        }
-        if self.is_expired_at(entry.value(), Self::now_epoch()) {
-            let key = entry.key().clone();
-            drop(entry);
-            self.store.remove(&key);
-            return None;
-        }
-        if requester_agent_id.is_some_and(|agent| agent == entry.agent_id) {
-            return None;
-        }
-        if requester_conversation_id
-            .is_some_and(|conversation| conversation == entry.conversation_id)
-        {
-            return None;
-        }
-        let record = entry.value().clone();
-        drop(entry);
 
-        Some(record)
+        let now = Self::now_epoch();
+        for (key, record) in candidates {
+            if record.mtime != mtime {
+                continue;
+            }
+            if self.is_expired_at(&record, now) {
+                self.store.remove(&key);
+                continue;
+            }
+            if requester_agent_id.is_some_and(|agent| agent == record.agent_id) {
+                continue;
+            }
+            if requester_conversation_id
+                .is_some_and(|conversation| conversation == record.conversation_id)
+            {
+                continue;
+            }
+            return Some(record);
+        }
+
+        None
     }
 
     fn record_stub_served(&self, record: &DeliveryRecord, stub_tokens: u64) {

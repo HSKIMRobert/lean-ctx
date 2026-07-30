@@ -403,6 +403,27 @@ pub fn contribute(entries: &[serde_json::Value]) -> Result<String, String> {
         .to_string())
 }
 
+/// Send an anonymous telemetry heartbeat. No authentication required.
+/// Payload: installation_id (random UUID), version, OS, arch — nothing else.
+pub fn heartbeat(payload: &serde_json::Value) -> Result<String, String> {
+    let url = format!("{}/api/telemetry/heartbeat", api_url());
+
+    let resp = ureq::post(&url)
+        .header("Content-Type", "application/json")
+        .send(&serde_json::to_vec(payload).map_err(|e| format!("JSON error: {e}"))?)
+        .map_err(|e| format!("Heartbeat failed: {e}"))?;
+
+    let resp_body = resp
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    let json: serde_json::Value =
+        serde_json::from_str(&resp_body).map_err(|e| format!("Invalid JSON: {e}"))?;
+
+    Ok(json["message"].as_str().unwrap_or("OK").to_string())
+}
+
 /// Result of a successful Wrapped publish (`POST /api/wrapped`). The `edit_token` is returned
 /// (and must be stored to delete/claim later) only on a *fresh* insert; on a signed re-publish
 /// the server updates the existing card in place and omits it (the client keeps the stored one).

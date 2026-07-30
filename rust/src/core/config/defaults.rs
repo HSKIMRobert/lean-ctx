@@ -62,6 +62,7 @@ impl Default for Config {
             crush_verbatim_json: false,
             slow_command_threshold_ms: 5000,
             theme: serde_defaults::default_theme(),
+            telemetry: TelemetryConfig::default(),
             cloud: CloudConfig::default(),
             gain: GainConfig::default(),
             cost: CostConfig::default(),

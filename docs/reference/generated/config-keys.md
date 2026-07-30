@@ -457,6 +457,12 @@ AI session summaries: periodic, semantically-recallable session digests
 - `every_n_turns` (u32, default `25`) — Tool calls between automatic session summaries (gated by the auto-checkpoint cadence).
 - `max_kept` (u32, default `100`) — Maximum session summaries kept per project (oldest pruned first).
 
+## `[telemetry]`
+
+Anonymous opt-in telemetry heartbeat
+
+- `enabled` (bool, default `false`) — Enable anonymous telemetry heartbeat (version, OS, arch, random install ID — no code or PII)
+
 ## `[updates]`
 
 Automatic update configuration
