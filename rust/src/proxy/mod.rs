@@ -3,6 +3,13 @@
 //! Intercepts Anthropic, OpenAI, Gemini and ChatGPT traffic, compresses
 //! prompts, meters usage, and optionally translates request shapes.
 //!
+//! # TLS Requirements
+//!
+//! The proxy does NOT terminate TLS. For production/multi-tenant deployments,
+//! place behind a TLS-terminating reverse proxy (nginx, caddy, traefik).
+//! For mTLS, configure the reverse proxy with client certificates.
+//! See: https://github.com/yvgude/lean-ctx/issues/1371
+//!
 //! # Org gateway coupling (ADR-023)
 //!
 //! The self-hosted org gateway (lean-ctx-enterprise) extends this proxy with
@@ -942,6 +949,7 @@ async fn proxy_auth_guard(
         .map(str::to_string);
 
     if let Some(token) = bearer.as_deref()
+        && !proxy_token_expired(token, std::time::SystemTime::now())
         && constant_time_eq(token.as_bytes(), expected_token.as_bytes())
     {
         req.extensions_mut()
@@ -979,6 +987,27 @@ async fn proxy_auth_guard(
     }
 
     Err(auth_error_response(path))
+}
+
+/// Returns true only for `TOKEN.TIMESTAMP` bearer tokens more than 24 hours
+/// old. Tokens without a valid timestamp suffix remain valid for backwards
+/// compatibility.
+fn proxy_token_expired(token: &str, now: std::time::SystemTime) -> bool {
+    const TOKEN_MAX_AGE: std::time::Duration = std::time::Duration::from_hours(24);
+
+    let Some((value, timestamp)) = token.rsplit_once('.') else {
+        return false;
+    };
+    if value.is_empty() {
+        return false;
+    }
+    let Ok(timestamp) = timestamp.parse::<u64>() else {
+        return false;
+    };
+
+    let issued_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(timestamp);
+    now.duration_since(issued_at)
+        .is_ok_and(|age| age > TOKEN_MAX_AGE)
 }
 
 fn auth_error_response(path: &str) -> Response {

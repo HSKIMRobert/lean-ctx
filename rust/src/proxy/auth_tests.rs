@@ -19,6 +19,26 @@ fn effective_auth_token_never_yields_empty() {
     crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
 }
 
+#[test]
+fn expired_timestamped_proxy_token_is_rejected() {
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(200_000);
+    let expired = "proxy-token.113599";
+    assert!(proxy_token_expired(expired, now));
+}
+
+#[test]
+fn fresh_timestamped_proxy_token_is_accepted() {
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(200_000);
+    let fresh = "proxy-token.113600";
+    assert!(!proxy_token_expired(fresh, now));
+}
+
+#[test]
+fn plain_proxy_token_is_accepted_for_backwards_compatibility() {
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(200_000);
+    assert!(!proxy_token_expired("proxy-token", now));
+}
+
 // #597: the Codex ChatGPT WS passthrough opens a wss://chatgpt.com socket via
 // tokio-tungstenite, which needs a process-default rustls CryptoProvider. The
 // tree has both aws-lc-rs and ring, so one must be installed explicitly or the
