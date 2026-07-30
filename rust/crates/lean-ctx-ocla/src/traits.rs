@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use crate::types::{
     AgentEnvelope, CompressionRequest, CompressionResult, ConfigProposal, ConfigTuningRequest,
     ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryStats, EfficiencyAnalysis,
@@ -12,16 +14,19 @@ pub trait OclaService: Send + Sync {
     fn capability(&self) -> OclaCapability;
 }
 
+#[async_trait]
 pub trait ObservationHook: OclaService {
-    fn observe(&self, observation: Observation) -> OclaResult<()>;
+    async fn observe(&self, observation: Observation) -> OclaResult<()>;
 }
 
+#[async_trait]
 pub trait UsageSink: OclaService {
-    fn record_usage(&self, usage: UsageRecord) -> OclaResult<()>;
+    async fn record_usage(&self, usage: UsageRecord) -> OclaResult<()>;
 }
 
+#[async_trait]
 pub trait MetricsExporter: OclaService {
-    fn export_metrics(&self, metrics: Vec<MetricPoint>) -> OclaResult<()>;
+    async fn export_metrics(&self, metrics: Vec<MetricPoint>) -> OclaResult<()>;
 }
 
 pub trait SavingsLedger: OclaService {
@@ -40,15 +45,17 @@ pub trait CompressionProvider: OclaService {
     fn compress(&self, request: CompressionRequest) -> OclaResult<CompressionResult>;
 }
 
+#[async_trait]
 pub trait ResponseOptimizer: OclaService {
-    fn optimize_response(
+    async fn optimize_response(
         &self,
         request: ResponseOptimizationRequest,
     ) -> OclaResult<ResponseOptimizationResult>;
 }
 
+#[async_trait]
 pub trait ModelRouter: OclaService {
-    fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision>;
+    async fn route_model(&self, request: ModelRouteRequest) -> OclaResult<RoutingDecision>;
 }
 
 pub trait EfficiencyAnalyzer: OclaService {

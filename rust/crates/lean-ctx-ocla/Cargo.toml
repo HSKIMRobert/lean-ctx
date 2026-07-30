@@ -15,6 +15,7 @@ publish = false
 name = "lean_ctx_ocla"
 
 [dependencies]
+async-trait = "0.1"
 blake3 = "1.8"
 getrandom = "0.4"
 serde = { version = "1.0", features = ["derive"] }
