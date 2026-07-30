@@ -438,20 +438,6 @@ fn compress_if_beneficial_with_exit(
         };
     }
 
-    // CRITICAL: Never compress error output from build/check/lint tools.
-    // Compiler errors, type errors, lint findings etc. must be preserved verbatim
-    // so the agent can see file paths, line numbers, and full diagnostics.
-    // Folding compiler/test-runner *progress* noise composes with — never
-    // replaces — the verbatim token cap: diagnostics stay verbatim, and a log
-    // whose diagnostics alone exceed the budget is still head/tail-truncated
-    // with safety-needle preservation (#655).
-    if is_error_output_from_build_tool(command, output) {
-        let base = maybe_fold_progress(output, count_tokens_for(output, family), family)
-            .unwrap_or_else(|| output.to_string());
-        let base = dedup_build_diagnostics(&base);
-        return truncate_verbatim(&base, count_tokens_for(&base, family), family);
-    }
-
     // Test-runner output: structurally compress successful runs through the
     // dedicated test-pattern compressors (cargo test, pytest, jest, etc.).
     // Failed runs (exit_code != 0) stay verbatim to preserve failure diagnostics.
@@ -468,6 +454,20 @@ fn compress_if_beneficial_with_exit(
             }
         }
         return truncate_verbatim(&base, count_tokens_for(&base, family), family);
+    }
+
+    // Compiler errors, type errors, and lint findings must be preserved verbatim
+    // so the agent can see file paths, line numbers, and full diagnostics.
+    // Warning-only successful builds intentionally fall through to the normal
+    // pattern pipeline, where their dedicated compressor can summarize them.
+    match classify_build_output(command, output, exit_code) {
+        BuildOutputKind::HasErrors => {
+            let base = maybe_fold_progress(output, count_tokens_for(output, family), family)
+                .unwrap_or_else(|| output.to_string());
+            let base = dedup_build_diagnostics(&base);
+            return truncate_verbatim(&base, count_tokens_for(&base, family), family);
+        }
+        BuildOutputKind::WarningsOnly | BuildOutputKind::Clean | BuildOutputKind::NotBuildTool => {}
     }
 
     if !is_search_output(command) && crate::tools::ctx_shell::contains_auth_flow(output) {
@@ -751,10 +751,39 @@ fn is_diagnostic_line(line: &str) -> bool {
     false
 }
 
-fn is_error_output_from_build_tool(command: &str, output: &str) -> bool {
-    let cmd = command.trim().to_ascii_lowercase();
+#[derive(Debug, Eq, PartialEq)]
+enum BuildOutputKind {
+    /// No errors or warnings — clean build.
+    Clean,
+    /// Only warnings, no errors — can be pattern-compressed.
+    WarningsOnly,
+    /// Has actual errors — preserve diagnostics verbatim.
+    HasErrors,
+    /// Not a build tool command.
+    NotBuildTool,
+}
 
-    let is_build_tool = cmd.starts_with("cargo check")
+fn classify_build_output(command: &str, output: &str, exit_code: i32) -> BuildOutputKind {
+    let command = strip_env_prefix(command);
+    if !is_build_tool(command) {
+        return BuildOutputKind::NotBuildTool;
+    }
+    if exit_code != 0
+        || output.contains("error[E")
+        || output.contains("error:")
+        || output.contains("could not compile")
+    {
+        return BuildOutputKind::HasErrors;
+    }
+    if output.contains("warning:") || output.contains("warning[") {
+        return BuildOutputKind::WarningsOnly;
+    }
+    BuildOutputKind::Clean
+}
+
+fn is_build_tool(command: &str) -> bool {
+    let cmd = command.trim().to_ascii_lowercase();
+    cmd.starts_with("cargo check")
         || cmd.starts_with("cargo build")
         || cmd.starts_with("cargo clippy")
         || cmd.starts_with("cargo test")
@@ -811,9 +840,14 @@ fn is_error_output_from_build_tool(command: &str, output: &str) -> bool {
         || cmd.starts_with("ansible-lint")
         || cmd.starts_with("rubocop ")
         || cmd.starts_with("solhint ")
-        || cmd.starts_with("slither ");
+        || cmd.starts_with("slither ")
+}
 
-    if !is_build_tool {
+#[allow(dead_code)]
+// TODO: remove after downstream callers migrate to `classify_build_output`.
+fn is_error_output_from_build_tool(command: &str, output: &str) -> bool {
+    let command = strip_env_prefix(command);
+    if !is_build_tool(command) {
         return false;
     }
 
@@ -1174,4 +1208,49 @@ pub(crate) fn preserve_verbatim_pub(output: &str) -> String {
 
 pub(crate) fn preserve_verbatim_pub_for(output: &str, family: TokenizerFamily) -> String {
     truncate_verbatim(output, count_tokens_for(output, family), family)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BuildOutputKind, classify_build_output};
+
+    #[test]
+    fn test_classify_clean_build() {
+        assert_eq!(
+            classify_build_output("cargo build", "Finished dev profile", 0),
+            BuildOutputKind::Clean
+        );
+    }
+
+    #[test]
+    fn test_classify_warnings_only() {
+        assert_eq!(
+            classify_build_output("cargo check", "warning: unused variable", 0),
+            BuildOutputKind::WarningsOnly
+        );
+    }
+
+    #[test]
+    fn test_classify_has_errors() {
+        assert_eq!(
+            classify_build_output("cargo build", "error[E0308]: mismatched types", 1),
+            BuildOutputKind::HasErrors
+        );
+    }
+
+    #[test]
+    fn test_classify_exit_nonzero() {
+        assert_eq!(
+            classify_build_output("cargo clippy", "lint output", 1),
+            BuildOutputKind::HasErrors
+        );
+    }
+
+    #[test]
+    fn test_classify_with_env_prefix() {
+        assert_eq!(
+            classify_build_output("RUST_LOG=debug cargo build", "warning: unused variable", 0),
+            BuildOutputKind::WarningsOnly
+        );
+    }
 }
