@@ -51,8 +51,8 @@ impl AddonPolicy {
     }
 }
 
-/// `[addons]` configuration. Global-only; default is fully permissive so the
-/// out-of-the-box experience is unchanged.
+/// `[addons]` configuration. Global-only; defaults preserve open installation
+/// while applying available sandboxing and capability safeguards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AddonsConfig {
@@ -69,9 +69,9 @@ pub struct AddonsConfig {
     /// Refuse to install an addon that has a high-risk (`Danger`) capability.
     pub block_risky: bool,
     /// Fail closed when an addon declares restricted `[capabilities]` but no OS
-    /// sandbox launcher (sandbox-exec / bwrap) is available to enforce them. Off
-    /// by default → best-effort (warn + run) so a missing launcher never blocks
-    /// a spawn; orgs that require real enforcement set this to `true`.
+    /// sandbox launcher (sandbox-exec / bwrap) is available to enforce them. On
+    /// by default so restricted capabilities fail closed; set this to `false` for
+    /// best-effort enforcement when a missing launcher must not block a spawn.
     pub enforce_capabilities: bool,
     /// Record per-addon / per-tool gateway usage counters to
     /// `<data_dir>/addons/usage.json` (local-only; basis for analytics + billing,
@@ -98,9 +98,9 @@ impl Default for AddonsConfig {
             policy: AddonPolicy::Open.as_str().to_string(),
             allowlist: Vec::new(),
             require_signature: false,
-            sandbox: SandboxMode::Off.as_str().to_string(),
-            block_risky: false,
-            enforce_capabilities: false,
+            sandbox: SandboxMode::Auto.as_str().to_string(),
+            block_risky: true,
+            enforce_capabilities: true,
             metering: true,
             allow_bootstrap: true,
             grammar_auto_fetch: true,
@@ -201,11 +201,19 @@ mod tests {
     }
 
     #[test]
-    fn default_policy_is_open_and_permissive() {
+    fn default_policy_is_open() {
         let cfg = AddonsConfig::default();
         assert_eq!(cfg.policy(), AddonPolicy::Open);
-        assert_eq!(cfg.sandbox_mode(), SandboxMode::Off);
+        assert_eq!(cfg.sandbox_mode(), SandboxMode::Auto);
         assert!(gate(&manifest("x", false), &cfg, &[]).is_ok());
+    }
+
+    #[test]
+    fn default_is_secure_by_default() {
+        let cfg = AddonsConfig::default();
+        assert!(cfg.block_risky);
+        assert!(cfg.enforce_capabilities);
+        assert_eq!(cfg.sandbox_mode(), SandboxMode::Auto);
     }
 
     #[test]
