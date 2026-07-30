@@ -1,293 +1,293 @@
 // ---------------------------------------------------------------------------
 // Domain: Compression
 // ---------------------------------------------------------------------------
-pub mod adaptive_chunking;
-pub mod adaptive_compression;
+pub(crate) mod adaptive_chunking;
+pub(crate) mod adaptive_compression;
 pub mod addons;
-pub mod aggressiveness;
+pub(crate) mod aggressiveness;
 pub mod attention_context;
-pub mod auto_capture;
-pub mod auto_findings;
-pub mod codebook;
+pub(crate) mod auto_capture;
+pub(crate) mod auto_findings;
+pub(crate) mod codebook;
 #[cfg(target_os = "macos")]
-pub mod codesign;
-pub mod compress_preview;
-pub mod compression_safety;
+pub(crate) mod codesign;
+pub(crate) mod compress_preview;
+pub(crate) mod compression_safety;
 pub mod compressor;
 #[cfg(feature = "experimental")]
-pub mod context_budget;
-pub mod datadog_push;
+pub(crate) mod context_budget;
+pub(crate) mod datadog_push;
 pub mod entropy;
-pub mod etpao;
+pub(crate) mod etpao;
 pub mod eval_ab;
 pub mod eval_harness;
-pub mod extractive;
+pub(crate) mod extractive;
 pub mod finops_export;
-pub mod html_crush;
-pub mod information_bottleneck;
-pub mod json_crush;
-pub mod json_sample;
-pub mod markdown_compact;
-pub mod output_sanitizer;
+pub(crate) mod html_crush;
+pub(crate) mod information_bottleneck;
+pub(crate) mod json_crush;
+pub(crate) mod json_sample;
+pub(crate) mod markdown_compact;
+pub(crate) mod output_sanitizer;
 pub mod policy;
-pub mod pop_pruning;
+pub(crate) mod pop_pruning;
 pub mod predictive_coding;
 pub mod predictive_prefetch;
-pub mod preservation;
-pub mod process_guard;
-pub mod progressive_compression;
-pub mod protect;
-pub mod rabin_karp;
-pub mod relevance_tracker;
+pub(crate) mod preservation;
+pub(crate) mod process_guard;
+pub(crate) mod progressive_compression;
+pub(crate) mod protect;
+pub(crate) mod rabin_karp;
+pub(crate) mod relevance_tracker;
 pub mod rule_artifacts;
-pub mod rule_discovery;
-pub mod rule_scorer;
+pub(crate) mod rule_discovery;
+pub(crate) mod rule_scorer;
 #[cfg(feature = "experimental")]
-pub mod rule_staleness;
+pub(crate) mod rule_staleness;
 pub mod rules_canonical;
-pub mod rules_channel;
-pub mod rules_overhead;
-pub mod rules_sections;
-pub mod rules_validation;
-pub mod runtime_flags;
-pub mod structural_tokenizer;
-pub mod structured_read;
-pub mod tabular_crush;
-pub mod yaml_crush;
+pub(crate) mod rules_channel;
+pub(crate) mod rules_overhead;
+pub(crate) mod rules_sections;
+pub(crate) mod rules_validation;
+pub(crate) mod runtime_flags;
+pub(crate) mod structural_tokenizer;
+pub(crate) mod structured_read;
+pub(crate) mod tabular_crush;
+pub(crate) mod yaml_crush;
 
 /// Convenience re-export: all compression-related modules.
-pub mod compression {
-    pub use super::adaptive_chunking;
-    pub use super::codebook;
-    pub use super::compression_safety;
-    pub use super::compressor;
-    pub use super::entropy;
-    pub use super::information_bottleneck;
-    pub use super::json_crush;
-    pub use super::json_sample;
-    pub use super::pop_pruning;
-    pub use super::preservation;
-    pub use super::progressive_compression;
-    pub use super::rabin_karp;
-    pub use super::structural_tokenizer;
+pub(crate) mod compression {
+    pub(crate) use super::adaptive_chunking;
+    pub(crate) use super::codebook;
+    pub(crate) use super::compression_safety;
+    pub(crate) use super::compressor;
+    pub(crate) use super::entropy;
+    pub(crate) use super::information_bottleneck;
+    pub(crate) use super::json_crush;
+    pub(crate) use super::json_sample;
+    pub(crate) use super::pop_pruning;
+    pub(crate) use super::preservation;
+    pub(crate) use super::progressive_compression;
+    pub(crate) use super::rabin_karp;
+    pub(crate) use super::structural_tokenizer;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Memory
 // ---------------------------------------------------------------------------
-pub mod episodic_memory;
-pub mod interrupt;
-pub mod memory_archive;
-pub mod memory_boundary;
-pub mod memory_capacity;
-pub mod memory_consolidation;
-pub mod memory_guard;
-pub mod memory_lifecycle;
+pub(crate) mod episodic_memory;
+pub(crate) mod interrupt;
+pub(crate) mod memory_archive;
+pub(crate) mod memory_boundary;
+pub(crate) mod memory_capacity;
+pub(crate) mod memory_consolidation;
+pub(crate) mod memory_guard;
+pub(crate) mod memory_lifecycle;
 pub mod memory_policy;
-pub mod memory_salience;
+pub(crate) mod memory_salience;
 pub mod multiscale_index;
-pub mod procedural_memory;
-pub mod prospective_memory;
+pub(crate) mod procedural_memory;
+pub(crate) mod prospective_memory;
 
 /// Convenience re-export: all memory-related modules.
-pub mod memory {
-    pub use super::episodic_memory;
-    pub use super::memory_boundary;
-    pub use super::memory_consolidation;
-    pub use super::memory_lifecycle;
-    pub use super::memory_policy;
-    pub use super::procedural_memory;
-    pub use super::prospective_memory;
+pub(crate) mod memory {
+    pub(crate) use super::episodic_memory;
+    pub(crate) use super::memory_boundary;
+    pub(crate) use super::memory_consolidation;
+    pub(crate) use super::memory_lifecycle;
+    pub(crate) use super::memory_policy;
+    pub(crate) use super::procedural_memory;
+    pub(crate) use super::prospective_memory;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Graph
 // ---------------------------------------------------------------------------
-pub mod call_graph;
-pub mod community;
-pub mod gamma_cover;
-pub mod graph_analysis;
+pub(crate) mod call_graph;
+pub(crate) mod community;
+pub(crate) mod gamma_cover;
+pub(crate) mod graph_analysis;
 pub mod graph_context;
-pub mod graph_coordinator;
-pub mod graph_enricher;
+pub(crate) mod graph_coordinator;
+pub(crate) mod graph_enricher;
 pub mod graph_export;
-pub mod graph_features;
+pub(crate) mod graph_features;
 pub mod graph_index;
-pub mod graph_parity;
+pub(crate) mod graph_parity;
 pub mod graph_provider;
-pub mod pagerank;
+pub(crate) mod pagerank;
 pub mod property_graph;
-pub mod repomap;
+pub(crate) mod repomap;
 
 /// Convenience re-export: all graph-related modules.
-pub mod graph {
-    pub use super::call_graph;
-    pub use super::community;
-    pub use super::gamma_cover;
-    pub use super::graph_context;
-    pub use super::graph_enricher;
-    pub use super::graph_export;
-    pub use super::graph_features;
-    pub use super::graph_index;
-    pub use super::graph_provider;
-    pub use super::pagerank;
-    pub use super::property_graph;
+pub(crate) mod graph {
+    pub(crate) use super::call_graph;
+    pub(crate) use super::community;
+    pub(crate) use super::gamma_cover;
+    pub(crate) use super::graph_context;
+    pub(crate) use super::graph_enricher;
+    pub(crate) use super::graph_export;
+    pub(crate) use super::graph_features;
+    pub(crate) use super::graph_index;
+    pub(crate) use super::graph_provider;
+    pub(crate) use super::pagerank;
+    pub(crate) use super::property_graph;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Context
 // ---------------------------------------------------------------------------
-pub mod context_artifacts;
+pub(crate) mod context_artifacts;
 pub mod context_column;
-pub mod context_compiler;
-pub mod context_deficit;
+pub(crate) mod context_compiler;
+pub(crate) mod context_deficit;
 pub mod context_field;
-pub mod context_handles;
+pub(crate) mod context_handles;
 pub mod context_ir;
-pub mod context_kernel;
+pub(crate) mod context_kernel;
 pub mod context_ledger;
-pub mod context_lint;
+pub(crate) mod context_lint;
 pub mod context_os;
-pub mod context_overhead;
+pub(crate) mod context_overhead;
 pub mod context_overlay;
-pub mod context_package;
+pub(crate) mod context_package;
 pub mod context_policies;
-pub mod context_proof;
-pub mod context_proof_v2;
+pub(crate) mod context_proof;
+pub(crate) mod context_proof_v2;
 pub mod context_radar;
-pub mod context_snapshot;
+pub(crate) mod context_snapshot;
 pub mod cross_source_edges;
 pub mod cross_source_hints;
 
 /// Convenience re-export: all context-related modules.
-pub mod context {
-    pub use super::context_artifacts;
-    pub use super::context_column;
-    pub use super::context_compiler;
-    pub use super::context_deficit;
-    pub use super::context_field;
-    pub use super::context_handles;
-    pub use super::context_ir;
-    pub use super::context_ledger;
-    pub use super::context_os;
-    pub use super::context_overlay;
-    pub use super::context_package;
-    pub use super::context_policies;
-    pub use super::context_proof;
-    pub use super::context_proof_v2;
+pub(crate) mod context {
+    pub(crate) use super::context_artifacts;
+    pub(crate) use super::context_column;
+    pub(crate) use super::context_compiler;
+    pub(crate) use super::context_deficit;
+    pub(crate) use super::context_field;
+    pub(crate) use super::context_handles;
+    pub(crate) use super::context_ir;
+    pub(crate) use super::context_ledger;
+    pub(crate) use super::context_os;
+    pub(crate) use super::context_overlay;
+    pub(crate) use super::context_package;
+    pub(crate) use super::context_policies;
+    pub(crate) use super::context_proof;
+    pub(crate) use super::context_proof_v2;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Knowledge
 // ---------------------------------------------------------------------------
-pub mod claim_extractor;
-pub mod cognition_loop;
-pub mod cognition_scheduler;
+pub(crate) mod claim_extractor;
+pub(crate) mod cognition_loop;
+pub(crate) mod cognition_scheduler;
 pub mod knowledge;
-pub mod knowledge_bootstrap;
-pub mod knowledge_bridge;
+pub(crate) mod knowledge_bootstrap;
+pub(crate) mod knowledge_bridge;
 pub mod knowledge_embedding;
 pub mod knowledge_provider_extract;
 pub mod knowledge_relations;
 
 /// Convenience re-export: all knowledge-related modules.
-pub mod knowledge_domain {
-    pub use super::claim_extractor;
-    pub use super::cognition_loop;
-    pub use super::knowledge;
-    pub use super::knowledge_bootstrap;
-    pub use super::knowledge_bridge;
-    pub use super::knowledge_embedding;
-    pub use super::knowledge_relations;
+pub(crate) mod knowledge_domain {
+    pub(crate) use super::claim_extractor;
+    pub(crate) use super::cognition_loop;
+    pub(crate) use super::knowledge;
+    pub(crate) use super::knowledge_bootstrap;
+    pub(crate) use super::knowledge_bridge;
+    pub(crate) use super::knowledge_embedding;
+    pub(crate) use super::knowledge_relations;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Search & Retrieval
 // ---------------------------------------------------------------------------
-pub mod bm25_cache;
+pub(crate) mod bm25_cache;
 pub mod bm25_index;
-pub mod content_cache;
+pub(crate) mod content_cache;
 pub mod content_chunk;
-pub mod context_packing;
-pub mod cooccurrence;
-pub mod dense_backend;
-pub mod embedding_index;
-pub mod embedding_quant;
+pub(crate) mod context_packing;
+pub(crate) mod cooccurrence;
+pub(crate) mod dense_backend;
+pub(crate) mod embedding_index;
+pub(crate) mod embedding_quant;
 pub mod embeddings;
-pub mod energy;
+pub(crate) mod energy;
 pub mod hybrid_search;
 #[cfg(feature = "pgvector")]
-pub mod pgvector_store;
+pub(crate) mod pgvector_store;
 #[cfg(feature = "qdrant")]
-pub mod qdrant_store;
+pub(crate) mod qdrant_store;
 pub mod search_reranking;
-pub mod semantic_cache;
-pub mod semantic_chunks;
-pub mod splade_retrieval;
+pub(crate) mod semantic_cache;
+pub(crate) mod semantic_chunks;
+pub(crate) mod splade_retrieval;
 pub mod spreading_activation;
 
 /// Convenience re-export: all search-related modules.
-pub mod search {
-    pub use super::bm25_index;
-    pub use super::content_chunk;
-    pub use super::dense_backend;
-    pub use super::embedding_index;
-    pub use super::embeddings;
-    pub use super::hybrid_search;
-    pub use super::search_reranking;
-    pub use super::semantic_cache;
-    pub use super::semantic_chunks;
-    pub use super::splade_retrieval;
+pub(crate) mod search {
+    pub(crate) use super::bm25_index;
+    pub(crate) use super::content_chunk;
+    pub(crate) use super::dense_backend;
+    pub(crate) use super::embedding_index;
+    pub(crate) use super::embeddings;
+    pub(crate) use super::hybrid_search;
+    pub(crate) use super::search_reranking;
+    pub(crate) use super::semantic_cache;
+    pub(crate) use super::semantic_chunks;
+    pub(crate) use super::splade_retrieval;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Session & Handoff
 // ---------------------------------------------------------------------------
-pub mod ccp_session_bundle;
-pub mod handoff_ledger;
-pub mod handoff_transfer_bundle;
+pub(crate) mod ccp_session_bundle;
+pub(crate) mod handoff_ledger;
+pub(crate) mod handoff_transfer_bundle;
 pub mod session;
-pub mod session_diff;
-pub mod session_summary;
-pub mod skillify;
+pub(crate) mod session_diff;
+pub(crate) mod session_summary;
+pub(crate) mod skillify;
 
 /// Convenience re-export: all session-related modules.
-pub mod session_domain {
-    pub use super::ccp_session_bundle;
-    pub use super::handoff_ledger;
-    pub use super::handoff_transfer_bundle;
-    pub use super::session;
-    pub use super::session_diff;
+pub(crate) mod session_domain {
+    pub(crate) use super::ccp_session_bundle;
+    pub(crate) use super::handoff_ledger;
+    pub(crate) use super::handoff_transfer_bundle;
+    pub(crate) use super::session;
+    pub(crate) use super::session_diff;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Attention & Placement
 // ---------------------------------------------------------------------------
-pub mod attention_layout_driver;
+pub(crate) mod attention_layout_driver;
 pub mod attention_model;
-pub mod attention_placement;
-pub mod litm;
+pub(crate) mod attention_placement;
+pub(crate) mod litm;
 
 /// Convenience re-export: all attention-related modules.
-pub mod attention {
-    pub use super::attention_layout_driver;
-    pub use super::attention_model;
-    pub use super::attention_placement;
-    pub use super::litm;
+pub(crate) mod attention {
+    pub(crate) use super::attention_layout_driver;
+    pub(crate) use super::attention_model;
+    pub(crate) use super::attention_placement;
+    pub(crate) use super::litm;
 }
 
 // ---------------------------------------------------------------------------
 // Domain: Neural / ML
 // ---------------------------------------------------------------------------
-pub mod neural;
+pub(crate) mod neural;
 // ORT runtime glue links against the `ort` crate, which is only pulled in by the
 // `embeddings` or `neural` features. On platforms ORT does not support (e.g.
 // FreeBSD, see #586) these features are disabled, so the modules must be gated
 // to keep the build clean without them.
 #[cfg(any(feature = "embeddings", feature = "neural"))]
-pub mod ort_environment;
+pub(crate) mod ort_environment;
 #[cfg(any(feature = "embeddings", feature = "neural"))]
-pub mod ort_execution_providers;
+pub(crate) mod ort_execution_providers;
 
 // ---------------------------------------------------------------------------
 // Domain: Patterns & Shell
@@ -298,240 +298,240 @@ pub mod patterns;
 // Domain: Agents & A2A
 // ---------------------------------------------------------------------------
 pub mod a2a;
-pub mod a2a_transport;
-pub mod agent_identity;
-pub mod agent_runtime_env;
-pub mod agents;
-pub mod autonomy;
-pub mod autonomy_drivers;
+pub(crate) mod a2a_transport;
+pub(crate) mod agent_identity;
+pub(crate) mod agent_runtime_env;
+pub(crate) mod agents;
+pub(crate) mod autonomy;
+pub(crate) mod autonomy_drivers;
 
 // ---------------------------------------------------------------------------
 // Domain: Adaptive & Scoring
 // ---------------------------------------------------------------------------
-pub mod adaptive;
-pub mod adaptive_mode_policy;
-pub mod adaptive_thresholds;
+pub(crate) mod adaptive;
+pub(crate) mod adaptive_mode_policy;
+pub(crate) mod adaptive_thresholds;
 pub mod auto_mode_resolver;
-pub mod bandit;
-pub mod litm_calibration;
-pub mod mode_predictor;
-pub mod model_registry;
+pub(crate) mod bandit;
+pub(crate) mod litm_calibration;
+pub(crate) mod mode_predictor;
+pub(crate) mod model_registry;
 pub mod task_relevance;
-pub mod token_calibration;
+pub(crate) mod token_calibration;
 
 // ---------------------------------------------------------------------------
 // Domain: Diagnostics & Quality
 // ---------------------------------------------------------------------------
 pub mod anomaly;
-pub mod benchmark;
+pub(crate) mod benchmark;
 pub mod benchmark_compare;
-pub mod benchmark_study;
+pub(crate) mod benchmark_study;
 /// Commercial-plane billing substrate (`billing-plane-v1`): plans, entitlements,
 /// and usage metering derived from the signed savings ledger. Never gates local.
 pub mod billing;
-pub mod code_health;
-pub mod cognitive_load;
+pub(crate) mod code_health;
+pub(crate) mod cognitive_load;
 pub mod conformance;
 pub mod contracts;
-pub mod cyclomatic;
+pub(crate) mod cyclomatic;
 pub mod degradation_policy;
 pub mod loop_detection;
-pub mod output_verification;
-pub mod quality;
-pub mod quality_lab;
-pub mod safety_needles;
+pub(crate) mod output_verification;
+pub(crate) mod quality;
+pub(crate) mod quality_lab;
+pub(crate) mod safety_needles;
 pub mod scorecard;
 pub mod setup_report;
-pub mod slo;
-pub mod slow_log;
-pub mod smells;
-pub mod subagent_contract;
-pub mod surprise;
-pub mod verification_observability;
+pub(crate) mod slo;
+pub(crate) mod slow_log;
+pub(crate) mod smells;
+pub(crate) mod subagent_contract;
+pub(crate) mod surprise;
+pub(crate) mod verification_observability;
 
 // ---------------------------------------------------------------------------
 // Domain: Config & Infrastructure
 // ---------------------------------------------------------------------------
 pub mod active_inference;
-pub mod agent_attribution;
-pub mod agent_budget;
-pub mod agent_lease;
+pub(crate) mod agent_attribution;
+pub(crate) mod agent_budget;
+pub(crate) mod agent_lease;
 pub mod anchor;
-pub mod ann_cache;
-pub mod atomic_fs;
-pub mod attribution;
+pub(crate) mod ann_cache;
+pub(crate) mod atomic_fs;
+pub(crate) mod attribution;
 pub mod audit_trail;
-pub mod binary_detect;
-pub mod bounce_tracker;
-pub mod budget;
-pub mod budget_tracker;
-pub mod budgets;
+pub(crate) mod binary_detect;
+pub(crate) mod bounce_tracker;
+pub(crate) mod budget;
+pub(crate) mod budget_tracker;
+pub(crate) mod budgets;
 pub mod cache;
-pub mod cache_diagnostics;
-pub mod cache_telemetry;
+pub(crate) mod cache_diagnostics;
+pub(crate) mod cache_telemetry;
 pub mod capabilities;
 pub mod capsule_transport;
-pub mod chain_compression;
-pub mod cli_cache;
-pub mod client_capabilities;
-pub mod client_constraints;
-pub mod cloud_files;
+pub(crate) mod chain_compression;
+pub(crate) mod cli_cache;
+pub(crate) mod client_capabilities;
+pub(crate) mod client_constraints;
+pub(crate) mod cloud_files;
 pub mod config;
-pub mod config_heal;
+pub(crate) mod config_heal;
 pub mod consolidation;
-pub mod consolidation_engine;
-pub mod content_handle;
+pub(crate) mod consolidation_engine;
+pub(crate) mod content_handle;
 pub mod context_capsule;
-pub mod contextops;
-pub mod conversation;
+pub(crate) mod contextops;
+pub(crate) mod conversation;
 pub mod crash_log;
-pub mod data_consolidate;
+pub(crate) mod data_consolidate;
 pub mod data_dir;
-pub mod debug_log;
+pub(crate) mod debug_log;
 #[allow(unused)]
-pub mod delivered_ranges;
-pub mod delta_response;
-pub mod diagnostics_store;
-pub mod editor_signal;
-pub mod egress;
+pub(crate) mod delivered_ranges;
+pub(crate) mod delta_response;
+pub(crate) mod diagnostics_store;
+pub(crate) mod editor_signal;
+pub(crate) mod egress;
 pub mod error;
 pub mod events;
-pub mod eviction_orchestrator;
-pub mod evidence;
-pub mod evidence_classification;
-pub mod evidence_ledger;
+pub(crate) mod eviction_orchestrator;
+pub(crate) mod evidence;
+pub(crate) mod evidence_classification;
+pub(crate) mod evidence_ledger;
 pub mod extension_registry;
-pub mod extractors;
+pub(crate) mod extractors;
 pub mod feedback;
-pub mod fep_prefetch;
-pub mod filters;
+pub(crate) mod fep_prefetch;
+pub(crate) mod filters;
 pub mod free_energy_budget;
-pub mod gain;
-pub mod git;
-pub mod git_cache;
-pub mod git_signals;
-pub mod git_util;
-pub mod godot;
+pub(crate) mod gain;
+pub(crate) mod git;
+pub(crate) mod git_cache;
+pub(crate) mod git_signals;
+pub(crate) mod git_util;
+pub(crate) mod godot;
 pub mod gotcha_tracker;
-pub mod handle;
+pub(crate) mod handle;
 pub mod hasher;
-pub mod heatmap;
+pub(crate) mod heatmap;
 pub mod hebbian_cache;
 pub mod hnsw;
-pub mod home;
+pub(crate) mod home;
 pub mod homeostasis;
-pub mod immune_detector;
-pub mod marginal_gate;
+pub(crate) mod immune_detector;
+pub(crate) mod marginal_gate;
 pub mod mcp_catalog;
-pub mod negative_knowledge;
+pub(crate) mod negative_knowledge;
 pub mod ocla;
-pub mod ocla_bus;
-pub mod quality_benchmark;
-pub mod qubo_select;
-pub mod query_aware;
-pub mod session_budget;
-pub mod work_graph;
+pub(crate) mod ocla_bus;
+pub(crate) mod quality_benchmark;
+pub(crate) mod qubo_select;
+pub(crate) mod query_aware;
+pub(crate) mod session_budget;
+pub(crate) mod work_graph;
 
-pub mod agent_registry;
+pub(crate) mod agent_registry;
 pub mod compliance;
 pub mod compliance_report;
-pub mod edit_metering;
-pub mod edit_quality;
-pub mod efficacy;
+pub(crate) mod edit_metering;
+pub(crate) mod edit_quality;
+pub(crate) mod efficacy;
 pub mod evidence_bundle;
-pub mod grammar_usage;
-pub mod graph_cache;
-pub mod http_client;
-pub mod ide_permissions;
-pub mod import_resolver;
-pub mod index_admission;
-pub mod index_bundle;
-pub mod index_filter;
-pub mod index_namespace;
+pub(crate) mod grammar_usage;
+pub(crate) mod graph_cache;
+pub(crate) mod http_client;
+pub(crate) mod ide_permissions;
+pub(crate) mod import_resolver;
+pub(crate) mod index_admission;
+pub(crate) mod index_bundle;
+pub(crate) mod index_filter;
+pub(crate) mod index_namespace;
 pub mod index_orchestrator;
-pub mod index_paths;
-pub mod index_progress;
-pub mod ingestion;
+pub(crate) mod index_paths;
+pub(crate) mod index_progress;
+pub(crate) mod ingestion;
 pub mod input_filters;
-pub mod instruction_compiler;
-pub mod integrity;
-pub mod intent_engine;
+pub(crate) mod instruction_compiler;
+pub(crate) mod integrity;
+pub(crate) mod intent_engine;
 pub(crate) mod intent_lang;
 pub mod intent_protocol;
-pub mod intent_router;
-pub mod introspect;
-pub mod io_boundary;
+pub(crate) mod intent_router;
+pub(crate) mod introspect;
+pub(crate) mod io_boundary;
 pub mod io_health;
-pub mod journal;
+pub(crate) mod journal;
 pub mod jsonc;
-pub mod knowledge_vault;
-pub mod language_capabilities;
+pub(crate) mod knowledge_vault;
+pub(crate) mod language_capabilities;
 #[cfg(target_os = "macos")]
-pub mod launchd;
-pub mod layout_pin;
-pub mod learning_sync;
-pub mod levenshtein;
-pub mod limits;
-pub mod llm_enhance;
-pub mod llm_feedback;
+pub(crate) mod launchd;
+pub(crate) mod layout_pin;
+pub(crate) mod learning_sync;
+pub(crate) mod levenshtein;
+pub(crate) mod limits;
+pub(crate) mod llm_enhance;
+pub(crate) mod llm_feedback;
 pub mod locomo;
-pub mod logging;
+pub(crate) mod logging;
 pub mod mcp_manifest;
-pub mod mdl_selector;
-pub mod multi_repo;
-pub mod nc_compress;
+pub(crate) mod mdl_selector;
+pub(crate) mod multi_repo;
+pub(crate) mod nc_compress;
 pub mod ocp;
 pub mod openapi;
-pub mod output_echo;
-pub mod owasp_alignment;
-pub mod path_locks;
-pub mod path_mode_memory;
+pub(crate) mod output_echo;
+pub(crate) mod owasp_alignment;
+pub(crate) mod path_locks;
+pub(crate) mod path_mode_memory;
 pub mod path_resolve;
 pub mod paths;
 pub mod pathutil;
-pub mod persona;
-pub mod pipeline;
+pub(crate) mod persona;
+pub(crate) mod pipeline;
 pub mod plugins;
-pub mod portable_binary;
-pub mod profile_suggest;
-pub mod profiles;
-pub mod project_hash;
+pub(crate) mod portable_binary;
+pub(crate) mod profile_suggest;
+pub(crate) mod profiles;
+pub(crate) mod project_hash;
 pub mod protocol;
 pub mod provider_bandit;
-pub mod provider_cache;
+pub(crate) mod provider_cache;
 pub mod providers;
-pub mod read_stub_index;
-pub mod recovery;
-pub mod redaction;
+pub(crate) mod read_stub_index;
+pub(crate) mod recovery;
+pub(crate) mod redaction;
 pub mod reference_docs;
-pub mod roles;
-pub mod route_extractor;
+pub(crate) mod roles;
+pub(crate) mod route_extractor;
 pub mod saliency;
-pub mod sandbox;
+pub(crate) mod sandbox;
 #[cfg(target_os = "linux")]
-pub mod sandbox_landlock;
-pub mod sandbox_seatbelt;
-pub mod sanitize;
-pub mod savings_autopush;
-pub mod savings_footer;
+pub(crate) mod sandbox_landlock;
+pub(crate) mod sandbox_seatbelt;
+pub(crate) mod sanitize;
+pub(crate) mod savings_autopush;
+pub(crate) mod savings_footer;
 pub mod savings_ledger;
-pub mod scent_field;
-pub mod search_delta;
+pub(crate) mod scent_field;
+pub(crate) mod search_delta;
 pub mod search_index;
-pub mod secret_detection;
-pub mod security_posture;
+pub(crate) mod secret_detection;
+pub(crate) mod security_posture;
 pub mod sensitivity;
 pub mod server_capabilities;
 pub mod session_token;
-pub mod share;
+pub(crate) mod share;
 pub mod shell_allowlist;
 pub mod startup_guard;
 pub mod stats;
-pub mod structural_diff;
+pub(crate) mod structural_diff;
 pub mod symbol_map;
-pub mod syntax_validate;
-pub mod task_benchmark;
-pub mod task_briefing;
+pub(crate) mod syntax_validate;
+pub(crate) mod task_benchmark;
+pub(crate) mod task_briefing;
 /// macOS Seatbelt self-sandbox (#356): wraps launchd-owned daemon/proxy/updater
 /// in a `sandbox-exec` profile that denies `~/Documents`/`~/Desktop`/
 /// `~/Downloads`, so the TCC privacy prompt can never appear.
@@ -540,51 +540,51 @@ pub mod tcc_guard_sandbox;
 pub mod tdd_schema;
 pub mod telemetry;
 pub mod terse;
-pub mod theme;
-pub mod threshold_learning;
-pub mod tokenizer_translation_driver;
+pub(crate) mod theme;
+pub(crate) mod threshold_learning;
+pub(crate) mod tokenizer_translation_driver;
 pub mod tokens;
-pub mod tool_health;
-pub mod tool_lifecycle;
+pub(crate) mod tool_health;
+pub(crate) mod tool_lifecycle;
 pub mod tool_profiles;
-pub mod transcript_compact;
-pub mod update_scheduler;
-pub mod updater;
-pub mod version_check;
-pub mod visualizer;
-pub mod walk_filter;
+pub(crate) mod transcript_compact;
+pub(crate) mod update_scheduler;
+pub(crate) mod updater;
+pub(crate) mod version_check;
+pub(crate) mod visualizer;
+pub(crate) mod walk_filter;
 /// WASM extension runtime (`wasm-abi-v1`): sandboxed, language-independent
 /// compressors and providers. Feature-gated behind `wasm`.
 #[cfg(feature = "wasm")]
-pub mod wasm_ext;
+pub(crate) mod wasm_ext;
 pub mod web;
 pub mod workflow;
-pub mod workspace_config;
-pub mod wrapped;
-pub mod wrapped_share;
-pub mod wrapped_svg;
-pub mod xdg_migrate;
+pub(crate) mod workspace_config;
+pub(crate) mod wrapped;
+pub(crate) mod wrapped_share;
+pub(crate) mod wrapped_svg;
+pub(crate) mod xdg_migrate;
 
 // ---------------------------------------------------------------------------
 // Feature-gated modules
 // ---------------------------------------------------------------------------
 pub mod archive;
-pub mod archive_fts;
-pub mod artifact_index;
-pub mod artifacts;
-pub mod ast_walk;
-pub mod buddy;
+pub(crate) mod archive_fts;
+pub(crate) mod artifact_index;
+pub(crate) mod artifacts;
+pub(crate) mod ast_walk;
+pub(crate) mod buddy;
 #[cfg(feature = "tree-sitter")]
-pub mod chunks_ts;
-pub mod deep_queries;
-pub mod deps;
+pub(crate) mod chunks_ts;
+pub(crate) mod deep_queries;
+pub(crate) mod deps;
 pub mod editor_registry;
-pub mod firewall;
+pub(crate) mod firewall;
 pub mod pathjail;
 pub mod signatures;
 #[cfg(feature = "tree-sitter")]
-pub mod signatures_ts;
-pub mod storage_maintenance;
-pub mod structured_compact;
-pub mod type_ref_edges;
-pub mod workspace_trust;
+pub(crate) mod signatures_ts;
+pub(crate) mod storage_maintenance;
+pub(crate) mod structured_compact;
+pub(crate) mod type_ref_edges;
+pub(crate) mod workspace_trust;
