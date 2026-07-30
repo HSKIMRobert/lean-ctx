@@ -344,6 +344,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# Track unwrap reduction progress. Target: deny once count < 100.
+# Current: ~4480 violations. See #1383.
+unwrap_used = "warn"
 
 # --- Style preferences (not quality issues) ---
 module_name_repetitions = "allow"
@@ -444,4 +447,3 @@ harness = false
 [patch.crates-io]
 rmcp = { path = "crates/vendor/rmcp" }
 rmcp-macros = { path = "crates/vendor/rmcp-macros" }
-
