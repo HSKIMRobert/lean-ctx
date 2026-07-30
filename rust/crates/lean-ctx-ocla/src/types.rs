@@ -1,3 +1,9 @@
+//! # Data Classification
+//! Fields are annotated with sensitivity levels:
+//! - `[PII]` — personally identifiable or workspace-identifying data, requires redaction before cross-boundary transmission
+//! - `[INTERNAL]` — business-sensitive data, visible to operators but not external parties
+//! - `[PUBLIC]` — safe for any consumer
+
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
@@ -10,15 +16,53 @@ pub const AGENT_ENVELOPE_SCHEMA_VERSION: u16 = 1;
 
 pub type OclaResult<T> = Result<T, OclaError>;
 
+/// Replaces the first two user/workspace path components with redaction markers.
+#[must_use]
+pub fn redact_path(path: &str) -> String {
+    let mut components = path
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>();
+
+    if matches!(components.first(), Some(&"Users" | &"home")) {
+        components.remove(0);
+    }
+
+    components
+        .iter()
+        .enumerate()
+        .map(|(index, component)| {
+            if index < 2 {
+                "***".to_string()
+            } else {
+                (*component).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Retains only an identifier's first eight characters for correlation.
+#[must_use]
+pub fn redact_id(id: &str) -> String {
+    format!("{}...", id.chars().take(8).collect::<String>())
+}
+
 /// Stable identifiers required to join decisions across interception surfaces.
 /// Payload bytes intentionally never belong in this contract.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct OclaRequestContext {
+    /// [PII] Request identifier that can correlate a user's activity.
     pub request_id: String,
+    /// [PII] Session identifier.
     pub session_id: String,
+    /// [PII] Agent identifier.
     pub agent_id: String,
+    /// [PII] Content reference that can identify workspace data.
     pub content_ref: String,
+    /// [PII] Tenant identifier.
     pub tenant_id: Option<String>,
+    /// [PII] Trace identifier that correlates requests across boundaries.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub trace_id: String,
 }
@@ -75,11 +119,17 @@ impl RequiredNullableString {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireContext {
+    /// [PII] Request identifier that can correlate a user's activity.
     request_id: String,
+    /// [PII] Session identifier.
     session_id: String,
+    /// [PII] Agent identifier.
     agent_id: String,
+    /// [PII] Content reference that can identify workspace data.
     content_ref: String,
+    /// [PII] Tenant identifier.
     tenant_id: RequiredNullableString,
+    /// [PII] Trace identifier that correlates requests across boundaries.
     #[serde(default)]
     trace_id: Option<String>,
 }
@@ -122,9 +172,13 @@ pub enum TokenFlowDirection {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenBalanceV1 {
+    /// [INTERNAL] Token count before materialization.
     pub original_tokens: u64,
+    /// [INTERNAL] Token count after materialization.
     pub materialized_tokens: u64,
+    /// [INTERNAL] Token count delivered to the consumer.
     pub delivered_tokens: u64,
+    /// [INTERNAL] Token count billed by the provider.
     pub provider_billed_tokens: u64,
 }
 
@@ -150,15 +204,25 @@ impl TokenBalanceV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CanonicalTokenEnvelopeV1 {
+    /// [PUBLIC] OCLA schema version.
     pub schema_version: u16,
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PUBLIC] Interception surface name.
     pub surface: TokenEnvelopeSurface,
+    /// [PUBLIC] Token-flow direction.
     pub direction: TokenFlowDirection,
+    /// [PUBLIC] Provider name.
     pub provider: String,
+    /// [INTERNAL] Model name.
     pub model: String,
+    /// [INTERNAL] Token-accounting metrics.
     pub token_balance: TokenBalanceV1,
+    /// [INTERNAL] Internal route reference.
     pub route_ref: Option<String>,
+    /// [INTERNAL] Internal policy reference.
     pub policy_ref: Option<String>,
+    /// [PII] Idempotency key that correlates requests.
     pub idempotency_key: String,
 }
 
@@ -314,10 +378,13 @@ pub enum OclaCapabilityStatus {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct OclaCapability {
+    /// [PUBLIC] Capability name.
     pub kind: OclaCapabilityKind,
+    /// [PUBLIC] Supported API version string.
     pub api_version: String,
+    /// [PUBLIC] Capability availability status.
     pub status: OclaCapabilityStatus,
-    /// Named, documented limits, e.g. `max_input_tokens` or `max_fanout`.
+    /// [INTERNAL] Named operating limits, e.g. `max_input_tokens` or `max_fanout`.
     pub limits: BTreeMap<String, u64>,
 }
 
@@ -335,150 +402,216 @@ impl OclaCapability {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Observation {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PUBLIC] Observation name.
     pub name: String,
+    /// [PII] Observation attributes, which may contain user or workspace identifiers.
     pub attributes: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UsageRecord {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Model name.
     pub model: String,
+    /// [INTERNAL] Input token count.
     pub input_tokens: u64,
+    /// [INTERNAL] Output token count.
     pub output_tokens: u64,
+    /// [INTERNAL] Provider-billed token count.
     pub provider_billed_tokens: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MetricPoint {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PUBLIC] Metric name.
     pub name: String,
+    /// [INTERNAL] Metric value.
     pub value_milli: i64,
+    /// [PII] Metric dimensions, which may contain user or workspace identifiers.
     pub dimensions: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SavingsEvidence {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Original token count.
     pub original_tokens: u64,
+    /// [INTERNAL] Delivered token count.
     pub delivered_tokens: u64,
+    /// [INTERNAL] Internal quality reference.
     pub quality_ref: Option<String>,
+    /// [INTERNAL] Internal evidence reference.
     pub evidence_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IntentRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Candidate intent labels derived from a request.
     pub candidate_intents: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IntentDecision {
+    /// [INTERNAL] Selected request intent.
     pub intent: String,
+    /// [INTERNAL] Decision confidence metric.
     pub confidence_milli: u16,
+    /// [INTERNAL] Internal rationale reference.
     pub rationale_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Whether the user accepted the outcome.
     pub accepted: Option<bool>,
+    /// [INTERNAL] Outcome quality metric.
     pub quality_score_milli: Option<u16>,
+    /// [INTERNAL] Internal outcome reference.
     pub outcome_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CompressionRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PII] Source reference that can identify workspace content.
     pub source_ref: String,
+    /// [INTERNAL] Source token count.
     pub source_tokens: u64,
+    /// [INTERNAL] Requested target token count.
     pub target_tokens: u64,
+    /// [INTERNAL] Internal quality-policy reference.
     pub quality_policy_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CompressionResult {
+    /// [PII] Delivered-content reference that can identify workspace data.
     pub delivered_ref: String,
+    /// [INTERNAL] Delivered token count.
     pub delivered_tokens: u64,
+    /// [INTERNAL] Internal recovery reference.
     pub recovery_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ResponseOptimizationRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PII] Response reference that can identify workspace content.
     pub response_ref: String,
+    /// [INTERNAL] Original token count.
     pub original_tokens: u64,
+    /// [INTERNAL] Requested target token count.
     pub target_tokens: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ResponseOptimizationResult {
+    /// [PII] Response reference that can identify workspace content.
     pub response_ref: String,
+    /// [INTERNAL] Delivered token count.
     pub delivered_tokens: u64,
+    /// [INTERNAL] Internal recovery reference.
     pub recovery_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ModelRouteRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Candidate model names.
     pub candidate_models: Vec<String>,
+    /// [INTERNAL] Maximum permitted cost metric.
     pub maximum_cost_micros: Option<u64>,
+    /// [INTERNAL] Maximum permitted latency metric.
     pub maximum_latency_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RoutingDecision {
+    /// [INTERNAL] Selected model name.
     pub model: String,
+    /// [PUBLIC] Provider name.
     pub provider: String,
+    /// [INTERNAL] Reasoning budget token count.
     pub reasoning_budget_tokens: u64,
+    /// [INTERNAL] Internal decision reference.
     pub decision_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EfficiencySample {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Original token count.
     pub original_tokens: u64,
+    /// [INTERNAL] Delivered token count.
     pub delivered_tokens: u64,
+    /// [INTERNAL] Whether the user accepted the result.
     pub accepted: Option<bool>,
+    /// [INTERNAL] Cache-hit metric.
     #[serde(default)]
     pub cache_hits: u64,
+    /// [INTERNAL] Cache-read metric.
     #[serde(default)]
     pub cache_reads: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EfficiencyAnalysis {
+    /// [INTERNAL] Efficiency metric.
     pub etpao_milli: Option<u64>,
+    /// [INTERNAL] Duplicate-content metric.
     pub duplicate_ratio_milli: u16,
+    /// [INTERNAL] Compression-rate metric.
     #[serde(default)]
     pub compression_rate_milli: u16,
+    /// [INTERNAL] Cache-hit-rate metric.
     #[serde(default)]
     pub cache_hit_rate_milli: u16,
+    /// [INTERNAL] Internal recommendation references.
     pub recommendation_refs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigTuningRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Internal configuration reference.
     pub config_ref: String,
+    /// [INTERNAL] Internal objective reference.
     pub objective_ref: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigProposal {
+    /// [INTERNAL] Internal proposal reference.
     pub proposal_ref: String,
+    /// [INTERNAL] Internal rollback reference.
     pub rollback_ref: String,
+    /// [INTERNAL] Approval workflow state.
     pub requires_approval: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 /// Holdout configuration for experiments.
 pub struct HoldoutConfig {
-    /// Percentage of traffic to hold out (0-100).
+    /// [INTERNAL] Percentage of traffic to hold out (0-100).
     pub holdout_pct: u8,
-    /// Deterministic assignment seed for reproducibility.
+    /// [INTERNAL] Deterministic assignment seed for reproducibility.
     pub assignment_seed: String,
-    /// Maximum number of samples before stopping.
+    /// [INTERNAL] Maximum number of samples before stopping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_samples: Option<u64>,
 }
@@ -486,13 +619,13 @@ pub struct HoldoutConfig {
 /// Stop conditions that can terminate an experiment early.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentStopConditions {
-    /// Stop if this many samples are collected.
+    /// [INTERNAL] Stop if this many samples are collected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_samples: Option<u64>,
-    /// Stop if improvement over control is below this threshold.
+    /// [INTERNAL] Stop if improvement over control is below this threshold.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_improvement_pct: Option<u8>,
-    /// Stop after this many seconds.
+    /// [INTERNAL] Stop after this many seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_duration_secs: Option<u64>,
 }
@@ -500,81 +633,124 @@ pub struct ExperimentStopConditions {
 /// Extended experiment result with holdout data.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentOutcome {
+    /// [INTERNAL] Internal experiment reference.
     pub experiment_ref: String,
+    /// [INTERNAL] Treatment sample count.
     pub treatment_samples: u64,
+    /// [INTERNAL] Control sample count.
     pub control_samples: u64,
+    /// [INTERNAL] Treatment metric.
     pub treatment_metric: f64,
+    /// [INTERNAL] Control metric.
     pub control_metric: f64,
+    /// [INTERNAL] Improvement metric.
     pub improvement_pct: f64,
+    /// [INTERNAL] Internal experiment stop reason.
     pub stopped_reason: Option<String>,
+    /// [INTERNAL] Statistical significance state.
     pub is_significant: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentRequest {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Internal experiment reference.
     pub experiment_ref: String,
+    /// [PII] Cohort reference that can identify a user group.
     pub cohort_ref: String,
+    /// [INTERNAL] Experiment holdout configuration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holdout: Option<HoldoutConfig>,
+    /// [INTERNAL] Experiment stop conditions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_conditions: Option<ExperimentStopConditions>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExperimentResult {
+    /// [INTERNAL] Internal experiment reference.
     pub experiment_ref: String,
+    /// [INTERNAL] Internal outcome reference.
     pub outcome_ref: String,
+    /// [INTERNAL] Internal rollback reference.
     pub rollback_ref: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConnectorJob {
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [INTERNAL] Connector identifier.
     pub connector_id: String,
+    /// [PII] Payload reference that can identify workspace content.
     pub payload_ref: String,
+    /// [INTERNAL] Deadline metric in milliseconds.
     pub deadline_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ScheduledJob {
+    /// [INTERNAL] Internal job reference.
     pub job_ref: String,
+    /// [INTERNAL] Internal queue reference.
     pub queue_ref: String,
 }
 
 /// Cross-agent delivery record: tracks that file content was read by an agent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeliveryRecord {
+    /// [INTERNAL] Content-derived digest.
     pub blake3: [u8; 12],
+    /// [PII] File path.
     pub path: String,
+    /// [INTERNAL] File line-count metric.
     pub line_count: u32,
+    /// [INTERNAL] File token-count metric.
     pub token_count: u64,
+    /// [PII] Agent identifier.
     pub agent_id: String,
+    /// [PII] Conversation identifier.
     pub conversation_id: String,
+    /// [INTERNAL] Read timestamp.
     pub read_at: u64,
+    /// [INTERNAL] File modification timestamp.
     pub mtime: u64,
+    /// [INTERNAL] Freshness state.
     pub fresh: bool,
 }
 
 /// Entry for recording a new delivery.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeliveryEntry {
+    /// [INTERNAL] Content-derived digest.
     pub blake3: [u8; 12],
+    /// [PII] File path.
     pub path: String,
+    /// [INTERNAL] File line-count metric.
     pub line_count: u32,
+    /// [INTERNAL] File token-count metric.
     pub token_count: u64,
+    /// [PII] Agent identifier.
     pub agent_id: String,
+    /// [PII] Conversation identifier.
     pub conversation_id: String,
+    /// [INTERNAL] File modification timestamp.
     pub mtime: u64,
 }
 
 /// Statistics for the delivery registry.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DeliveryStats {
+    /// [INTERNAL] Registry entry count.
     pub total_entries: usize,
+    /// [INTERNAL] Stub-delivery count.
     pub stubs_served: u64,
+    /// [INTERNAL] Token-savings metric.
     pub tokens_saved: u64,
+    /// [INTERNAL] Unique-path count.
     pub unique_paths: usize,
+    /// [INTERNAL] Unique-agent count.
     pub unique_agents: usize,
 }
 
@@ -586,13 +762,19 @@ pub struct DeliveryStats {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentEnvelope {
+    /// [PUBLIC] Agent-envelope schema version.
     pub schema_version: u16,
-    /// Content-derived relay identity for idempotent admission and event joins.
+    /// [PII] Content-derived relay identifier for idempotent admission and event joins.
     pub relay_id: String,
+    /// [PII] Request context containing correlation identifiers.
     pub context: OclaRequestContext,
+    /// [PII] Sending agent identifier.
     pub from_agent_id: String,
+    /// [PII] Receiving agent identifier.
     pub to_agent_id: String,
+    /// [PII] Capsule reference that can identify workspace content.
     pub capsule_ref: String,
+    /// [INTERNAL] Authorized token budget.
     pub budget_tokens: u64,
 }
 
@@ -736,6 +918,19 @@ impl PrivacyLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redact_path_masks_user_and_workspace_components() {
+        assert_eq!(
+            redact_path("/Users/alice/projects/my-app/src/main.rs"),
+            "***/***/my-app/src/main.rs"
+        );
+    }
+
+    #[test]
+    fn redact_id_retains_only_a_short_correlation_prefix() {
+        assert_eq!(redact_id("agent-0123456789"), "agent-01...");
+    }
 
     #[test]
     fn contract_has_exactly_fifteen_discoverable_capabilities() {
