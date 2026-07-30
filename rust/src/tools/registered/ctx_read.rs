@@ -659,6 +659,9 @@ impl CtxReadTool {
                                     tuning.protect,
                                 );
                                 if let Some(hit) = cache.get_compressed(&path_owned, &ck).cloned() {
+                                    crate::core::auto_mode_resolver::count_source(
+                                        "compressed_cache_hit",
+                                    );
                                     let hit = crate::core::redaction::redact_text_if_enabled(&hit);
                                     let orig =
                                         cache.get(&path_owned).map_or(0, |e| e.original_tokens);
@@ -722,6 +725,12 @@ impl CtxReadTool {
                     }; // write lock released
 
                     if let PrepareOutcome::Hit(c, rm, orig, hit, fref, ss) = outcome {
+                        // Update last_mode for compressed-cache hits so the auto-mode
+                        // resolver can reuse this mode on future re-reads (#E26).
+                        let mut cache = acquire_write!(10, "hit last_mode 10s");
+                        if let Some(entry) = cache.get_mut(&path_owned) {
+                            entry.last_mode.clone_from(&rm);
+                        }
                         let _ = tx.send((c, rm, orig, hit, fref, ss));
                         return;
                     }
