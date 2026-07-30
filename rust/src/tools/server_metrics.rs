@@ -499,6 +499,19 @@ impl LeanCtxServer {
             &cs.complexity,
         );
 
+        let effective_hits = cs.cache_hits + dedup.dedup_hits as u64;
+        let effective_reads = std::cmp::max(cs.total_reads, dedup.total_reads as u64);
+
+        let source_snapshot = crate::core::auto_mode_resolver::source_counts();
+        let compressed_cache_hits = source_snapshot
+            .iter()
+            .find(|(k, _)| *k == "compressed_cache_hit")
+            .map_or(0, |(_, v)| *v);
+        let full_delivery_degraded = source_snapshot
+            .iter()
+            .find(|(k, _)| *k == "full_delivery_degraded")
+            .map_or(0, |(_, v)| *v);
+
         let live = serde_json::json!({
             "cep_score": cs.cep_score,
             "cache_utilization": cs.cache_util,
@@ -511,6 +524,10 @@ impl LeanCtxServer {
             "dedup_reads": dedup.total_reads,
             "dedup_hits": dedup.dedup_hits,
             "dedup_tokens_saved": dedup.tokens_saved,
+            "effective_cache_hits": effective_hits,
+            "effective_cache_reads": effective_reads,
+            "compressed_cache_hits": compressed_cache_hits,
+            "full_delivery_degraded": full_delivery_degraded,
             "tokens_saved": cs.total_saved,
             "tokens_original": cs.total_original,
             "tool_calls": cs.tool_call_count,
@@ -780,4 +797,3 @@ mod activity_score_tests {
         assert!(saturated.iter().all(|point| point.value_milli == i64::MAX));
     }
 }
-

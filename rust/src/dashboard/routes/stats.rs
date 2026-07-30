@@ -99,12 +99,22 @@ fn load_cache_runtime() -> Option<serde_json::Value> {
     let path = crate::core::paths::state_dir().ok()?.join("mcp-live.json");
     let raw = std::fs::read_to_string(path).ok()?;
     let live: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let u = |key: &str| {
+        live.get(key)
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+    };
     Some(serde_json::json!({
-        "cache_hits": live.get("cache_hits").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        "total_reads": live.get("total_reads").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        "hit_rate_pct": live.get("cache_utilization").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        "tokens_saved": live.get("tokens_saved").and_then(serde_json::Value::as_u64).unwrap_or(0),
-        "tokens_original": live.get("tokens_original").and_then(serde_json::Value::as_u64).unwrap_or(0),
+        "cache_hits": u("cache_hits"),
+        "total_reads": u("total_reads"),
+        "hit_rate_pct": u("cache_utilization"),
+        "tokens_saved": u("tokens_saved"),
+        "tokens_original": u("tokens_original"),
+        "effective_cache_hits": u("effective_cache_hits"),
+        "effective_cache_reads": u("effective_cache_reads"),
+        "dedup_hits": u("dedup_hits"),
+        "compressed_cache_hits": u("compressed_cache_hits"),
+        "full_delivery_degraded": u("full_delivery_degraded"),
     }))
 }
 

@@ -639,12 +639,15 @@ class CockpitLive extends HTMLElement {
     var runtimeCache = stats && stats.cache_runtime ? stats.cache_runtime : null;
     var cep = stats && stats.cep ? stats.cep : {};
     var cacheHits = runtimeCache
-      ? Number(runtimeCache.cache_hits || 0)
+      ? Number(runtimeCache.effective_cache_hits || runtimeCache.cache_hits || 0)
       : Number(cep.total_cache_hits || 0);
     var cacheReads = runtimeCache
-      ? Number(runtimeCache.total_reads || 0)
+      ? Number(runtimeCache.effective_cache_reads || runtimeCache.total_reads || 0)
       : Number(cep.total_cache_reads || 0);
     var cacheRate = cacheReads > 0 ? Math.round((cacheHits / cacheReads) * 100) : 0;
+    var compressedCacheHits = runtimeCache ? Number(runtimeCache.compressed_cache_hits || 0) : 0;
+    var degradationCycles = runtimeCache ? Number(runtimeCache.full_delivery_degraded || 0) : 0;
+    var dedupHits = runtimeCache ? Number(runtimeCache.dedup_hits || 0) : 0;
     var optimizedRate = windowStats.calls > 0
       ? Math.round((windowStats.optimizedCalls / windowStats.calls) * 100)
       : 0;
@@ -672,7 +675,7 @@ class CockpitLive extends HTMLElement {
       '<span class="hl">Context Cache Reuse</span>' +
       '<div class="token-counter" data-live="1">' + esc(String(cacheRate)) + '%</div>' +
       '<p class="hs">' + esc(ff(cacheHits)) + ' hits / ' + esc(ff(cacheReads)) +
-      ' reads · current MCP runtime</p>' +
+      ' reads (dedup ' + esc(ff(dedupHits)) + ')</p>' +
       '</div>' +
       '<div class="hc">' +
       '<span class="hl">Optimization Coverage</span>' +
@@ -680,7 +683,21 @@ class CockpitLive extends HTMLElement {
       '<p class="hs">' + esc(String(savingsRate)) + '% token reduction · ' +
       esc(ff(windowStats.passthroughCalls)) + ' payload passthroughs</p>' +
       '</div>' +
-      '</div>'
+      '</div>' +
+      (compressedCacheHits > 0 || degradationCycles > 0
+        ? '<div class="hero" style="grid-template-columns:1fr 1fr;margin-top:6px">' +
+          '<div class="hc">' +
+          '<span class="hl">Compressed Cache Hits</span>' +
+          '<div class="token-counter" data-live="1">' + esc(ff(compressedCacheHits)) + '</div>' +
+          '<p class="hs">map/signatures served from memory</p>' +
+          '</div>' +
+          '<div class="hc">' +
+          '<span class="hl">Freshness Recoveries</span>' +
+          '<div class="token-counter" data-live="1">' + esc(ff(degradationCycles)) + '</div>' +
+          '<p class="hs">stale stubs degraded to fresh reads</p>' +
+          '</div>' +
+          '</div>'
+        : '')
     );
   }
 
