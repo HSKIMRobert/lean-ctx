@@ -242,7 +242,7 @@ fn build_plan(
                 view: item.view.clone(),
                 tokens: item.tokens,
                 phi,
-                reason: "selected by compiler".to_string(),
+                reason: selected_display(object).unwrap_or_default(),
             }
         })
         .collect();
@@ -272,6 +272,32 @@ fn build_plan(
         excluded,
         deferred: Vec::new(),
         provider_stats,
+    }
+}
+
+fn selected_display(object: &ContextObjectV1) -> Option<String> {
+    let path = object
+        .metadata
+        .get("path")
+        .or_else(|| object.metadata.get("file"))
+        .map(String::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| match object.kind {
+            ContextObjectKind::File => {
+                (!object.title.trim().is_empty()).then_some(object.title.as_str())
+            }
+            _ => None,
+        });
+    let snippet = object
+        .content
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+
+    match (path, snippet) {
+        (Some(path), Some(snippet)) => Some(format!("{path}: {snippet}")),
+        (Some(path), None) => Some(path.to_owned()),
+        (None, Some(snippet)) => Some(snippet.to_owned()),
+        (None, None) => None,
     }
 }
 
