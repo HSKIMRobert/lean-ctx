@@ -165,6 +165,12 @@ impl GatewayKeys {
     }
 }
 
+/// Re-read gateway keys from their configured file path. Callers can replace
+/// their current snapshot with the result to apply a rotated secret.
+pub fn reload_keys() -> anyhow::Result<GatewayKeys> {
+    GatewayKeys::load_default()
+}
+
 /// Lowercase hex SHA-256 (the storage form of every gateway key).
 #[must_use]
 pub fn sha256_hex(input: &str) -> String {
@@ -254,5 +260,24 @@ mod tests {
             sha256_hex("abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn reload_keys_rereads_the_configured_path() {
+        let _env = crate::core::data_dir::test_env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let path = write_keys(
+            tmp.path(),
+            &format!(
+                "[[keys]]\nsha256_hex = \"{}\"\nperson = \"mara\"\n",
+                sha256_hex("gk-mara-secret")
+            ),
+        );
+        crate::test_env::set_var("LEAN_CTX_GATEWAY_KEYS", &path);
+
+        let keys = reload_keys().unwrap();
+        assert!(keys.lookup("gk-mara-secret").is_some());
+
+        crate::test_env::remove_var("LEAN_CTX_GATEWAY_KEYS");
     }
 }
