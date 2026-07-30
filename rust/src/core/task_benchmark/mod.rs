@@ -5,7 +5,9 @@
 //! Measures both token savings AND output quality to ensure compression never
 //! degrades agent performance.
 
+#[allow(dead_code)]
 pub(crate) mod config;
+#[allow(dead_code)]
 pub(crate) mod fixtures;
 pub(crate) mod report;
 pub(crate) mod runner;
