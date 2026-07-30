@@ -1,8 +1,10 @@
 {
-  "baseline": {
-    "commit": "22f149e22a3cd3d6ced8bb52c81d6d089a37ae2d",
-    "report": "security/evidence/full-history-baseline-v1.json",
-    "report_sha256": "e2e6ec2e53b44de0ba6f8f69b8656b121d78b574992e38d18216730916009ccf"
+  "schema_version": "leanctx.history-policy/v1",
+  "limits": {
+    "max_commits": 20000,
+    "max_objects": 300000,
+    "max_findings": 5000,
+    "command_timeout_seconds": 120
   },
   "forbidden_paths": [
     {
@@ -30,11 +32,9 @@
       "prefix": "rust/src/core/billing/stripe_invoice.rs"
     }
   ],
-  "limits": {
-    "command_timeout_seconds": 120,
-    "max_commits": 20000,
-    "max_findings": 5000,
-    "max_objects": 300000
+  "secret_rule": {
+    "id": "SEC001",
+    "pickaxe_regex": "AKIA|ghp_|gho_|ghs_|ghu_|ghr_|sk_live_|PRIVATE KEY-----|postgres://|postgresql://|mysql://"
   },
   "policy_source_path": "security/history-policy-v1.json",
   "scanner_source_paths": [
@@ -48,9 +48,9 @@
     "scripts/history-policy-gate.py": "5c0d820e15d60226d3ef3de35a1a2ecf93eede36f315a2fba72d1a105bba6ae1",
     "tests/security/test_history_policy_gate.py": "7b84ba2b09517dcece43fbfd1345f3d8663090752ef84cc05423ab419b1132ea"
   },
-  "schema_version": "leanctx.history-policy/v1",
-  "secret_rule": {
-    "id": "SEC001",
-    "pickaxe_regex": "AKIA|ghp_|gho_|ghs_|ghu_|ghr_|sk_live_|PRIVATE KEY-----|postgres://|postgresql://|mysql://"
+  "baseline": {
+    "commit": "22f149e22a3cd3d6ced8bb52c81d6d089a37ae2d",
+    "report": "security/evidence/full-history-baseline-v1.json",
+    "report_sha256": "e2e6ec2e53b44de0ba6f8f69b8656b121d78b574992e38d18216730916009ccf"
   }
 }
