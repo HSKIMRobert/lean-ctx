@@ -110,7 +110,7 @@ describe("OclaClient", () => {
       }),
     );
 
-    const client = new OclaClient("https://example.test/");
+    const client = new OclaClient("https://example.test/", "api-key");
     await expect(client.health()).resolves.toEqual(responses["/ocla/v1/health"]);
     await expect(client.capabilities()).resolves.toEqual(
       responses["/ocla/v1/capabilities"],
@@ -138,6 +138,9 @@ describe("OclaClient", () => {
       ["/ocla/v1/capsule/capsule:1/fork", "POST"],
       ["/ocla/v1/ledger/summary", "GET"],
     ]);
+    for (const { init } of calls) {
+      expect(init?.headers).toMatchObject({ Authorization: "Bearer api-key" });
+    }
   });
 
   it("sends plain capsule data and JSON fork budgets", async () => {
