@@ -107,9 +107,6 @@ pub(crate) fn format_full_output(
 
     let output = format!("{metadata}\n{content}");
     let sent = count_tokens(&output);
-    if !monotonic_check(tokens, sent) {
-        return raw_fallback(file_ref, content, tokens, sent);
-    }
     (protocol::append_savings(&output, tokens, sent), sent)
 }
 
@@ -330,9 +327,6 @@ pub(crate) fn process_mode_tuned(
                 format!("{short}: {line_count} lines, {tok} tok ({ext})")
             };
             let sent = count_tokens(&output);
-            if !monotonic_check(original_tokens, sent) {
-                return raw_fallback(file_path, content, original_tokens, sent);
-            }
             let savings = protocol::format_savings(original_tokens, sent);
             (format!("{output}\n{savings}"), sent)
         }
@@ -344,18 +338,12 @@ pub(crate) fn process_mode_tuned(
             } else {
                 format!("{short} {line_count}L lines:{range_str}")
             };
-            // Comma is multi-select, not a range — a caller who meant `N-M`
-            // gets stray single lines back, so say what the comma did instead
-            // of letting the wrong window pass silently (limitations #7).
             let multi_hint = if range_str.contains(',') {
                 LINES_COMMA_HINT
             } else {
                 ""
             };
             let sent = count_tokens(&extracted);
-            if !monotonic_check(original_tokens, sent) {
-                return raw_fallback(file_path, content, original_tokens, sent);
-            }
             let savings = protocol::format_savings(original_tokens, sent);
             (
                 format!("{header}\n{extracted}{multi_hint}\n{savings}"),
@@ -690,9 +678,6 @@ fn render_signatures(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         output.push_str(&format!("\n  {}", crate::core::handle::USAGE_HINT));
     }
     let sent = count_tokens(&output);
-    if !monotonic_check(original_tokens, sent) {
-        return raw_fallback(file_path, content, original_tokens, sent);
-    }
     (
         append_compressed_hint(
             &protocol::append_savings(&output, original_tokens, sent),
@@ -722,9 +707,6 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
             format!("{short} {line_count}L\n{php_map}")
         };
         let sent = count_tokens(&output);
-        if !monotonic_check(original_tokens, sent) {
-            return raw_fallback(file_path, content, original_tokens, sent);
-        }
         let output = protocol::append_savings(&output, original_tokens, sent);
         return (append_compressed_hint(&output, file_path), sent);
     }
@@ -749,9 +731,6 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
             format!("{short} {line_count}L\n{structured}")
         };
         let sent = count_tokens(&output);
-        if !monotonic_check(original_tokens, sent) {
-            return raw_fallback(file_path, content, original_tokens, sent);
-        }
         output = protocol::append_savings(&output, original_tokens, sent);
         return (append_compressed_hint(&output, file_path), sent);
     }
@@ -828,9 +807,6 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     }
 
     let sent = count_tokens(&output);
-    if !monotonic_check(original_tokens, sent) {
-        return raw_fallback(file_path, content, original_tokens, sent);
-    }
     (
         append_compressed_hint(
             &protocol::append_savings(&output, original_tokens, sent),

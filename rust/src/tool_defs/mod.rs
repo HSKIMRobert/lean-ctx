@@ -15,43 +15,16 @@ pub fn tool_def(name: &'static str, description: &'static str, schema_value: Val
     Tool::new(name, description, Arc::new(schema))
 }
 
-/// Remove top-level schema combinators unsupported by Anthropic tool schemas.
+/// Strip top-level `oneOf` which Anthropic's API rejects in tool schemas.
 ///
-/// `oneOf` branches commonly express alternative argument sets while keeping
-/// their properties at the top level. Their required fields are retained as a
-/// deduplicated top-level `required` array before the combinator is removed.
+/// The combinator is removed but no required fields are added — the published
+/// schema becomes more permissive and the handler does runtime validation.
+/// `allOf` and `anyOf` are preserved (carry `if`/`then` conditionals).
 fn sanitize_schema(schema: Value) -> Value {
     let Value::Object(mut schema) = schema else {
         return schema;
     };
-
-    let mut required = schema
-        .get("required")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-
-    if let Some(Value::Array(variants)) = schema.remove("oneOf") {
-        for variant in variants {
-            let Some(variant_required) = variant
-                .as_object()
-                .and_then(|branch| branch.get("required"))
-                .and_then(Value::as_array)
-            else {
-                continue;
-            };
-
-            for field in variant_required {
-                if !required.contains(field) {
-                    required.push(field.clone());
-                }
-            }
-        }
-        schema.insert("required".into(), Value::Array(required));
-    }
-
-    schema.remove("allOf");
-    schema.remove("anyOf");
+    schema.remove("oneOf");
     Value::Object(schema)
 }
 
@@ -255,7 +228,7 @@ mod tests {
     use super::sanitize_schema;
 
     #[test]
-    fn sanitize_schema_removes_top_level_combinators_and_merges_one_of_required() {
+    fn sanitize_schema_strips_one_of_preserves_all_of() {
         let sanitized = sanitize_schema(json!({
             "type": "object",
             "properties": {"command": {"type": "string"}},
@@ -273,7 +246,9 @@ mod tests {
             json!({
                 "type": "object",
                 "properties": {"command": {"type": "string"}},
-                "required": ["base", "command", "cwd", "timeout"]
+                "required": ["base"],
+                "allOf": [{"type": "object"}],
+                "anyOf": [{"type": "object"}]
             })
         );
     }

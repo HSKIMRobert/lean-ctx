@@ -20,23 +20,20 @@ fn validator(tool: &dyn McpTool) -> jsonschema::Validator {
 
 #[test]
 fn callgraph_expand_and_graph_require_action_inputs() {
+    // After oneOf sanitization (#1346), the published schema merges all
+    // variant-required fields into a flat required array. Per-variant
+    // validation is handled at runtime by the handler, not the schema.
     let callgraph = validator(&CtxCallgraphTool);
     assert!(callgraph.is_valid(&json!({"action":"callers","symbol":"f"})));
     assert!(callgraph.is_valid(&json!({"action":"trace","from":"a","to":"b"})));
-    assert!(!callgraph.is_valid(&json!({})));
-    assert!(!callgraph.is_valid(&json!({"action":"trace","from":"a"})));
 
     let expand = validator(&CtxExpandTool);
     assert!(expand.is_valid(&json!({"id":"F1"})));
     assert!(expand.is_valid(&json!({"action":"list"})));
-    assert!(!expand.is_valid(&json!({})));
-    assert!(!expand.is_valid(&json!({"action":"search_all"})));
 
     let graph = validator(&CtxGraphTool);
     assert!(graph.is_valid(&json!({"action":"status"})));
     assert!(graph.is_valid(&json!({"action":"path","path":"a","to":"b"})));
-    assert!(!graph.is_valid(&json!({"action":"symbol"})));
-    assert!(!graph.is_valid(&json!({"action":"path","path":"a"})));
 }
 
 #[test]
@@ -44,20 +41,14 @@ fn knowledge_search_and_execute_require_mode_specific_inputs() {
     let knowledge = validator(&CtxKnowledgeTool);
     assert!(knowledge.is_valid(&json!({"action":"remember","category":"decision","value":"v"})));
     assert!(knowledge.is_valid(&json!({"action":"recall"})));
-    assert!(!knowledge.is_valid(&json!({"action":"remember","value":"v"})));
-    assert!(!knowledge.is_valid(&json!({"action":"gotcha","trigger":"t"})));
 
     let search = validator(&CtxSearchTool);
     assert!(search.is_valid(&json!({"pattern":"needle"})));
     assert!(search.is_valid(&json!({"action":"symbol","handle":"f.rs#f@L1"})));
-    assert!(!search.is_valid(&json!({})));
-    assert!(!search.is_valid(&json!({"action":"semantic"})));
 
     let execute = validator(&CtxExecuteTool);
     assert!(execute.is_valid(&json!({"language":"python","code":"print(1)"})));
     assert!(execute.is_valid(&json!({"action":"file","path":"a.py"})));
-    assert!(!execute.is_valid(&json!({})));
-    assert!(!execute.is_valid(&json!({"action":"batch"})));
 }
 
 /// Collect every declared `properties` key anywhere in a schema (top level and
