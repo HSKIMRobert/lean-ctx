@@ -29,7 +29,7 @@ static STORE: OnceLock<Mutex<PathModeMemory>> = OnceLock::new();
 static RECORD_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PathModeStats {
+pub(crate) struct PathModeStats {
     pub bounce_count: u32,
     /// Reads observed since the path entered the store (first bounce).
     pub read_count: u32,
@@ -37,7 +37,7 @@ pub struct PathModeStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PathModeMemory {
+pub(crate) struct PathModeMemory {
     pub paths: HashMap<String, PathModeStats>,
     #[serde(skip)]
     dirty: bool,
@@ -80,7 +80,7 @@ impl PathModeMemory {
         self.dirty = true;
     }
 
-    pub fn record_bounce(&mut self, norm_path: &str, now: u64) {
+    pub(crate) fn record_bounce(&mut self, norm_path: &str, now: u64) {
         let entry = self.paths.entry(norm_path.to_string()).or_default();
         entry.bounce_count = entry.bounce_count.saturating_add(1);
         // The bounce implies a read happened; count it so the majority rule
@@ -94,7 +94,7 @@ impl PathModeMemory {
     /// Count a read only for paths already being tracked (i.e. that bounced
     /// before). Tracking every read of every file would bloat the store for
     /// zero signal.
-    pub fn record_read_if_tracked(&mut self, norm_path: &str) {
+    pub(crate) fn record_read_if_tracked(&mut self, norm_path: &str) {
         if let Some(entry) = self.paths.get_mut(norm_path) {
             entry.read_count = entry.read_count.saturating_add(1);
             self.dirty = true;
@@ -103,13 +103,13 @@ impl PathModeMemory {
 
     /// A path is force-full when it bounced at least twice and bounces make up
     /// the majority of its observed reads — compressing it keeps backfiring.
-    pub fn should_force_full(&self, norm_path: &str) -> bool {
+    pub(crate) fn should_force_full(&self, norm_path: &str) -> bool {
         self.paths.get(norm_path).is_some_and(|s| {
             s.bounce_count >= 2 && u64::from(s.bounce_count) * 2 >= u64::from(s.read_count)
         })
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         let path = store_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -139,7 +139,7 @@ fn global() -> &'static Mutex<PathModeMemory> {
 
 /// Process-global: record a confirmed bounce for `path` (already normalized
 /// by the caller — `BounceTracker` normalizes via `pathutil`).
-pub fn record_bounce(norm_path: &str) {
+pub(crate) fn record_bounce(norm_path: &str) {
     let Ok(mut store) = global().lock() else {
         return;
     };
@@ -148,7 +148,7 @@ pub fn record_bounce(norm_path: &str) {
 }
 
 /// Process-global: count a read for an already-tracked path.
-pub fn record_read_if_tracked(norm_path: &str) {
+pub(crate) fn record_read_if_tracked(norm_path: &str) {
     let Ok(mut store) = global().lock() else {
         return;
     };
@@ -157,12 +157,12 @@ pub fn record_read_if_tracked(norm_path: &str) {
 }
 
 /// Process-global: should `mode=auto` resolve to `full` for this path?
-pub fn should_force_full(path: &str) -> bool {
+pub(crate) fn should_force_full(path: &str) -> bool {
     let norm = crate::core::pathutil::normalize_tool_path(path);
     global().lock().is_ok_and(|s| s.should_force_full(&norm))
 }
 
-pub fn flush() {
+pub(crate) fn flush() {
     if let Ok(store) = global().lock()
         && store.dirty
     {
@@ -173,7 +173,7 @@ pub fn flush() {
 /// Dashboard summary: `(tracked_paths, forced_full_paths)`. Reads straight
 /// from disk so a separate process (the dashboard) sees the same state the
 /// MCP/CLI processes persisted (#505).
-pub fn disk_summary() -> (usize, usize) {
+pub(crate) fn disk_summary() -> (usize, usize) {
     let store = PathModeMemory::load_from_disk();
     let forced = store
         .paths

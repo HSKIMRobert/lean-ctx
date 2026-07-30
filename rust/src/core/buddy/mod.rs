@@ -1,18 +1,18 @@
-pub mod achievements;
+pub(crate) mod achievements;
 mod ascension;
-pub mod evolution;
+pub(crate) mod evolution;
 mod format;
 mod mascot_art;
 mod rpg;
 mod sprite;
 mod types;
 
-pub use evolution::EvolutionStage;
-pub use format::{format_buddy_block, format_buddy_block_at, format_buddy_full};
-pub use types::{BuddyState, Mood, Rarity, Species};
+pub(crate) use format::{format_buddy_block_at, format_buddy_full};
+pub(crate) use types::BuddyState;
 
 #[cfg(test)]
 mod tests {
+    use super::types::{Rarity, Species};
     use super::*;
     use std::collections::HashMap;
 

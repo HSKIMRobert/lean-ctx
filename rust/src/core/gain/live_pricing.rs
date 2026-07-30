@@ -52,7 +52,7 @@ const LITELLM_URL: &str =
 /// A fetched-and-indexed price table. `models` is keyed by canonicalized
 /// lookup keys (see `canon`) — several keys may point at the same cost row.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LivePriceTable {
+pub(crate) struct LivePriceTable {
     /// Unix seconds of the successful fetch that produced this table.
     pub fetched_at: u64,
     pub models: HashMap<String, ModelCost>,
@@ -61,12 +61,12 @@ pub struct LivePriceTable {
 impl LivePriceTable {
     /// Number of distinct lookup keys (not models) in the table.
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.models.len()
     }
 
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.models.is_empty()
     }
 }
@@ -89,7 +89,7 @@ fn enabled() -> bool {
 /// was never loaded (CLI tools, tests), the kill switch is set, or the model
 /// is genuinely unknown to the provider list.
 #[must_use]
-pub fn lookup(model: &str) -> Option<(String, ModelCost)> {
+pub(crate) fn lookup(model: &str) -> Option<(String, ModelCost)> {
     if !enabled() {
         return None;
     }
@@ -108,7 +108,7 @@ pub fn lookup(model: &str) -> Option<(String, ModelCost)> {
 /// Loads the disk cache into the process snapshot (idempotent, no network).
 /// Returns the number of lookup keys now available. Call sites are the
 /// run-modes that *want* live prices: proxy, gateway server, spend CLI.
-pub fn ensure_loaded() -> usize {
+pub(crate) fn ensure_loaded() -> usize {
     if !enabled() {
         return 0;
     }
@@ -129,7 +129,7 @@ pub fn ensure_loaded() -> usize {
 }
 
 /// Installs a table as the process snapshot (also used by tests).
-pub fn install(table: LivePriceTable) {
+pub(crate) fn install(table: LivePriceTable) {
     let mut guard = snapshot()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -139,7 +139,7 @@ pub fn install(table: LivePriceTable) {
 /// `(fetched_at_unix, lookup_keys)` of the active snapshot, for status
 /// surfaces. `None` when live pricing is off or never loaded.
 #[must_use]
-pub fn status() -> Option<(u64, usize)> {
+pub(crate) fn status() -> Option<(u64, usize)> {
     if !enabled() {
         return None;
     }
@@ -151,7 +151,7 @@ pub fn status() -> Option<(u64, usize)> {
 
 /// Test-only: clears the process snapshot so other tests see the embedded table.
 #[cfg(test)]
-pub fn clear_for_tests() {
+pub(crate) fn clear_for_tests() {
     let mut guard = snapshot()
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -217,7 +217,7 @@ async fn fetch_catalog(
 /// # Errors
 /// Network / decode errors propagate; the caller decides whether they matter
 /// (the background task just logs and keeps the previous table — fail-open).
-pub async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
+pub(crate) async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
     let (openrouter, litellm) = tokio::join!(
         fetch_catalog(client, MODELS_URL, parse_openrouter_models),
         fetch_catalog(client, LITELLM_URL, parse_litellm_models),
@@ -266,7 +266,7 @@ pub async fn refresh_now(client: &reqwest::Client) -> anyhow::Result<usize> {
 /// background (first fetch runs at once when the cache is missing or older
 /// than the refresh interval). Never blocks or fails the caller; idempotent —
 /// a process embedding both proxy and gateway spawns exactly one refresher.
-pub fn spawn_background_refresh() {
+pub(crate) fn spawn_background_refresh() {
     static SPAWNED: OnceLock<()> = OnceLock::new();
     if !enabled() {
         return;

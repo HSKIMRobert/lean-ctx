@@ -8,7 +8,7 @@ use super::graph_model::ContextGraph;
 use super::manifest::PackageManifest;
 
 #[derive(Debug, Clone, Default)]
-pub struct LoadReport {
+pub(crate) struct LoadReport {
     pub package_name: String,
     pub package_version: String,
     pub knowledge_facts_merged: u32,
@@ -101,7 +101,7 @@ impl std::fmt::Display for LoadReport {
     }
 }
 
-pub fn load_package(
+pub(crate) fn load_package(
     manifest: &PackageManifest,
     content: &PackageContent,
     project_root: &str,

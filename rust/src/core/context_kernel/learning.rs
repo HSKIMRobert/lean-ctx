@@ -6,7 +6,7 @@ use super::types::{ContextReceiptV1, ReceiptOutcome};
 
 /// A provider weight change inferred from a receipt outcome.
 #[derive(Debug, Clone)]
-pub struct WeightUpdate {
+pub(crate) struct WeightUpdate {
     pub provider: String,
     pub old_weight: f64,
     pub new_weight: f64,
@@ -15,22 +15,22 @@ pub struct WeightUpdate {
 }
 
 /// Converts receipt outcomes into bounded provider weight updates.
-pub struct OutcomeLearner {
+pub(crate) struct OutcomeLearner {
     alpha: f64,
 }
 
 impl OutcomeLearner {
-    pub fn new(alpha: f64) -> Self {
+    pub(crate) fn new(alpha: f64) -> Self {
         Self {
             alpha: alpha.clamp(0.01, 0.5),
         }
     }
 
-    pub fn default_learner() -> Self {
+    pub(crate) fn default_learner() -> Self {
         Self::new(0.1)
     }
 
-    pub fn learn_from_receipt(
+    pub(crate) fn learn_from_receipt(
         &self,
         receipt: &ContextReceiptV1,
         current_weights: &HashMap<String, f64>,
@@ -62,7 +62,7 @@ impl OutcomeLearner {
             .collect()
     }
 
-    pub fn apply_updates(weights: &mut HashMap<String, f64>, updates: &[WeightUpdate]) {
+    pub(crate) fn apply_updates(weights: &mut HashMap<String, f64>, updates: &[WeightUpdate]) {
         for update in updates {
             weights.insert(update.provider.clone(), update.new_weight);
         }
@@ -70,7 +70,10 @@ impl OutcomeLearner {
 }
 
 /// Learns provider changes from a receipt and persists the receipt feedback.
-pub fn learn_and_update(project_root: &str, receipt: &ContextReceiptV1) -> Vec<WeightUpdate> {
+pub(crate) fn learn_and_update(
+    project_root: &str,
+    receipt: &ContextReceiptV1,
+) -> Vec<WeightUpdate> {
     let mut collector = super::feedback::FeedbackCollector::default_for_project(project_root);
     collector.load_weights();
     let learner = OutcomeLearner::default_learner();

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Species {
+pub(crate) enum Species {
     Egg,
     Crab,
     Snake,
@@ -14,7 +14,7 @@ pub enum Species {
 }
 
 impl Species {
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Egg => "Egg",
             Self::Crab => "Crab",
@@ -30,7 +30,7 @@ impl Species {
     /// The element/type skin for the one mascot. A user's dominant language maps
     /// to an element that tints the sprite and titles the creature — the body
     /// silhouette is always the same iconic Pixel Sprite.
-    pub fn element_name(&self) -> &'static str {
+    pub(crate) fn element_name(&self) -> &'static str {
         match self {
             Self::Egg => "Null",
             Self::Crab => "Ember",
@@ -45,7 +45,7 @@ impl Species {
 
     /// Intrinsic element colour as a raw 256-colour ANSI foreground escape.
     /// Distinct from the UI theme: fire is always orange, poison always green.
-    pub fn element_color(&self) -> &'static str {
+    pub(crate) fn element_color(&self) -> &'static str {
         match self {
             Self::Egg => "\x1b[38;5;245m",
             Self::Crab => "\x1b[38;5;208m",
@@ -59,7 +59,7 @@ impl Species {
     }
 
     /// A single width-1 rune used as the element badge in the nameplate.
-    pub fn element_glyph(&self) -> &'static str {
+    pub(crate) fn element_glyph(&self) -> &'static str {
         match self {
             Self::Egg => "○",
             Self::Crab => "▲",
@@ -70,7 +70,9 @@ impl Species {
         }
     }
 
-    pub fn from_commands(commands: &HashMap<String, super::super::stats::CommandStats>) -> Self {
+    pub(crate) fn from_commands(
+        commands: &HashMap<String, super::super::stats::CommandStats>,
+    ) -> Self {
         let mut scores: HashMap<&str, u64> = HashMap::new();
 
         for (cmd, stats) in commands {
@@ -141,7 +143,7 @@ fn classify_command(cmd: &str) -> &'static str {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
-pub enum Rarity {
+pub(crate) enum Rarity {
     Egg,
     Common,
     Uncommon,
@@ -151,7 +153,7 @@ pub enum Rarity {
 }
 
 impl Rarity {
-    pub fn from_tokens_saved(saved: u64) -> Self {
+    pub(crate) fn from_tokens_saved(saved: u64) -> Self {
         match saved {
             0..=9_999 => Self::Egg,
             10_000..=99_999 => Self::Common,
@@ -162,7 +164,7 @@ impl Rarity {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Egg => "Egg",
             Self::Common => "Common",
@@ -173,7 +175,7 @@ impl Rarity {
         }
     }
 
-    pub fn color_code(&self) -> &'static str {
+    pub(crate) fn color_code(&self) -> &'static str {
         match self {
             Self::Egg | Self::Common => "\x1b[37m",
             Self::Uncommon => "\x1b[32m",
@@ -185,7 +187,7 @@ impl Rarity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum Mood {
+pub(crate) enum Mood {
     Ecstatic,
     Happy,
     Content,
@@ -194,7 +196,7 @@ pub enum Mood {
 }
 
 impl Mood {
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Ecstatic => "Ecstatic",
             Self::Happy => "Happy",
@@ -204,7 +206,7 @@ impl Mood {
         }
     }
 
-    pub fn icon(&self) -> &'static str {
+    pub(crate) fn icon(&self) -> &'static str {
         match self {
             Self::Ecstatic => "*_*",
             Self::Happy => "o_o",
@@ -226,7 +228,7 @@ pub(super) fn user_seed() -> u64 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuddyState {
+pub(crate) struct BuddyState {
     pub name: String,
     pub species: Species,
     pub rarity: Rarity,
@@ -268,7 +270,7 @@ impl BuddyState {
     /// buddy ascends this is its evolution stage; afterwards it is the unbounded
     /// cosmic ascension rank, so it is *never* a confusing low-stage word at a
     /// high level.
-    pub fn form_title(&self) -> String {
+    pub(crate) fn form_title(&self) -> String {
         if self.prestige > 0 {
             super::ascension::title(self.prestige)
         } else {
@@ -276,7 +278,7 @@ impl BuddyState {
         }
     }
 
-    pub fn compute() -> Self {
+    pub(crate) fn compute() -> Self {
         let store = super::super::stats::load();
         let tokens_saved = store
             .total_input_tokens

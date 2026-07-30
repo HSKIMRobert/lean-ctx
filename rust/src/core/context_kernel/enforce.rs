@@ -8,7 +8,7 @@ use super::types::{ContextPlanV1, PlanEntry};
 /// Determines whether policy violations are observed or enforced.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum KernelMode {
+pub(crate) enum KernelMode {
     #[default]
     Shadow,
     Enforce,
@@ -21,7 +21,7 @@ struct KernelModeConfig {
 }
 
 /// Resolves the kernel mode from the environment, then the global config.
-pub fn resolve_mode(_project_root: &str) -> KernelMode {
+pub(crate) fn resolve_mode(_project_root: &str) -> KernelMode {
     if let Ok(value) = std::env::var("LEANCTX_KERNEL_MODE")
         && let Some(mode) = parse_mode(&value)
     {
@@ -47,7 +47,7 @@ fn parse_mode(value: &str) -> Option<KernelMode> {
 
 /// Result of applying a policy to a context plan.
 #[derive(Debug, Clone)]
-pub struct EnforceResult {
+pub(crate) struct EnforceResult {
     pub mode: KernelMode,
     pub allowed: Vec<PlanEntry>,
     pub blocked: Vec<BlockedEntry>,
@@ -56,13 +56,13 @@ pub struct EnforceResult {
 
 /// A selected plan entry rejected by policy.
 #[derive(Debug, Clone)]
-pub struct BlockedEntry {
+pub(crate) struct BlockedEntry {
     pub object_id: String,
     pub reason: String,
 }
 
 /// Applies policy decisions according to the requested kernel mode.
-pub fn enforce_plan(
+pub(crate) fn enforce_plan(
     plan: &ContextPlanV1,
     policy: &ContextPolicy,
     mode: KernelMode,

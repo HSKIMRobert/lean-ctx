@@ -42,14 +42,14 @@ const SAFETY_NEEDLES: &[&str] = &[
     "ran all test", // jest "Ran all test suites"
 ];
 
-pub fn is_safety_relevant(line: &str) -> bool {
+pub(crate) fn is_safety_relevant(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
     SAFETY_NEEDLES
         .iter()
         .any(|needle| lower.contains(&needle.to_ascii_lowercase()))
 }
 
-pub fn extract_safety_lines(lines: &[&str], max: usize) -> Vec<String> {
+pub(crate) fn extract_safety_lines(lines: &[&str], max: usize) -> Vec<String> {
     lines
         .iter()
         .filter(|l| is_safety_relevant(l))

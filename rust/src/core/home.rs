@@ -2,37 +2,37 @@ use std::path::{Path, PathBuf};
 
 /// Explicit profile override understood by lean-ctx when it is run outside
 /// the Codex process that received `--profile`.
-pub const LEAN_CTX_CODEX_PROFILE_ENV: &str = "LEAN_CTX_CODEX_PROFILE";
+pub(crate) const LEAN_CTX_CODEX_PROFILE_ENV: &str = "LEAN_CTX_CODEX_PROFILE";
 /// Compatibility with launchers that export the Codex profile name.
-pub const CODEX_PROFILE_ENV: &str = "CODEX_PROFILE";
+pub(crate) const CODEX_PROFILE_ENV: &str = "CODEX_PROFILE";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CodexConfigPaths {
+pub(crate) struct CodexConfigPaths {
     base: PathBuf,
     profile_name: Option<String>,
     profile: Option<PathBuf>,
 }
 
 impl CodexConfigPaths {
-    pub fn base(&self) -> &Path {
+    pub(crate) fn base(&self) -> &Path {
         &self.base
     }
 
-    pub fn profile_name(&self) -> Option<&str> {
+    pub(crate) fn profile_name(&self) -> Option<&str> {
         self.profile_name.as_deref()
     }
 
-    pub fn profile(&self) -> Option<&Path> {
+    pub(crate) fn profile(&self) -> Option<&Path> {
         self.profile.as_deref()
     }
 
     /// Path lean-ctx should write for the active Codex configuration.
-    pub fn effective(&self) -> &Path {
+    pub(crate) fn effective(&self) -> &Path {
         self.profile().unwrap_or_else(|| self.base())
     }
 
     /// Both layers in Codex's effective configuration, in load order.
-    pub fn layers(&self) -> impl Iterator<Item = &Path> {
+    pub(crate) fn layers(&self) -> impl Iterator<Item = &Path> {
         std::iter::once(self.base()).chain(self.profile())
     }
 }
@@ -40,7 +40,7 @@ impl CodexConfigPaths {
 /// Resolve the user's home directory in a way that is:
 /// - Override-friendly for CI/tests (HOME/USERPROFILE)
 /// - Still correct in normal interactive installs (fallback to `dirs::home_dir()`)
-pub fn resolve_home_dir() -> Option<PathBuf> {
+pub(crate) fn resolve_home_dir() -> Option<PathBuf> {
     if let Ok(home) = std::env::var("HOME") {
         let trimmed = home.trim();
         if !trimmed.is_empty() {
@@ -70,7 +70,7 @@ pub fn resolve_home_dir() -> Option<PathBuf> {
 /// Resolve the Codex config directory.
 /// Respects `CODEX_HOME` env var (official Codex CLI feature).
 /// Falls back to `~/.codex` when unset or empty.
-pub fn resolve_codex_dir() -> Option<PathBuf> {
+pub(crate) fn resolve_codex_dir() -> Option<PathBuf> {
     if let Ok(val) = std::env::var("CODEX_HOME") {
         let trimmed = val.trim();
         if !trimmed.is_empty() {
@@ -131,14 +131,14 @@ fn codex_config_paths_at(codex_dir: &Path, profile_name: Option<String>) -> Code
 }
 
 /// Resolve both layers of the effective Codex configuration.
-pub fn resolve_codex_config_paths() -> Option<CodexConfigPaths> {
+pub(crate) fn resolve_codex_config_paths() -> Option<CodexConfigPaths> {
     let codex_dir = resolve_codex_dir()?;
     let profile_name = env_codex_profile().or_else(|| sole_codex_profile(&codex_dir));
     Some(codex_config_paths_at(&codex_dir, profile_name))
 }
 
 /// Resolve the path lean-ctx should write for the active Codex profile.
-pub fn resolve_codex_config_path() -> Option<PathBuf> {
+pub(crate) fn resolve_codex_config_path() -> Option<PathBuf> {
     resolve_codex_config_paths().map(|paths| paths.effective().to_path_buf())
 }
 

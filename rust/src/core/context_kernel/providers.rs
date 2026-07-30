@@ -22,13 +22,13 @@ const PROCEDURAL_PROVIDER: &str = "memory.procedural";
 const LEDGER_PROVIDER: &str = "context.ledger";
 
 /// Supplies persisted project knowledge facts as context candidates.
-pub struct KnowledgeProvider {
+pub(crate) struct KnowledgeProvider {
     project_root: String,
 }
 
 impl KnowledgeProvider {
     /// Creates a provider scoped to `project_root`.
-    pub fn new(project_root: impl Into<String>) -> Self {
+    pub(crate) fn new(project_root: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
         }
@@ -77,13 +77,13 @@ impl CandidateProvider for KnowledgeProvider {
 }
 
 /// Supplies the latest session's findings, decisions, and modified files.
-pub struct SessionProvider {
+pub(crate) struct SessionProvider {
     project_root: String,
 }
 
 impl SessionProvider {
     /// Creates a provider scoped to `project_root`.
-    pub fn new(project_root: impl Into<String>) -> Self {
+    pub(crate) fn new(project_root: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
         }
@@ -211,13 +211,13 @@ impl CandidateProvider for SessionProvider {
 }
 
 /// Supplies query-matched episodes from persistent episodic memory.
-pub struct EpisodicProvider {
+pub(crate) struct EpisodicProvider {
     project_root: String,
 }
 
 impl EpisodicProvider {
     /// Creates a provider scoped to `project_root`.
-    pub fn new(project_root: impl Into<String>) -> Self {
+    pub(crate) fn new(project_root: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
         }
@@ -267,13 +267,13 @@ impl CandidateProvider for EpisodicProvider {
 }
 
 /// Supplies task-matched procedures from persistent procedural memory.
-pub struct ProceduralProvider {
+pub(crate) struct ProceduralProvider {
     project_root: String,
 }
 
 impl ProceduralProvider {
     /// Creates a provider scoped to `project_root`.
-    pub fn new(project_root: impl Into<String>) -> Self {
+    pub(crate) fn new(project_root: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
         }
@@ -328,13 +328,13 @@ impl CandidateProvider for ProceduralProvider {
 }
 
 /// Supplies previously delivered ledger items as high-confidence candidates.
-pub struct LedgerProvider {
+pub(crate) struct LedgerProvider {
     project_root: String,
 }
 
 impl LedgerProvider {
     /// Creates a provider scoped to `project_root`.
-    pub fn new(project_root: impl Into<String>) -> Self {
+    pub(crate) fn new(project_root: impl Into<String>) -> Self {
         Self {
             project_root: project_root.into(),
         }
@@ -357,7 +357,7 @@ impl CandidateProvider for LedgerProvider {
 }
 
 /// Create all default providers for a project.
-pub fn default_providers(project_root: &str) -> Vec<Box<dyn CandidateProvider>> {
+pub(crate) fn default_providers(project_root: &str) -> Vec<Box<dyn CandidateProvider>> {
     vec![
         Box::new(LedgerProvider::new(project_root)),
         Box::new(KnowledgeProvider::new(project_root)),

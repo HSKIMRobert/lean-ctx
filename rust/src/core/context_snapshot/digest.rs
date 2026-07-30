@@ -11,7 +11,7 @@ use super::types::ContextSnapshotV1;
 
 /// Serialize the canonical body used for hashing and signing: the snapshot with
 /// `snapshot_id` blanked and `signature` removed, compact JSON.
-pub fn canonical_body(snapshot: &ContextSnapshotV1) -> Result<String, String> {
+pub(crate) fn canonical_body(snapshot: &ContextSnapshotV1) -> Result<String, String> {
     let mut body = snapshot.clone();
     body.snapshot_id = String::new();
     body.signature = None;
@@ -20,12 +20,12 @@ pub fn canonical_body(snapshot: &ContextSnapshotV1) -> Result<String, String> {
 
 /// Compute the content-addressed id (BLAKE3 hex of the canonical body) without
 /// mutating the snapshot.
-pub fn compute_id(snapshot: &ContextSnapshotV1) -> Result<String, String> {
+pub(crate) fn compute_id(snapshot: &ContextSnapshotV1) -> Result<String, String> {
     Ok(crate::core::hasher::hash_str(&canonical_body(snapshot)?))
 }
 
 /// Set `snapshot_id` to the freshly computed content hash and return it.
-pub fn finalize_id(snapshot: &mut ContextSnapshotV1) -> Result<String, String> {
+pub(crate) fn finalize_id(snapshot: &mut ContextSnapshotV1) -> Result<String, String> {
     let id = compute_id(snapshot)?;
     snapshot.snapshot_id.clone_from(&id);
     Ok(id)

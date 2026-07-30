@@ -1,3 +1,4 @@
+use super::builtins::{builtin_exploration, builtin_profiles};
 use super::*;
 
 #[test]

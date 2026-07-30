@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 static BUDGETS: Mutex<Option<HashMap<String, AgentBudget>>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentBudget {
+pub(crate) struct AgentBudget {
     pub agent_id: String,
     pub token_limit: usize,
     pub tokens_consumed: usize,
@@ -15,7 +15,7 @@ pub struct AgentBudget {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BudgetCheckResult {
+pub(crate) enum BudgetCheckResult {
     Allowed { remaining: usize },
     Exceeded { limit: usize, consumed: usize },
     Warning { remaining: usize, percent_used: f32 },
@@ -48,7 +48,7 @@ fn ensure_entry<'a>(
         })
 }
 
-pub fn check_budget(agent_id: &str, tokens_to_consume: usize) -> BudgetCheckResult {
+pub(crate) fn check_budget(agent_id: &str, tokens_to_consume: usize) -> BudgetCheckResult {
     with_budgets(|map| {
         let budget = ensure_entry(map, agent_id);
         if budget.token_limit == usize::MAX || budget.token_limit == 0 {
@@ -79,7 +79,7 @@ pub fn check_budget(agent_id: &str, tokens_to_consume: usize) -> BudgetCheckResu
     })
 }
 
-pub fn record_consumption(agent_id: &str, tokens: usize) {
+pub(crate) fn record_consumption(agent_id: &str, tokens: usize) {
     with_budgets(|map| {
         let budget = ensure_entry(map, agent_id);
         budget.tokens_consumed = budget.tokens_consumed.saturating_add(tokens);
@@ -87,11 +87,11 @@ pub fn record_consumption(agent_id: &str, tokens: usize) {
     });
 }
 
-pub fn get_status(agent_id: &str) -> AgentBudget {
+pub(crate) fn get_status(agent_id: &str) -> AgentBudget {
     with_budgets(|map| ensure_entry(map, agent_id).clone())
 }
 
-pub fn reset(agent_id: &str) {
+pub(crate) fn reset(agent_id: &str) {
     with_budgets(|map| {
         let budget = ensure_entry(map, agent_id);
         budget.tokens_consumed = 0;
@@ -103,20 +103,20 @@ pub fn reset(agent_id: &str) {
 /// Remove an agent's budget entry entirely. Safe only for agents that can no longer
 /// issue reads (finished / dead PID) — a live agent would have its budget silently
 /// reset to 0 on the next check. Bounds the BUDGETS map on long-lived daemons.
-pub fn remove(agent_id: &str) {
+pub(crate) fn remove(agent_id: &str) {
     with_budgets(|map| {
         map.remove(agent_id);
     });
 }
 
-pub fn set_limit(agent_id: &str, limit: usize) {
+pub(crate) fn set_limit(agent_id: &str, limit: usize) {
     with_budgets(|map| {
         let budget = ensure_entry(map, agent_id);
         budget.token_limit = if limit == 0 { usize::MAX } else { limit };
     });
 }
 
-pub fn init_from_config() {
+pub(crate) fn init_from_config() {
     let cfg_limit = crate::core::config::Config::load().agent_token_budget;
     if cfg_limit > 0 {
         with_budgets(|map| {
@@ -129,7 +129,7 @@ pub fn init_from_config() {
     }
 }
 
-pub fn default_limit_from_config() -> usize {
+pub(crate) fn default_limit_from_config() -> usize {
     let cfg_limit = crate::core::config::Config::load().agent_token_budget;
     if cfg_limit == 0 {
         usize::MAX

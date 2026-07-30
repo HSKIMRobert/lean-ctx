@@ -4,7 +4,7 @@ use super::types::{ContextObjectV1, SensitivityLevel};
 
 /// Restrictions applied to candidates before kernel selection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ContextPolicy {
+pub(crate) struct ContextPolicy {
     pub max_sensitivity: SensitivityLevel,
     pub allowed_sources: Option<Vec<String>>,
     pub blocked_sources: Vec<String>,
@@ -13,13 +13,13 @@ pub struct ContextPolicy {
 }
 
 /// Applies a [`ContextPolicy`] to context candidates.
-pub struct PolicyFilter {
+pub(crate) struct PolicyFilter {
     policy: ContextPolicy,
 }
 
 impl PolicyFilter {
     /// Creates a filter backed by the supplied policy.
-    pub fn new(policy: ContextPolicy) -> Self {
+    pub(crate) fn new(policy: ContextPolicy) -> Self {
         Self { policy }
     }
 
@@ -27,7 +27,7 @@ impl PolicyFilter {
     ///
     /// Missing and invalid configuration gracefully falls back to the default
     /// policy so candidate retrieval remains available.
-    pub fn from_config(project_root: &str) -> Self {
+    pub(crate) fn from_config(project_root: &str) -> Self {
         let _ = project_root;
         let policy = crate::core::paths::config_dir()
             .ok()
@@ -40,7 +40,7 @@ impl PolicyFilter {
     }
 
     /// Returns the permissive default for ordinary internal context.
-    pub fn default_policy() -> ContextPolicy {
+    pub(crate) fn default_policy() -> ContextPolicy {
         ContextPolicy {
             max_sensitivity: SensitivityLevel::Internal,
             allowed_sources: None,
@@ -51,7 +51,7 @@ impl PolicyFilter {
     }
 
     /// Filters candidates and applies the optional prefix token budget.
-    pub fn apply(&self, candidates: Vec<ContextObjectV1>) -> Vec<ContextObjectV1> {
+    pub(crate) fn apply(&self, candidates: Vec<ContextObjectV1>) -> Vec<ContextObjectV1> {
         let allowed: Vec<ContextObjectV1> = candidates
             .into_iter()
             .filter(|candidate| self.is_allowed(candidate))
@@ -75,7 +75,7 @@ impl PolicyFilter {
     }
 
     /// Returns whether a candidate satisfies sensitivity and source rules.
-    pub fn is_allowed(&self, candidate: &ContextObjectV1) -> bool {
+    pub(crate) fn is_allowed(&self, candidate: &ContextObjectV1) -> bool {
         if sensitivity_rank(&candidate.sensitivity) > sensitivity_rank(&self.policy.max_sensitivity)
         {
             return false;
@@ -96,7 +96,7 @@ impl PolicyFilter {
 
 impl ContextPolicy {
     /// Returns the reason a plan entry violates this policy, or `None` if compliant.
-    pub fn violation_reason(&self, entry: &super::types::PlanEntry) -> Option<String> {
+    pub(crate) fn violation_reason(&self, entry: &super::types::PlanEntry) -> Option<String> {
         if let Some(ref allowed) = self.allowed_sources
             && !allowed.contains(&entry.provider)
         {

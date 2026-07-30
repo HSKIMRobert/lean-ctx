@@ -182,7 +182,11 @@ pub(crate) fn for_each_chunk_node(
 }
 
 #[cfg(feature = "tree-sitter")]
-pub fn extract_chunks_ts(file_path: &str, content: &str, file_ext: &str) -> Option<Vec<CodeChunk>> {
+pub(crate) fn extract_chunks_ts(
+    file_path: &str,
+    content: &str,
+    file_ext: &str,
+) -> Option<Vec<CodeChunk>> {
     let lines: Vec<&str> = content.lines().collect();
     let mut chunks = Vec::new();
 

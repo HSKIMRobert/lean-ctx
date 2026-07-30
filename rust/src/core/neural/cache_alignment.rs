@@ -14,7 +14,7 @@ const CLAUDE_CACHE_MIN_TOKENS: usize = 1024;
 const CLAUDE_MAX_CACHE_BREAKPOINTS: usize = 4;
 
 #[derive(Debug, Clone)]
-pub struct CacheBlock {
+pub(crate) struct CacheBlock {
     pub id: String,
     pub content: String,
     pub is_stable: bool,
@@ -23,16 +23,16 @@ pub struct CacheBlock {
 }
 
 #[derive(Default)]
-pub struct CacheAlignedOutput {
+pub(crate) struct CacheAlignedOutput {
     blocks: Vec<CacheBlock>,
 }
 
 impl CacheAlignedOutput {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn add_stable_block(&mut self, id: &str, content: String, priority: u8) {
+    pub(crate) fn add_stable_block(&mut self, id: &str, content: String, priority: u8) {
         let tokens = estimate_tokens(&content);
         self.blocks.push(CacheBlock {
             id: id.to_string(),
@@ -43,7 +43,7 @@ impl CacheAlignedOutput {
         });
     }
 
-    pub fn add_variable_block(&mut self, id: &str, content: String, priority: u8) {
+    pub(crate) fn add_variable_block(&mut self, id: &str, content: String, priority: u8) {
         let tokens = estimate_tokens(&content);
         self.blocks.push(CacheBlock {
             id: id.to_string(),
@@ -56,7 +56,7 @@ impl CacheAlignedOutput {
 
     /// Render the output with cache-optimal ordering:
     /// stable blocks first (sorted by priority), then variable blocks.
-    pub fn render(&self) -> String {
+    pub(crate) fn render(&self) -> String {
         let mut stable: Vec<&CacheBlock> = self.blocks.iter().filter(|b| b.is_stable).collect();
         let mut variable: Vec<&CacheBlock> = self.blocks.iter().filter(|b| !b.is_stable).collect();
 
@@ -80,13 +80,13 @@ impl CacheAlignedOutput {
 
     /// Render with explicit cache breakpoint markers for Claude.
     /// Places up to CLAUDE_MAX_CACHE_BREAKPOINTS markers at optimal positions.
-    pub fn render_with_breakpoints(&self) -> (String, Vec<usize>) {
+    pub(crate) fn render_with_breakpoints(&self) -> (String, Vec<usize>) {
         let rendered = self.render();
         let breakpoints = compute_breakpoints(&rendered);
         (rendered, breakpoints)
     }
 
-    pub fn stable_token_count(&self) -> usize {
+    pub(crate) fn stable_token_count(&self) -> usize {
         self.blocks
             .iter()
             .filter(|b| b.is_stable)
@@ -94,7 +94,7 @@ impl CacheAlignedOutput {
             .sum()
     }
 
-    pub fn variable_token_count(&self) -> usize {
+    pub(crate) fn variable_token_count(&self) -> usize {
         self.blocks
             .iter()
             .filter(|b| !b.is_stable)
@@ -102,7 +102,7 @@ impl CacheAlignedOutput {
             .sum()
     }
 
-    pub fn cache_efficiency(&self) -> f64 {
+    pub(crate) fn cache_efficiency(&self) -> f64 {
         let total = self.stable_token_count() + self.variable_token_count();
         if total == 0 {
             return 0.0;
@@ -166,7 +166,7 @@ fn estimate_tokens(text: &str) -> usize {
 
 /// Generate a delta between two versions of content for cache-efficient updates.
 /// Returns only the changed portions, prefixed with stable context identifiers.
-pub fn compute_delta(previous: &str, current: &str) -> DeltaResult {
+pub(crate) fn compute_delta(previous: &str, current: &str) -> DeltaResult {
     let prev_lines: Vec<&str> = previous.lines().collect();
     let curr_lines: Vec<&str> = current.lines().collect();
 
@@ -210,7 +210,7 @@ pub fn compute_delta(previous: &str, current: &str) -> DeltaResult {
 }
 
 #[derive(Debug)]
-pub struct DeltaResult {
+pub(crate) struct DeltaResult {
     pub common_prefix_lines: usize,
     pub common_suffix_lines: usize,
     pub removed_lines: usize,
@@ -221,7 +221,7 @@ pub struct DeltaResult {
 }
 
 impl DeltaResult {
-    pub fn savings_ratio(&self) -> f64 {
+    pub(crate) fn savings_ratio(&self) -> f64 {
         let total = self.cached_prefix_tokens + self.total_delta_tokens;
         if total == 0 {
             return 0.0;
@@ -232,7 +232,7 @@ impl DeltaResult {
 
 /// Order file contents for maximum cache reuse across tool calls.
 /// Stable elements (imports, type defs) first, then variable elements (function bodies).
-pub fn cache_order_code(content: &str) -> String {
+pub(crate) fn cache_order_code(content: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
 
     let mut imports = Vec::new();

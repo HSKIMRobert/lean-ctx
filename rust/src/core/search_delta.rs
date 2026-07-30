@@ -68,7 +68,7 @@ fn hash_match(s: &str) -> u64 {
 
 /// Check if current search results are a delta of a previous identical-pattern search.
 /// Returns `Some(delta_output)` if only deltas should be sent, `None` for full results.
-pub fn compute_delta(pattern: &str, matches: &[String]) -> Option<String> {
+pub(crate) fn compute_delta(pattern: &str, matches: &[String]) -> Option<String> {
     let current_hashes: Vec<u64> = matches.iter().map(|m| hash_match(m)).collect();
 
     let delta = with_tracker(|tracker| {
@@ -129,7 +129,7 @@ fn format_delta(pattern: &str, new_matches: &[&String], total: usize) -> String 
 }
 
 /// Reset all tracked searches (e.g. after compaction).
-pub fn reset() {
+pub(crate) fn reset() {
     let mut guard = TRACKER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -4,7 +4,7 @@ use super::coverage_class::CoverageClass;
 
 /// A single tool schema entry for optimization.
 #[derive(Debug, Clone)]
-pub struct SchemaEntry {
+pub(crate) struct SchemaEntry {
     /// Tool name.
     pub name: String,
     /// Tool description text.
@@ -19,7 +19,7 @@ pub struct SchemaEntry {
 
 /// Token budget constraints for tool schemas.
 #[derive(Debug, Clone)]
-pub struct SchemaBudget {
+pub(crate) struct SchemaBudget {
     /// Maximum total tokens for all tool schemas combined.
     pub max_total_tokens: usize,
     /// Maximum tokens per individual tool schema.
@@ -37,7 +37,7 @@ impl Default for SchemaBudget {
 
 /// Result of schema optimization.
 #[derive(Debug, Clone)]
-pub struct OptimizedSchemas {
+pub(crate) struct OptimizedSchemas {
     /// Optimized schema entries.
     pub entries: Vec<SchemaEntry>,
     /// Total tokens before optimization.
@@ -52,7 +52,7 @@ pub struct OptimizedSchemas {
 
 impl OptimizedSchemas {
     /// Returns the percentage of estimated schema tokens saved.
-    pub fn savings_pct(&self) -> f64 {
+    pub(crate) fn savings_pct(&self) -> f64 {
         if self.tokens_before == 0 {
             return 0.0;
         }
@@ -63,12 +63,12 @@ impl OptimizedSchemas {
 }
 
 /// Estimates token usage using a conservative four-characters-per-token ratio.
-pub fn estimate_tokens(text: &str) -> usize {
+pub(crate) fn estimate_tokens(text: &str) -> usize {
     text.chars().count().div_ceil(4)
 }
 
 /// Collapses whitespace and truncates a description to the requested token budget.
-pub fn compress_description(desc: &str, max_tokens: usize) -> String {
+pub(crate) fn compress_description(desc: &str, max_tokens: usize) -> String {
     if estimate_tokens(desc) <= max_tokens {
         return desc.to_owned();
     }
@@ -92,7 +92,7 @@ pub fn compress_description(desc: &str, max_tokens: usize) -> String {
 }
 
 /// Compresses and filters schemas until the supplied budget is met where possible.
-pub fn optimize_schemas(entries: &[SchemaEntry], budget: &SchemaBudget) -> OptimizedSchemas {
+pub(crate) fn optimize_schemas(entries: &[SchemaEntry], budget: &SchemaBudget) -> OptimizedSchemas {
     let tokens_before = entries.iter().fold(0usize, |total, entry| {
         total.saturating_add(entry.estimated_tokens)
     });
@@ -134,7 +134,7 @@ pub fn optimize_schemas(entries: &[SchemaEntry], budget: &SchemaBudget) -> Optim
 }
 
 /// Returns schema limits suited to the client's integration coverage.
-pub fn budget_for_coverage(coverage: CoverageClass) -> SchemaBudget {
+pub(crate) fn budget_for_coverage(coverage: CoverageClass) -> SchemaBudget {
     match coverage {
         CoverageClass::FullInline => SchemaBudget {
             max_total_tokens: 12_000,

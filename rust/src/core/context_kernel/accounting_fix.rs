@@ -5,7 +5,7 @@
 /// Compression measured before kernel enrichment and server decorations can
 /// overstate the savings visible to the LLM. This type records both views.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PostDeliveryAccounting {
+pub(crate) struct PostDeliveryAccounting {
     /// Tokens in the original raw content before any processing.
     pub original_tokens: usize,
     /// Tokens after compression but before kernel enrichment and decorations.
@@ -26,7 +26,7 @@ pub struct PostDeliveryAccounting {
 
 /// Validation of a savings claim against actual delivery data.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SavingsValidation {
+pub(crate) struct SavingsValidation {
     /// Tokens the system claimed it saved.
     pub claimed_saved: usize,
     /// Tokens actually saved, or zero when delivery met or exceeded the input.
@@ -38,7 +38,7 @@ pub struct SavingsValidation {
 }
 
 /// Computes token accounting after kernel and server additions are included.
-pub fn compute_honest_accounting(
+pub(crate) fn compute_honest_accounting(
     original: usize,
     compressed: usize,
     kernel_added: usize,
@@ -70,7 +70,11 @@ pub fn compute_honest_accounting(
 }
 
 /// Validates claimed savings against the tokens actually sent to the LLM.
-pub fn validate_savings(claimed_saved: usize, original: usize, sent: usize) -> SavingsValidation {
+pub(crate) fn validate_savings(
+    claimed_saved: usize,
+    original: usize,
+    sent: usize,
+) -> SavingsValidation {
     let actual_saved = original.saturating_sub(sent);
     let phantom = claimed_saved.saturating_sub(actual_saved);
     let is_valid = phantom == 0 || (phantom as f64) < (original as f64 * 0.05);
@@ -84,7 +88,7 @@ pub fn validate_savings(claimed_saved: usize, original: usize, sent: usize) -> S
 }
 
 /// Formats a privacy-safe summary containing only token counts and ratios.
-pub fn format_honest_summary(accounting: &PostDeliveryAccounting) -> String {
+pub(crate) fn format_honest_summary(accounting: &PostDeliveryAccounting) -> String {
     format!(
         "Original: {} → Compressed: {} → +Kernel: {} → +Decorations: {} → Delivered: {}\n\
          Actual compression: {:.2}% (reported: {:.2}%, phantom: {:.2}%)",
@@ -100,7 +104,7 @@ pub fn format_honest_summary(accounting: &PostDeliveryAccounting) -> String {
 }
 
 /// Returns whether post-compression additions make delivery exceed the input.
-pub fn detect_negative_savings(accounting: &PostDeliveryAccounting) -> bool {
+pub(crate) fn detect_negative_savings(accounting: &PostDeliveryAccounting) -> bool {
     accounting.delivered_tokens > accounting.original_tokens
 }
 
@@ -108,7 +112,7 @@ pub fn detect_negative_savings(accounting: &PostDeliveryAccounting) -> bool {
 ///
 /// Takes raw proxy metrics and produces a complete accounting record
 /// including phantom savings detection.
-pub fn account_proxy_request(
+pub(crate) fn account_proxy_request(
     original_tokens: usize,
     compressed_tokens: usize,
     kernel_supplement_tokens: usize,
@@ -123,7 +127,7 @@ pub fn account_proxy_request(
 }
 
 /// Formats a one-line accounting summary suitable for logging.
-pub fn format_proxy_accounting(accounting: &PostDeliveryAccounting) -> String {
+pub(crate) fn format_proxy_accounting(accounting: &PostDeliveryAccounting) -> String {
     format!(
         "delivered={} actual={:.1}% reported={:.1}% phantom={:.1}%",
         accounting.delivered_tokens,
@@ -135,7 +139,7 @@ pub fn format_proxy_accounting(accounting: &PostDeliveryAccounting) -> String {
 
 /// Returns true if the accounting shows negative net savings (kernel adds
 /// more tokens than compression removes).
-pub fn has_negative_savings(accounting: &PostDeliveryAccounting) -> bool {
+pub(crate) fn has_negative_savings(accounting: &PostDeliveryAccounting) -> bool {
     detect_negative_savings(accounting)
 }
 

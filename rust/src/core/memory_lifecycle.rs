@@ -18,7 +18,7 @@ const LOW_CONFIDENCE_THRESHOLD: f32 = 0.3;
 const STALE_DAYS: i64 = 30;
 /// Default proactive headroom on a capacity reclaim: settle a full store at 75%
 /// so it keeps real working room instead of churning at its cap.
-pub const DEFAULT_RECLAIM_HEADROOM_PCT: f32 = 0.25;
+pub(crate) const DEFAULT_RECLAIM_HEADROOM_PCT: f32 = 0.25;
 
 /// Spacing/testing effect: how strongly each prior retrieval lengthens memory
 /// stability. 0.5 ⇒ ~10 retrievals make a fact roughly 6× more durable.
@@ -30,11 +30,11 @@ const MIN_STABILITY_DAYS: f32 = 1.0;
 /// hard-deletes.
 const CONFIDENCE_FLOOR: f32 = 0.05;
 /// Default characteristic memory stability (days) for the Ebbinghaus curve.
-pub const DEFAULT_BASE_STABILITY_DAYS: f32 = 90.0;
+pub(crate) const DEFAULT_BASE_STABILITY_DAYS: f32 = 90.0;
 
 /// Which forgetting curve drives confidence decay (#1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ForgettingModel {
+pub(crate) enum ForgettingModel {
     /// Exponential retention `R = exp(-Δt / S)` with spacing-boosted stability
     /// `S` (Ebbinghaus forgetting curve + SM-2 spacing). Deterministic, the
     /// default: durable memories fade gracefully, rehearsed ones persist.
@@ -45,14 +45,14 @@ pub enum ForgettingModel {
 }
 
 impl ForgettingModel {
-    pub fn parse(s: &str) -> Self {
+    pub(crate) fn parse(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
             "linear" => Self::Linear,
             _ => Self::Ebbinghaus,
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Ebbinghaus => "ebbinghaus",
             Self::Linear => "linear",
@@ -61,7 +61,7 @@ impl ForgettingModel {
 }
 
 #[derive(Debug, Clone)]
-pub struct LifecycleConfig {
+pub(crate) struct LifecycleConfig {
     pub decay_rate_per_day: f32,
     pub max_facts: usize,
     pub low_confidence_threshold: f32,
@@ -114,7 +114,7 @@ impl LifecycleConfig {
     /// runtime lifecycle config. The single mapping site, so adding a knob
     /// touches exactly one place (previously duplicated across the lifecycle and
     /// cognition callers).
-    pub fn from_policy(policy: &crate::core::memory_policy::MemoryPolicy) -> Self {
+    pub(crate) fn from_policy(policy: &crate::core::memory_policy::MemoryPolicy) -> Self {
         Self {
             max_facts: policy.knowledge.max_facts,
             decay_rate_per_day: policy.lifecycle.decay_rate,
@@ -144,7 +144,10 @@ pub struct LifecycleReport {
     pub remaining_facts: usize,
 }
 
-pub fn apply_confidence_decay(facts: &mut [KnowledgeFact], config: &LifecycleConfig) -> usize {
+pub(crate) fn apply_confidence_decay(
+    facts: &mut [KnowledgeFact],
+    config: &LifecycleConfig,
+) -> usize {
     let now = Utc::now();
     let mut count = 0;
 
@@ -257,7 +260,10 @@ fn linear_confidence(
     (confidence - decay).max(CONFIDENCE_FLOOR)
 }
 
-pub fn consolidate_similar(facts: &mut Vec<KnowledgeFact>, similarity_threshold: f32) -> usize {
+pub(crate) fn consolidate_similar(
+    facts: &mut Vec<KnowledgeFact>,
+    similarity_threshold: f32,
+) -> usize {
     let mut to_remove: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
     let mut category_groups: std::collections::HashMap<String, Vec<usize>> =
@@ -311,7 +317,7 @@ pub fn consolidate_similar(facts: &mut Vec<KnowledgeFact>, similarity_threshold:
     count
 }
 
-pub fn compact(
+pub(crate) fn compact(
     facts: &mut Vec<KnowledgeFact>,
     config: &LifecycleConfig,
 ) -> (usize, Vec<KnowledgeFact>) {
@@ -374,7 +380,7 @@ pub fn compact(
 /// Guardrails for cluster compaction (#971). See
 /// [`crate::core::memory_policy::CompactionPolicy`] for field meanings.
 #[derive(Debug, Clone)]
-pub struct ClusterCompactionConfig {
+pub(crate) struct ClusterCompactionConfig {
     pub min_cluster: usize,
     pub similarity: f32,
     pub max_confidence: f32,
@@ -390,7 +396,7 @@ const COMPACTION_VALUE_MAX: usize = 400;
 /// the caller archives the originals so the operation is lossless. Deterministic:
 /// candidates are scanned in the store's existing order and similarity ties
 /// resolve to the earliest-founded cluster.
-pub fn compact_clusters(
+pub(crate) fn compact_clusters(
     facts: &mut Vec<KnowledgeFact>,
     cfg: &ClusterCompactionConfig,
 ) -> (usize, Vec<KnowledgeFact>) {
@@ -559,7 +565,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
     out
 }
 
-pub fn run_lifecycle(
+pub(crate) fn run_lifecycle(
     facts: &mut Vec<KnowledgeFact>,
     config: &LifecycleConfig,
 ) -> Result<LifecycleReport, String> {
@@ -602,7 +608,7 @@ pub fn run_lifecycle(
 /// Archive evicted facts (lossless). Facts keep the legacy global archive root
 /// for backward compatibility; the generic multi-store archive lives in
 /// [`crate::core::memory_archive`].
-pub fn archive_facts(facts: &[KnowledgeFact]) -> Result<(), String> {
+pub(crate) fn archive_facts(facts: &[KnowledgeFact]) -> Result<(), String> {
     crate::core::memory_archive::archive_items(
         MemoryStore::Facts,
         None,
@@ -613,19 +619,19 @@ pub fn archive_facts(facts: &[KnowledgeFact]) -> Result<(), String> {
 }
 
 /// Restore the facts from a single archive file (legacy `facts` key supported).
-pub fn restore_archive(archive_path: &str) -> Result<Vec<KnowledgeFact>, String> {
+pub(crate) fn restore_archive(archive_path: &str) -> Result<Vec<KnowledgeFact>, String> {
     crate::core::memory_archive::restore_items(std::path::Path::new(archive_path))
 }
 
 /// All facts archive files, sorted ascending (chronological).
-pub fn list_archives() -> Vec<PathBuf> {
+pub(crate) fn list_archives() -> Vec<PathBuf> {
     crate::core::memory_archive::list_archives(MemoryStore::Facts, None)
 }
 
 /// The newest reachable facts archives for the recall-miss rehydrate path —
 /// bounded by [`ArchiveConfig::rehydrate_reach`] so every retained archive is
 /// reachable (closes the pre-#995 retained-vs-reachable gap).
-pub fn reachable_archives(cfg: &ArchiveConfig) -> Vec<PathBuf> {
+pub(crate) fn reachable_archives(cfg: &ArchiveConfig) -> Vec<PathBuf> {
     crate::core::memory_archive::reachable_archives(MemoryStore::Facts, None, cfg)
 }
 

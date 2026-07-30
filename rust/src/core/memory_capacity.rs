@@ -15,7 +15,7 @@ use super::memory_archive::{ArchiveConfig, MemoryStore, archive_items};
 /// items so a busy store keeps real headroom instead of churning right at its
 /// cap. `headroom_pct = 0.25` reproduces the prior `max - ceil(max/4)` target
 /// byte-for-byte.
-pub fn reclaim_target(max: usize, headroom_pct: f32) -> usize {
+pub(crate) fn reclaim_target(max: usize, headroom_pct: f32) -> usize {
     if max == 0 {
         return 0;
     }
@@ -27,13 +27,13 @@ pub fn reclaim_target(max: usize, headroom_pct: f32) -> usize {
 /// Whether a store at `len` should reclaim now. Hysteresis: trigger only at/above
 /// the cap rather than continuously keeping N% free, so a store does not reclaim
 /// on every write once it nears capacity.
-pub fn should_reclaim(len: usize, max: usize, enabled: bool) -> bool {
+pub(crate) fn should_reclaim(len: usize, max: usize, enabled: bool) -> bool {
     enabled && max > 0 && len >= max
 }
 
 /// How many items a [`reclaim_store`] would archive for a store at `len`, without
 /// touching the store or the archive. Powers dry-run previews (#995 Phase 6).
-pub fn reclaim_preview(len: usize, max: usize, headroom_pct: f32, enabled: bool) -> usize {
+pub(crate) fn reclaim_preview(len: usize, max: usize, headroom_pct: f32, enabled: bool) -> usize {
     if !should_reclaim(len, max, enabled) {
         return 0;
     }
@@ -48,7 +48,7 @@ pub fn reclaim_preview(len: usize, max: usize, headroom_pct: f32, enabled: bool)
 /// and restorable. Returns the archived items. No-op when disabled, under cap,
 /// or `max == 0`. If persistence fails, returns the error and leaves `items`
 /// unchanged.
-pub fn reclaim_store<T, F>(
+pub(crate) fn reclaim_store<T, F>(
     store: MemoryStore,
     scope: Option<&str>,
     items: &mut Vec<T>,

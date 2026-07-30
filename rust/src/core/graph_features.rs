@@ -10,7 +10,7 @@ use crate::core::pagerank::{PageRankInput, compute as pagerank_compute};
 
 /// Aggregated graph-derived features per file node.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GraphFeatures {
+pub(crate) struct GraphFeatures {
     pub centrality: f64,
     pub clustering_coeff: f64,
     pub hub_score: f64,
@@ -200,7 +200,7 @@ fn community_labels(
 }
 
 /// Computes per-file graph features using the same file-level projection as PageRank.
-pub fn compute_graph_features(conn: &Connection) -> HashMap<String, GraphFeatures> {
+pub(crate) fn compute_graph_features(conn: &Connection) -> HashMap<String, GraphFeatures> {
     let input = PageRankInput::from_connection(conn);
     let files = &input.files;
 

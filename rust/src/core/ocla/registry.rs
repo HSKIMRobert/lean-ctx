@@ -310,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::let_underscore_future)]
     fn every_builtin_main_method_can_be_called_without_panicking() {
         let _dir = crate::core::data_dir::isolated_data_dir();
         let reg = OclaRegistry::with_builtins();

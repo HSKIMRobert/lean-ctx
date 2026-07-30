@@ -13,7 +13,7 @@ const MAX_ROOTS: usize = 16;
 
 /// A single search result from one repo root.
 #[derive(Debug, Clone)]
-pub struct RepoSearchResult {
+pub(crate) struct RepoSearchResult {
     pub repo_alias: String,
     pub repo_path: String,
     pub file_path: String,
@@ -26,7 +26,7 @@ pub struct RepoSearchResult {
 
 /// A merged result after RRF fusion across multiple repos.
 #[derive(Debug, Clone)]
-pub struct FusedSearchResult {
+pub(crate) struct FusedSearchResult {
     pub repo_alias: String,
     pub repo_path: String,
     pub file_path: String,
@@ -39,14 +39,14 @@ pub struct FusedSearchResult {
 
 /// Configuration for a single repository root in multi-repo mode.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RepoRootConfig {
+pub(crate) struct RepoRootConfig {
     pub path: String,
     #[serde(default)]
     pub alias: Option<String>,
 }
 
 impl RepoRootConfig {
-    pub fn effective_alias(&self) -> String {
+    pub(crate) fn effective_alias(&self) -> String {
         self.alias.clone().unwrap_or_else(|| {
             Path::new(&self.path)
                 .file_name()
@@ -59,7 +59,7 @@ impl RepoRootConfig {
 
 /// Multi-repo configuration loaded from `~/.config/lean-ctx/multi-repo.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MultiRepoConfig {
+pub(crate) struct MultiRepoConfig {
     #[serde(default)]
     pub repos: Vec<RepoRootConfig>,
     #[serde(default)]
@@ -67,7 +67,7 @@ pub struct MultiRepoConfig {
 }
 
 impl MultiRepoConfig {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let config_path = config_file_path();
         if !config_path.exists() {
             return Self::default();
@@ -78,7 +78,7 @@ impl MultiRepoConfig {
         }
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let config_path = config_file_path();
         if let Some(parent) = config_path.parent() {
             std::fs::create_dir_all(parent)
@@ -95,7 +95,7 @@ impl MultiRepoConfig {
 }
 
 /// An active repo root with its loaded BM25 index.
-pub struct ActiveRepoRoot {
+pub(crate) struct ActiveRepoRoot {
     pub config: RepoRootConfig,
     pub path: PathBuf,
     index: Option<BM25Index>,
@@ -137,11 +137,11 @@ impl ActiveRepoRoot {
         self.index = Some(BM25Index::load_or_build(&self.path));
     }
 
-    pub fn alias(&self) -> String {
+    pub(crate) fn alias(&self) -> String {
         self.config.effective_alias()
     }
 
-    pub fn search(&mut self, query: &str, max_results: usize) -> Vec<RepoSearchResult> {
+    pub(crate) fn search(&mut self, query: &str, max_results: usize) -> Vec<RepoSearchResult> {
         self.ensure_index();
         let Some(ref index) = self.index else {
             return Vec::new();
@@ -169,25 +169,25 @@ impl ActiveRepoRoot {
 }
 
 /// Manages multiple repository roots and performs cross-repo search with RRF fusion.
-pub struct MultiRepoManager {
+pub(crate) struct MultiRepoManager {
     roots: Vec<ActiveRepoRoot>,
     rrf_k: f64,
 }
 
 impl MultiRepoManager {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             roots: Vec::new(),
             rrf_k: DEFAULT_RRF_K,
         }
     }
 
-    pub fn with_rrf_k(mut self, k: f64) -> Self {
+    pub(crate) fn with_rrf_k(mut self, k: f64) -> Self {
         self.rrf_k = k;
         self
     }
 
-    pub fn from_config(config: &MultiRepoConfig) -> Result<Self, String> {
+    pub(crate) fn from_config(config: &MultiRepoConfig) -> Result<Self, String> {
         let mut manager = Self::new();
         if let Some(k) = config.rrf_k {
             manager.rrf_k = k;
@@ -198,7 +198,7 @@ impl MultiRepoManager {
         Ok(manager)
     }
 
-    pub fn add_root(&mut self, path: &str, alias: Option<&str>) -> Result<(), String> {
+    pub(crate) fn add_root(&mut self, path: &str, alias: Option<&str>) -> Result<(), String> {
         if self.roots.len() >= MAX_ROOTS {
             return Err(format!("Maximum number of roots ({MAX_ROOTS}) reached"));
         }
@@ -229,7 +229,7 @@ impl MultiRepoManager {
         Ok(())
     }
 
-    pub fn remove_root(&mut self, path: &str) -> Result<(), String> {
+    pub(crate) fn remove_root(&mut self, path: &str) -> Result<(), String> {
         let normalized = PathBuf::from(path)
             .canonicalize()
             .unwrap_or_else(|_| PathBuf::from(path));
@@ -242,7 +242,7 @@ impl MultiRepoManager {
         Ok(())
     }
 
-    pub fn list_roots(&self) -> Vec<RootInfo> {
+    pub(crate) fn list_roots(&self) -> Vec<RootInfo> {
         self.roots
             .iter()
             .map(|r| RootInfo {
@@ -253,29 +253,29 @@ impl MultiRepoManager {
             .collect()
     }
 
-    pub fn root_count(&self) -> usize {
+    pub(crate) fn root_count(&self) -> usize {
         self.roots.len()
     }
 
     /// The configured RRF constant, so external fusers (e.g. the hybrid
     /// multi-repo search) score identically to [`Self::search`].
-    pub fn rrf_k(&self) -> f64 {
+    pub(crate) fn rrf_k(&self) -> f64 {
         self.rrf_k
     }
 
-    pub fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         self.roots.len() > 1
     }
 
     /// Resolve a repo alias or path to the corresponding root index.
-    pub fn resolve_root(&self, repo: &str) -> Option<usize> {
+    pub(crate) fn resolve_root(&self, repo: &str) -> Option<usize> {
         self.roots.iter().position(|r| {
             r.alias() == repo || r.config.path == repo || r.path.to_string_lossy() == repo
         })
     }
 
     /// Search across all roots (or a subset) and merge with Reciprocal Rank Fusion.
-    pub fn search(
+    pub(crate) fn search(
         &mut self,
         query: &str,
         max_results: usize,
@@ -332,7 +332,7 @@ impl MultiRepoManager {
     }
 
     /// Search within a specific repo root (no RRF, single-repo query).
-    pub fn search_single_repo(
+    pub(crate) fn search_single_repo(
         &mut self,
         repo: &str,
         query: &str,
@@ -353,7 +353,7 @@ impl Default for MultiRepoManager {
 
 /// Summary info about a registered root.
 #[derive(Debug, Clone, Serialize)]
-pub struct RootInfo {
+pub(crate) struct RootInfo {
     pub path: String,
     pub alias: String,
     pub has_index: bool,
@@ -364,7 +364,7 @@ pub struct RootInfo {
 /// #594: resolved through the unified config base so it matches `config.toml`
 /// (on macOS this no longer diverges to `~/Library/Application Support`); any
 /// legacy copy at the old location is adopted on first access.
-pub fn config_file_path() -> PathBuf {
+pub(crate) fn config_file_path() -> PathBuf {
     crate::core::paths::config_dir_member("multi-repo.toml")
         .unwrap_or_else(|_| PathBuf::from("~/.config/lean-ctx/multi-repo.toml"))
 }
@@ -373,7 +373,7 @@ pub fn config_file_path() -> PathBuf {
 static GLOBAL_MANAGER: std::sync::OnceLock<std::sync::Mutex<MultiRepoManager>> =
     std::sync::OnceLock::new();
 
-pub fn global_manager() -> &'static std::sync::Mutex<MultiRepoManager> {
+pub(crate) fn global_manager() -> &'static std::sync::Mutex<MultiRepoManager> {
     GLOBAL_MANAGER.get_or_init(|| {
         let config = MultiRepoConfig::load();
         let manager = MultiRepoManager::from_config(&config).unwrap_or_default();
@@ -382,7 +382,7 @@ pub fn global_manager() -> &'static std::sync::Mutex<MultiRepoManager> {
 }
 
 /// Initialize the global manager with explicit roots (e.g. from CLI `--root` flags).
-pub fn init_with_roots(
+pub(crate) fn init_with_roots(
     roots: &[(String, Option<String>)],
     rrf_k: Option<f64>,
 ) -> Result<(), String> {
@@ -401,7 +401,7 @@ pub fn init_with_roots(
 /// Resolve a `repo` alias/path to the actual filesystem root.
 /// Used by existing tools (ctx_read, ctx_search, etc.) when a `repo` param is provided.
 /// Returns the absolute path to the repo root, or None if multi-repo is inactive or repo not found.
-pub fn resolve_repo_root(repo: &str) -> Option<String> {
+pub(crate) fn resolve_repo_root(repo: &str) -> Option<String> {
     let manager = global_manager();
     let mgr = manager.lock().ok()?;
     let idx = mgr.resolve_root(repo)?;
@@ -411,7 +411,7 @@ pub fn resolve_repo_root(repo: &str) -> Option<String> {
 /// Every registered repo alias, for naming known aliases in an "unknown repo"
 /// error — a bare `resolve_repo_root` miss gives no hint of what *was*
 /// registered, which just invites another guess.
-pub fn known_aliases() -> Vec<String> {
+pub(crate) fn known_aliases() -> Vec<String> {
     let manager = global_manager();
     let Ok(mgr) = manager.lock() else {
         return Vec::new();
@@ -420,13 +420,13 @@ pub fn known_aliases() -> Vec<String> {
 }
 
 /// Check if multi-repo mode is active (more than 1 root configured).
-pub fn is_multi_repo_active() -> bool {
+pub(crate) fn is_multi_repo_active() -> bool {
     let manager = global_manager();
     manager.lock().is_ok_and(|mgr| mgr.is_active())
 }
 
 /// Get all configured repo root paths (for tools that need to iterate).
-pub fn all_root_paths() -> Vec<String> {
+pub(crate) fn all_root_paths() -> Vec<String> {
     let manager = global_manager();
     let Ok(mgr) = manager.lock() else {
         return Vec::new();
@@ -438,7 +438,7 @@ pub fn all_root_paths() -> Vec<String> {
 }
 
 /// Format search results for MCP output.
-pub fn format_fused_results(results: &[FusedSearchResult]) -> String {
+pub(crate) fn format_fused_results(results: &[FusedSearchResult]) -> String {
     if results.is_empty() {
         return "No results found across repos.".to_string();
     }

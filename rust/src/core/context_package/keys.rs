@@ -9,17 +9,17 @@ use std::path::PathBuf;
 
 use ed25519_dalek::SigningKey;
 
-pub const KEY_REL_PATH: &str = "keys/ctxpkg-ed25519.key";
+pub(crate) const KEY_REL_PATH: &str = "keys/ctxpkg-ed25519.key";
 
 /// Resolves through the XDG data dir (not a hardcoded `~/.lean-ctx`) so the key
 /// follows the migrated layout and never re-creates the legacy dir (GH #436).
-pub fn key_path() -> Result<PathBuf, String> {
+pub(crate) fn key_path() -> Result<PathBuf, String> {
     Ok(crate::core::paths::data_dir()?.join(KEY_REL_PATH))
 }
 
 /// Load the signing key, creating it on first use. Returns the key and
 /// whether it was newly generated (so the CLI can tell the user once).
-pub fn load_or_create() -> Result<(SigningKey, bool), String> {
+pub(crate) fn load_or_create() -> Result<(SigningKey, bool), String> {
     let path = key_path()?;
     if path.exists() {
         let hex_seed =
@@ -46,7 +46,7 @@ pub fn load_or_create() -> Result<(SigningKey, bool), String> {
 }
 
 /// Hex of the public verifying key — the publisher's stable identity.
-pub fn public_key_hex(key: &SigningKey) -> String {
+pub(crate) fn public_key_hex(key: &SigningKey) -> String {
     hex_encode(key.verifying_key().as_bytes())
 }
 

@@ -19,14 +19,14 @@ use super::audit_trail::{self, AuditEntryData, AuditEventType};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentStatus {
+pub(crate) enum AgentStatus {
     Active,
     Suspended,
     Decommissioned,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Attestation {
+pub(crate) struct Attestation {
     /// SHA-256 of the running binary at registration/heartbeat time.
     pub binary_sha256: String,
     /// SHA-256 of the active role file (empty when the role is built-in).
@@ -35,7 +35,7 @@ pub struct Attestation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentRecord {
+pub(crate) struct AgentRecord {
     /// Stable identity (key of the registry).
     pub agent_id: String,
     /// Role name under `roles/*.toml` / built-ins.
@@ -63,7 +63,7 @@ pub struct AgentRecord {
 /// Outcome of an identity check on a call path (team server middleware,
 /// enforce mode).
 #[derive(Debug, Clone, Serialize)]
-pub struct IdentityCheck {
+pub(crate) struct IdentityCheck {
     pub agent_id: String,
     pub registered: bool,
     /// Active = may act. Suspended/decommissioned/unregistered = may not.
@@ -130,13 +130,13 @@ fn with_registry<T>(
 }
 
 /// Read-only registry snapshot.
-pub fn list() -> Vec<AgentRecord> {
+pub(crate) fn list() -> Vec<AgentRecord> {
     registry_path()
         .map(|p| load_registry(&p).into_values().collect())
         .unwrap_or_default()
 }
 
-pub fn get(agent_id: &str) -> Option<AgentRecord> {
+pub(crate) fn get(agent_id: &str) -> Option<AgentRecord> {
     registry_path()
         .ok()
         .and_then(|p| load_registry(&p).remove(agent_id))
@@ -196,7 +196,7 @@ fn binary_sha256() -> String {
 /// Best-effort attestation: hash the running binary and the role file.
 /// Detects drift; does NOT stop a determined attacker who controls the
 /// host (documented in docs/enterprise/agent-identity.md).
-pub fn attest(role: &str) -> Attestation {
+pub(crate) fn attest(role: &str) -> Attestation {
     let binary_sha256 = binary_sha256();
     let config_sha256 = role_file_path(role)
         .and_then(|p| std::fs::read(p).ok())
@@ -227,7 +227,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// Register a new agent identity. The role must exist; the owner is
 /// mandatory (accountability). Creating an identity also provisions its
 /// Ed25519 keypair.
-pub fn register(agent_id: &str, role: &str, owner: &str) -> Result<AgentRecord, String> {
+pub(crate) fn register(agent_id: &str, role: &str, owner: &str) -> Result<AgentRecord, String> {
     if agent_id.trim().is_empty()
         || !agent_id
             .chars()
@@ -283,7 +283,7 @@ pub fn register(agent_id: &str, role: &str, owner: &str) -> Result<AgentRecord, 
 
 /// Heartbeat: liveness + re-attestation. Returns drift against the
 /// registration-time attestation, if any.
-pub fn heartbeat(agent_id: &str) -> Result<Option<String>, String> {
+pub(crate) fn heartbeat(agent_id: &str) -> Result<Option<String>, String> {
     with_registry(|reg| {
         let record = reg
             .get_mut(agent_id)
@@ -310,7 +310,7 @@ pub fn heartbeat(agent_id: &str) -> Result<Option<String>, String> {
 
 /// Garbage-collect dead agents: check PID liveness for Active agents,
 /// decommission those whose process is gone. Returns decommissioned count.
-pub fn gc() -> Result<usize, String> {
+pub(crate) fn gc() -> Result<usize, String> {
     with_registry(|reg| {
         let mut count = 0;
         let now = chrono::Utc::now().to_rfc3339();
@@ -343,7 +343,7 @@ fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
-pub fn suspend(agent_id: &str, reason: &str) -> Result<(), String> {
+pub(crate) fn suspend(agent_id: &str, reason: &str) -> Result<(), String> {
     let role = transition(agent_id, AgentStatus::Suspended, Some(reason.to_string()))?;
     audit(
         AuditEventType::AgentSuspended,
@@ -354,7 +354,7 @@ pub fn suspend(agent_id: &str, reason: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn resume(agent_id: &str) -> Result<(), String> {
+pub(crate) fn resume(agent_id: &str) -> Result<(), String> {
     let role = transition(agent_id, AgentStatus::Active, None)?;
     audit(AuditEventType::AgentResumed, agent_id, &role, None);
     Ok(())
@@ -362,7 +362,7 @@ pub fn resume(agent_id: &str) -> Result<(), String> {
 
 /// Decommission closes the identity with a final audit entry; the record
 /// stays in the registry (auditability) but can never act again.
-pub fn decommission(agent_id: &str) -> Result<(), String> {
+pub(crate) fn decommission(agent_id: &str) -> Result<(), String> {
     let role = with_registry(|reg| {
         let record = reg
             .get_mut(agent_id)
@@ -398,7 +398,7 @@ fn transition(agent_id: &str, to: AgentStatus, reason: Option<String>) -> Result
 
 /// Owner offboarding (SCIM `active=false` hook, GL #399): suspend every
 /// active agent owned by `owner`. Returns the suspended agent ids.
-pub fn suspend_agents_for_owner(owner: &str, reason: &str) -> Result<Vec<String>, String> {
+pub(crate) fn suspend_agents_for_owner(owner: &str, reason: &str) -> Result<Vec<String>, String> {
     let suspended = with_registry(|reg| {
         let mut hit = Vec::new();
         for record in reg.values_mut() {
@@ -424,7 +424,7 @@ pub fn suspend_agents_for_owner(owner: &str, reason: &str) -> Result<Vec<String>
 /// Identity check for enforce paths (team-server middleware): registered
 /// AND active. Unregistered agents are reported (monitor mode logs,
 /// enforce mode rejects — the caller decides).
-pub fn check(agent_id: &str) -> IdentityCheck {
+pub(crate) fn check(agent_id: &str) -> IdentityCheck {
     match get(agent_id) {
         None => IdentityCheck {
             agent_id: agent_id.to_string(),
@@ -455,7 +455,7 @@ pub fn check(agent_id: &str) -> IdentityCheck {
 
 /// SPIFFE-compatible workload identity:
 /// `spiffe://<trust_domain>/agent/<role>/<agent_id>`.
-pub fn spiffe_id(record: &AgentRecord, trust_domain: &str) -> String {
+pub(crate) fn spiffe_id(record: &AgentRecord, trust_domain: &str) -> String {
     format!(
         "spiffe://{}/agent/{}/{}",
         trust_domain.trim_matches('/'),

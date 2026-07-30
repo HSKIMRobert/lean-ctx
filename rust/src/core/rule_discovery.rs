@@ -14,7 +14,7 @@ use std::sync::Mutex;
 // ── Types ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct DiscoveredRule {
+pub(crate) struct DiscoveredRule {
     pub source: String,
     pub content: String,
 }
@@ -33,7 +33,7 @@ fn already_injected(key: &str) -> bool {
 
 /// Reset injection tracking (for tests).
 #[cfg(test)]
-pub fn reset_injection_cache() {
+pub(crate) fn reset_injection_cache() {
     let mut guard = INJECTED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -45,7 +45,11 @@ pub fn reset_injection_cache() {
 /// Discover and format rules applicable to `file_path` that haven't been
 /// injected yet in this session. Returns an empty string when no new rules
 /// apply or when the client natively handles rule injection.
-pub fn rules_suffix_for_read(file_path: &str, project_root: &str, client_id: &str) -> String {
+pub(crate) fn rules_suffix_for_read(
+    file_path: &str,
+    project_root: &str,
+    client_id: &str,
+) -> String {
     if client_natively_injects_rules(client_id) {
         return String::new();
     }

@@ -4,7 +4,7 @@ use super::bootstrap;
 
 /// Non-inferiority test result.
 #[derive(Debug, Clone)]
-pub struct NonInferiorityResult {
+pub(crate) struct NonInferiorityResult {
     pub ci_low: f64,
     pub ci_high: f64,
     pub margin: f64,
@@ -17,7 +17,7 @@ pub struct NonInferiorityResult {
 /// Uses paired differences: `treatment[i] - baseline[i]`.
 /// Non-inferior if `ci_low >= -margin`.
 /// Superior if `ci_low > 0`.
-pub fn non_inferiority_test(
+pub(crate) fn non_inferiority_test(
     baseline: &[f64],
     treatment: &[f64],
     margin: f64,

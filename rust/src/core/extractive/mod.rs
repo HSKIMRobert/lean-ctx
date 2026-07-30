@@ -28,7 +28,7 @@
 mod ranker;
 mod segment;
 
-pub use ranker::RankMode;
+pub(crate) use ranker::RankMode;
 
 /// Too few units to rank meaningfully → let the caller fall back.
 const MIN_SEGMENTS: usize = 3;
@@ -48,7 +48,7 @@ const MAX_SEGMENTS: usize = 512;
 /// and ignored for [`RankMode::Centrality`].
 #[cfg(feature = "embeddings")]
 #[must_use]
-pub fn rank_and_squeeze(
+pub(crate) fn rank_and_squeeze(
     text: &str,
     budget_chars: usize,
     mode: RankMode,

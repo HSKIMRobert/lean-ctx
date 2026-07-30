@@ -8,8 +8,8 @@ mod helpers;
 mod query_cache;
 pub(crate) mod sfc;
 
-pub use ast_prune::ast_prune;
-pub use extract::extract_signatures_ts;
+pub(crate) use ast_prune::ast_prune;
+pub(crate) use extract::extract_signatures_ts;
 
 #[cfg(test)]
 mod tests {

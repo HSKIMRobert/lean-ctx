@@ -1,7 +1,7 @@
 //! U-shaped placement (primacy/recency): alternate placing ranked items at context head vs tail.
 
 /// Sort by descending importance, then assign alternating fronts (`front`) vs backs (`back`).
-pub fn reorder_for_attention(items: &mut [(String, f64)]) {
+pub(crate) fn reorder_for_attention(items: &mut [(String, f64)]) {
     if items.is_empty() {
         return;
     }

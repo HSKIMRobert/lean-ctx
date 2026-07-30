@@ -7,7 +7,7 @@
 
 /// Task intent classification for compression decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskIntent {
+pub(crate) enum TaskIntent {
     /// Exploring / understanding the codebase. High compression is safe.
     Explore,
     /// Implementing / editing specific code. Full detail needed.
@@ -22,7 +22,7 @@ pub enum TaskIntent {
 
 impl TaskIntent {
     /// Classify intent from a task description string.
-    pub fn classify(task: &str) -> Self {
+    pub(crate) fn classify(task: &str) -> Self {
         let lower = task.to_lowercase();
 
         if contains_any(
@@ -59,7 +59,7 @@ impl TaskIntent {
     }
 
     /// Recommended compression level for this intent.
-    pub fn compression_level(&self) -> CompressionLevel {
+    pub(crate) fn compression_level(&self) -> CompressionLevel {
         match self {
             TaskIntent::Explore => CompressionLevel::High,
             TaskIntent::Review | TaskIntent::Unknown => CompressionLevel::Medium,
@@ -69,7 +69,7 @@ impl TaskIntent {
     }
 
     /// Suggested read mode for auto-mode resolution.
-    pub fn suggested_read_mode(&self) -> &'static str {
+    pub(crate) fn suggested_read_mode(&self) -> &'static str {
         match self {
             TaskIntent::Explore => "map",
             TaskIntent::Review => "signatures",
@@ -81,7 +81,7 @@ impl TaskIntent {
 
 /// Compression intensity levels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum CompressionLevel {
+pub(crate) enum CompressionLevel {
     /// No compression — full content.
     Minimal,
     /// Light compression (remove blanks, trailing whitespace).

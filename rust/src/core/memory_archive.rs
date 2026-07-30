@@ -31,7 +31,7 @@ const DEFAULT_MAX_ARCHIVE_FILES: usize = 16;
 /// archive is generic over the item type, so this stays decoupled from the
 /// concrete fact/insight/procedure/pattern structs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryStore {
+pub(crate) enum MemoryStore {
     Facts,
     History,
     Procedures,
@@ -39,7 +39,7 @@ pub enum MemoryStore {
 }
 
 impl MemoryStore {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             MemoryStore::Facts => "facts",
             MemoryStore::History => "history",
@@ -48,7 +48,7 @@ impl MemoryStore {
         }
     }
 
-    pub fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s.trim().to_lowercase().as_str() {
             "facts" | "fact" => Some(MemoryStore::Facts),
             "history" | "insights" => Some(MemoryStore::History),
@@ -59,7 +59,7 @@ impl MemoryStore {
     }
 
     /// All stores, for cross-store iteration (restore, reporting).
-    pub fn all() -> [MemoryStore; 4] {
+    pub(crate) fn all() -> [MemoryStore; 4] {
         [
             MemoryStore::Facts,
             MemoryStore::History,
@@ -82,7 +82,7 @@ impl MemoryStore {
 /// archive is actually reachable (closing the pre-#995 16-retained / 4-reachable
 /// gap). Both are overridable via env for ops tuning.
 #[derive(Debug, Clone, Copy)]
-pub struct ArchiveConfig {
+pub(crate) struct ArchiveConfig {
     pub max_files: usize,
     pub rehydrate_reach: usize,
 }
@@ -99,7 +99,7 @@ impl Default for ArchiveConfig {
 impl ArchiveConfig {
     /// Read overrides from the environment. `rehydrate_reach` defaults to
     /// `max_files` and is clamped to it (cannot reach more files than retained).
-    pub fn from_env() -> Self {
+    pub(crate) fn from_env() -> Self {
         let mut cfg = Self::default();
         if let Ok(v) = std::env::var("LEAN_CTX_ARCHIVE_MAX_FILES")
             && let Ok(n) = v.parse::<usize>()
@@ -123,7 +123,7 @@ impl ArchiveConfig {
 /// `items`; the `facts` alias keeps legacy facts archives (which used that key)
 /// deserializable.
 #[derive(Debug, Deserialize)]
-pub struct ArchiveEnvelope<T> {
+pub(crate) struct ArchiveEnvelope<T> {
     pub archived_at: DateTime<Utc>,
     #[serde(default)]
     pub store: String,
@@ -174,7 +174,7 @@ fn sanitize_scope(scope: &str) -> String {
 /// Archive `items` for `store`/`scope`, then prune the directory to
 /// `cfg.max_files` newest. Returns the written path, or `None` when there was
 /// nothing to archive. Best-effort prune: a prune failure never fails the write.
-pub fn archive_items<T: Serialize>(
+pub(crate) fn archive_items<T: Serialize>(
     store: MemoryStore,
     scope: Option<&str>,
     items: &[T],
@@ -213,7 +213,7 @@ pub fn archive_items<T: Serialize>(
 
 /// All archive files for `store`/`scope`, sorted ascending (lexical ==
 /// chronological for the zero-padded timestamp filename prefix).
-pub fn list_archives(store: MemoryStore, scope: Option<&str>) -> Vec<PathBuf> {
+pub(crate) fn list_archives(store: MemoryStore, scope: Option<&str>) -> Vec<PathBuf> {
     let Ok(dir) = archive_dir(store, scope) else {
         return Vec::new();
     };
@@ -234,7 +234,7 @@ pub fn list_archives(store: MemoryStore, scope: Option<&str>) -> Vec<PathBuf> {
 /// The newest `cfg.rehydrate_reach` archives for `store`/`scope` — the set a
 /// recall miss should scan. Aligned with retention so nothing retained is
 /// unreachable.
-pub fn reachable_archives(
+pub(crate) fn reachable_archives(
     store: MemoryStore,
     scope: Option<&str>,
     cfg: &ArchiveConfig,
@@ -247,7 +247,7 @@ pub fn reachable_archives(
 }
 
 /// Restore the items from a single archive file.
-pub fn restore_items<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>, String> {
+pub(crate) fn restore_items<T: DeserializeOwned>(path: &Path) -> Result<Vec<T>, String> {
     let data = std::fs::read_to_string(path).map_err(|e| format!("{e}"))?;
     let envelope: ArchiveEnvelope<T> = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
     Ok(envelope.items)

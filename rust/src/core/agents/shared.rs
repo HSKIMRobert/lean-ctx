@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SharedFact {
+pub(crate) struct SharedFact {
     pub from_agent: String,
     pub category: String,
     pub key: String,
@@ -17,7 +17,12 @@ pub struct SharedFact {
 }
 
 impl AgentRegistry {
-    pub fn share_knowledge(&mut self, from: &str, category: &str, facts: &[(String, String)]) {
+    pub(crate) fn share_knowledge(
+        &mut self,
+        from: &str,
+        category: &str,
+        facts: &[(String, String)],
+    ) {
         for (key, value) in facts {
             self.scratchpad.push(ScratchpadEntry {
                 id: format!("knowledge-{}", chrono::Utc::now().timestamp_millis()),
@@ -60,7 +65,7 @@ impl AgentRegistry {
         }
     }
 
-    pub fn receive_shared_knowledge(&mut self, agent_id: &str) -> Vec<SharedFact> {
+    pub(crate) fn receive_shared_knowledge(&mut self, agent_id: &str) -> Vec<SharedFact> {
         let shared_path = Self::shared_knowledge_path();
         let mut all: Vec<SharedFact> = std::fs::read_to_string(&shared_path)
             .ok()

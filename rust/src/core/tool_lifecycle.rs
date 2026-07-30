@@ -68,7 +68,7 @@ fn ir_excerpt(text: &str) -> &str {
 /// dispatcher records both for every tool call but the shadow-mode `lean-ctx
 /// read` subprocess used to drop them, so IR/`ctx_proof` exports were blind to
 /// compressed shadow reads.
-pub fn record_file_read(
+pub(crate) fn record_file_read(
     path: &str,
     mode: &str,
     original_tokens: usize,
@@ -376,7 +376,7 @@ fn read_density_with_analyzer(
 /// stats series; `observed_tokens` (raw measured match lines, no factor) feeds
 /// the verified ledger (GL #479 D2). `pattern`/`path`/`duration`/`output_excerpt`
 /// feed the Context IR lineage (#566).
-pub fn record_search(
+pub(crate) fn record_search(
     modeled_baseline: usize,
     observed_tokens: usize,
     output_tokens: usize,
@@ -429,7 +429,7 @@ pub fn record_search(
 }
 
 /// Record a tree/ls operation with full Context OS side effects.
-pub fn record_tree(original_tokens: usize, output_tokens: usize) {
+pub(crate) fn record_tree(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_ls", original_tokens, output_tokens);
 
     if let Some(mut session) = SessionState::load_latest() {
@@ -441,7 +441,7 @@ pub fn record_tree(original_tokens: usize, output_tokens: usize) {
 /// Record a shell command with full Context OS side effects.
 /// Always records in stats (even for track-only 0-token calls) so the dashboard
 /// command counter stays accurate. Adding 0 tokens does not inflate savings.
-pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
+pub(crate) fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_shell", original_tokens, output_tokens);
     // Shell compression is *measured* (raw output vs sent output), so it belongs
     // in the verified ledger too (GL #479 D2). Zero-saving calls are skipped.
@@ -469,7 +469,7 @@ pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
 /// [`PERIODIC_FLUSH_INTERVAL`] calls. The MCP daemon is long-lived;
 /// without periodic flush, counters like `compressed_cache_hit` only
 /// appear in `auto_mode_sources.json` after the process exits.
-pub fn maybe_periodic_flush() {
+pub(crate) fn maybe_periodic_flush() {
     let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if count.is_multiple_of(PERIODIC_FLUSH_INTERVAL) {
         let _ = std::thread::spawn(flush_all);
@@ -489,7 +489,7 @@ pub fn maybe_periodic_flush() {
 /// command flush the *exact same* set — the historical per-arm copies had
 /// drifted (the `read` arm flushed only `stats`, the `-c` arm four sinks, the
 /// daemon nine), which is precisely how the gap went unnoticed.
-pub fn flush_all() {
+pub(crate) fn flush_all() {
     stats::flush();
     heatmap::flush();
     crate::core::path_mode_memory::flush();

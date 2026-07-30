@@ -44,11 +44,11 @@ const MIN_DOMINANCE: f64 = 0.5;
 /// heterogeneous/low-redundancy data falls through to each caller's own outline.
 /// Single source for the shell (`json_schema`, `curl`) and read (`structured_read`)
 /// paths so the gate can never drift (#936).
-pub const KEEP_DATA_DIVISOR: usize = 2;
+pub(crate) const KEEP_DATA_DIVISOR: usize = 2;
 
 /// Result of a crush pass.
 #[derive(Debug, Clone)]
-pub struct CrushResult {
+pub(crate) struct CrushResult {
     /// Compact JSON the agent sees.
     pub text: String,
     /// `true` when `reconstruct(text)` yields the exact original; `false` when a
@@ -58,7 +58,7 @@ pub struct CrushResult {
 
 /// Tuning for a crush pass.
 #[derive(Debug, Clone)]
-pub struct CrushOpts {
+pub(crate) struct CrushOpts {
     /// Distinct-value ratio (`distinct / items`) at or above which an
     /// all-present column is *dropped* (lossy). `1.0` disables dropping, making
     /// the pass strictly lossless.
@@ -81,13 +81,13 @@ impl Default for CrushOpts {
 
 impl CrushOpts {
     /// Strictly lossless options (no column dropping).
-    pub fn lossless() -> Self {
+    pub(crate) fn lossless() -> Self {
         Self::default()
     }
 
     /// Lossy options that drop columns whose distinct-value ratio is
     /// `>= drop_entropy` (clamped to `[0, 1]`).
-    pub fn lossy(drop_entropy: f64) -> Self {
+    pub(crate) fn lossy(drop_entropy: f64) -> Self {
         Self {
             drop_entropy: drop_entropy.clamp(0.0, 1.0),
             ..Self::default()
@@ -96,19 +96,19 @@ impl CrushOpts {
 }
 
 /// Lossless crush: returns `Some` only when something was actually factored.
-pub fn crush_lossless(value: &Value) -> Option<CrushResult> {
+pub(crate) fn crush_lossless(value: &Value) -> Option<CrushResult> {
     crush_with(value, &CrushOpts::lossless())
 }
 
 /// Lossy crush: lossless factoring plus high-entropy column dropping.
-pub fn crush_lossy(value: &Value, opts: &CrushOpts) -> Option<CrushResult> {
+pub(crate) fn crush_lossy(value: &Value, opts: &CrushOpts) -> Option<CrushResult> {
     crush_with(value, opts)
 }
 
 /// Lossless crush of `value`, returning the compact text only when it at least
 /// halves `raw_len` ([`KEEP_DATA_DIVISOR`]). The shared gate for callers that
 /// already hold a parsed `Value` plus its source length (`json_schema`, `curl`).
-pub fn crush_value_if_beneficial(value: &Value, raw_len: usize) -> Option<String> {
+pub(crate) fn crush_value_if_beneficial(value: &Value, raw_len: usize) -> Option<String> {
     let crushed = crush_lossless(value)?;
     (crushed.text.len().saturating_mul(KEEP_DATA_DIVISOR) <= raw_len).then_some(crushed.text)
 }
@@ -117,7 +117,7 @@ pub fn crush_value_if_beneficial(value: &Value, raw_len: usize) -> Option<String
 /// when it at least halves the input ([`KEEP_DATA_DIVISOR`]). The shared gate for
 /// callers that start from raw text (`structured_read`, `ctx_read` aggressive).
 /// `None` for non-JSON or low-redundancy input — the caller keeps its own path.
-pub fn crush_text_if_beneficial(text: &str) -> Option<String> {
+pub(crate) fn crush_text_if_beneficial(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
         return None;
@@ -134,7 +134,7 @@ pub fn crush_text_if_beneficial(text: &str) -> Option<String> {
 /// the caller MUST persist the verbatim original out-of-band (CCR) before
 /// emitting it — the dropped columns are never reconstructible from the text.
 /// `None` for non-JSON, low-redundancy, or all-lossless input.
-pub fn crush_text_lossy_if_beneficial(text: &str, drop_entropy: f64) -> Option<CrushResult> {
+pub(crate) fn crush_text_lossy_if_beneficial(text: &str, drop_entropy: f64) -> Option<CrushResult> {
     let trimmed = text.trim();
     if !trimmed.starts_with('{') && !trimmed.starts_with('[') {
         return None;
@@ -147,7 +147,7 @@ pub fn crush_text_lossy_if_beneficial(text: &str, drop_entropy: f64) -> Option<C
 
 /// Rebuild a `Value` from crushed text. Exact for lossless forms; for lossy
 /// forms the `_dropped` columns are simply absent (recover them via CCR).
-pub fn reconstruct(crushed_text: &str) -> Option<Value> {
+pub(crate) fn reconstruct(crushed_text: &str) -> Option<Value> {
     let v: Value = serde_json::from_str(crushed_text).ok()?;
     Some(uncrush_node(&v))
 }

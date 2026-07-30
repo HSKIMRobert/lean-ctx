@@ -5,12 +5,7 @@
 //! Measures both token savings AND output quality to ensure compression never
 //! degrades agent performance.
 
-pub mod config;
-pub mod fixtures;
-pub mod report;
-pub mod runner;
-
-pub use config::BenchConfig;
-pub use fixtures::TaskFixture;
-pub use report::BenchReport;
-pub use runner::run_benchmark;
+pub(crate) mod config;
+pub(crate) mod fixtures;
+pub(crate) mod report;
+pub(crate) mod runner;

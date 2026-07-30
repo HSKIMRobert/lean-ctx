@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 #[derive(Clone)]
-pub struct AutoFinding {
+pub(crate) struct AutoFinding {
     pub file: Option<String>,
     pub summary: String,
 }
@@ -22,7 +22,11 @@ const MAX_SUMMARY_LEN: usize = 120;
 /// `path_hint` carries the `path` argument of the originating call (when the
 /// caller knows it): small full-mode reads emit raw content without a header
 /// line, so the path cannot be recovered from the output alone.
-pub fn extract(tool_name: &str, output: &str, path_hint: Option<&str>) -> Option<AutoFinding> {
+pub(crate) fn extract(
+    tool_name: &str,
+    output: &str,
+    path_hint: Option<&str>,
+) -> Option<AutoFinding> {
     let finding = match tool_name {
         "ctx_read" => extract_ctx_read(output, path_hint),
         "ctx_search" => extract_ctx_search(output),
@@ -417,7 +421,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 /// Extracts a one-line structural hint from file/tool output.
 /// Shared between auto-findings and session file-summary generation.
-pub fn extract_content_hint(output: &str) -> String {
+pub(crate) fn extract_content_hint(output: &str) -> String {
     let lines: Vec<&str> = output.lines().skip(1).take(20).collect();
 
     // Layer 1: deps/exports/module-level descriptions

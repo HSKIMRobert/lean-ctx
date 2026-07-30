@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 
 /// Aggregated study report across all datasets and arms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StudyReport {
+pub(crate) struct StudyReport {
     pub experiments: Vec<FourArmExperiment>,
     pub summary: Option<StudySummary>,
 }
 
 /// High-level summary across all datasets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StudySummary {
+pub(crate) struct StudySummary {
     pub total_tasks: usize,
     pub control_pass_rate: f64,
     pub combined_pass_rate: f64,
@@ -23,7 +23,7 @@ pub struct StudySummary {
 }
 
 impl StudyReport {
-    pub fn from_experiments(experiments: Vec<FourArmExperiment>) -> Self {
+    pub(crate) fn from_experiments(experiments: Vec<FourArmExperiment>) -> Self {
         let summary = Self::compute_summary(&experiments);
         Self {
             experiments,
@@ -89,11 +89,11 @@ impl StudyReport {
         })
     }
 
-    pub fn to_json(&self) -> String {
+    pub(crate) fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }
 
-    pub fn to_markdown(&self) -> String {
+    pub(crate) fn to_markdown(&self) -> String {
         let mut md = String::from("# Combined Savings Benchmark Study\n\n");
 
         if let Some(ref s) = self.summary {

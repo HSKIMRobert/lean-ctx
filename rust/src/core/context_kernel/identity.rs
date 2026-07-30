@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 /// Identity metadata attached to a context-kernel caller.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct CallerIdentity {
+pub(crate) struct CallerIdentity {
     /// Stable user identifier, when known.
     pub user_id: Option<String>,
     /// Stable team identifier, when known.
@@ -22,7 +22,7 @@ pub struct CallerIdentity {
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
-pub enum CallerRole {
+pub(crate) enum CallerRole {
     /// Software developer using context directly.
     #[default]
     Developer,
@@ -38,7 +38,7 @@ pub enum CallerRole {
 
 /// Accumulated token and outcome metrics for one caller identity.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct IdentityAttribution {
+pub(crate) struct IdentityAttribution {
     /// Identity represented by this attribution entry.
     pub identity: CallerIdentity,
     /// Tokens delivered after context processing.
@@ -53,19 +53,19 @@ pub struct IdentityAttribution {
 
 /// In-memory attribution ledger grouped by the strongest available identity key.
 #[derive(Debug, Clone, Default)]
-pub struct IdentityLedger {
+pub(crate) struct IdentityLedger {
     entries: std::collections::HashMap<String, IdentityAttribution>,
 }
 
 impl IdentityLedger {
     /// Creates an empty identity ledger.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Records token usage, savings, and outcome acceptance for a caller.
-    pub fn record(
+    pub(crate) fn record(
         &mut self,
         identity: &CallerIdentity,
         consumed: usize,
@@ -93,13 +93,13 @@ impl IdentityLedger {
 
     /// Returns attribution recorded under an identity key.
     #[must_use]
-    pub fn attribution_for(&self, key: &str) -> Option<&IdentityAttribution> {
+    pub(crate) fn attribution_for(&self, key: &str) -> Option<&IdentityAttribution> {
         self.entries.get(key)
     }
 
     /// Returns up to `limit` entries ordered by descending token consumption.
     #[must_use]
-    pub fn top_consumers(&self, limit: usize) -> Vec<&IdentityAttribution> {
+    pub(crate) fn top_consumers(&self, limit: usize) -> Vec<&IdentityAttribution> {
         let mut entries: Vec<_> = self.entries.values().collect();
         entries.sort_unstable_by_key(|entry| Reverse(entry.tokens_consumed));
         entries.truncate(limit);
@@ -108,7 +108,7 @@ impl IdentityLedger {
 
     /// Returns up to `limit` entries ordered by descending token savings.
     #[must_use]
-    pub fn top_savers(&self, limit: usize) -> Vec<&IdentityAttribution> {
+    pub(crate) fn top_savers(&self, limit: usize) -> Vec<&IdentityAttribution> {
         let mut entries: Vec<_> = self.entries.values().collect();
         entries.sort_unstable_by_key(|entry| Reverse(entry.tokens_saved));
         entries.truncate(limit);
@@ -117,7 +117,7 @@ impl IdentityLedger {
 
     /// Returns total tokens consumed across all identities.
     #[must_use]
-    pub fn total_tokens(&self) -> usize {
+    pub(crate) fn total_tokens(&self) -> usize {
         self.entries.values().fold(0, |total, entry| {
             total.saturating_add(entry.tokens_consumed)
         })
@@ -125,7 +125,7 @@ impl IdentityLedger {
 
     /// Returns total tokens saved across all identities.
     #[must_use]
-    pub fn total_savings(&self) -> usize {
+    pub(crate) fn total_savings(&self) -> usize {
         self.entries
             .values()
             .fold(0, |total, entry| total.saturating_add(entry.tokens_saved))
@@ -133,7 +133,7 @@ impl IdentityLedger {
 
     /// Summarizes distinct identities and aggregate token efficiency.
     #[must_use]
-    pub fn summary(&self) -> IdentityLedgerSummary {
+    pub(crate) fn summary(&self) -> IdentityLedgerSummary {
         let users: HashSet<_> = self
             .entries
             .values()
@@ -185,7 +185,7 @@ impl IdentityLedger {
 
 /// Aggregate identity-ledger metrics.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct IdentityLedgerSummary {
+pub(crate) struct IdentityLedgerSummary {
     /// Number of distinct known users.
     pub total_users: usize,
     /// Number of distinct known teams.

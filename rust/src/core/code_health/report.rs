@@ -7,7 +7,7 @@ use super::ProjectHealth;
 use serde_json::{Value, json};
 
 /// Human-readable project report.
-pub fn text(health: &ProjectHealth, root: &str, threshold: u32, model: &str) -> String {
+pub(crate) fn text(health: &ProjectHealth, root: &str, threshold: u32, model: &str) -> String {
     let s = &health.score;
     let mut out = String::new();
     out.push_str(&format!("Code Health — {root}\n"));
@@ -41,7 +41,7 @@ pub fn text(health: &ProjectHealth, root: &str, threshold: u32, model: &str) -> 
 }
 
 /// Machine-readable project report.
-pub fn json(health: &ProjectHealth, root: &str) -> Value {
+pub(crate) fn json(health: &ProjectHealth, root: &str) -> Value {
     let s = &health.score;
     let hotspots: Vec<Value> = s
         .hotspots

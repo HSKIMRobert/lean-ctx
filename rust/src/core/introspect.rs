@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// One cognition subsystem in the activation registry. `key` is the stable
 /// identifier passed to [`tick`]; `label`/`science` are for human-readable
 /// reports only.
-pub struct Subsystem {
+pub(crate) struct Subsystem {
     pub key: &'static str,
     pub label: &'static str,
     pub science: &'static str,
@@ -29,7 +29,7 @@ pub struct Subsystem {
 
 /// The full set of Cognition v2 subsystems that must be wired and active.
 /// Order is the natural reading order for the report (foundation → experiment).
-pub const SUBSYSTEMS: &[Subsystem] = &[
+pub(crate) const SUBSYSTEMS: &[Subsystem] = &[
     Subsystem {
         key: "phi_recompute",
         label: "Sticky-Phi fix",
@@ -94,7 +94,7 @@ pub const SUBSYSTEMS: &[Subsystem] = &[
 
 /// Persisted activity record for a single subsystem.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Activity {
+pub(crate) struct Activity {
     pub count: u64,
     pub last_unix: i64,
 }
@@ -127,7 +127,7 @@ fn now_unix() -> i64 {
 
 /// Record one activation of `key`. Cheap (one mutex + map update); call this at
 /// the *real* call site of each subsystem so the registry reflects reality.
-pub fn tick(key: &'static str) {
+pub(crate) fn tick(key: &'static str) {
     if let Ok(mut reg) = REGISTRY.lock() {
         let e = reg.entries.entry(key).or_default();
         e.count += 1;
@@ -152,7 +152,7 @@ fn read_disk() -> HashMap<String, Activity> {
 /// Persist in-memory deltas to the shared JSON file (delta-merge so multiple
 /// processes accumulate). Best-effort: failures are swallowed — diagnostics
 /// must never break the hot path.
-pub fn flush() {
+pub(crate) fn flush() {
     let Ok(mut reg) = REGISTRY.lock() else {
         return;
     };
@@ -184,7 +184,7 @@ pub fn flush() {
 
 /// Debounced [`flush`]: persists at most once per `FLUSH_DEBOUNCE`. Safe to
 /// call from `post_dispatch` on every tool call.
-pub fn flush_if_due() {
+pub(crate) fn flush_if_due() {
     let due = {
         match REGISTRY.lock() {
             Ok(reg) => reg.last_flush.is_none_or(|t| t.elapsed() >= FLUSH_DEBOUNCE),
@@ -199,7 +199,7 @@ pub fn flush_if_due() {
 /// Snapshot of all known subsystems merged with persisted activity, for the
 /// in-process and CLI reports. Reads disk and overlays unflushed in-memory
 /// deltas so a freshly-active subsystem shows up even before the next flush.
-pub fn snapshot() -> Vec<(&'static Subsystem, Activity)> {
+pub(crate) fn snapshot() -> Vec<(&'static Subsystem, Activity)> {
     let mut disk = read_disk();
     if let Ok(reg) = REGISTRY.lock() {
         for (key, e) in &reg.entries {
@@ -218,7 +218,7 @@ pub fn snapshot() -> Vec<(&'static Subsystem, Activity)> {
 }
 
 /// Render a human-readable cognition activity report.
-pub fn format_report() -> String {
+pub(crate) fn format_report() -> String {
     let snap = snapshot();
     let active = snap.iter().filter(|(_, a)| a.count > 0).count();
     let total = snap.len();
@@ -244,7 +244,7 @@ pub fn format_report() -> String {
 }
 
 /// Machine-readable variant for `--json`.
-pub fn snapshot_json() -> String {
+pub(crate) fn snapshot_json() -> String {
     let map: HashMap<&str, Activity> = snapshot().into_iter().map(|(s, a)| (s.key, a)).collect();
     serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())
 }

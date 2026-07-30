@@ -8,13 +8,13 @@
 //! Deterministic and local-first: no LLM is required to produce or recall a
 //! summary.
 
-pub mod generate;
-pub mod recall;
-pub mod record;
-pub mod store;
+pub(crate) mod generate;
+pub(crate) mod recall;
+pub(crate) mod record;
+pub(crate) mod store;
 
-pub use recall::{RecallHit, recall};
-pub use record::{SummaryCandidate, SummaryRecord};
+pub(crate) use recall::recall;
+pub(crate) use record::{SummaryCandidate, SummaryRecord};
 
 use crate::core::session::SessionState;
 use store::SummaryStore;
@@ -25,13 +25,16 @@ fn config() -> crate::core::config::SummariesConfig {
 
 /// Build a lock-free candidate from the live session. Call while holding the
 /// session lock; persist the result off the hot path with [`maybe_record_periodic`].
-pub fn build_candidate(session: &SessionState) -> SummaryCandidate {
+pub(crate) fn build_candidate(session: &SessionState) -> SummaryCandidate {
     generate::build_candidate(session)
 }
 
 /// Record `candidate` iff enabled and the turn cadence is due. Returns the title
 /// of the recorded summary, or `None` if skipped.
-pub fn maybe_record_periodic(project_root: &str, candidate: SummaryCandidate) -> Option<String> {
+pub(crate) fn maybe_record_periodic(
+    project_root: &str,
+    candidate: SummaryCandidate,
+) -> Option<String> {
     let cfg = config();
     if !cfg.enabled || !candidate.has_content {
         return None;
@@ -45,7 +48,10 @@ pub fn maybe_record_periodic(project_root: &str, candidate: SummaryCandidate) ->
 }
 
 /// Force-record a summary now (explicit action), ignoring the turn cadence.
-pub fn record_now(project_root: &str, candidate: SummaryCandidate) -> Result<String, String> {
+pub(crate) fn record_now(
+    project_root: &str,
+    candidate: SummaryCandidate,
+) -> Result<String, String> {
     if !candidate.has_content {
         return Err("session has nothing to summarize yet".to_string());
     }
@@ -71,7 +77,7 @@ fn record_into(
 }
 
 /// All stored summaries for a project (oldest first).
-pub fn list(project_root: &str) -> Vec<SummaryRecord> {
+pub(crate) fn list(project_root: &str) -> Vec<SummaryRecord> {
     SummaryStore::load_or_create(project_root).summaries
 }
 

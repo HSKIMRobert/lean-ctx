@@ -7,14 +7,14 @@
 use crate::core::gain::model_pricing::{ModelPricing, PricingMatchKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompressionDepth {
+pub(crate) enum CompressionDepth {
     Conservative,
     Balanced,
     Aggressive,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CompressionCandidate {
+pub(crate) struct CompressionCandidate {
     pub depth: CompressionDepth,
     pub compressed_tokens: u64,
     /// Probability that the already-sent prefix remains byte-stable, in 0..=1.
@@ -22,7 +22,7 @@ pub struct CompressionCandidate {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CompressionContext<'a> {
+pub(crate) struct CompressionContext<'a> {
     pub original_tokens: u64,
     /// Tokens in the cacheable prefix before compression.
     pub prefix_tokens: u64,
@@ -34,7 +34,7 @@ pub struct CompressionContext<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CandidateEconomics {
+pub(crate) struct CandidateEconomics {
     pub depth: CompressionDepth,
     pub gross_benefit_usd: f64,
     pub cache_break_risk_usd: f64,
@@ -43,14 +43,14 @@ pub struct CandidateEconomics {
 }
 
 #[derive(Debug, Clone)]
-pub struct CompressionDecision {
+pub(crate) struct CompressionDecision {
     pub selected: Option<CandidateEconomics>,
     pub pricing_match: PricingMatchKind,
 }
 
 impl CompressionDecision {
     #[must_use]
-    pub fn should_compress(&self) -> bool {
+    pub(crate) fn should_compress(&self) -> bool {
         self.selected.is_some()
     }
 }
@@ -62,7 +62,7 @@ impl CompressionDecision {
 /// remaining compressed prefix at the write-minus-read premium on each reuse,
 /// weighted by the measured probability that the prefix changes.
 #[must_use]
-pub fn decide(
+pub(crate) fn decide(
     context: CompressionContext<'_>,
     candidates: &[CompressionCandidate],
 ) -> CompressionDecision {
@@ -115,7 +115,7 @@ pub fn decide(
 /// Ratio of the previous prefix preserved at the start of the current prefix.
 /// Appending content is perfectly stable; a mutation near the front scores low.
 #[must_use]
-pub fn prefix_stability_score(previous: &[u8], current: &[u8]) -> f64 {
+pub(crate) fn prefix_stability_score(previous: &[u8], current: &[u8]) -> f64 {
     if previous.is_empty() {
         return 1.0;
     }
@@ -131,7 +131,7 @@ pub fn prefix_stability_score(previous: &[u8], current: &[u8]) -> f64 {
 /// Short sessions retain a small horizon; established long sessions reserve a
 /// further 50% of their current length for cache-reuse economics.
 #[must_use]
-pub fn predict_session_length(current_turn: u64) -> u64 {
+pub(crate) fn predict_session_length(current_turn: u64) -> u64 {
     match current_turn {
         0..=3 => 4,
         4..=11 => 12,

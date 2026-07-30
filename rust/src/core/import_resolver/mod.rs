@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use super::deep_queries::ImportInfo;
 
 #[derive(Debug, Clone)]
-pub struct ResolvedImport {
+pub(crate) struct ResolvedImport {
     pub source: String,
     pub resolved_path: Option<String>,
     pub is_external: bool,
@@ -28,7 +28,7 @@ pub struct ResolvedImport {
 }
 
 #[derive(Debug)]
-pub struct ResolverContext {
+pub(crate) struct ResolverContext {
     pub project_root: PathBuf,
     pub file_paths: Vec<String>,
     pub tsconfig_paths: HashMap<String, String>,
@@ -46,7 +46,7 @@ impl ResolverContext {
     /// It is used to read declared C# namespaces without touching disk; pass an
     /// empty map when contents are not available (a bounded head-read from disk
     /// is the fallback).
-    pub fn new(
+    pub(crate) fn new(
         project_root: &Path,
         file_paths: Vec<String>,
         file_contents: &HashMap<String, String>,
@@ -174,7 +174,7 @@ fn read_file_head(path: &Path, max_bytes: usize) -> Option<String> {
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
-pub fn resolve_imports(
+pub(crate) fn resolve_imports(
     imports: &[ImportInfo],
     file_path: &str,
     ext: &str,

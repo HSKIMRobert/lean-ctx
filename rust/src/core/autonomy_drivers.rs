@@ -14,7 +14,7 @@ const MAX_DETAIL_CHARS: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AutonomyPhaseV1 {
+pub(crate) enum AutonomyPhaseV1 {
     PreCall,
     PostRead,
     PostCall,
@@ -22,7 +22,7 @@ pub enum AutonomyPhaseV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AutonomyDriverKindV1 {
+pub(crate) enum AutonomyDriverKindV1 {
     Preload,
     Prefetch,
     Dedup,
@@ -31,13 +31,13 @@ pub enum AutonomyDriverKindV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AutonomyVerdictV1 {
+pub(crate) enum AutonomyVerdictV1 {
     Run,
     Skip,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutonomyDriverDecisionV1 {
+pub(crate) struct AutonomyDriverDecisionV1 {
     pub driver: AutonomyDriverKindV1,
     pub verdict: AutonomyVerdictV1,
     pub reason_code: String,
@@ -47,7 +47,7 @@ pub struct AutonomyDriverDecisionV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutonomyDriverEventV1 {
+pub(crate) struct AutonomyDriverEventV1 {
     pub seq: u64,
     pub created_at: String,
     pub phase: AutonomyPhaseV1,
@@ -60,7 +60,7 @@ pub struct AutonomyDriverEventV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AutonomyDriversV1 {
+pub(crate) struct AutonomyDriversV1 {
     pub schema_version: u32,
     pub created_at: String,
     pub updated_at: String,
@@ -82,7 +82,7 @@ fn store_path() -> Option<PathBuf> {
 }
 
 impl AutonomyDriversV1 {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
             schema_version: crate::core::contracts::AUTONOMY_DRIVERS_V1_SCHEMA_VERSION,
@@ -93,7 +93,7 @@ impl AutonomyDriversV1 {
         }
     }
 
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let Some(path) = store_path() else {
             return Self::new();
         };
@@ -101,7 +101,7 @@ impl AutonomyDriversV1 {
         serde_json::from_str::<Self>(&content).unwrap_or_else(|_| Self::new())
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let Some(path) = store_path() else {
             return Err("no data dir".to_string());
         };
@@ -112,7 +112,7 @@ impl AutonomyDriversV1 {
         Ok(())
     }
 
-    pub fn record(&mut self, mut ev: AutonomyDriverEventV1) {
+    pub(crate) fn record(&mut self, mut ev: AutonomyDriverEventV1) {
         ev.seq = self.next_seq;
         self.next_seq = self.next_seq.saturating_add(1);
         self.updated_at = chrono::Utc::now().to_rfc3339();
@@ -122,7 +122,7 @@ impl AutonomyDriversV1 {
         self.prune_in_place();
     }
 
-    pub fn latest(&self) -> Option<&AutonomyDriverEventV1> {
+    pub(crate) fn latest(&self) -> Option<&AutonomyDriverEventV1> {
         self.events.last()
     }
 
@@ -164,7 +164,7 @@ fn truncate(s: &str, max: usize) -> String {
     out
 }
 
-pub fn write_project_autonomy_drivers_v1(
+pub(crate) fn write_project_autonomy_drivers_v1(
     project_root: &Path,
     drivers: &AutonomyDriversV1,
     filename: Option<&str>,
@@ -185,7 +185,7 @@ pub fn write_project_autonomy_drivers_v1(
     Ok(path)
 }
 
-pub fn format_compact_event(ev: &AutonomyDriverEventV1) -> String {
+pub(crate) fn format_compact_event(ev: &AutonomyDriverEventV1) -> String {
     let mut parts = Vec::new();
     for d in &ev.decisions {
         let driver = match d.driver {

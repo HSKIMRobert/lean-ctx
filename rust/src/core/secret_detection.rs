@@ -12,7 +12,7 @@ macro_rules! static_regex {
 }
 
 #[derive(Debug, Clone)]
-pub struct SecretMatch {
+pub(crate) struct SecretMatch {
     pub pattern_name: &'static str,
     pub line_number: usize,
     pub redacted_preview: String,
@@ -200,15 +200,18 @@ fn collect_matches(
     matches
 }
 
-pub fn detect_secrets(content: &str) -> Vec<SecretMatch> {
+pub(crate) fn detect_secrets(content: &str) -> Vec<SecretMatch> {
     collect_matches(content, &[], &[])
 }
 
-pub fn detect_secrets_with_custom(content: &str, custom_patterns: &[String]) -> Vec<SecretMatch> {
+pub(crate) fn detect_secrets_with_custom(
+    content: &str,
+    custom_patterns: &[String],
+) -> Vec<SecretMatch> {
     collect_matches(content, custom_patterns, &[])
 }
 
-pub fn scan_and_redact(
+pub(crate) fn scan_and_redact(
     content: &str,
     config: &SecretDetectionConfig,
 ) -> (String, Vec<SecretMatch>) {
@@ -268,7 +271,7 @@ pub fn scan_and_redact(
     (redacted, matches)
 }
 
-pub fn scan_and_redact_from_config(content: &str) -> (String, Vec<SecretMatch>) {
+pub(crate) fn scan_and_redact_from_config(content: &str) -> (String, Vec<SecretMatch>) {
     let cfg = Config::load();
     scan_and_redact(content, &cfg.secret_detection)
 }

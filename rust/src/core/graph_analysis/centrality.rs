@@ -14,7 +14,7 @@ use crate::core::graph_provider::EdgeInfo;
 
 /// A file with high betweenness centrality.
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct BridgeNode {
+pub(crate) struct BridgeNode {
     pub path: String,
     /// Betweenness normalized to `0.0..=1.0` (relative to the top node).
     pub betweenness: f64,
@@ -23,7 +23,7 @@ pub struct BridgeNode {
 /// Betweenness result with sampling provenance, so callers can disclose when the
 /// values are an estimate (large graphs) rather than the exact Brandes result.
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct BridgeCentrality {
+pub(crate) struct BridgeCentrality {
     pub nodes: Vec<BridgeNode>,
     /// `true` when betweenness was estimated from a sampled subset of sources.
     pub sampled: bool,
@@ -36,13 +36,13 @@ pub struct BridgeCentrality {
 /// Returns the top `limit` bridge nodes (betweenness > 0), highest first.
 /// Thin wrapper over [`compute_bridge_centrality`] for callers that don't need
 /// the sampling metadata.
-pub fn compute_bridge_nodes(edges: &[EdgeInfo], limit: usize) -> Vec<BridgeNode> {
+pub(crate) fn compute_bridge_nodes(edges: &[EdgeInfo], limit: usize) -> Vec<BridgeNode> {
     compute_bridge_centrality(edges, limit).nodes
 }
 
 /// Like [`compute_bridge_nodes`] but also reports whether the result was sampled
 /// and over how many sources, for honest disclosure in reports/UI.
-pub fn compute_bridge_centrality(edges: &[EdgeInfo], limit: usize) -> BridgeCentrality {
+pub(crate) fn compute_bridge_centrality(edges: &[EdgeInfo], limit: usize) -> BridgeCentrality {
     let deps = dependency_edges(edges);
     if deps.is_empty() {
         return BridgeCentrality {

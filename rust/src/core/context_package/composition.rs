@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::graph_model::{ContextGraph, ContextNode};
 
 #[derive(Debug, Clone, Default)]
-pub struct MergeReport {
+pub(crate) struct MergeReport {
     pub nodes_added: u32,
     pub nodes_updated: u32,
     pub nodes_superseded: u32,
@@ -12,7 +12,7 @@ pub struct MergeReport {
     pub conflicts: Vec<String>,
 }
 
-pub fn merge_graphs(base: &mut ContextGraph, incoming: &ContextGraph) -> MergeReport {
+pub(crate) fn merge_graphs(base: &mut ContextGraph, incoming: &ContextGraph) -> MergeReport {
     let mut report = MergeReport::default();
     let mut existing_ids: HashSet<String> = base.nodes.iter().map(|n| n.id.clone()).collect();
 

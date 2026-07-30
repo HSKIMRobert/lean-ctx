@@ -28,7 +28,7 @@ use super::{keys, signing, verify};
 /// Everything `pack create --kind skills` produces: the signed bundle plus
 /// the facts the CLI discloses. No network I/O.
 #[derive(Debug)]
-pub struct SkillsPackPlan {
+pub(crate) struct SkillsPackPlan {
     pub name: String,
     pub version: String,
     /// The signed `.ctxpkg` document (pretty JSON, ready for store/upload).
@@ -44,7 +44,7 @@ pub struct SkillsPackPlan {
 ///
 /// Collects every regular file under `dir` (hidden files/dirs and VCS
 /// metadata are skipped), sorted by relative path for deterministic bytes.
-pub fn build_skills_pack(
+pub(crate) fn build_skills_pack(
     dir: &Path,
     name: &str,
     version: &str,
@@ -226,7 +226,7 @@ fn collect_files(root: &Path) -> Result<Vec<String>, String> {
 /// [`DocumentBlob::decode_verified`] — a tampered body aborts the install
 /// before anything lands. Files are written read-only; the returned path is
 /// the version root the consumer reads from.
-pub fn materialize_documents(
+pub(crate) fn materialize_documents(
     store_root: &Path,
     manifest: &PackageManifest,
     docs: &DocumentsContent,
@@ -258,7 +258,7 @@ pub fn materialize_documents(
 
 /// Store layout for materialized skills:
 /// `<store>/skills/<sanitized-name>/<version>/`.
-pub fn skills_dir(store_root: &Path, name: &str, version: &str) -> PathBuf {
+pub(crate) fn skills_dir(store_root: &Path, name: &str, version: &str) -> PathBuf {
     // `@ns/name` → `@ns__name`, mirroring `LocalRegistry::package_dir`.
     let safe_name = name.replace('/', "__");
     store_root.join("skills").join(safe_name).join(version)

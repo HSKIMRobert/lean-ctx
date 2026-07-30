@@ -2,7 +2,7 @@
 
 /// Combined snapshot of kernel health, adaptation, search, evidence, and live state.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct EnhancedDashboard {
+pub(crate) struct EnhancedDashboard {
     /// Aggregated kernel health and activity.
     pub kernel_health: super::health::HealthReport,
     /// Current adaptive-compression state.
@@ -17,7 +17,7 @@ pub struct EnhancedDashboard {
 
 /// Collects an enhanced dashboard snapshot from all kernel reporting surfaces.
 #[must_use]
-pub fn enhanced_dashboard() -> EnhancedDashboard {
+pub(crate) fn enhanced_dashboard() -> EnhancedDashboard {
     let live = serde_json::from_str(&super::live_dashboard::snapshot_json())
         .unwrap_or_else(|error| serde_json::json!({ "error": error.to_string() }));
     EnhancedDashboard {
@@ -31,14 +31,14 @@ pub fn enhanced_dashboard() -> EnhancedDashboard {
 
 /// Serializes the enhanced dashboard, returning a JSON error object on failure.
 #[must_use]
-pub fn health_json() -> String {
+pub(crate) fn health_json() -> String {
     serde_json::to_string(&enhanced_dashboard())
         .unwrap_or_else(|error| serde_json::json!({ "error": error.to_string() }).to_string())
 }
 
 /// Formats the key kernel signals as a compact one-line status.
 #[must_use]
-pub fn one_line_status() -> String {
+pub(crate) fn one_line_status() -> String {
     let report = super::health::kernel_health();
     let health = if super::health::is_healthy() {
         "OK"

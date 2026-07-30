@@ -9,16 +9,16 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub const LOCKFILE_REL_PATH: &str = ".lean-ctx/ctxpkg.lock";
+pub(crate) const LOCKFILE_REL_PATH: &str = ".lean-ctx/ctxpkg.lock";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Lockfile {
+pub(crate) struct Lockfile {
     #[serde(default, rename = "package", skip_serializing_if = "Vec::is_empty")]
     pub packages: Vec<LockedPackage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LockedPackage {
+pub(crate) struct LockedPackage {
     /// Scoped name, e.g. `@acme/auth-context`.
     pub name: String,
     pub version: String,
@@ -28,11 +28,11 @@ pub struct LockedPackage {
     pub registry: String,
 }
 
-pub fn lockfile_path(project_root: &Path) -> PathBuf {
+pub(crate) fn lockfile_path(project_root: &Path) -> PathBuf {
     project_root.join(LOCKFILE_REL_PATH)
 }
 
-pub fn load(project_root: &Path) -> Result<Lockfile, String> {
+pub(crate) fn load(project_root: &Path) -> Result<Lockfile, String> {
     let path = lockfile_path(project_root);
     if !path.exists() {
         return Ok(Lockfile::default());
@@ -42,7 +42,7 @@ pub fn load(project_root: &Path) -> Result<Lockfile, String> {
 }
 
 /// Insert or replace the entry for `entry.name`, keeping the file sorted.
-pub fn upsert(project_root: &Path, entry: LockedPackage) -> Result<(), String> {
+pub(crate) fn upsert(project_root: &Path, entry: LockedPackage) -> Result<(), String> {
     let mut lock = load(project_root)?;
     lock.packages.retain(|p| p.name != entry.name);
     lock.packages.push(entry);

@@ -49,7 +49,7 @@ impl BanditArm {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThresholdBandit {
+pub(crate) struct ThresholdBandit {
     pub arms: Vec<BanditArm>,
     pub total_pulls: u64,
 }
@@ -97,7 +97,7 @@ impl ThresholdBandit {
     /// auto-mode-learning). Always counts the pull and registers activity (#4).
     ///
     /// [`Config::is_stochastic_enabled`]: crate::core::config::Config::is_stochastic_enabled
-    pub fn choose_arm(&mut self) -> &BanditArm {
+    pub(crate) fn choose_arm(&mut self) -> &BanditArm {
         self.total_pulls += 1;
         crate::core::introspect::tick("field_weights_bandit");
         let idx = if crate::core::config::Config::load().is_stochastic_enabled() {
@@ -110,7 +110,7 @@ impl ThresholdBandit {
 
     /// Deterministic argmax of the posterior mean. Tie-break by lowest index so
     /// the choice is stable and reproducible.
-    pub fn best_arm_idx_by_mean(&self) -> usize {
+    pub(crate) fn best_arm_idx_by_mean(&self) -> usize {
         self.arms
             .iter()
             .enumerate()
@@ -138,7 +138,7 @@ impl ThresholdBandit {
             .map_or(0, |(i, _)| i)
     }
 
-    pub fn update(&mut self, arm_name: &str, success: bool) {
+    pub(crate) fn update(&mut self, arm_name: &str, success: bool) {
         if let Some(arm) = self.arms.iter_mut().find(|a| a.name == arm_name) {
             if success {
                 arm.update_success();
@@ -148,13 +148,16 @@ impl ThresholdBandit {
         }
     }
 
-    pub fn decay_all(&mut self, factor: f64) {
+    pub(crate) fn decay_all(&mut self, factor: f64) {
         for arm in &mut self.arms {
             arm.decay(factor);
         }
     }
 
-    pub fn update_from_session(&mut self, outcomes: &[crate::core::feedback::CompressionOutcome]) {
+    pub(crate) fn update_from_session(
+        &mut self,
+        outcomes: &[crate::core::feedback::CompressionOutcome],
+    ) {
         for outcome in outcomes {
             let efficiency = if outcome.tokens_original > 0 {
                 outcome.tokens_saved as f64 / outcome.tokens_original as f64
@@ -181,7 +184,7 @@ impl ThresholdBandit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct BanditStore {
+pub(crate) struct BanditStore {
     pub bandits: HashMap<String, ThresholdBandit>,
 }
 
@@ -191,7 +194,7 @@ pub struct BanditStore {
 /// - `feedback:{ext}` — compression quality per language (was `{ext}_feedback`)
 /// - `threshold:{ext}:{sm|md|lg|xl}` — adaptive threshold tuning (was `{ext}_{bucket}`)
 /// - `mode:{ext}:{sm|md|lg|xl}` — auto mode selection (was `{ext}_{bucket}`, now separate)
-pub fn bandit_key(domain: &str, ext: &str, bucket: Option<&str>) -> String {
+pub(crate) fn bandit_key(domain: &str, ext: &str, bucket: Option<&str>) -> String {
     match bucket {
         Some(b) => format!("{domain}:{ext}:{b}"),
         None => format!("{domain}:{ext}"),
@@ -208,11 +211,11 @@ fn split_legacy_sized_key(key: &str) -> Option<(&str, &str)> {
 }
 
 impl BanditStore {
-    pub fn get_or_create(&mut self, key: &str) -> &mut ThresholdBandit {
+    pub(crate) fn get_or_create(&mut self, key: &str) -> &mut ThresholdBandit {
         self.bandits.entry(key.to_string()).or_default()
     }
 
-    pub fn load(project_root: &str) -> Self {
+    pub(crate) fn load(project_root: &str) -> Self {
         let path = bandit_path(project_root);
         if path.exists()
             && let Ok(content) = std::fs::read_to_string(&path)
@@ -224,7 +227,7 @@ impl BanditStore {
         Self::default()
     }
 
-    pub fn save(&self, project_root: &str) -> Result<(), String> {
+    pub(crate) fn save(&self, project_root: &str) -> Result<(), String> {
         let path = bandit_path(project_root);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -262,7 +265,7 @@ impl BanditStore {
         }
     }
 
-    pub fn format_report(&self) -> String {
+    pub(crate) fn format_report(&self) -> String {
         if self.bandits.is_empty() {
             return "No bandit data yet.".to_string();
         }

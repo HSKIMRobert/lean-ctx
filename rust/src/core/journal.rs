@@ -17,7 +17,7 @@ fn is_enabled() -> bool {
 }
 
 /// Append a human-readable entry to the activity journal.
-pub fn log(category: &str, message: &str) {
+pub(crate) fn log(category: &str, message: &str) {
     if !is_enabled() {
         return;
     }
@@ -42,7 +42,7 @@ pub fn log(category: &str, message: &str) {
 }
 
 /// Insert a day separator if the last entry was on a different date.
-pub fn maybe_day_separator() {
+pub(crate) fn maybe_day_separator() {
     if !is_enabled() {
         return;
     }
@@ -63,7 +63,7 @@ pub fn maybe_day_separator() {
 }
 
 /// Log a tool call to the journal.
-pub fn log_tool_call(tool_name: &str, summary: &str) {
+pub(crate) fn log_tool_call(tool_name: &str, summary: &str) {
     if matches!(
         tool_name,
         "ctx_session" | "ctx_knowledge" | "ctx_context" | "ctx_radar"
@@ -74,7 +74,7 @@ pub fn log_tool_call(tool_name: &str, summary: &str) {
 }
 
 /// Return the journal content for display.
-pub fn read_journal(tail_lines: usize) -> String {
+pub(crate) fn read_journal(tail_lines: usize) -> String {
     let path = journal_path();
     if !path.exists() {
         return "No journal entries yet.".to_string();

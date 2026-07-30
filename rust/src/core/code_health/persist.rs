@@ -24,7 +24,7 @@ const SESSION_HOTSPOTS: usize = 3;
 
 /// Project health persisted next to the graph index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PersistedHealth {
+pub(crate) struct PersistedHealth {
     /// Fingerprint of the indexed source set; recompute only when it changes.
     pub fingerprint: String,
     pub threshold: u32,
@@ -37,7 +37,7 @@ fn health_path(root: &str) -> Option<PathBuf> {
 }
 
 /// Load the persisted health for `root`, or `None` when absent/unreadable.
-pub fn load(root: &str) -> Option<PersistedHealth> {
+pub(crate) fn load(root: &str) -> Option<PersistedHealth> {
     let bytes = std::fs::read(health_path(root)?).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
@@ -58,7 +58,7 @@ fn fingerprint(index: &ProjectIndex) -> String {
 
 /// Recompute + persist health only when the indexed source set changed. Safe to
 /// call from the background indexer (off the hot path); never panics.
-pub fn refresh_if_stale(root: &str, index: &ProjectIndex) {
+pub(crate) fn refresh_if_stale(root: &str, index: &ProjectIndex) {
     let Some(path) = health_path(root) else {
         return;
     };
@@ -94,7 +94,7 @@ pub fn refresh_if_stale(root: &str, index: &ProjectIndex) {
 
 /// Compact, deterministic session-start block. Empty when there is no persisted
 /// health or the project is clean (no hotspots), so it never adds noise.
-pub fn format_session_block(root: &str) -> String {
+pub(crate) fn format_session_block(root: &str) -> String {
     load(root)
         .map(|h| render_session_block(&h))
         .unwrap_or_default()

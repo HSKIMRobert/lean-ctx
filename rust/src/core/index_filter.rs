@@ -33,7 +33,7 @@ static CLI_OVERLAY: RwLock<Option<CliOverlay>> = RwLock::new(None);
 /// Install the per-run CLI filter overlay (repeatable `--include`/`--exclude`
 /// globs, `--no-gitignore`/`--respect-gitignore`). Called once by the `index`
 /// CLI dispatch before any build starts.
-pub fn set_cli_overlay(
+pub(crate) fn set_cli_overlay(
     include: Vec<String>,
     exclude: Vec<String>,
     respect_gitignore: Option<bool>,
@@ -51,7 +51,7 @@ pub fn set_cli_overlay(
 /// True when a CLI overlay is installed. The orchestrator uses this to skip
 /// delegating the build to the daemon: the daemon would build with *its*
 /// config and could overwrite the one-off filtered result.
-pub fn cli_overlay_active() -> bool {
+pub(crate) fn cli_overlay_active() -> bool {
     CLI_OVERLAY
         .read()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -60,7 +60,7 @@ pub fn cli_overlay_active() -> bool {
 
 /// The resolved corpus-membership filter for one indexing run.
 #[derive(Debug)]
-pub struct IndexFileFilter {
+pub(crate) struct IndexFileFilter {
     include: Vec<glob::Pattern>,
     exclude: Vec<glob::Pattern>,
     /// Whether walkers should honor `.gitignore`/global/exclude files.
@@ -73,14 +73,14 @@ impl IndexFileFilter {
     /// `--include` replaces the config include set for this run (a one-off
     /// experiment declares its corpus outright); an explicit gitignore flag
     /// overrides the config boolean.
-    pub fn effective() -> Self {
+    pub(crate) fn effective() -> Self {
         let cfg = crate::core::config::Config::load();
         Self::resolve(&cfg)
     }
 
     /// [`Self::effective`] with an already-loaded config (builders that hold
     /// one avoid a second load).
-    pub fn resolve(cfg: &crate::core::config::Config) -> Self {
+    pub(crate) fn resolve(cfg: &crate::core::config::Config) -> Self {
         let mut include: Vec<String> = cfg.index.include.clone();
         let mut exclude: Vec<String> = cfg.index.exclude.clone();
         let mut respect_gitignore = cfg.index.respect_gitignore;
@@ -104,7 +104,11 @@ impl IndexFileFilter {
     /// Build a filter from raw glob lists. Invalid globs are dropped with a
     /// warning rather than aborting the build — matching the long-standing
     /// `extra_ignore_patterns` behavior.
-    pub fn from_lists(include: &[String], exclude: &[String], respect_gitignore: bool) -> Self {
+    pub(crate) fn from_lists(
+        include: &[String],
+        exclude: &[String],
+        respect_gitignore: bool,
+    ) -> Self {
         let compile = |patterns: &[String], role: &str| -> Vec<glob::Pattern> {
             patterns
                 .iter()
@@ -128,7 +132,7 @@ impl IndexFileFilter {
     /// forward slashes. Exclude wins over include; a non-empty include list
     /// admits matching files only; the empty filter admits everything
     /// (byte-for-byte today's behavior).
-    pub fn is_excluded(&self, rel_path: &str) -> bool {
+    pub(crate) fn is_excluded(&self, rel_path: &str) -> bool {
         if self.exclude.iter().any(|p| p.matches(rel_path)) {
             return true;
         }
@@ -140,14 +144,14 @@ impl IndexFileFilter {
 
     /// True when this filter changes corpus membership relative to the
     /// unfiltered default (gitignore deviation counts: it changes the walk).
-    pub fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         !self.include.is_empty() || !self.exclude.is_empty() || !self.respect_gitignore
     }
 
     /// One-line human/JSON summary of the active filter for `index status`.
     /// `None` when the filter is the do-nothing default, so default output
     /// stays byte-identical.
-    pub fn summary(&self) -> Option<String> {
+    pub(crate) fn summary(&self) -> Option<String> {
         if !self.is_active() {
             return None;
         }

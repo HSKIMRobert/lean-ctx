@@ -9,7 +9,7 @@
 
 /// Outcome of a tree-sitter parse probe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SyntaxCheck {
+pub(crate) struct SyntaxCheck {
     /// `true` when the parse tree contains an ERROR or MISSING node.
     pub has_error: bool,
     /// 1-based line of the first error/missing node, when one was located.
@@ -21,7 +21,7 @@ pub struct SyntaxCheck {
 /// Returns `None` when the language is unsupported or tree-sitter is compiled
 /// out — the caller then skips the gate rather than guessing.
 #[cfg(feature = "tree-sitter")]
-pub fn check_syntax(content: &str, ext: &str) -> Option<SyntaxCheck> {
+pub(crate) fn check_syntax(content: &str, ext: &str) -> Option<SyntaxCheck> {
     use std::cell::RefCell;
     use tree_sitter::Parser;
 
@@ -83,7 +83,7 @@ fn first_error_line(node: tree_sitter::Node) -> Option<usize> {
 /// unsupported language, tree-sitter off, an already-broken pre-edit file, or a
 /// post-edit file that still parses.
 #[must_use]
-pub fn gate_edit(ext: &str, old_content: &str, new_content: &str) -> Option<String> {
+pub(crate) fn gate_edit(ext: &str, old_content: &str, new_content: &str) -> Option<String> {
     // Pre-edit must parse cleanly for a regression to be meaningful.
     let pre = check_syntax(old_content, ext)?;
     if pre.has_error {

@@ -43,7 +43,7 @@ fn launchctl(args: &[&str]) -> Option<bool> {
 
 /// Stop and unregister a LaunchAgent (idempotent; a not-loaded job is fine).
 /// Never hangs. Tries label-based bootout first, then path-based as a fallback.
-pub fn bootout(label: &str, plist: &Path) {
+pub(crate) fn bootout(label: &str, plist: &Path) {
     if launchctl(&["bootout", &service_target(label)]).is_some() {
         return;
     }
@@ -57,7 +57,7 @@ pub fn bootout(label: &str, plist: &Path) {
 /// load that honours the plist's `RunAtLoad` (proxy/daemon start immediately;
 /// interval-only jobs like the auto-updater simply register). No `kickstart` is
 /// issued, so this never forces an unwanted immediate run.
-pub fn bootstrap(label: &str, plist: &Path) -> bool {
+pub(crate) fn bootstrap(label: &str, plist: &Path) -> bool {
     // Clear any stale registration so bootstrap can't fail with
     // "service already bootstrapped".
     bootout(label, plist);
@@ -66,6 +66,6 @@ pub fn bootstrap(label: &str, plist: &Path) -> bool {
 }
 
 /// Returns `true` if the service is currently registered in the gui domain.
-pub fn is_loaded(label: &str) -> bool {
+pub(crate) fn is_loaded(label: &str) -> bool {
     launchctl(&["print", &service_target(label)]).unwrap_or(false)
 }

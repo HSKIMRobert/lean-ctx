@@ -44,7 +44,7 @@ fn row(name: &str, values: [usize; 5]) -> String {
 }
 
 /// Formats provider statistics as a multi-line dashboard table.
-pub fn format_provider_table(stats: &[ProviderStat]) -> String {
+pub(crate) fn format_provider_table(stats: &[ProviderStat]) -> String {
     if stats.is_empty() {
         return "No provider data available.".to_owned();
     }
@@ -83,7 +83,7 @@ pub fn format_provider_table(stats: &[ProviderStat]) -> String {
 }
 
 /// Summarizes provider request counts on one line.
-pub fn provider_summary_oneliner(stats: &[ProviderStat]) -> String {
+pub(crate) fn provider_summary_oneliner(stats: &[ProviderStat]) -> String {
     if stats.is_empty() {
         return "No provider data".to_owned();
     }
@@ -102,7 +102,7 @@ pub fn provider_summary_oneliner(stats: &[ProviderStat]) -> String {
 }
 
 /// Serializes provider statistics into dashboard-ready JSON.
-pub fn provider_json(stats: &[ProviderStat]) -> Value {
+pub(crate) fn provider_json(stats: &[ProviderStat]) -> Value {
     let rows = stats.iter().map(|stat| ProviderJsonRow {
         provider_name: provider_parity::provider_display_name(stat.provider),
         request_count: stat.request_count,

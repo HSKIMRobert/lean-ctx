@@ -21,14 +21,14 @@ use super::entropy::jaccard_similarity;
 
 /// Compilation output mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompileMode {
+pub(crate) enum CompileMode {
     HandleManifest,
     Compressed,
     FullPrompt,
 }
 
 impl CompileMode {
-    pub fn parse(s: &str) -> Self {
+    pub(crate) fn parse(s: &str) -> Self {
         match s.trim().to_lowercase().as_str() {
             "compressed" => Self::Compressed,
             "full" | "full_prompt" => Self::FullPrompt,
@@ -36,7 +36,7 @@ impl CompileMode {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::HandleManifest => "handle_manifest",
             Self::Compressed => "compressed",
@@ -66,7 +66,7 @@ pub struct CompileCandidate {
 
 /// Result of a compilation run.
 #[derive(Debug, Clone, Serialize)]
-pub struct CompileResult {
+pub(crate) struct CompileResult {
     pub run_id: String,
     pub mode: String,
     pub budget_total: usize,
@@ -81,7 +81,7 @@ pub struct CompileResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SelectedItem {
+pub(crate) struct SelectedItem {
     pub id: String,
     pub path: String,
     pub view: String,
@@ -91,7 +91,7 @@ pub struct SelectedItem {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ExcludedItem {
+pub(crate) struct ExcludedItem {
     pub id: String,
     pub path: String,
     pub reason: String,
@@ -101,7 +101,7 @@ pub struct ExcludedItem {
 ///
 /// This implements a greedy knapsack: pinned items first, then by efficiency
 /// (Phi/token), with automatic view downgrade under budget pressure.
-pub fn compile(
+pub(crate) fn compile(
     candidates: &[CompileCandidate],
     budget: TokenBudget,
     mode: CompileMode,
@@ -387,7 +387,7 @@ fn best_affordable_view(costs: &ViewCosts, budget_left: usize) -> (ViewKind, usi
 }
 
 /// Format the compilation result for display.
-pub fn format_compile_result(result: &CompileResult) -> String {
+pub(crate) fn format_compile_result(result: &CompileResult) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "[compiled] {} mode, {}/{} tokens\n",

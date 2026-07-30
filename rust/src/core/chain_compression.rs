@@ -8,12 +8,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-pub const CHAIN_COMPRESSION_SCHEMA_VERSION: u16 = 1;
+pub(crate) const CHAIN_COMPRESSION_SCHEMA_VERSION: u16 = 1;
 const MAX_CHAIN_HISTORY: usize = 64;
 
 /// A content-addressed context item tracked across hops.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ChainContextItem {
+pub(crate) struct ChainContextItem {
     pub content_ref: String,
     pub freshness_ref: String,
     pub hop_introduced: u16,
@@ -22,7 +22,7 @@ pub struct ChainContextItem {
 
 /// Delta produced when forwarding context to the next hop.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChainDelta {
+pub(crate) struct ChainDelta {
     pub schema_version: u16,
     pub chain_id: String,
     pub from_hop: u16,
@@ -35,7 +35,7 @@ pub struct ChainDelta {
 }
 
 /// Tracks context across hops in a single chain, computes minimal deltas.
-pub struct ChainCompressionTracker {
+pub(crate) struct ChainCompressionTracker {
     chain_id: String,
     items_by_hop: BTreeMap<u16, BTreeSet<String>>,
     all_items: BTreeMap<String, ChainContextItem>,
@@ -44,7 +44,7 @@ pub struct ChainCompressionTracker {
 
 impl ChainCompressionTracker {
     #[must_use]
-    pub fn new(chain_id: String) -> Self {
+    pub(crate) fn new(chain_id: String) -> Self {
         Self {
             chain_id,
             items_by_hop: BTreeMap::new(),
@@ -54,7 +54,7 @@ impl ChainCompressionTracker {
     }
 
     /// Register context refs at a given hop.
-    pub fn register_hop(
+    pub(crate) fn register_hop(
         &mut self,
         hop: u16,
         content_refs: Vec<String>,
@@ -89,7 +89,7 @@ impl ChainCompressionTracker {
     }
 
     /// Compute the delta between two hops.
-    pub fn compute_delta(
+    pub(crate) fn compute_delta(
         &self,
         from_hop: u16,
         to_hop: u16,
@@ -126,7 +126,7 @@ impl ChainCompressionTracker {
     }
 
     /// Compute what a new hop needs vs the parent hop (forward delta).
-    pub fn forward_delta(
+    pub(crate) fn forward_delta(
         &self,
         parent_hop: u16,
         child_refs: &[String],
@@ -167,18 +167,18 @@ impl ChainCompressionTracker {
     }
 
     /// Items that haven't been referenced since `stale_threshold_hop`.
-    pub fn stale_items(&self, stale_threshold_hop: u16) -> Vec<&ChainContextItem> {
+    pub(crate) fn stale_items(&self, stale_threshold_hop: u16) -> Vec<&ChainContextItem> {
         self.all_items
             .values()
             .filter(|item| item.last_referenced_hop < stale_threshold_hop)
             .collect()
     }
 
-    pub fn current_hop(&self) -> u16 {
+    pub(crate) fn current_hop(&self) -> u16 {
         self.current_hop
     }
 
-    pub fn total_tracked_items(&self) -> usize {
+    pub(crate) fn total_tracked_items(&self) -> usize {
         self.all_items.len()
     }
 }
@@ -186,7 +186,7 @@ impl ChainCompressionTracker {
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
-pub enum ChainCompressionError {
+pub(crate) enum ChainCompressionError {
     #[error("content_refs and freshness_refs have different lengths")]
     MismatchedLengths,
     #[error("hop {0} not found in chain history")]

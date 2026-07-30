@@ -47,13 +47,13 @@ use crate::core::extension_registry::{Compressor, ExtensionRegistry, truncate_to
 use crate::core::providers::{ContextProvider, ProviderItem, ProviderParams, ProviderResult};
 
 /// Well-known ABI entrypoint names.
-pub const ENTRY_COMPRESS: &str = "lctx_compress";
+pub(crate) const ENTRY_COMPRESS: &str = "lctx_compress";
 /// Well-known ABI entrypoint for providers.
-pub const ENTRY_PROVIDER_FETCH: &str = "lctx_provider_fetch";
+pub(crate) const ENTRY_PROVIDER_FETCH: &str = "lctx_provider_fetch";
 
 /// Error loading or running a WASM extension.
 #[derive(Debug, thiserror::Error)]
-pub enum WasmError {
+pub(crate) enum WasmError {
     /// Failed to read the `.wasm` file from disk.
     #[error("failed to read wasm at {path}: {source}")]
     Io {
@@ -75,21 +75,21 @@ pub enum WasmError {
 /// Holds the `Send + Sync` [`Engine`] + [`Module`]; a fresh `Store` is created
 /// per invocation (see module docs).
 #[derive(Clone)]
-pub struct WasmModule {
+pub(crate) struct WasmModule {
     engine: Engine,
     module: Module,
 }
 
 impl WasmModule {
     /// Compile a module from raw `.wasm` bytes.
-    pub fn from_wasm(bytes: &[u8]) -> Result<Self, WasmError> {
+    pub(crate) fn from_wasm(bytes: &[u8]) -> Result<Self, WasmError> {
         let engine = Engine::default();
         let module = Module::new(&engine, bytes).map_err(|e| WasmError::Module(e.to_string()))?;
         Ok(Self { engine, module })
     }
 
     /// Compile a module from a `.wasm` file on disk.
-    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, WasmError> {
+    pub(crate) fn from_path(path: impl AsRef<Path>) -> Result<Self, WasmError> {
         let path = path.as_ref();
         let bytes = std::fs::read(path).map_err(|source| WasmError::Io {
             path: path.to_path_buf(),
@@ -103,7 +103,12 @@ impl WasmModule {
     /// `arg` is forwarded verbatim to the guest (budget for compress, `0` else).
     /// A fresh `Store` + instance is used so calls cannot leak state into one
     /// another.
-    pub fn call_bytes(&self, entry: &str, input: &[u8], arg: i32) -> Result<Vec<u8>, WasmError> {
+    pub(crate) fn call_bytes(
+        &self,
+        entry: &str,
+        input: &[u8],
+        arg: i32,
+    ) -> Result<Vec<u8>, WasmError> {
         let mut store = Store::new(&self.engine, ());
         let linker = <Linker<()>>::new(&self.engine);
         let instance = linker
@@ -157,7 +162,7 @@ impl WasmModule {
 ///
 /// The host enforces the hard byte budget after decoding, so the registered
 /// compressor honors the budget contract regardless of guest behavior.
-pub struct WasmCompressor {
+pub(crate) struct WasmCompressor {
     name: String,
     module: WasmModule,
 }
@@ -165,7 +170,7 @@ pub struct WasmCompressor {
 impl WasmCompressor {
     /// Wrap a compiled module under a registry `name`.
     #[must_use]
-    pub fn new(name: impl Into<String>, module: WasmModule) -> Self {
+    pub(crate) fn new(name: impl Into<String>, module: WasmModule) -> Self {
         Self {
             name: name.into(),
             module,
@@ -173,7 +178,7 @@ impl WasmCompressor {
     }
 
     /// Load a `.wasm` compressor from disk, named `name`.
-    pub fn load(path: impl AsRef<Path>, name: impl Into<String>) -> Result<Self, WasmError> {
+    pub(crate) fn load(path: impl AsRef<Path>, name: impl Into<String>) -> Result<Self, WasmError> {
         Ok(Self::new(name, WasmModule::from_path(path)?))
     }
 }
@@ -201,7 +206,7 @@ impl Compressor for WasmCompressor {
 /// Scan `dir` for `*.wasm` files and register each as a compressor named by its
 /// file stem. Returns the names registered. Unreadable/invalid modules are
 /// skipped (best-effort discovery).
-pub fn register_compressors_from_dir(
+pub(crate) fn register_compressors_from_dir(
     reg: &mut ExtensionRegistry,
     dir: impl AsRef<Path>,
 ) -> Vec<String> {
@@ -235,7 +240,7 @@ pub fn register_compressors_from_dir(
 /// The host sends a request JSON (`{"action":…,"params":{…}}`) and parses the
 /// guest's result JSON leniently into a [`ProviderResult`], so guests can omit
 /// optional fields.
-pub struct WasmProvider {
+pub(crate) struct WasmProvider {
     id: &'static str,
     display: &'static str,
     actions: Vec<&'static str>,
@@ -246,7 +251,7 @@ impl WasmProvider {
     /// Build a provider over a compiled module. `id`/`display`/`actions` are
     /// leaked to `'static` once at load (the provider lives for the process).
     #[must_use]
-    pub fn new(
+    pub(crate) fn new(
         id: impl Into<String>,
         display: impl Into<String>,
         actions: Vec<String>,
@@ -267,7 +272,7 @@ impl WasmProvider {
     }
 
     /// Load a `.wasm` provider from disk.
-    pub fn load(
+    pub(crate) fn load(
         path: impl AsRef<Path>,
         id: impl Into<String>,
         display: impl Into<String>,
@@ -350,7 +355,7 @@ struct ProviderSidecar {
 /// `display`, and `actions`. Missing fields default to the file stem / a single
 /// `fetch` action. Returns the provider ids registered. Best-effort: unreadable
 /// or invalid modules are skipped.
-pub fn register_providers_from_dir(
+pub(crate) fn register_providers_from_dir(
     reg: &crate::core::providers::ProviderRegistry,
     dir: impl AsRef<Path>,
 ) -> Vec<String> {

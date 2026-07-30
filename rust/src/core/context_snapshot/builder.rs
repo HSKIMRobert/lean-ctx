@@ -24,7 +24,7 @@ use super::types::{
 };
 
 /// Inputs for building a snapshot.
-pub struct SnapshotOptions {
+pub(crate) struct SnapshotOptions {
     /// Project root the snapshot is anchored to.
     pub project_root: String,
     /// Sign the snapshot with the publisher keypair (else just finalize the id).
@@ -33,7 +33,7 @@ pub struct SnapshotOptions {
 
 /// Build an in-memory snapshot from the current store state, finalizing its id
 /// (and signing it when `opts.sign`). Does not persist anything.
-pub fn build(opts: &SnapshotOptions) -> Result<ContextSnapshotV1, String> {
+pub(crate) fn build(opts: &SnapshotOptions) -> Result<ContextSnapshotV1, String> {
     let mut snap = ContextSnapshotV1::new(
         chrono::Utc::now().to_rfc3339(),
         env!("CARGO_PKG_VERSION").to_string(),
@@ -61,7 +61,7 @@ pub fn build(opts: &SnapshotOptions) -> Result<ContextSnapshotV1, String> {
 }
 
 /// Build, persist, and append the snapshot to the project's timeline.
-pub fn create(opts: &SnapshotOptions) -> Result<ContextSnapshotV1, String> {
+pub(crate) fn create(opts: &SnapshotOptions) -> Result<ContextSnapshotV1, String> {
     let snap = build(opts)?;
     super::timeline::write_snapshot(&opts.project_root, &snap)?;
     Ok(snap)

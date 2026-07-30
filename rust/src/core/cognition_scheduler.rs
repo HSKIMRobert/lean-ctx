@@ -77,7 +77,7 @@ fn idle_replay_secs() -> u64 {
 /// Fire the cognition loop in the background when enabled and the configured
 /// interval has elapsed. Non-blocking, single-flight, and cheap on the hot path
 /// (one config read + two atomic loads when not due).
-pub fn maybe_run(project_root: &str) {
+pub(crate) fn maybe_run(project_root: &str) {
     // Background cognition is opportunistic. Do not start or idle-replay while
     // the guardian is reclaiming memory; a later foreground dispatch retries.
     if crate::core::memory_guard::is_under_pressure() {

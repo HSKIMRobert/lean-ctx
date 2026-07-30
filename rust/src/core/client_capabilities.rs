@@ -1,7 +1,7 @@
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone)]
-pub struct ClientMcpCapabilities {
+pub(crate) struct ClientMcpCapabilities {
     pub client_id: String,
     pub resources: bool,
     pub prompts: bool,
@@ -26,7 +26,7 @@ impl Default for ClientMcpCapabilities {
 }
 
 impl ClientMcpCapabilities {
-    pub fn detect(client_name: &str) -> Self {
+    pub(crate) fn detect(client_name: &str) -> Self {
         let hint = std::env::var("LEAN_CTX_CLIENT_HINT").ok();
         Self::detect_with_hint(client_name, hint.as_deref())
     }
@@ -109,7 +109,7 @@ impl ClientMcpCapabilities {
         }
     }
 
-    pub fn tier(&self) -> u8 {
+    pub(crate) fn tier(&self) -> u8 {
         let score = [
             self.resources,
             self.prompts,
@@ -129,7 +129,7 @@ impl ClientMcpCapabilities {
         }
     }
 
-    pub fn format_summary(&self) -> String {
+    pub(crate) fn format_summary(&self) -> String {
         let features: Vec<&str> = [
             ("resources", self.resources),
             ("prompts", self.prompts),
@@ -189,24 +189,24 @@ fn identify_client(lower: &str) -> String {
 
 static GLOBAL: OnceLock<Mutex<ClientMcpCapabilities>> = OnceLock::new();
 
-pub fn global() -> &'static Mutex<ClientMcpCapabilities> {
+pub(crate) fn global() -> &'static Mutex<ClientMcpCapabilities> {
     GLOBAL.get_or_init(|| Mutex::new(ClientMcpCapabilities::default()))
 }
 
-pub fn set_detected(caps: &ClientMcpCapabilities) {
+pub(crate) fn set_detected(caps: &ClientMcpCapabilities) {
     if let Ok(mut g) = global().lock() {
         *g = caps.clone();
     }
     persist_to_disk(caps);
 }
 
-pub fn current() -> ClientMcpCapabilities {
+pub(crate) fn current() -> ClientMcpCapabilities {
     global().lock().map(|g| g.clone()).unwrap_or_default()
 }
 
 /// Load persisted client info from disk (for cross-process use, e.g. dashboard).
 /// Returns `None` if file missing or older than `max_age_secs`.
-pub fn load_persisted(max_age_secs: u64) -> Option<ClientMcpCapabilities> {
+pub(crate) fn load_persisted(max_age_secs: u64) -> Option<ClientMcpCapabilities> {
     let path = persisted_path()?;
     let content = std::fs::read_to_string(&path).ok()?;
     let val: serde_json::Value = serde_json::from_str(&content).ok()?;

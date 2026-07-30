@@ -16,7 +16,7 @@ use crate::core::session::{SessionState, SessionStats};
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize)]
-pub struct VisualizerData {
+pub(crate) struct VisualizerData {
     pub graph: GraphData,
     pub knowledge: Vec<KnowledgeEntry>,
     pub savings: SavingsData,
@@ -24,20 +24,20 @@ pub struct VisualizerData {
 }
 
 #[derive(Serialize)]
-pub struct GraphData {
+pub(crate) struct GraphData {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
 }
 
 #[derive(Serialize)]
-pub struct GraphNode {
+pub(crate) struct GraphNode {
     pub id: String,
     pub kind: String,
     pub label: String,
 }
 
 #[derive(Serialize)]
-pub struct GraphEdge {
+pub(crate) struct GraphEdge {
     pub source: String,
     pub target: String,
     pub kind: String,
@@ -45,7 +45,7 @@ pub struct GraphEdge {
 }
 
 #[derive(Serialize)]
-pub struct KnowledgeEntry {
+pub(crate) struct KnowledgeEntry {
     pub category: String,
     pub key: String,
     pub value: String,
@@ -59,7 +59,7 @@ pub struct KnowledgeEntry {
 }
 
 #[derive(Serialize)]
-pub struct SavingsData {
+pub(crate) struct SavingsData {
     pub files: Vec<FileSavingsEntry>,
     pub total_original: u64,
     pub total_saved: u64,
@@ -67,7 +67,7 @@ pub struct SavingsData {
 }
 
 #[derive(Serialize)]
-pub struct FileSavingsEntry {
+pub(crate) struct FileSavingsEntry {
     pub path: String,
     pub access_count: u32,
     pub original_tokens: u64,
@@ -76,7 +76,7 @@ pub struct FileSavingsEntry {
 }
 
 #[derive(Serialize)]
-pub struct SessionHistory {
+pub(crate) struct SessionHistory {
     pub session_id: String,
     pub started_at: String,
     pub task: Option<String>,
@@ -88,7 +88,7 @@ pub struct SessionHistory {
 }
 
 #[derive(Serialize)]
-pub struct SessionStatsEntry {
+pub(crate) struct SessionStatsEntry {
     pub total_tool_calls: u32,
     pub total_tokens_saved: u64,
     pub total_tokens_input: u64,
@@ -98,7 +98,7 @@ pub struct SessionStatsEntry {
 }
 
 #[derive(Serialize)]
-pub struct FileTouchedEntry {
+pub(crate) struct FileTouchedEntry {
     pub path: String,
     pub read_count: u32,
     pub modified: bool,
@@ -107,21 +107,21 @@ pub struct FileTouchedEntry {
 }
 
 #[derive(Serialize)]
-pub struct FindingEntry {
+pub(crate) struct FindingEntry {
     pub file: Option<String>,
     pub summary: String,
     pub timestamp: String,
 }
 
 #[derive(Serialize)]
-pub struct DecisionEntry {
+pub(crate) struct DecisionEntry {
     pub summary: String,
     pub rationale: Option<String>,
     pub timestamp: String,
 }
 
 #[derive(Serialize)]
-pub struct ProgressEntryViz {
+pub(crate) struct ProgressEntryViz {
     pub action: String,
     pub detail: Option<String>,
     pub timestamp: String,
@@ -131,7 +131,7 @@ pub struct ProgressEntryViz {
 // Data collection
 // ---------------------------------------------------------------------------
 
-pub fn collect_data(project_root: &str) -> VisualizerData {
+pub(crate) fn collect_data(project_root: &str) -> VisualizerData {
     let graph = collect_graph(project_root);
     let knowledge = collect_knowledge(project_root);
     let savings = collect_savings();
@@ -308,7 +308,7 @@ fn map_stats(s: &SessionStats) -> SessionStatsEntry {
 // HTML rendering
 // ---------------------------------------------------------------------------
 
-pub fn render_html(data: &VisualizerData) -> String {
+pub(crate) fn render_html(data: &VisualizerData) -> String {
     let json = serde_json::to_string(data).unwrap_or_else(|_| "{}".to_string());
     let template = include_str!("../assets/visualizer.html");
     template.replace("/*__VISUALIZER_DATA__*/", &format!("const DATA = {json};"))

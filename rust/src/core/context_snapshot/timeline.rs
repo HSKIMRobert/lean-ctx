@@ -22,7 +22,7 @@ const INDEX_FILENAME: &str = "index.jsonl";
 /// One line in the append-only timeline — a compact pointer to a stored
 /// snapshot payload (the full snapshot lives in `<snapshot_id>.json`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TimelineEntry {
+pub(crate) struct TimelineEntry {
     pub snapshot_id: String,
     pub parent_id: Option<String>,
     pub created_at: String,
@@ -35,7 +35,7 @@ pub struct TimelineEntry {
 impl TimelineEntry {
     /// Project a stored snapshot down to its timeline pointer.
     #[must_use]
-    pub fn from_snapshot(s: &ContextSnapshotV1) -> Self {
+    pub(crate) fn from_snapshot(s: &ContextSnapshotV1) -> Self {
         Self {
             snapshot_id: s.snapshot_id.clone(),
             parent_id: s.parent_id.clone(),
@@ -49,7 +49,7 @@ impl TimelineEntry {
 }
 
 /// `<data_dir>/snapshots/<project_hash>` — the per-project snapshot directory.
-pub fn snapshots_dir(project_root: &str) -> Result<PathBuf, String> {
+pub(crate) fn snapshots_dir(project_root: &str) -> Result<PathBuf, String> {
     let hash = crate::core::project_hash::hash_project_root(project_root);
     Ok(crate::core::paths::data_dir()?.join("snapshots").join(hash))
 }
@@ -116,7 +116,7 @@ fn read_snapshot_in(dir: &Path, snapshot_id: &str) -> Result<ContextSnapshotV1, 
 // --- public (project-scoped) -----------------------------------------------
 
 /// All timeline entries in chronological (append) order. Empty if none yet.
-pub fn load_entries(project_root: &str) -> Vec<TimelineEntry> {
+pub(crate) fn load_entries(project_root: &str) -> Vec<TimelineEntry> {
     snapshots_dir(project_root)
         .map(|d| load_entries_in(&d))
         .unwrap_or_default()
@@ -124,24 +124,30 @@ pub fn load_entries(project_root: &str) -> Vec<TimelineEntry> {
 
 /// Id of the current timeline head (the most recent snapshot), if any. Used as
 /// the `parent_id` of the next snapshot.
-pub fn head_id(project_root: &str) -> Option<String> {
+pub(crate) fn head_id(project_root: &str) -> Option<String> {
     load_entries(project_root).pop().map(|e| e.snapshot_id)
 }
 
 /// Persist a finalized/signed snapshot: write its payload and append its
 /// timeline entry. Returns the payload path.
-pub fn write_snapshot(project_root: &str, snapshot: &ContextSnapshotV1) -> Result<PathBuf, String> {
+pub(crate) fn write_snapshot(
+    project_root: &str,
+    snapshot: &ContextSnapshotV1,
+) -> Result<PathBuf, String> {
     write_snapshot_in(&snapshots_dir(project_root)?, snapshot)
 }
 
 /// Load a stored snapshot payload by id.
-pub fn read_snapshot(project_root: &str, snapshot_id: &str) -> Result<ContextSnapshotV1, String> {
+pub(crate) fn read_snapshot(
+    project_root: &str,
+    snapshot_id: &str,
+) -> Result<ContextSnapshotV1, String> {
     read_snapshot_in(&snapshots_dir(project_root)?, snapshot_id)
 }
 
 /// Resolve a (possibly abbreviated) id prefix to a unique full snapshot id,
 /// git-style. Errors when nothing matches or the prefix is ambiguous.
-pub fn resolve_id(project_root: &str, prefix: &str) -> Result<String, String> {
+pub(crate) fn resolve_id(project_root: &str, prefix: &str) -> Result<String, String> {
     resolve_in(&load_entries(project_root), prefix)
 }
 

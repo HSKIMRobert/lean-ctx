@@ -7,7 +7,7 @@ use std::path::PathBuf;
 const LABEL: &str = "com.leanctx.autoupdate";
 
 #[derive(Debug, Clone)]
-pub struct ScheduleInfo {
+pub(crate) struct ScheduleInfo {
     pub enabled: bool,
     pub mechanism: String,
     pub interval_hours: u64,
@@ -36,7 +36,7 @@ impl std::fmt::Display for ScheduleInfo {
     }
 }
 
-pub fn install_schedule(interval_hours: u64) -> Result<ScheduleInfo, String> {
+pub(crate) fn install_schedule(interval_hours: u64) -> Result<ScheduleInfo, String> {
     let binary = std::path::PathBuf::from(super::portable_binary::resolve_portable_binary());
 
     #[cfg(target_os = "macos")]
@@ -55,7 +55,7 @@ pub fn install_schedule(interval_hours: u64) -> Result<ScheduleInfo, String> {
     }
 }
 
-pub fn remove_schedule() -> Result<(), String> {
+pub(crate) fn remove_schedule() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     return remove_macos_launchagent();
 
@@ -69,7 +69,7 @@ pub fn remove_schedule() -> Result<(), String> {
     Ok(())
 }
 
-pub fn schedule_status() -> ScheduleInfo {
+pub(crate) fn schedule_status() -> ScheduleInfo {
     #[cfg(target_os = "macos")]
     return macos_status();
 
@@ -493,7 +493,7 @@ fn read_last_check_time() -> Option<String> {
 }
 
 /// Check if the user has ever configured `auto_update` (the key exists in config.toml).
-pub fn has_user_decided() -> bool {
+pub(crate) fn has_user_decided() -> bool {
     // Read the canonical config location (GH #408) — the hardcoded `~/.lean-ctx`
     // path missed configs stored under `~/.config/lean-ctx`, the default for
     // most installs, so the prompt could re-fire after the user had decided.
@@ -506,7 +506,7 @@ pub fn has_user_decided() -> bool {
 
 /// Writes the `[updates]` settings to config.toml, preserving all comments,
 /// formatting, and unrelated keys.
-pub fn set_auto_update(enabled: bool, notify_only: bool, interval_hours: u64) {
+pub(crate) fn set_auto_update(enabled: bool, notify_only: bool, interval_hours: u64) {
     let Some(config_path) = crate::core::config::Config::path() else {
         return;
     };

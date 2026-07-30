@@ -50,14 +50,14 @@ fn ascension_ansi(tier: u32) -> &'static str {
     }
 }
 
-pub fn format_buddy_block(state: &BuddyState, theme: &super::super::theme::Theme) -> String {
+pub(crate) fn format_buddy_block(state: &BuddyState, theme: &super::super::theme::Theme) -> String {
     format_buddy_block_at(state, theme, None)
 }
 
 /// Collector-card layout for the gain --deep dashboard: a framed pixel-art
 /// portrait on the left, nameplate + element type + rarity pips + RPG stat bars
 /// on the right, with mood, speech and achievement badges underneath.
-pub fn format_buddy_block_at(
+pub(crate) fn format_buddy_block_at(
     state: &BuddyState,
     theme: &super::super::theme::Theme,
     tick: Option<u64>,
@@ -387,7 +387,7 @@ fn progression_bar(state: &BuddyState, theme: &super::super::theme::Theme, width
     )
 }
 
-pub fn format_buddy_full(state: &BuddyState, theme: &super::super::theme::Theme) -> String {
+pub(crate) fn format_buddy_full(state: &BuddyState, theme: &super::super::theme::Theme) -> String {
     let rst = super::super::theme::rst();
     let accent = theme.accent.fg();
     let muted = theme.muted.fg();

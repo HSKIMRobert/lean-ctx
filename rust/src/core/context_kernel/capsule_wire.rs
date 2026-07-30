@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Wire-compatible context capsule for multi-agent transfer.
 /// Contains only references and metadata — never raw content payloads.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ContextCapsuleV1 {
+pub(crate) struct ContextCapsuleV1 {
     /// Content-derived capsule identifier.
     pub capsule_id: String,
     /// Content-addressed reference to the capsule manifest.
@@ -36,7 +36,7 @@ pub struct ContextCapsuleV1 {
 /// Represents the difference between a base capsule and an updated one.
 /// Used to minimize transfer size in multi-agent chains.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DeltaTransfer {
+pub(crate) struct DeltaTransfer {
     /// Identifier of the capsule this delta applies to.
     pub base_ref: String,
     /// Content references added by the update.
@@ -51,7 +51,7 @@ pub struct DeltaTransfer {
 
 /// Cross-capsule reference overlap and deduplication metrics.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct DedupReport {
+pub(crate) struct DedupReport {
     /// References present in more than one sibling capsule.
     pub shared_refs: Vec<String>,
     /// References present only in the corresponding capsule.
@@ -62,7 +62,7 @@ pub struct DedupReport {
 
 impl ContextCapsuleV1 {
     /// Creates a reference-only capsule with a deterministic content-derived ID.
-    pub fn new(intent: &str, refs: Vec<String>, budget: u64, owner: &str) -> Self {
+    pub(crate) fn new(intent: &str, refs: Vec<String>, budget: u64, owner: &str) -> Self {
         let capsule_id = capsule_id(intent, &refs);
         Self {
             manifest_ref: capsule_id.clone(),
@@ -88,13 +88,13 @@ impl DeltaTransfer {
     /// When this returns `false`, callers should send the full capsule instead
     /// of the delta, since the disjoint-update case can produce a delta that
     /// is larger than the full capsule.
-    pub fn is_efficient(&self, updated_ref_count: usize) -> bool {
+    pub(crate) fn is_efficient(&self, updated_ref_count: usize) -> bool {
         self.added_refs.len() + self.removed_refs.len() < updated_ref_count
     }
 }
 
 /// Computes the reference and budget difference between two capsules.
-pub fn compute_delta(base: &ContextCapsuleV1, updated: &ContextCapsuleV1) -> DeltaTransfer {
+pub(crate) fn compute_delta(base: &ContextCapsuleV1, updated: &ContextCapsuleV1) -> DeltaTransfer {
     let base_refs: HashSet<&str> = base.selected_refs.iter().map(String::as_str).collect();
     let updated_refs: HashSet<&str> = updated.selected_refs.iter().map(String::as_str).collect();
 
@@ -118,7 +118,7 @@ pub fn compute_delta(base: &ContextCapsuleV1, updated: &ContextCapsuleV1) -> Del
 }
 
 /// Applies a reference and budget delta to a base capsule.
-pub fn apply_delta(base: &ContextCapsuleV1, delta: &DeltaTransfer) -> ContextCapsuleV1 {
+pub(crate) fn apply_delta(base: &ContextCapsuleV1, delta: &DeltaTransfer) -> ContextCapsuleV1 {
     let removed: HashSet<&str> = delta.removed_refs.iter().map(String::as_str).collect();
     let mut selected_refs: Vec<String> = base
         .selected_refs
@@ -143,7 +143,7 @@ pub fn apply_delta(base: &ContextCapsuleV1, delta: &DeltaTransfer) -> ContextCap
 }
 
 /// Finds references shared across sibling capsules and reports transfer savings.
-pub fn dedup_siblings(capsules: &[ContextCapsuleV1]) -> DedupReport {
+pub(crate) fn dedup_siblings(capsules: &[ContextCapsuleV1]) -> DedupReport {
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for capsule in capsules {
         let refs: HashSet<&str> = capsule.selected_refs.iter().map(String::as_str).collect();

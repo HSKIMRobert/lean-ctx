@@ -6,14 +6,14 @@ use super::store::SummaryStore;
 
 /// One recalled summary with its score and the recall mode that produced it.
 #[derive(Debug, Clone)]
-pub struct RecallHit {
+pub(crate) struct RecallHit {
     pub record: SummaryRecord,
     pub score: f32,
     pub mode: &'static str,
 }
 
 /// Recall the `top_k` summaries most relevant to `query`.
-pub fn recall(project_root: &str, query: &str, top_k: usize) -> Vec<RecallHit> {
+pub(crate) fn recall(project_root: &str, query: &str, top_k: usize) -> Vec<RecallHit> {
     let store = SummaryStore::load_or_create(project_root);
     if store.summaries.is_empty() || query.trim().is_empty() {
         return Vec::new();

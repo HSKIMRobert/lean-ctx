@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A persisted, recallable session summary.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SummaryRecord {
+pub(crate) struct SummaryRecord {
     /// Stable id: `<session-id>-<seq>`.
     pub id: String,
     pub session_id: String,
@@ -24,7 +24,7 @@ pub struct SummaryRecord {
 
 impl SummaryRecord {
     /// Text used for both lexical and semantic recall.
-    pub fn searchable_text(&self) -> String {
+    pub(crate) fn searchable_text(&self) -> String {
         let mut t = String::with_capacity(self.title.len() + self.body.len() + 16);
         t.push_str(&self.title);
         t.push('\n');
@@ -36,7 +36,7 @@ impl SummaryRecord {
 /// An owned snapshot built while holding the session lock, then persisted off the
 /// hot path. Keeps the lock hold minimal (no disk I/O under the lock).
 #[derive(Debug, Clone)]
-pub struct SummaryCandidate {
+pub(crate) struct SummaryCandidate {
     pub session_id: String,
     pub created_at: DateTime<Utc>,
     pub title: String,
@@ -51,7 +51,7 @@ pub struct SummaryCandidate {
 
 impl SummaryCandidate {
     /// Finalize into a persisted record with a sequence number.
-    pub fn into_record(self, seq: u32) -> SummaryRecord {
+    pub(crate) fn into_record(self, seq: u32) -> SummaryRecord {
         let short = self
             .session_id
             .split('-')

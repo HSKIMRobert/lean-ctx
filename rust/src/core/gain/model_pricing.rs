@@ -572,7 +572,7 @@ fn resolve_model(client: &str, env_model: Option<&str>, configured: Option<&str>
 /// `LCTX_MODEL` env override wins, then the `[cost]` config
 /// (`models[client]` → `default_model`), then the client/agent string itself.
 /// The returned string is fed to [`ModelPricing::quote`] for the actual price.
-pub fn resolve_model_for_client(client: &str) -> String {
+pub(crate) fn resolve_model_for_client(client: &str) -> String {
     let env_model = std::env::var("LEAN_CTX_MODEL")
         .or_else(|_| std::env::var("LCTX_MODEL"))
         .ok();

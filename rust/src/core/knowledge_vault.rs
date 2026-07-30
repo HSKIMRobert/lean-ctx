@@ -16,11 +16,11 @@ use serde::{Deserialize, Serialize};
 use super::index_bundle::{BundleError, decrypt, encrypt};
 
 /// Envelope version inside the ciphertext.
-pub const VAULT_VERSION: u32 = 1;
+pub(crate) const VAULT_VERSION: u32 = 1;
 
 /// Plaintext payload of a sealed vault.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VaultEnvelope {
+pub(crate) struct VaultEnvelope {
     /// Envelope format version ([`VAULT_VERSION`]).
     pub v: u32,
     /// Knowledge entries exactly as the legacy JSON push sent them
@@ -32,7 +32,7 @@ pub struct VaultEnvelope {
 /// Derive the vault key from the account API key. Distinct HKDF `info` keeps
 /// this key domain-separated from `index_bundle::derive_key`.
 #[must_use]
-pub fn derive_vault_key(api_key: &str) -> [u8; 32] {
+pub(crate) fn derive_vault_key(api_key: &str) -> [u8; 32] {
     derive_key(api_key, b"knowledge-vault-v1")
 }
 
@@ -40,7 +40,7 @@ pub fn derive_vault_key(api_key: &str) -> [u8; 32] {
 /// (`gotcha-vault-v1`): a leaked knowledge-vault key can never open the
 /// gotcha vault and vice versa.
 #[must_use]
-pub fn derive_gotcha_vault_key(api_key: &str) -> [u8; 32] {
+pub(crate) fn derive_gotcha_vault_key(api_key: &str) -> [u8; 32] {
     derive_key(api_key, b"gotcha-vault-v1")
 }
 
@@ -53,7 +53,7 @@ fn derive_key(api_key: &str, info: &[u8]) -> [u8; 32] {
 }
 
 /// Serialize + encrypt the entries into a vault blob (`nonce || ciphertext`).
-pub fn seal(entries: &[serde_json::Value], key: &[u8; 32]) -> Result<Vec<u8>, BundleError> {
+pub(crate) fn seal(entries: &[serde_json::Value], key: &[u8; 32]) -> Result<Vec<u8>, BundleError> {
     let envelope = VaultEnvelope {
         v: VAULT_VERSION,
         entries: entries.to_vec(),
@@ -64,7 +64,7 @@ pub fn seal(entries: &[serde_json::Value], key: &[u8; 32]) -> Result<Vec<u8>, Bu
 }
 
 /// Decrypt + parse a vault blob back into its entries.
-pub fn open(blob: &[u8], key: &[u8; 32]) -> Result<Vec<serde_json::Value>, BundleError> {
+pub(crate) fn open(blob: &[u8], key: &[u8; 32]) -> Result<Vec<serde_json::Value>, BundleError> {
     let plain = decrypt(blob, key)?;
     let envelope: VaultEnvelope = serde_json::from_slice(&plain)
         .map_err(|e| BundleError::Corrupt(format!("vault parse: {e}")))?;

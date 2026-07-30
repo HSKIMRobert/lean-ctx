@@ -16,12 +16,12 @@ const LEGACY_CONFIG_DIR: &str = ".leanctx";
 /// snapshot captured at `init` time for inspection/linting, never an override that
 /// `sync` would distribute (#548).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RulesConfig {
+pub(crate) struct RulesConfig {
     pub rules: RulesSection,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RulesSection {
+pub(crate) struct RulesSection {
     #[serde(default = "default_version")]
     pub version: String,
     #[serde(default)]
@@ -31,13 +31,13 @@ pub struct RulesSection {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CoreRules {
+pub(crate) struct CoreRules {
     #[serde(default)]
     pub content: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct AgentRules {
+pub(crate) struct AgentRules {
     #[serde(default)]
     pub extra: String,
 }
@@ -47,7 +47,7 @@ fn default_version() -> String {
 }
 
 impl RulesConfig {
-    pub fn config_path(project_root: &Path) -> PathBuf {
+    pub(crate) fn config_path(project_root: &Path) -> PathBuf {
         let new_path = project_root.join(CONFIG_DIR).join(CONFIG_FILENAME);
         if new_path.exists() {
             return new_path;
@@ -65,7 +65,7 @@ impl RulesConfig {
         new_path
     }
 
-    pub fn load(project_root: &Path) -> Result<Self, String> {
+    pub(crate) fn load(project_root: &Path) -> Result<Self, String> {
         let path = Self::config_path(project_root);
         if !path.exists() {
             return Err(format!(
@@ -78,7 +78,7 @@ impl RulesConfig {
         toml::from_str(&content).map_err(|e| format!("Failed to parse {}: {e}", path.display()))
     }
 
-    pub fn init_from_existing(project_root: &Path, home: &Path) -> Result<Self, String> {
+    pub(crate) fn init_from_existing(project_root: &Path, home: &Path) -> Result<Self, String> {
         let statuses = crate::rules_inject::collect_rules_status(home);
 
         let mut agent_rules = std::collections::HashMap::new();

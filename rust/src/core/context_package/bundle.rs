@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 use crate::core::session::{Decision, FileTouched, Finding, TaskInfo, TestSnapshot};
 use crate::core::session_summary::SummaryRecord;
 
-pub const FORMAT_VERSION: u32 = 1;
+pub(crate) const FORMAT_VERSION: u32 = 1;
 
 /// A portable, self-contained context package.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextPackage {
+pub(crate) struct ContextPackage {
     pub format_version: u32,
     pub created_at: DateTime<Utc>,
     pub project_root: String,
@@ -25,7 +25,7 @@ pub struct ContextPackage {
 
 /// Human-readable metadata about the package.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageMetadata {
+pub(crate) struct PackageMetadata {
     pub agent_id: Option<String>,
     pub description: Option<String>,
     pub tool_calls: u32,
@@ -34,7 +34,7 @@ pub struct PackageMetadata {
 
 /// The essential slice of session state to restore.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionSlice {
+pub(crate) struct SessionSlice {
     pub task: Option<TaskInfo>,
     pub findings: Vec<Finding>,
     pub decisions: Vec<Decision>,
@@ -45,7 +45,7 @@ pub struct SessionSlice {
 
 /// A knowledge fact (compact, portable representation).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeFact {
+pub(crate) struct KnowledgeFact {
     pub category: String,
     pub key: String,
     pub value: String,
@@ -54,11 +54,11 @@ pub struct KnowledgeFact {
 }
 
 impl ContextPackage {
-    pub fn is_compatible(&self) -> bool {
+    pub(crate) fn is_compatible(&self) -> bool {
         self.format_version <= FORMAT_VERSION
     }
 
-    pub fn summary_line(&self) -> String {
+    pub(crate) fn summary_line(&self) -> String {
         let desc = self
             .metadata
             .description

@@ -10,22 +10,22 @@ thread_local! {
     static CURRENT_DETAIL: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-pub struct SavingsInfo<'a> {
+pub(crate) struct SavingsInfo<'a> {
     pub original: usize,
     pub compressed: usize,
     pub mode: Option<&'a str>,
     pub detail: Option<&'a str>,
 }
 
-pub struct ModeGuard;
+pub(crate) struct ModeGuard;
 
 impl ModeGuard {
-    pub fn new(mode: &str) -> Self {
+    pub(crate) fn new(mode: &str) -> Self {
         CURRENT_MODE.with(|m| *m.borrow_mut() = Some(mode.to_string()));
         Self
     }
 
-    pub fn with_detail(mode: &str, detail: &str) -> Self {
+    pub(crate) fn with_detail(mode: &str, detail: &str) -> Self {
         CURRENT_MODE.with(|m| *m.borrow_mut() = Some(mode.to_string()));
         CURRENT_DETAIL.with(|d| *d.borrow_mut() = Some(detail.to_string()));
         Self
@@ -58,13 +58,13 @@ fn current_detail() -> Option<String> {
     CURRENT_DETAIL.with(|d| d.borrow().clone())
 }
 
-pub fn record_savings(original: usize, saved: usize) {
+pub(crate) fn record_savings(original: usize, saved: usize) {
     SESSION_ORIGINAL.fetch_add(original, Ordering::Relaxed);
     SESSION_SAVED.fetch_add(saved, Ordering::Relaxed);
     SESSION_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
-pub fn session_totals() -> (usize, usize, usize) {
+pub(crate) fn session_totals() -> (usize, usize, usize) {
     (
         SESSION_ORIGINAL.load(Ordering::Relaxed),
         SESSION_SAVED.load(Ordering::Relaxed),
@@ -72,7 +72,7 @@ pub fn session_totals() -> (usize, usize, usize) {
     )
 }
 
-pub fn reset_session() {
+pub(crate) fn reset_session() {
     SESSION_ORIGINAL.store(0, Ordering::Relaxed);
     SESSION_SAVED.store(0, Ordering::Relaxed);
     SESSION_CALL_COUNT.store(0, Ordering::Relaxed);
@@ -105,7 +105,7 @@ fn is_ultra_suppressed() -> bool {
     matches!(level, super::config::CompressionLevel::Max)
 }
 
-pub fn format_footer(info: &SavingsInfo<'_>) -> String {
+pub(crate) fn format_footer(info: &SavingsInfo<'_>) -> String {
     if !super::protocol::savings_footer_visible() {
         return String::new();
     }
@@ -166,7 +166,7 @@ fn format_footer_inner(info: &SavingsInfo<'_>) -> String {
     format!("\u{2500}\u{2500}\u{2500} {body} \u{2500}\u{2500}\u{2500}")
 }
 
-pub fn format_footer_basic(original: usize, compressed: usize) -> String {
+pub(crate) fn format_footer_basic(original: usize, compressed: usize) -> String {
     let mode = current_mode();
     let detail = current_detail();
     format_footer(&SavingsInfo {
@@ -177,7 +177,7 @@ pub fn format_footer_basic(original: usize, compressed: usize) -> String {
     })
 }
 
-pub fn append_footer(output: &str, info: &SavingsInfo<'_>) -> String {
+pub(crate) fn append_footer(output: &str, info: &SavingsInfo<'_>) -> String {
     let footer = format_footer(info);
     if footer.is_empty() {
         output.to_string()
@@ -186,7 +186,7 @@ pub fn append_footer(output: &str, info: &SavingsInfo<'_>) -> String {
     }
 }
 
-pub fn append_footer_basic(output: &str, original: usize, compressed: usize) -> String {
+pub(crate) fn append_footer_basic(output: &str, original: usize, compressed: usize) -> String {
     let footer = format_footer_basic(original, compressed);
     if footer.is_empty() {
         output.to_string()

@@ -10,7 +10,7 @@ static TOTAL_OUTPUT_TOKENS: AtomicUsize = AtomicUsize::new(0);
 
 /// Cumulative evidence totals observed at dispatch boundaries.
 #[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct DispatchSummary {
+pub(crate) struct DispatchSummary {
     /// Number of dispatched MCP tool calls.
     pub tool_dispatches: usize,
     /// Number of dispatched proxy requests.
@@ -30,7 +30,7 @@ fn record_dispatch(input_tokens: usize, output_tokens: usize, tokens_saved: usiz
 }
 
 /// Records evidence for one dispatched MCP tool call.
-pub fn record_from_tool_dispatch(
+pub(crate) fn record_from_tool_dispatch(
     tool_name: &str,
     input_tokens: usize,
     output_tokens: usize,
@@ -42,7 +42,7 @@ pub fn record_from_tool_dispatch(
 }
 
 /// Records evidence for one proxy-forwarded request.
-pub fn record_from_proxy_dispatch(
+pub(crate) fn record_from_proxy_dispatch(
     input_tokens: usize,
     output_tokens: usize,
     tokens_saved: usize,
@@ -62,7 +62,7 @@ pub fn record_from_proxy_dispatch(
 
 /// Returns cumulative dispatch-boundary evidence totals.
 #[must_use]
-pub fn dispatch_summary() -> DispatchSummary {
+pub(crate) fn dispatch_summary() -> DispatchSummary {
     DispatchSummary {
         tool_dispatches: TOOL_DISPATCHES.load(Ordering::Relaxed),
         proxy_dispatches: PROXY_DISPATCHES.load(Ordering::Relaxed),
@@ -73,7 +73,7 @@ pub fn dispatch_summary() -> DispatchSummary {
 }
 
 /// Clears dispatch counters and delegated evidence state.
-pub fn reset() {
+pub(crate) fn reset() {
     TOOL_DISPATCHES.store(0, Ordering::Relaxed);
     PROXY_DISPATCHES.store(0, Ordering::Relaxed);
     TOTAL_TOKENS_SAVED.store(0, Ordering::Relaxed);

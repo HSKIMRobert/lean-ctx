@@ -8,7 +8,7 @@
 
 /// A parsed email: salient headers (in order) and decoded body text.
 #[derive(Debug, Clone, Default)]
-pub struct Email {
+pub(crate) struct Email {
     pub headers: Vec<(String, String)>,
     pub body: String,
 }
@@ -17,7 +17,7 @@ const SALIENT: [&str; 5] = ["from", "to", "cc", "subject", "date"];
 
 /// Parse an `.eml` document into salient headers + a text body.
 #[must_use]
-pub fn parse(input: &str) -> Email {
+pub(crate) fn parse(input: &str) -> Email {
     let normalized = input.replace("\r\n", "\n");
     let (header_block, body_block) = match normalized.split_once("\n\n") {
         Some((h, b)) if looks_like_headers(h) => (h, b),
@@ -44,7 +44,7 @@ pub fn parse(input: &str) -> Email {
 
 /// Render the email as a header summary followed by the body.
 #[must_use]
-pub fn to_text(input: &str) -> String {
+pub(crate) fn to_text(input: &str) -> String {
     let email = parse(input);
     let mut out = String::new();
     for (k, v) in &email.headers {
@@ -59,7 +59,7 @@ pub fn to_text(input: &str) -> String {
 
 /// Chunks: the header summary as one chunk, then body paragraphs.
 #[must_use]
-pub fn chunks(input: &str) -> Vec<String> {
+pub(crate) fn chunks(input: &str) -> Vec<String> {
     let email = parse(input);
     let mut out = Vec::new();
     if !email.headers.is_empty() {

@@ -24,7 +24,7 @@ const PROXY_PROBE_TIMEOUT: Duration = Duration::from_millis(150);
 /// Observable engagement state of the lean-ctx bridge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum BridgeEngagement {
+pub(crate) enum BridgeEngagement {
     /// Proxy process is not reachable — savings cannot be measured at all.
     ProxyDown,
     /// Proxy is up but has not intercepted any LLM request (fresh start, or the
@@ -36,7 +36,7 @@ pub enum BridgeEngagement {
 
 /// Snapshot of the bridge state used to explain `gain`'s savings numbers.
 #[derive(Debug, Clone, Serialize)]
-pub struct BridgeStatus {
+pub(crate) struct BridgeStatus {
     pub engagement: BridgeEngagement,
     pub proxy_running: bool,
     /// Cumulative LLM requests the proxy has intercepted (within the freshness
@@ -51,7 +51,7 @@ pub struct BridgeStatus {
 /// Kept separate from [`BridgeStatus::detect`] so the decision logic is unit
 /// testable without touching the network or the filesystem.
 #[must_use]
-pub fn classify(proxy_running: bool, total_requests: u64) -> BridgeEngagement {
+pub(crate) fn classify(proxy_running: bool, total_requests: u64) -> BridgeEngagement {
     match (proxy_running, total_requests > 0) {
         (false, _) => BridgeEngagement::ProxyDown,
         (true, false) => BridgeEngagement::NoRequests,
@@ -64,7 +64,7 @@ impl BridgeStatus {
     /// whether the bridge is engaged. Never panics: every signal degrades to a
     /// conservative default (proxy down / 0 requests) on error.
     #[must_use]
-    pub fn detect() -> Self {
+    pub(crate) fn detect() -> Self {
         let proxy_running = probe_proxy(crate::proxy_setup::default_port());
         let total_requests = persisted_request_count(INTROSPECT_MAX_AGE_SECS);
         let tool_count = crate::server::registry::tool_count();
@@ -81,7 +81,7 @@ impl BridgeStatus {
     /// precondition for savings (bridge connected + tool-count) is always
     /// explicit.
     #[must_use]
-    pub fn summary_line(&self) -> String {
+    pub(crate) fn summary_line(&self) -> String {
         match self.engagement {
             BridgeEngagement::Engaged => format!(
                 "Bridge: connected — {} tools, {} requests intercepted",
@@ -101,7 +101,7 @@ impl BridgeStatus {
     /// Explanation for a reported `0` saved, distinguishing "bridge off" from a
     /// genuine zero. Returns `None` when savings are non-zero (no hint needed).
     #[must_use]
-    pub fn zero_savings_reason(&self, tokens_saved: u64) -> Option<String> {
+    pub(crate) fn zero_savings_reason(&self, tokens_saved: u64) -> Option<String> {
         if tokens_saved > 0 {
             return None;
         }

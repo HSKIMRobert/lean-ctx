@@ -789,7 +789,7 @@ mod tests {
 
     #[test]
     fn test_build_with_warnings() {
-        let warnings = vec!["warning: unused value"; 10].join("\n");
+        let warnings = ["warning: unused value"; 10].join("\n");
         let output =
             format!("Compiling app v0.1.0\n{warnings}\nwarning: app generated 10 warnings");
         let result = compress("cargo build", &output).unwrap();

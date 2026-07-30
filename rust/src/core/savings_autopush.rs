@@ -44,7 +44,7 @@ fn resolve(cfg: Config) -> Option<AutoPushConfig> {
 
 /// Spawn the auto-push loop if enabled; otherwise a silent no-op. Safe to call
 /// once at daemon/server startup (must run inside a Tokio runtime).
-pub fn spawn_if_enabled() {
+pub(crate) fn spawn_if_enabled() {
     let Some(cfg) = resolve(Config::load()) else {
         return;
     };

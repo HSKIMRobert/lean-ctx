@@ -6,13 +6,13 @@ const TARGET_CHUNK: usize = 512;
 const MASK: u64 = TARGET_CHUNK as u64 - 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Chunk {
+pub(crate) struct Chunk {
     pub offset: usize,
     pub length: usize,
     pub hash: u64,
 }
 
-pub fn chunk(content: &str) -> Vec<Chunk> {
+pub(crate) fn chunk(content: &str) -> Vec<Chunk> {
     let bytes = content.as_bytes();
     if bytes.is_empty() {
         return vec![];
@@ -64,7 +64,7 @@ pub fn chunk(content: &str) -> Vec<Chunk> {
     chunks
 }
 
-pub fn stable_order(old_chunks: &[Chunk], new_chunks: &[Chunk]) -> Vec<usize> {
+pub(crate) fn stable_order(old_chunks: &[Chunk], new_chunks: &[Chunk]) -> Vec<usize> {
     let old_hashes: std::collections::HashSet<u64> = old_chunks.iter().map(|c| c.hash).collect();
 
     let mut unchanged: Vec<usize> = Vec::new();
@@ -82,7 +82,7 @@ pub fn stable_order(old_chunks: &[Chunk], new_chunks: &[Chunk]) -> Vec<usize> {
     unchanged
 }
 
-pub fn reorder_content(content: &str, old_content: &str) -> String {
+pub(crate) fn reorder_content(content: &str, old_content: &str) -> String {
     let old_chunks = chunk(old_content);
     let new_chunks = chunk(content);
     let order = stable_order(&old_chunks, &new_chunks);

@@ -5,7 +5,7 @@ use crate::core::savings_ledger::event::{
 };
 
 /// Classify the measurement method and evidence strength for a savings event.
-pub fn classify(
+pub(crate) fn classify(
     mechanism: &str,
     has_tokenizer_count: bool,
     is_holdout: bool,
@@ -32,7 +32,7 @@ pub fn classify(
 }
 
 /// Return the default confidence associated with an evidence class.
-pub fn confidence_for_class(class: &EvidenceClass) -> f64 {
+pub(crate) fn confidence_for_class(class: &EvidenceClass) -> f64 {
     match class {
         EvidenceClass::Measured => 1.0,
         EvidenceClass::Approximated => 0.85,

@@ -20,7 +20,7 @@ use serde::Deserialize;
 use crate::core::bm25_index::{BM25Index, CodeChunk};
 
 #[derive(Debug, Clone)]
-pub struct PgvectorConfig {
+pub(crate) struct PgvectorConfig {
     /// PostgreSQL connection string (postgres://user:pass@host:port/db).
     pub url: String,
     /// Connect timeout for each psql invocation (seconds).
@@ -30,7 +30,7 @@ pub struct PgvectorConfig {
 }
 
 impl PgvectorConfig {
-    pub fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         let url = std::env::var("LEANCTX_PGVECTOR_URL")
             .map_err(|_| "LEANCTX_PGVECTOR_URL is required for pgvector backend".to_string())?;
         let url = url.trim().to_string();
@@ -60,12 +60,12 @@ impl PgvectorConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct PgvectorStore {
+pub(crate) struct PgvectorStore {
     cfg: PgvectorConfig,
 }
 
 #[derive(Debug, Clone)]
-pub struct PgvectorHit {
+pub(crate) struct PgvectorHit {
     pub score: f32,
     pub file_path: String,
     pub symbol_name: String,
@@ -85,14 +85,14 @@ struct PgRow {
 }
 
 impl PgvectorStore {
-    pub fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         let cfg = PgvectorConfig::from_env()?;
         Ok(Self { cfg })
     }
 
     /// Namespaced table name for a project root at given dimensionality.
     /// Mirrors `QdrantStore::collection_name` (prefix + namespace hash + dims).
-    pub fn table_name(&self, root: &Path, dimensions: usize) -> Result<String, String> {
+    pub(crate) fn table_name(&self, root: &Path, dimensions: usize) -> Result<String, String> {
         let ns = crate::core::index_namespace::namespace_hash(root);
         let name = format!("{}{}_d{}", self.cfg.table_prefix, ns, dimensions);
         if name.len() > 63 {
@@ -104,7 +104,7 @@ impl PgvectorStore {
     }
 
     /// Ensure the extension + table exist. Returns `true` if the table was created.
-    pub fn ensure_table(&self, table: &str, dimensions: usize) -> Result<bool, String> {
+    pub(crate) fn ensure_table(&self, table: &str, dimensions: usize) -> Result<bool, String> {
         let existed = self.table_exists(table)?;
         if existed {
             return Ok(false);
@@ -128,7 +128,7 @@ impl PgvectorStore {
 
     /// Same incremental semantics as the qdrant backend: fresh table gets a
     /// full upsert; otherwise changed files are replaced (delete + upsert).
-    pub fn sync_index(
+    pub(crate) fn sync_index(
         &self,
         table: &str,
         index: &BM25Index,
@@ -160,7 +160,7 @@ impl PgvectorStore {
         self.upsert_filtered(table, index, aligned_embeddings, Some(&changed_set))
     }
 
-    pub fn search(
+    pub(crate) fn search(
         &self,
         table: &str,
         query_vec: &[f32],

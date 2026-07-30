@@ -524,7 +524,7 @@ fn simulate_session(files: &[FileMeasurement]) -> SessionSimResult {
 
 // ── Public API ──────────────────────────────────────────────
 
-pub fn run_project_benchmark(path: &str) -> ProjectBenchmark {
+pub(crate) fn run_project_benchmark(path: &str) -> ProjectBenchmark {
     let root = if path.is_empty() { "." } else { path };
     let scanned = scan_project(root);
     let files_scanned = scanned.len();
@@ -553,7 +553,7 @@ pub fn run_project_benchmark(path: &str) -> ProjectBenchmark {
 
 // ── Report: Terminal ────────────────────────────────────────
 
-pub fn format_terminal(b: &ProjectBenchmark) -> String {
+pub(crate) fn format_terminal(b: &ProjectBenchmark) -> String {
     let mut out = Vec::new();
     let sep = "\u{2550}".repeat(66);
 
@@ -674,7 +674,7 @@ pub fn format_terminal(b: &ProjectBenchmark) -> String {
 
 // ── Report: Markdown ────────────────────────────────────────
 
-pub fn format_markdown(b: &ProjectBenchmark) -> String {
+pub(crate) fn format_markdown(b: &ProjectBenchmark) -> String {
     let mut out = Vec::new();
 
     out.push("# lean-ctx Benchmark Report".to_string());
@@ -777,7 +777,7 @@ pub fn format_markdown(b: &ProjectBenchmark) -> String {
 
 // ── Report: JSON ────────────────────────────────────────────
 
-pub fn format_json(b: &ProjectBenchmark) -> String {
+pub(crate) fn format_json(b: &ProjectBenchmark) -> String {
     let modes: Vec<serde_json::Value> = b.mode_summaries.iter().map(|m| {
         serde_json::json!({
             "mode": m.mode,

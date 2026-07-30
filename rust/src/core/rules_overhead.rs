@@ -15,7 +15,7 @@ use crate::core::tokens::count_tokens;
 
 /// One rules file a client auto-loads into context.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct RulesFileCost {
+pub(crate) struct RulesFileCost {
     pub path: String,
     /// Tokens of the whole file (what the client actually injects).
     pub file_tokens: usize,
@@ -34,7 +34,7 @@ pub struct RulesFileCost {
 /// starts at a line containing `<!-- lean-ctx` or the canonical rules marker
 /// and ends at `<!-- /lean-ctx... -->` (inclusive). Files without markers
 /// contribute 0 lean-ctx tokens (they still cost their full size).
-pub fn lean_ctx_block_tokens(content: &str) -> usize {
+pub(crate) fn lean_ctx_block_tokens(content: &str) -> usize {
     let mut tokens = 0;
     let mut in_block = false;
     let mut block = String::new();
@@ -94,7 +94,7 @@ fn scan_mdc_dir(out: &mut Vec<RulesFileCost>, dir: &Path, clients: &[&'static st
 /// Collects every rules file that an agent auto-loads for work in `project`:
 /// global per-client files, the project root, and the parent chain up to
 /// `home` (Cursor merges parent `.cursor/rules/` and AGENTS.md in monorepos).
-pub fn collect_rules_files(home: &Path, project: &Path) -> Vec<RulesFileCost> {
+pub(crate) fn collect_rules_files(home: &Path, project: &Path) -> Vec<RulesFileCost> {
     let mut out = Vec::new();
 
     // Global, per-client.
@@ -154,7 +154,7 @@ pub fn collect_rules_files(home: &Path, project: &Path) -> Vec<RulesFileCost> {
 /// Pointer-only files (a thinned `AGENTS.md` / `.cursorrules` that merely
 /// cross-references the canonical source) are not counted: they exist precisely
 /// to avoid duplication and cost only a handful of tokens (#684).
-pub fn duplicate_clients(files: &[RulesFileCost]) -> Vec<(String, usize)> {
+pub(crate) fn duplicate_clients(files: &[RulesFileCost]) -> Vec<(String, usize)> {
     let mut counts: std::collections::BTreeMap<&'static str, usize> =
         std::collections::BTreeMap::new();
     for f in files {

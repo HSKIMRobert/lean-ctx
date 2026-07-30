@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 /// One function's cognitive-complexity change across an edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CognitiveDelta {
+pub(crate) struct CognitiveDelta {
     pub name: String,
     pub before: u32,
     pub after: u32,
@@ -19,13 +19,13 @@ pub struct CognitiveDelta {
 
 impl CognitiveDelta {
     /// Signed change (positive = got more complex).
-    pub fn increase(&self) -> i64 {
+    pub(crate) fn increase(&self) -> i64 {
         i64::from(self.after) - i64::from(self.before)
     }
 
     /// True when the edit pushed a previously-acceptable function over
     /// `threshold` (the case `gate="block"` refuses).
-    pub fn crosses_threshold(&self, threshold: u32) -> bool {
+    pub(crate) fn crosses_threshold(&self, threshold: u32) -> bool {
         self.before <= threshold && self.after > threshold
     }
 }
@@ -36,7 +36,7 @@ impl CognitiveDelta {
 ///
 /// Only functions present in `new` are reported (a deleted function is not a
 /// regression the editor needs to hear about).
-pub fn cognitive_delta(old: &str, new: &str, ext: &str) -> Vec<CognitiveDelta> {
+pub(crate) fn cognitive_delta(old: &str, new: &str, ext: &str) -> Vec<CognitiveDelta> {
     let before = map_by_name(old, ext);
     let after = map_by_name(new, ext);
 
@@ -57,7 +57,10 @@ pub fn cognitive_delta(old: &str, new: &str, ext: &str) -> Vec<CognitiveDelta> {
 
 /// The most significant increase that ends above `threshold`, if any. This is
 /// what the edit-gate surfaces (one line, the worst offender).
-pub fn worst_regression(deltas: &[CognitiveDelta], threshold: u32) -> Option<&CognitiveDelta> {
+pub(crate) fn worst_regression(
+    deltas: &[CognitiveDelta],
+    threshold: u32,
+) -> Option<&CognitiveDelta> {
     deltas
         .iter()
         .filter(|d| d.after > d.before && d.after > threshold)
@@ -71,7 +74,7 @@ pub fn worst_regression(deltas: &[CognitiveDelta], threshold: u32) -> Option<&Co
 }
 
 /// Deterministic one-line edit-gate notice. No timestamps/counters → #498-safe.
-pub fn format_gate_notice(delta: &CognitiveDelta, threshold: u32) -> String {
+pub(crate) fn format_gate_notice(delta: &CognitiveDelta, threshold: u32) -> String {
     format!(
         "[CODE HEALTH] fn {}: cognitive {}->{} (+{}, >{}) — consider extracting helpers",
         delta.name,

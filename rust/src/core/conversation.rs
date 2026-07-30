@@ -182,7 +182,7 @@ fn subagent_scope() -> Option<String> {
 ///
 /// Answers from the `REFRESH_TTL` cache when warm, so the read hot path never
 /// stats+parses a file on every call.
-pub fn current_conversation_id() -> Option<String> {
+pub(crate) fn current_conversation_id() -> Option<String> {
     resolve_conversation_id(Freshness::Cached)
 }
 
@@ -193,7 +193,7 @@ pub fn current_conversation_id() -> Option<String> {
 /// TTL lag and a stub can never leak to chat B in the window before detection
 /// catches up (#1042). The cost is one tiny, OS-cached transcript read per
 /// re-read — negligible against the source re-read it guards.
-pub fn current_conversation_id_fresh() -> Option<String> {
+pub(crate) fn current_conversation_id_fresh() -> Option<String> {
     resolve_conversation_id(Freshness::Fresh)
 }
 
@@ -306,7 +306,7 @@ pub(crate) fn multiple_conversations_recent() -> bool {
 /// process-scoped behavior — stub allowed — **unless** more than one conversation
 /// has been active recently, in which case every stub is withheld because the
 /// shared id signal can't identify the caller (#1040).
-pub fn conversation_allows_stub(current: Option<&str>, delivered: Option<&str>) -> bool {
+pub(crate) fn conversation_allows_stub(current: Option<&str>, delivered: Option<&str>) -> bool {
     allows_stub(
         scope_enabled(),
         multiple_conversations_recent(),
@@ -350,7 +350,10 @@ fn allows_stub(
 /// because without a current conversation id we cannot prove the content is in
 /// the new process's context, and a wrong cold stub would resurrect exactly the
 /// cross-chat hazard #954 closed. Also withheld under concurrency (#1040).
-pub fn conversation_allows_cold_stub(current: Option<&str>, delivered: Option<&str>) -> bool {
+pub(crate) fn conversation_allows_cold_stub(
+    current: Option<&str>,
+    delivered: Option<&str>,
+) -> bool {
     allows_cold_stub(multiple_conversations_recent(), current, delivered)
 }
 

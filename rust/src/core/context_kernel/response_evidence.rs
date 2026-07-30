@@ -10,7 +10,7 @@ static CACHED_RESPONSES: AtomicUsize = AtomicUsize::new(0);
 
 /// Cumulative response evidence observed by the Context Kernel.
 #[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct ResponseSummary {
+pub(crate) struct ResponseSummary {
     /// Number of responses recorded.
     pub total_responses: usize,
     /// Output tokens across all recorded responses.
@@ -22,7 +22,7 @@ pub struct ResponseSummary {
 }
 
 /// Records output-token and cache evidence for one tool response.
-pub fn record_response(tool_name: &str, output_tokens: usize, was_cached: bool) {
+pub(crate) fn record_response(tool_name: &str, output_tokens: usize, was_cached: bool) {
     if !kernel_config::is_enabled() {
         return;
     }
@@ -36,7 +36,7 @@ pub fn record_response(tool_name: &str, output_tokens: usize, was_cached: bool) 
 
 /// Returns cumulative response evidence.
 #[must_use]
-pub fn response_summary() -> ResponseSummary {
+pub(crate) fn response_summary() -> ResponseSummary {
     let total_responses = TOTAL_RESPONSES.load(Ordering::Relaxed);
     let cached_responses = CACHED_RESPONSES.load(Ordering::Relaxed);
     ResponseSummary {
@@ -48,7 +48,7 @@ pub fn response_summary() -> ResponseSummary {
 }
 
 /// Clears all response evidence counters.
-pub fn reset() {
+pub(crate) fn reset() {
     TOTAL_RESPONSES.store(0, Ordering::Relaxed);
     TOTAL_OUTPUT_TOKENS.store(0, Ordering::Relaxed);
     CACHED_RESPONSES.store(0, Ordering::Relaxed);

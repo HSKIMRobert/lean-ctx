@@ -65,7 +65,7 @@ fn index_fingerprint(project_root: &str) -> Fingerprint {
 /// Returns the resident `ProjectIndex` for `project_root`, loading from disk
 /// only when absent or when the on-disk index file changed. `None` when no
 /// non-empty index exists on disk.
-pub fn get_cached(project_root: &str) -> Option<Arc<ProjectIndex>> {
+pub(crate) fn get_cached(project_root: &str) -> Option<Arc<ProjectIndex>> {
     let fingerprint = index_fingerprint(project_root);
 
     {
@@ -109,7 +109,7 @@ pub fn get_cached(project_root: &str) -> Option<Arc<ProjectIndex>> {
 }
 
 /// Drops the cached graph index for a root (or all roots when `None`).
-pub fn invalidate(project_root: Option<&str>) {
+pub(crate) fn invalidate(project_root: Option<&str>) {
     let mut map = cache()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

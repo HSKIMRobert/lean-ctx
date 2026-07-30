@@ -18,7 +18,7 @@ use md5::{Digest, Md5};
 
 /// A section of context with caching metadata.
 #[derive(Debug, Clone)]
-pub struct CacheableSection {
+pub(crate) struct CacheableSection {
     pub id: String,
     pub content: String,
     pub hash: String,
@@ -27,7 +27,7 @@ pub struct CacheableSection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SectionPriority {
+pub(crate) enum SectionPriority {
     System = 0,
     ProjectStructure = 1,
     TypeDefinitions = 2,
@@ -38,14 +38,14 @@ pub enum SectionPriority {
 
 /// Tracks which sections have been sent to the provider.
 #[derive(Debug)]
-pub struct ProviderCacheState {
+pub(crate) struct ProviderCacheState {
     sent_hashes: HashMap<String, String>,
     cache_hits: u64,
     cache_misses: u64,
 }
 
 impl ProviderCacheState {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             sent_hashes: HashMap::new(),
             cache_hits: 0,
@@ -54,7 +54,7 @@ impl ProviderCacheState {
     }
 
     /// Check if a section has changed since last sent.
-    pub fn needs_update(&self, section: &CacheableSection) -> bool {
+    pub(crate) fn needs_update(&self, section: &CacheableSection) -> bool {
         match self.sent_hashes.get(&section.id) {
             Some(prev_hash) => prev_hash != &section.hash,
             None => true,
@@ -62,14 +62,14 @@ impl ProviderCacheState {
     }
 
     /// Mark a section as sent to the provider.
-    pub fn mark_sent(&mut self, section: &CacheableSection) {
+    pub(crate) fn mark_sent(&mut self, section: &CacheableSection) {
         self.sent_hashes
             .insert(section.id.clone(), section.hash.clone());
     }
 
     /// Filter sections to only include those that changed.
     /// Stable sections that haven't changed can be skipped (provider caches them).
-    pub fn filter_changed<'a>(
+    pub(crate) fn filter_changed<'a>(
         &mut self,
         sections: &'a [CacheableSection],
     ) -> Vec<&'a CacheableSection> {
@@ -85,7 +85,7 @@ impl ProviderCacheState {
         result
     }
 
-    pub fn cache_hit_rate(&self) -> f64 {
+    pub(crate) fn cache_hit_rate(&self) -> f64 {
         let total = self.cache_hits + self.cache_misses;
         if total == 0 {
             return 0.0;
@@ -93,7 +93,7 @@ impl ProviderCacheState {
         self.cache_hits as f64 / total as f64
     }
 
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.sent_hashes.clear();
         self.cache_hits = 0;
         self.cache_misses = 0;
@@ -107,7 +107,7 @@ impl Default for ProviderCacheState {
 }
 
 impl CacheableSection {
-    pub fn new(id: &str, content: String, priority: SectionPriority, stable: bool) -> Self {
+    pub(crate) fn new(id: &str, content: String, priority: SectionPriority, stable: bool) -> Self {
         let hash = content_hash(&content);
         Self {
             id: id.to_string(),
@@ -122,7 +122,7 @@ impl CacheableSection {
 /// Order sections for optimal prefix caching.
 /// Stable sections first (system, project structure, types),
 /// dynamic sections last (recent changes, current task).
-pub fn order_for_caching(mut sections: Vec<CacheableSection>) -> Vec<CacheableSection> {
+pub(crate) fn order_for_caching(mut sections: Vec<CacheableSection>) -> Vec<CacheableSection> {
     sections.sort_by(|a, b| {
         a.stable
             .cmp(&b.stable)
@@ -133,7 +133,7 @@ pub fn order_for_caching(mut sections: Vec<CacheableSection>) -> Vec<CacheableSe
 }
 
 /// Render sections with cache boundary markers.
-pub fn render_with_cache_hints(sections: &[CacheableSection]) -> String {
+pub(crate) fn render_with_cache_hints(sections: &[CacheableSection]) -> String {
     let mut output = String::new();
     let mut last_stable = true;
 

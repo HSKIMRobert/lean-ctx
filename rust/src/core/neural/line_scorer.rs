@@ -10,7 +10,7 @@ use std::path::Path;
 #[cfg(feature = "neural")]
 use std::sync::Mutex;
 
-pub struct NeuralLineScorer {
+pub(crate) struct NeuralLineScorer {
     #[cfg(feature = "neural")]
     session: Mutex<ort::session::Session>,
     #[cfg(feature = "neural")]
@@ -22,7 +22,7 @@ pub struct NeuralLineScorer {
 }
 
 #[derive(Debug, Clone)]
-pub struct LineFeatures {
+pub(crate) struct LineFeatures {
     pub line_length: f64,
     pub indentation_level: f64,
     pub token_diversity: f64,
@@ -39,7 +39,7 @@ pub struct LineFeatures {
 }
 
 impl LineFeatures {
-    pub fn from_line(line: &str, position: f64, context: &LineContext) -> Self {
+    pub(crate) fn from_line(line: &str, position: f64, context: &LineContext) -> Self {
         let trimmed = line.trim();
         let leading = (line.len() - line.trim_start().len()) as f64;
 
@@ -80,7 +80,7 @@ impl LineFeatures {
         }
     }
 
-    pub fn to_array(&self) -> [f64; 13] {
+    pub(crate) fn to_array(&self) -> [f64; 13] {
         [
             self.line_length,
             self.indentation_level,
@@ -215,7 +215,7 @@ impl LineFeatures {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct LineContext {
+pub(crate) struct LineContext {
     pub nesting_depth: usize,
     pub prev_line_type: u8,
     pub next_line_type: u8,
@@ -223,7 +223,7 @@ pub struct LineContext {
 
 impl NeuralLineScorer {
     #[cfg(feature = "neural")]
-    pub fn load(model_path: &Path) -> anyhow::Result<Self> {
+    pub(crate) fn load(model_path: &Path) -> anyhow::Result<Self> {
         let eps = crate::core::ort_execution_providers::execution_providers();
         let num_cpus = std::thread::available_parallelism().map_or(4, |n| n.get().max(1));
         crate::core::ort_environment::ensure_ort_env(&eps)?;
@@ -255,17 +255,21 @@ impl NeuralLineScorer {
     }
 
     #[cfg(not(feature = "neural"))]
-    pub fn load(_model_path: &Path) -> anyhow::Result<Self> {
+    pub(crate) fn load(_model_path: &Path) -> anyhow::Result<Self> {
         anyhow::bail!("Neural feature not enabled. Compile with --features neural")
     }
 
-    pub fn score_line(&self, line: &str, position: f64, task_keywords: &[String]) -> f64 {
+    pub(crate) fn score_line(&self, line: &str, position: f64, task_keywords: &[String]) -> f64 {
         let context = LineContext::default();
         let features = LineFeatures::from_line(line, position, &context);
         self.score_from_features(&features, task_keywords)
     }
 
-    pub fn score_from_features(&self, features: &LineFeatures, _task_keywords: &[String]) -> f64 {
+    pub(crate) fn score_from_features(
+        &self,
+        features: &LineFeatures,
+        _task_keywords: &[String],
+    ) -> f64 {
         #[cfg(feature = "neural")]
         {
             self.neural_score(features)
@@ -350,7 +354,7 @@ impl NeuralLineScorer {
     }
 }
 
-pub fn score_all_lines(
+pub(crate) fn score_all_lines(
     lines: &[&str],
     scorer: &NeuralLineScorer,
     task_keywords: &[String],

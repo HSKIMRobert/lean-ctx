@@ -9,7 +9,7 @@ const MCP_SOURCE: &str = "mcp";
 
 /// Aggregated evidence recorded by the active kernel pipeline.
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct EvidenceSummary {
+pub(crate) struct EvidenceSummary {
     /// Proxy requests represented in the receipt chain.
     pub proxy_requests: usize,
     /// MCP calls represented in the receipt chain.
@@ -25,7 +25,7 @@ pub struct EvidenceSummary {
 }
 
 /// Records proxy usage and delivery evidence when the kernel is enabled.
-pub fn process_proxy_evidence(
+pub(crate) fn process_proxy_evidence(
     data: &super::proxy_bridge::ProxyRequestData,
     result: &super::proxy_bridge::ProxyKernelResult,
 ) {
@@ -59,7 +59,7 @@ pub fn process_proxy_evidence(
 }
 
 /// Records MCP usage and delivery evidence when the kernel is enabled.
-pub fn process_mcp_evidence(data: &super::mcp_bridge::McpCallData) {
+pub(crate) fn process_mcp_evidence(data: &super::mcp_bridge::McpCallData) {
     if !kernel_config::is_enabled() {
         return;
     }
@@ -93,7 +93,7 @@ pub fn process_mcp_evidence(data: &super::mcp_bridge::McpCallData) {
 
 /// Returns aggregate usage and receipt evidence for the current process.
 #[must_use]
-pub fn evidence_summary() -> EvidenceSummary {
+pub(crate) fn evidence_summary() -> EvidenceSummary {
     let usage = usage_normalizer::session_usage();
     let compression = usage_normalizer::compression_overview();
     let chain = receipt_chain::chain_summary();
@@ -116,7 +116,7 @@ pub fn evidence_summary() -> EvidenceSummary {
 }
 
 /// Clears all evidence and restores the kernel feature defaults.
-pub fn reset_evidence() {
+pub(crate) fn reset_evidence() {
     usage_normalizer::reset_usage();
     receipt_chain::reset_chain();
     kernel_config::reset_features();

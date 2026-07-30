@@ -4,14 +4,14 @@ use crate::core::protocol::CrpMode;
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompiledRuleFile {
+pub(crate) struct CompiledRuleFile {
     pub path: String,
     pub content: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompiledInstructions {
+pub(crate) struct CompiledInstructions {
     pub schema_version: u32,
     pub client: String,
     pub profile: String,
@@ -22,13 +22,13 @@ pub struct CompiledInstructions {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CompileOptions {
+pub(crate) struct CompileOptions {
     pub unified: bool,
     pub include_rules_files: bool,
     pub crp_mode_override: Option<CrpMode>,
 }
 
-pub fn compile(
+pub(crate) fn compile(
     client_id: &str,
     profile_name: &str,
     opts: CompileOptions,

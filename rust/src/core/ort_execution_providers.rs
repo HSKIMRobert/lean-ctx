@@ -18,7 +18,7 @@ enum ProviderPolicy {
 }
 
 /// Build the execution provider list for the current runtime policy.
-pub fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
+pub(crate) fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     match provider_policy() {
         ProviderPolicy::Cpu => cpu_execution_providers(),
         ProviderPolicy::Gpu => gpu_execution_providers(),
@@ -36,7 +36,7 @@ pub fn execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     }
 }
 
-pub fn execution_provider_status() -> String {
+pub(crate) fn execution_provider_status() -> String {
     let policy = provider_policy_name();
     let compiled = compiled_gpu_provider_names();
     let compiled = if compiled.is_empty() {
@@ -69,7 +69,7 @@ fn policy_wants_gpu() -> bool {
 /// (notably under WSL2 GPU passthrough), but oversizing batches for a GPU that
 /// silently fell back to CPU makes the CPU path dramatically slower — so this
 /// must reflect the EP that ORT will really register, not just the policy.
-pub fn gpu_active() -> bool {
+pub(crate) fn gpu_active() -> bool {
     if !policy_wants_gpu() {
         return false;
     }
@@ -90,7 +90,7 @@ pub fn gpu_active() -> bool {
 /// falls back to CPU), returns a user-facing explanation with the exact install
 /// commands for the missing libraries. Returns `None` when the GPU actually
 /// works or when CPU was requested.
-pub fn gpu_fallback_warning() -> Option<String> {
+pub(crate) fn gpu_fallback_warning() -> Option<String> {
     #[cfg(feature = "ort-cuda")]
     {
         if !policy_wants_gpu() || cuda_runtime_available() {
@@ -189,7 +189,7 @@ fn cuda_missing_message(probe_err: &str) -> String {
     )
 }
 
-pub fn execution_provider_help() -> &'static str {
+pub(crate) fn execution_provider_help() -> &'static str {
     "By default lean-ctx auto-detects GPU runtimes from ORT_DYLIB_PATH and otherwise uses CPU. Set LEAN_CTX_ORT_EXECUTION_PROVIDER=cpu|gpu|auto to override."
 }
 
@@ -198,7 +198,7 @@ fn cpu_execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
 }
 
 /// Build the list of GPU execution providers in registration-priority order.
-pub fn gpu_execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
+pub(crate) fn gpu_execution_providers() -> Vec<ort::ep::ExecutionProviderDispatch> {
     #[allow(unused_mut)]
     let mut eps: Vec<ort::ep::ExecutionProviderDispatch> = Vec::new();
     let compiled_gpu_count = compiled_gpu_provider_names().len();

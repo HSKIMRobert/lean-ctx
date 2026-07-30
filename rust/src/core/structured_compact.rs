@@ -61,7 +61,7 @@ fn strip_insignificant_ws(input: &str) -> String {
 /// compacted form is strictly smaller. The result is value-identical to the
 /// input (only formatting bytes are removed).
 #[must_use]
-pub fn compact_json(input: &str) -> Option<String> {
+pub(crate) fn compact_json(input: &str) -> Option<String> {
     if input.len() > MAX_INPUT_BYTES {
         return None;
     }
@@ -81,7 +81,7 @@ pub fn compact_json(input: &str) -> Option<String> {
 /// Compacts JSON Lines (one JSON value per line). Returns `Some` only when every
 /// non-empty line is valid JSON and the joined result is strictly smaller.
 #[must_use]
-pub fn compact_jsonl(input: &str) -> Option<String> {
+pub(crate) fn compact_jsonl(input: &str) -> Option<String> {
     if input.len() > MAX_INPUT_BYTES {
         return None;
     }
@@ -113,7 +113,7 @@ pub fn compact_jsonl(input: &str) -> Option<String> {
 /// With no (or an unknown) extension, attempts single-document JSON when the
 /// content looks like JSON. Returns `None` when nothing smaller applies.
 #[must_use]
-pub fn compact_structured(content: &str, ext: Option<&str>) -> Option<String> {
+pub(crate) fn compact_structured(content: &str, ext: Option<&str>) -> Option<String> {
     if matches!(ext, Some("jsonl" | "ndjson")) {
         return compact_jsonl(content);
     }

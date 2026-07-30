@@ -49,7 +49,7 @@ fn ext_of(rel_path: &str) -> String {
 }
 
 /// How a file's type usages resolve to definer files.
-pub struct ResolveScope {
+pub(crate) struct ResolveScope {
     /// Namespaces/packages a definer must live in to be a confirmed match.
     pub visible_ns: HashSet<String>,
     /// Whether a type with no visible-namespace match may fall back to the
@@ -60,7 +60,7 @@ pub struct ResolveScope {
 
 /// The resolution scope for a file, by language. Centralizes what was
 /// previously duplicated across the mirror and both `ctx_impact` index paths.
-pub fn resolve_scope(rel_path: &str, ext: &str, analysis: &DeepAnalysis) -> ResolveScope {
+pub(crate) fn resolve_scope(rel_path: &str, ext: &str, analysis: &DeepAnalysis) -> ResolveScope {
     match ext {
         "cs" | "kt" | "kts" => ResolveScope {
             visible_ns: dotted_package_namespaces(analysis),
@@ -81,12 +81,12 @@ pub fn resolve_scope(rel_path: &str, ext: &str, analysis: &DeepAnalysis) -> Reso
 /// Definition sites per type name: `name -> [(file, namespace, line_start,
 /// line_end)]`. The namespace (C# only; `None` elsewhere) lets resolution
 /// disambiguate homonyms declared in different namespaces.
-pub type DefIndex = HashMap<String, Vec<(String, Option<String>, usize, usize)>>;
+pub(crate) type DefIndex = HashMap<String, Vec<(String, Option<String>, usize, usize)>>;
 
 /// Extension-method definition sites: `method_name -> [(file, line_start,
 /// line_end)]`. Drives host resolution for `value.Foo()` extension calls where
 /// the definer's type is never named at the call site.
-pub type ExtMethodIndex = HashMap<String, Vec<(String, usize, usize)>>;
+pub(crate) type ExtMethodIndex = HashMap<String, Vec<(String, usize, usize)>>;
 
 /// With no namespace-visible match the global fallback links every definer, but
 /// drops names with more than this many definition sites as too generic to
@@ -98,7 +98,7 @@ const MAX_FALLBACK_DEF_SITES: usize = 5;
 const MAX_EXT_DEF_SITES: usize = 5;
 
 /// A project source file paired with its parsed analysis (durable mirror path).
-pub struct FileAnalysis<'a> {
+pub(crate) struct FileAnalysis<'a> {
     pub path: &'a str,
     pub ext: &'a str,
     pub analysis: &'a DeepAnalysis,
@@ -109,7 +109,7 @@ pub struct FileAnalysis<'a> {
 /// Go carries no AST namespace; its package is the file's directory, injected
 /// here so a same-directory definer is a confirmed (cap-bypassing) match. Every
 /// other language uses the namespace the parser derived (C#/Kotlin) or `None`.
-pub fn build_def_index<'a>(
+pub(crate) fn build_def_index<'a>(
     files: impl IntoIterator<Item = (&'a str, &'a DeepAnalysis)>,
 ) -> DefIndex {
     let mut def_index = DefIndex::new();
@@ -133,7 +133,7 @@ pub fn build_def_index<'a>(
 }
 
 /// Build the project-wide extension-method index from per-file analyses.
-pub fn build_ext_method_index<'a>(
+pub(crate) fn build_ext_method_index<'a>(
     files: impl IntoIterator<Item = (&'a str, &'a DeepAnalysis)>,
 ) -> ExtMethodIndex {
     let mut index = ExtMethodIndex::new();
@@ -152,7 +152,7 @@ pub fn build_ext_method_index<'a>(
 /// namespaces, every enclosing namespace (dot-prefix), and each import/`using`
 /// target. Used to confirm namespace-aware type matches. Empty for languages
 /// without an AST namespace, which then take the global fallback path.
-pub fn dotted_package_namespaces(analysis: &DeepAnalysis) -> HashSet<String> {
+pub(crate) fn dotted_package_namespaces(analysis: &DeepAnalysis) -> HashSet<String> {
     let mut set: HashSet<String> = HashSet::new();
     for t in &analysis.types {
         if let Some(ns) = &t.namespace {
@@ -188,7 +188,7 @@ pub fn dotted_package_namespaces(analysis: &DeepAnalysis) -> HashSet<String> {
 ///   without namespaces (Java; C# global namespace) take this path; Go disables
 ///   it, since an unqualified name is same-package by language rule and must
 ///   never link across directories.
-pub fn type_ref_targets(
+pub(crate) fn type_ref_targets(
     def_index: &DefIndex,
     type_uses: &[TypeUse],
     rel_path: &str,
@@ -240,7 +240,7 @@ pub fn type_ref_targets(
 /// name alone, so a self-filter and the `MAX_EXT_DEF_SITES` cap keep it
 /// bounded; the index only ever holds genuine extension methods, which keeps the
 /// name space small and distinct.
-pub fn ext_method_targets(
+pub(crate) fn ext_method_targets(
     ext_index: &ExtMethodIndex,
     calls: &[CallSite],
     rel_path: &str,
@@ -275,7 +275,7 @@ pub fn ext_method_targets(
 /// resolved type usage and extension-method call, deduped and self-references
 /// removed. Returned as sorted `(from, to)` pairs so the caller can emit
 /// deterministic graph edges.
-pub fn cross_file_type_edges(files: &[FileAnalysis]) -> Vec<(String, String)> {
+pub(crate) fn cross_file_type_edges(files: &[FileAnalysis]) -> Vec<(String, String)> {
     let def_index = build_def_index(files.iter().map(|f| (f.path, f.analysis)));
     let ext_index = build_ext_method_index(files.iter().map(|f| (f.path, f.analysis)));
 

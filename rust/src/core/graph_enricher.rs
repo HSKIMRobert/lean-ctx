@@ -14,7 +14,7 @@ use std::path::Path;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-pub struct CommitInfo {
+pub(crate) struct CommitInfo {
     pub hash: String,
     pub short_hash: String,
     pub author: String,
@@ -23,7 +23,7 @@ pub struct CommitInfo {
     pub files_changed: Vec<String>,
 }
 
-pub fn index_git_history(
+pub(crate) fn index_git_history(
     graph: &CodeGraph,
     project_root: &Path,
     max_commits: usize,
@@ -136,7 +136,10 @@ const TEST_PATTERNS: &[&str] = &[
     "__tests__/",
 ];
 
-pub fn index_tests(graph: &CodeGraph, project_root: &Path) -> anyhow::Result<EnrichmentStats> {
+pub(crate) fn index_tests(
+    graph: &CodeGraph,
+    project_root: &Path,
+) -> anyhow::Result<EnrichmentStats> {
     let mut stats = EnrichmentStats::default();
 
     let output = std::process::Command::new("git")
@@ -223,7 +226,10 @@ fn infer_tested_file(test_path: &str) -> Option<String> {
 // Knowledge Bridge
 // ---------------------------------------------------------------------------
 
-pub fn index_knowledge(graph: &CodeGraph, project_root: &str) -> anyhow::Result<EnrichmentStats> {
+pub(crate) fn index_knowledge(
+    graph: &CodeGraph,
+    project_root: &str,
+) -> anyhow::Result<EnrichmentStats> {
     let mut stats = EnrichmentStats::default();
 
     let knowledge = crate::core::knowledge::ProjectKnowledge::load(project_root);
@@ -300,7 +306,7 @@ fn looks_like_file_path(s: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Default)]
-pub struct EnrichmentStats {
+pub(crate) struct EnrichmentStats {
     pub commits_indexed: usize,
     pub tests_indexed: usize,
     pub knowledge_indexed: usize,
@@ -308,14 +314,14 @@ pub struct EnrichmentStats {
 }
 
 impl EnrichmentStats {
-    pub fn merge(&mut self, other: &Self) {
+    pub(crate) fn merge(&mut self, other: &Self) {
         self.commits_indexed += other.commits_indexed;
         self.tests_indexed += other.tests_indexed;
         self.knowledge_indexed += other.knowledge_indexed;
         self.edges_created += other.edges_created;
     }
 
-    pub fn format_summary(&self) -> String {
+    pub(crate) fn format_summary(&self) -> String {
         format!(
             "Graph enriched: {} commits, {} tests, {} knowledge entries, {} edges",
             self.commits_indexed, self.tests_indexed, self.knowledge_indexed, self.edges_created
@@ -323,7 +329,7 @@ impl EnrichmentStats {
     }
 }
 
-pub fn enrich_graph(
+pub(crate) fn enrich_graph(
     graph: &CodeGraph,
     project_root: &Path,
     max_commits: usize,

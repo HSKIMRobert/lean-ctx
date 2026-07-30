@@ -2,7 +2,7 @@
 
 /// Decomposed load estimates in arbitrary comparable units (then normalized).
 #[derive(Debug, Clone, PartialEq)]
-pub struct CognitiveLoadScore {
+pub(crate) struct CognitiveLoadScore {
     pub intrinsic: f64,
     pub extraneous: f64,
     pub germane: f64,
@@ -161,7 +161,7 @@ fn recommend(intr: f64, extr: f64, germ: f64) -> String {
 }
 
 /// Score cognitive-load dimensions and suggest a compression mode family.
-pub fn score_cognitive_load(content: &str) -> CognitiveLoadScore {
+pub(crate) fn score_cognitive_load(content: &str) -> CognitiveLoadScore {
     let i = norm(intrinsic_raw(content));
     let e = norm(extraneous_raw(content));
     let g = norm(germane_raw(content));

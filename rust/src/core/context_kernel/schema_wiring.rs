@@ -11,7 +11,7 @@ const ESTIMATED_TOKENS_PER_PARAMETER: usize = 8;
 
 /// Result of optimizing the MCP tool list.
 #[derive(Debug, Clone)]
-pub struct OptimizedToolList {
+pub(crate) struct OptimizedToolList {
     /// Optimized tool entries (name, description, parameter count).
     pub tools: Vec<(String, String, usize)>,
     /// Tokens before optimization.
@@ -28,7 +28,7 @@ pub struct OptimizedToolList {
 
 /// Cumulative process-wide schema optimization savings.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SchemaSavings {
+pub(crate) struct SchemaSavings {
     /// Number of tool-list optimizations applied.
     pub optimizations_applied: usize,
     /// Total estimated tokens removed by optimization.
@@ -122,7 +122,7 @@ fn optimize_tool_list_with_feature(
 
 /// Optimizes MCP tool descriptions and count for the client's coverage budget.
 #[must_use]
-pub fn optimize_tool_list(
+pub(crate) fn optimize_tool_list(
     tools: &[(String, String, usize)],
     client_name: &str,
 ) -> OptimizedToolList {
@@ -135,7 +135,7 @@ pub fn optimize_tool_list(
 
 /// Returns cumulative savings produced by enabled schema optimization.
 #[must_use]
-pub fn schema_savings() -> SchemaSavings {
+pub(crate) fn schema_savings() -> SchemaSavings {
     let savings = savings_guard();
     let avg_compression_ratio = if savings.total_tokens_before == 0 {
         0.0
@@ -156,12 +156,12 @@ fn should_optimize_with_feature(client_name: &str, enabled: bool) -> bool {
 
 /// Returns whether schema optimization is enabled and the client is addressable.
 #[must_use]
-pub fn should_optimize(client_name: &str) -> bool {
+pub(crate) fn should_optimize(client_name: &str) -> bool {
     should_optimize_with_feature(client_name, kernel_config::features().schema_optimization)
 }
 
 /// Clears cumulative schema optimization metrics.
-pub fn reset_schema_state() {
+pub(crate) fn reset_schema_state() {
     *savings_guard() = SavingsState::default();
 }
 

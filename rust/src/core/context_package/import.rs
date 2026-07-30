@@ -9,7 +9,10 @@ use crate::core::session::SessionState;
 ///
 /// Merges the package's session slice, summaries, and knowledge facts into
 /// the provided live session. Does **not** overwrite; it augments.
-pub fn resume_package(session: &mut SessionState, path: &Path) -> Result<ResumeReport, String> {
+pub(crate) fn resume_package(
+    session: &mut SessionState,
+    path: &Path,
+) -> Result<ResumeReport, String> {
     let json = std::fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
     let pkg: ContextPackage = serde_json::from_str(&json).map_err(|e| format!("parse: {e}"))?;
 
@@ -91,7 +94,7 @@ pub fn resume_package(session: &mut SessionState, path: &Path) -> Result<ResumeR
 
 /// Report of what was merged.
 #[derive(Debug, Clone, Default)]
-pub struct ResumeReport {
+pub(crate) struct ResumeReport {
     pub source_session_id: String,
     pub task_restored: bool,
     pub decisions_merged: usize,
@@ -103,7 +106,7 @@ pub struct ResumeReport {
 }
 
 impl ResumeReport {
-    pub fn format(&self) -> String {
+    pub(crate) fn format(&self) -> String {
         let short = self
             .source_session_id
             .split('-')

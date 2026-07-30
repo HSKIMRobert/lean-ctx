@@ -4,7 +4,7 @@ use std::path::Path;
 use super::entropy::kolmogorov_proxy;
 
 #[derive(Debug, Clone)]
-pub struct CompressionThresholds {
+pub(crate) struct CompressionThresholds {
     pub bpe_entropy: f64,
     pub jaccard: f64,
     pub auto_delta: f64,
@@ -268,7 +268,7 @@ fn language_map() -> HashMap<&'static str, &'static CompressionThresholds> {
         .collect()
 }
 
-pub fn thresholds_for_path(path: &str) -> CompressionThresholds {
+pub(crate) fn thresholds_for_path(path: &str) -> CompressionThresholds {
     let ext = Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -282,7 +282,7 @@ pub fn thresholds_for_path(path: &str) -> CompressionThresholds {
     CompressionThresholds::default()
 }
 
-pub fn adaptive_thresholds(path: &str, content: &str) -> CompressionThresholds {
+pub(crate) fn adaptive_thresholds(path: &str, content: &str) -> CompressionThresholds {
     let mut base = thresholds_for_path(path);
 
     let ext = std::path::Path::new(path)
@@ -382,7 +382,10 @@ fn record_selected_arm(path: &str, project_root: String, bandit_key: String, arm
 /// learner-only — the positive bandit signal comes from realized savings
 /// (`report_bandit_outcome_for_path` in entropy mode), so we avoid a bandit
 /// disk write on every compressed read.
-pub fn record_quality_signal(path: &str, signal: crate::core::threshold_learning::QualitySignal) {
+pub(crate) fn record_quality_signal(
+    path: &str,
+    signal: crate::core::threshold_learning::QualitySignal,
+) {
     use crate::core::threshold_learning::QualitySignal;
     crate::core::threshold_learning::record_signal(path, signal);
     match signal {
@@ -396,7 +399,7 @@ pub fn record_quality_signal(path: &str, signal: crate::core::threshold_learning
 /// Reward (`success=true`) or penalize (`false`) the bandit arm recorded for
 /// `path`. No-op when no arm was registered (e.g. the file was never read in a
 /// threshold-driven mode), so attribution is never guessed.
-pub fn report_bandit_outcome_for_path(path: &str, success: bool) {
+pub(crate) fn report_bandit_outcome_for_path(path: &str, success: bool) {
     let norm = crate::core::pathutil::normalize_tool_path(path);
     let selected = {
         let guard = SELECTED_ARMS

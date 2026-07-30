@@ -1,7 +1,7 @@
 //! Quality retention metrics.
 
 /// Quality retained: treatment pass rate as percentage of baseline pass rate.
-pub fn quality_retained_pct(baseline_rate: f64, treatment_rate: f64) -> f64 {
+pub(crate) fn quality_retained_pct(baseline_rate: f64, treatment_rate: f64) -> f64 {
     if baseline_rate <= 0.0 {
         return 0.0;
     }

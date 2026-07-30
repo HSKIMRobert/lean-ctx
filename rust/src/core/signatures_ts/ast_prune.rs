@@ -4,7 +4,7 @@ use super::extract::find_capture_index;
 use super::queries::get_language;
 use super::query_cache::get_cached_sig_query;
 
-pub fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
+pub(crate) fn ast_prune(content: &str, file_ext: &str) -> Option<String> {
     let language = get_language(file_ext)?;
 
     thread_local! {

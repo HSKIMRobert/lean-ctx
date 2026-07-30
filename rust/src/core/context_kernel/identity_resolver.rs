@@ -4,7 +4,7 @@ use super::identity::{CallerIdentity, CallerRole};
 
 /// Header names used to resolve caller identity attributes.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ResolverConfig {
+pub(crate) struct ResolverConfig {
     /// Header containing the caller's user identifier.
     pub user_header: String,
     /// Header containing the caller's team identifier.
@@ -30,7 +30,7 @@ impl Default for ResolverConfig {
 }
 
 /// Resolves a caller identity from headers using the supplied configuration.
-pub fn resolve_from_headers(
+pub(crate) fn resolve_from_headers(
     config: &ResolverConfig,
     headers: &[(String, String)],
 ) -> CallerIdentity {
@@ -40,7 +40,7 @@ pub fn resolve_from_headers(
 }
 
 /// Parses a case-insensitive caller role, defaulting to developer.
-pub fn parse_role(value: &str) -> CallerRole {
+pub(crate) fn parse_role(value: &str) -> CallerRole {
     match value.trim().to_ascii_lowercase().as_str() {
         "reviewer" => CallerRole::Reviewer,
         "agent" => CallerRole::Agent,
@@ -51,12 +51,12 @@ pub fn parse_role(value: &str) -> CallerRole {
 }
 
 /// Resolves a caller identity using the default header names.
-pub fn resolve_with_defaults(headers: &[(String, String)]) -> CallerIdentity {
+pub(crate) fn resolve_with_defaults(headers: &[(String, String)]) -> CallerIdentity {
     resolve_from_headers(&ResolverConfig::default(), headers)
 }
 
 /// Adds header-derived attributes without replacing populated identity fields.
-pub fn enrich_identity(
+pub(crate) fn enrich_identity(
     base: &mut CallerIdentity,
     headers: &[(String, String)],
     config: &ResolverConfig,

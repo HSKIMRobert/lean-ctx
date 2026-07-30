@@ -17,7 +17,7 @@ use super::digest::{compute_id, finalize_id};
 use super::types::{ContextSnapshotV1, SnapshotSignatureV1};
 
 /// Finalize the snapshot id and attach an ed25519 signature over it.
-pub fn sign_snapshot(
+pub(crate) fn sign_snapshot(
     snapshot: &mut ContextSnapshotV1,
     signing_key: &SigningKey,
 ) -> Result<(), String> {
@@ -39,7 +39,7 @@ pub fn sign_snapshot(
 /// recomputed id no longer matches `snapshot_id`), or an invalid signature.
 /// Returns `Err` only for malformed signature material (bad hex / wrong length /
 /// unsupported algorithm).
-pub fn verify_snapshot(snapshot: &ContextSnapshotV1) -> Result<bool, String> {
+pub(crate) fn verify_snapshot(snapshot: &ContextSnapshotV1) -> Result<bool, String> {
     let Some(ref sig) = snapshot.signature else {
         return Ok(false);
     };

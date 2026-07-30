@@ -96,23 +96,23 @@ impl Default for Theme {
     }
 }
 
-pub fn no_color() -> bool {
+pub(crate) fn no_color() -> bool {
     std::env::var("NO_COLOR").is_ok() || !std::io::stdout().is_terminal()
 }
 
-pub const RST: &str = "\x1b[0m";
-pub const BOLD: &str = "\x1b[1m";
-pub const DIM: &str = "\x1b[2m";
+pub(crate) const RST: &str = "\x1b[0m";
+pub(crate) const BOLD: &str = "\x1b[1m";
+pub(crate) const DIM: &str = "\x1b[2m";
 
-pub fn rst() -> &'static str {
+pub(crate) fn rst() -> &'static str {
     if no_color() { "" } else { RST }
 }
 
-pub fn bold() -> &'static str {
+pub(crate) fn bold() -> &'static str {
     if no_color() { "" } else { BOLD }
 }
 
-pub fn dim() -> &'static str {
+pub(crate) fn dim() -> &'static str {
     if no_color() { "" } else { DIM }
 }
 
@@ -419,7 +419,7 @@ impl Theme {
 
 /// Visual width of a string in terminal columns, ignoring ANSI escape sequences
 /// and accounting for wide characters (emoji, CJK = 2 columns).
-pub fn visual_len(s: &str) -> usize {
+pub(crate) fn visual_len(s: &str) -> usize {
     use unicode_width::UnicodeWidthChar;
     let mut len = 0usize;
     let mut in_escape = false;
@@ -439,7 +439,7 @@ pub fn visual_len(s: &str) -> usize {
 
 /// Pad a string to `target` visual width with spaces on the right.
 /// If the string exceeds `target`, it is visually truncated.
-pub fn pad_right(s: &str, target: usize) -> String {
+pub(crate) fn pad_right(s: &str, target: usize) -> String {
     use std::cmp::Ordering;
     let vlen = visual_len(s);
     match vlen.cmp(&target) {
@@ -451,7 +451,7 @@ pub fn pad_right(s: &str, target: usize) -> String {
 
 /// Truncate a string to at most `max_cols` terminal columns,
 /// preserving ANSI escape sequences and respecting wide characters.
-pub fn truncate_visual(s: &str, max_cols: usize) -> String {
+pub(crate) fn truncate_visual(s: &str, max_cols: usize) -> String {
     use unicode_width::UnicodeWidthChar;
     let mut out = String::with_capacity(s.len());
     let mut cols = 0usize;
@@ -488,7 +488,7 @@ fn c(hex: &str) -> Color {
     Color::Hex(hex.to_string())
 }
 
-pub fn preset_default() -> Theme {
+pub(crate) fn preset_default() -> Theme {
     Theme {
         name: "default".into(),
         primary: c("#36D399"),
@@ -508,7 +508,7 @@ pub fn preset_default() -> Theme {
     }
 }
 
-pub fn preset_neon() -> Theme {
+pub(crate) fn preset_neon() -> Theme {
     Theme {
         name: "neon".into(),
         primary: c("#00FF88"),
@@ -528,7 +528,7 @@ pub fn preset_neon() -> Theme {
     }
 }
 
-pub fn preset_ocean() -> Theme {
+pub(crate) fn preset_ocean() -> Theme {
     Theme {
         name: "ocean".into(),
         primary: c("#0EA5E9"),
@@ -548,7 +548,7 @@ pub fn preset_ocean() -> Theme {
     }
 }
 
-pub fn preset_sunset() -> Theme {
+pub(crate) fn preset_sunset() -> Theme {
     Theme {
         name: "sunset".into(),
         primary: c("#F97316"),
@@ -568,7 +568,7 @@ pub fn preset_sunset() -> Theme {
     }
 }
 
-pub fn preset_monochrome() -> Theme {
+pub(crate) fn preset_monochrome() -> Theme {
     Theme {
         name: "monochrome".into(),
         primary: c("#D4D4D4"),
@@ -588,7 +588,7 @@ pub fn preset_monochrome() -> Theme {
     }
 }
 
-pub fn preset_cyberpunk() -> Theme {
+pub(crate) fn preset_cyberpunk() -> Theme {
     Theme {
         name: "cyberpunk".into(),
         primary: c("#FF2D95"),
@@ -608,7 +608,7 @@ pub fn preset_cyberpunk() -> Theme {
     }
 }
 
-pub const PRESET_NAMES: &[&str] = &[
+pub(crate) const PRESET_NAMES: &[&str] = &[
     "default",
     "neon",
     "ocean",
@@ -617,7 +617,7 @@ pub const PRESET_NAMES: &[&str] = &[
     "cyberpunk",
 ];
 
-pub fn from_preset(name: &str) -> Option<Theme> {
+pub(crate) fn from_preset(name: &str) -> Option<Theme> {
     match name {
         "default" => Some(preset_default()),
         "neon" => Some(preset_neon()),
@@ -629,13 +629,13 @@ pub fn from_preset(name: &str) -> Option<Theme> {
     }
 }
 
-pub fn theme_file_path() -> Option<PathBuf> {
+pub(crate) fn theme_file_path() -> Option<PathBuf> {
     crate::core::data_dir::lean_ctx_data_dir()
         .ok()
         .map(|d| d.join("theme.toml"))
 }
 
-pub fn load_theme(config_theme: &str) -> Theme {
+pub(crate) fn load_theme(config_theme: &str) -> Theme {
     if let Some(path) = theme_file_path()
         && path.exists()
         && let Ok(content) = std::fs::read_to_string(&path)
@@ -647,7 +647,7 @@ pub fn load_theme(config_theme: &str) -> Theme {
     from_preset(config_theme).unwrap_or_default()
 }
 
-pub fn save_theme(theme: &Theme) -> Result<(), String> {
+pub(crate) fn save_theme(theme: &Theme) -> Result<(), String> {
     let path = theme_file_path().ok_or("cannot determine home directory")?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -656,7 +656,7 @@ pub fn save_theme(theme: &Theme) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
-pub fn animate_countup(final_value: u64, width: usize) -> Vec<String> {
+pub(crate) fn animate_countup(final_value: u64, width: usize) -> Vec<String> {
     let frames = 10;
     (0..=frames)
         .map(|f| {
@@ -669,7 +669,7 @@ pub fn animate_countup(final_value: u64, width: usize) -> Vec<String> {
 }
 
 /// Count-up for percentage values (0.0 -> final_pct, displayed as "68.3%").
-pub fn animate_countup_pct(final_pct: f64, width: usize) -> Vec<String> {
+pub(crate) fn animate_countup_pct(final_pct: f64, width: usize) -> Vec<String> {
     let frames = 10;
     (0..=frames)
         .map(|f| {
@@ -682,7 +682,7 @@ pub fn animate_countup_pct(final_pct: f64, width: usize) -> Vec<String> {
 }
 
 /// Count-up for USD values (0.00 -> final_usd, displayed as "$1,289.35").
-pub fn animate_countup_usd(final_usd: f64, width: usize) -> Vec<String> {
+pub(crate) fn animate_countup_usd(final_usd: f64, width: usize) -> Vec<String> {
     let frames = 10;
     (0..=frames)
         .map(|f| {
@@ -697,7 +697,7 @@ pub fn animate_countup_usd(final_usd: f64, width: usize) -> Vec<String> {
 
 /// Writes sections to stdout one by one with a delay between each, using cursor
 /// control to create a reveal effect. Skips animation when `NO_COLOR` or non-TTY.
-pub fn animate_section_reveal(sections: &[String], delay_ms: u64) {
+pub(crate) fn animate_section_reveal(sections: &[String], delay_ms: u64) {
     use std::io::Write;
     let is_tty = std::io::stdout().is_terminal();
     if no_color() || !is_tty || delay_ms == 0 {

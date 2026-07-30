@@ -7,7 +7,7 @@ macro_rules! static_regex {
     }};
 }
 
-pub fn redaction_enabled_for_active_role() -> bool {
+pub(crate) fn redaction_enabled_for_active_role() -> bool {
     let role = crate::core::roles::active_role();
     if role.role.name == "admin" {
         role.io.redact_outputs
@@ -17,7 +17,7 @@ pub fn redaction_enabled_for_active_role() -> bool {
     }
 }
 
-pub fn redact_text_if_enabled(input: &str) -> String {
+pub(crate) fn redact_text_if_enabled(input: &str) -> String {
     if !redaction_enabled_for_active_role() {
         return input.to_string();
     }
@@ -268,7 +268,7 @@ fn redaction_rules() -> Vec<Rule> {
     ]
 }
 
-pub fn redact_text(input: &str) -> String {
+pub(crate) fn redact_text(input: &str) -> String {
     redact_text_with_excludes(input, &[])
 }
 
@@ -276,7 +276,7 @@ pub fn redact_text(input: &str) -> String {
 /// `[secret_detection].exclude_patterns` — a match covered by any exclude
 /// regex is kept verbatim, so known-safe naming conventions can be carved out
 /// without disabling secret detection wholesale.
-pub fn redact_text_with_excludes(input: &str, excludes: &[regex::Regex]) -> String {
+pub(crate) fn redact_text_with_excludes(input: &str, excludes: &[regex::Regex]) -> String {
     let mut out = input.to_string();
     for rule in redaction_rules() {
         out = rule
@@ -314,7 +314,7 @@ pub fn redact_text_with_excludes(input: &str, excludes: &[regex::Regex]) -> Stri
 /// `Config::load_arc` returns the *same* `Arc` when the underlying config
 /// content hash is unchanged, so a real config edit is exactly what
 /// invalidates this cache too — no separate change-detection needed.
-pub fn config_exclude_patterns() -> std::sync::Arc<Vec<regex::Regex>> {
+pub(crate) fn config_exclude_patterns() -> std::sync::Arc<Vec<regex::Regex>> {
     type Cache = Option<(
         std::sync::Arc<crate::core::config::Config>,
         std::sync::Arc<Vec<regex::Regex>>,
@@ -354,7 +354,10 @@ pub fn config_exclude_patterns() -> std::sync::Arc<Vec<regex::Regex>> {
 /// the pack's `[redaction]` entries, precompiled by
 /// [`crate::core::policy::runtime`].
 #[must_use]
-pub fn redact_with_patterns(input: &str, patterns: &[(String, regex::Regex)]) -> (String, usize) {
+pub(crate) fn redact_with_patterns(
+    input: &str,
+    patterns: &[(String, regex::Regex)],
+) -> (String, usize) {
     let mut out = input.to_string();
     let mut hits = 0usize;
     for (label, re) in patterns {

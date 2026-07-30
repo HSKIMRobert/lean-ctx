@@ -1,7 +1,7 @@
 //! Cost metrics for benchmark comparison.
 
 /// Cost per 1000 prompts.
-pub fn cost_per_1k(total_cost_usd: f64, total_tasks: usize) -> f64 {
+pub(crate) fn cost_per_1k(total_cost_usd: f64, total_tasks: usize) -> f64 {
     if total_tasks == 0 {
         return 0.0;
     }
@@ -9,7 +9,7 @@ pub fn cost_per_1k(total_cost_usd: f64, total_tasks: usize) -> f64 {
 }
 
 /// Cost savings as a percentage.
-pub fn savings_pct(baseline_cost: f64, treatment_cost: f64) -> f64 {
+pub(crate) fn savings_pct(baseline_cost: f64, treatment_cost: f64) -> f64 {
     if baseline_cost <= 0.0 {
         return 0.0;
     }

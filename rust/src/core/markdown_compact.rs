@@ -51,7 +51,7 @@ impl Unit {
 /// Compact Markdown while preserving all headings, whole fenced code blocks,
 /// and high-signal details. Returns `None` when the document is too small, not
 /// markdown-shaped, or compaction would not actually shrink it.
-pub fn compact_markdown(content: &str) -> Option<String> {
+pub(crate) fn compact_markdown(content: &str) -> Option<String> {
     if content.trim().is_empty() || !looks_like_markdown(content) {
         return None;
     }
@@ -91,7 +91,7 @@ pub fn compact_markdown(content: &str) -> Option<String> {
 /// True when the document carries at least one ATX heading — the structural
 /// signal a plain `.txt` file must show before the lossy compactor may touch it
 /// (hyphen lists alone are not enough to call a text file "markdown").
-pub fn has_markdown_headings(content: &str) -> bool {
+pub(crate) fn has_markdown_headings(content: &str) -> bool {
     content.lines().any(is_heading)
 }
 

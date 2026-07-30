@@ -14,7 +14,7 @@ use super::queries::get_language;
 use super::query_cache::get_cached_sig_query;
 use super::sfc::extract_sfc_signatures;
 
-pub fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signature>> {
+pub(crate) fn extract_signatures_ts(content: &str, file_ext: &str) -> Option<Vec<Signature>> {
     if matches!(file_ext, "svelte" | "vue") {
         return extract_sfc_signatures(content);
     }

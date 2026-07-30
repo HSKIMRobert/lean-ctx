@@ -140,7 +140,7 @@ pub(crate) fn extract_top_level_value_text<'a>(doc: &'a str, member: &str) -> Op
 /// the content payload it ships, so a mislabeled package can never route
 /// into the wrong trust chain (an "addon" without an addon manifest, or a
 /// context pack smuggling one in).
-pub fn validate_kind_coherence(
+pub(crate) fn validate_kind_coherence(
     manifest: &PackageManifest,
     content: &PackageContent,
 ) -> Result<(), Vec<String>> {
@@ -292,7 +292,7 @@ pub(crate) fn validate_document_path(path: &str) -> Result<(), String> {
 
 /// Outcome of one verification check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CheckOutcome {
+pub(crate) enum CheckOutcome {
     Pass,
     Fail,
     /// Not applicable — e.g. signature check on an unsigned package.
@@ -300,7 +300,7 @@ pub enum CheckOutcome {
 }
 
 impl CheckOutcome {
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Pass => "pass",
             Self::Fail => "fail",
@@ -312,7 +312,7 @@ impl CheckOutcome {
 /// Per-check verification report, mirroring the checks every conforming
 /// reader runs (and the shape of the @ctxpkg/verify reference output).
 #[derive(Debug)]
-pub struct VerifyReport {
+pub(crate) struct VerifyReport {
     pub name: Option<String>,
     pub version: Option<String>,
     pub structure: CheckOutcome,
@@ -323,7 +323,7 @@ pub struct VerifyReport {
 }
 
 impl VerifyReport {
-    pub fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         self.errors.is_empty()
     }
 
@@ -347,7 +347,7 @@ fn sha256_hex(data: &[u8]) -> String {
 }
 
 /// Verify a `.ctxpkg` document without installing anything.
-pub fn verify_package_text(doc: &str) -> VerifyReport {
+pub(crate) fn verify_package_text(doc: &str) -> VerifyReport {
     let value: serde_json::Value = match serde_json::from_str(doc) {
         Ok(v) => v,
         Err(e) => return VerifyReport::failed(format!("not valid JSON: {e}")),
@@ -457,7 +457,7 @@ pub fn verify_package_text(doc: &str) -> VerifyReport {
 }
 
 /// Read and verify a `.ctxpkg` file (size- and extension-gated like import).
-pub fn verify_package_file(path: &Path) -> Result<VerifyReport, String> {
+pub(crate) fn verify_package_file(path: &Path) -> Result<VerifyReport, String> {
     if !crate::core::contracts::is_package_file(path) {
         let ext = path
             .extension()

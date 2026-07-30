@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single HumanEval task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HumanEvalTask {
+pub(crate) struct HumanEvalTask {
     pub task_id: String,
     pub prompt: String,
     pub canonical_solution: String,
@@ -15,7 +15,7 @@ pub struct HumanEvalTask {
 }
 
 /// Load HumanEval tasks from an NDJSON file.
-pub fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<HumanEvalTask>> {
+pub(crate) fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<HumanEvalTask>> {
     let content = std::fs::read_to_string(path)?;
     let tasks: Vec<HumanEvalTask> = content
         .lines()
@@ -26,7 +26,7 @@ pub fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<HumanEval
 }
 
 /// Build the test script for a HumanEval task: solution + test harness.
-pub fn build_test_script(task: &HumanEvalTask, solution: &str) -> String {
+pub(crate) fn build_test_script(task: &HumanEvalTask, solution: &str) -> String {
     format!(
         "{solution}\n\n{test}\n\ncheck({entry_point})\n",
         solution = solution,

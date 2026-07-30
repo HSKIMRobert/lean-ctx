@@ -12,7 +12,7 @@ const MAX_TOOL_OUTPUT_CHARS: usize = 500;
 const MIN_COMPRESS_CHARS: usize = 200;
 
 #[derive(Debug, Default)]
-pub struct CompactionStats {
+pub(crate) struct CompactionStats {
     pub lines_processed: usize,
     pub lines_compacted: usize,
     pub original_bytes: usize,
@@ -20,7 +20,7 @@ pub struct CompactionStats {
 }
 
 impl CompactionStats {
-    pub fn savings_pct(&self) -> f64 {
+    pub(crate) fn savings_pct(&self) -> f64 {
         if self.original_bytes == 0 {
             return 0.0;
         }
@@ -44,7 +44,7 @@ impl std::fmt::Display for CompactionStats {
 
 /// Compact a single JSONL transcript file in-place.
 /// Returns stats about what was compacted.
-pub fn compact_file(path: &Path) -> Result<CompactionStats, String> {
+pub(crate) fn compact_file(path: &Path) -> Result<CompactionStats, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
     let mut stats = CompactionStats {
         original_bytes: content.len(),
@@ -83,7 +83,7 @@ pub fn compact_file(path: &Path) -> Result<CompactionStats, String> {
 }
 
 /// Compact all JSONL files in a directory.
-pub fn compact_directory(dir: &Path) -> Result<CompactionStats, String> {
+pub(crate) fn compact_directory(dir: &Path) -> Result<CompactionStats, String> {
     if !dir.is_dir() {
         return Err(format!("not a directory: {}", dir.display()));
     }

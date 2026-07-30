@@ -9,7 +9,7 @@ use super::candidate::SkillCandidate;
 
 /// Outcome of judging a single candidate.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Verdict {
+pub(crate) enum Verdict {
     /// Worth codifying (create or merge handled by the writer).
     Keep,
     /// Rejected, with a human-readable reason.
@@ -40,7 +40,7 @@ fn is_generic(body: &str) -> bool {
 }
 
 /// Judge a candidate against the configured thresholds.
-pub fn judge(c: &SkillCandidate, min_confidence: f32, min_recurrence: u32) -> Verdict {
+pub(crate) fn judge(c: &SkillCandidate, min_confidence: f32, min_recurrence: u32) -> Verdict {
     if c.body.chars().count() < MIN_BODY_LEN {
         return Verdict::Skip("too short".to_string());
     }

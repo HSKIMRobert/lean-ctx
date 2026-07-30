@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SyncReport {
+pub(crate) struct SyncReport {
     pub synced: Vec<String>,
     pub skipped: Vec<String>,
     pub errors: Vec<String>,
@@ -17,7 +17,7 @@ pub struct SyncReport {
 /// `rules.toml` is consumed only by `lint` and produced by `init` (see
 /// [`super::config::RulesConfig`]). Stating this explicitly resolves the
 /// "sync doesn't honor rules.toml" ambiguity — by design it does not (#548).
-pub fn sync_all(home: &Path) -> SyncReport {
+pub(crate) fn sync_all(home: &Path) -> SyncReport {
     let inject_result = crate::rules_inject::inject_all_rules(home);
 
     let mut synced = Vec::new();
@@ -35,7 +35,7 @@ pub fn sync_all(home: &Path) -> SyncReport {
 ///
 /// Same canonical-source contract as [`sync_all`]: regenerates from
 /// `rules_canonical` and never reads `.lean-ctx/rules.toml` (#548).
-pub fn sync_agent(home: &Path, agent: &str) -> SyncReport {
+pub(crate) fn sync_agent(home: &Path, agent: &str) -> SyncReport {
     let inject_result = crate::rules_inject::inject_rules_for_agent(home, agent);
 
     let mut synced = Vec::new();

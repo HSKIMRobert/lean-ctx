@@ -12,7 +12,7 @@ use crate::core::roles::{self, RoleLimits};
 
 static TRACKER: OnceLock<BudgetTracker> = OnceLock::new();
 
-pub struct BudgetTracker {
+pub(crate) struct BudgetTracker {
     context_tokens: AtomicU64,
     shell_invocations: AtomicUsize,
     cost_millicents: AtomicU64,
@@ -29,47 +29,47 @@ impl BudgetTracker {
         }
     }
 
-    pub fn global() -> &'static BudgetTracker {
+    pub(crate) fn global() -> &'static BudgetTracker {
         TRACKER.get_or_init(BudgetTracker::new)
     }
 
-    pub fn record_tokens(&self, tokens: u64) {
+    pub(crate) fn record_tokens(&self, tokens: u64) {
         self.context_tokens.fetch_add(tokens, Ordering::Relaxed);
     }
 
-    pub fn record_shell(&self) {
+    pub(crate) fn record_shell(&self) {
         self.shell_invocations.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn record_tool_call(&self) {
+    pub(crate) fn record_tool_call(&self) {
         self.tool_calls.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn tool_calls_count(&self) -> usize {
+    pub(crate) fn tool_calls_count(&self) -> usize {
         self.tool_calls.load(Ordering::Relaxed)
     }
 
-    pub fn record_cost_usd(&self, usd: f64) {
+    pub(crate) fn record_cost_usd(&self, usd: f64) {
         let mc = (usd * 100_000.0) as u64;
         self.cost_millicents.fetch_add(mc, Ordering::Relaxed);
     }
 
-    pub fn tokens_used(&self) -> u64 {
+    pub(crate) fn tokens_used(&self) -> u64 {
         self.context_tokens.load(Ordering::Relaxed)
     }
 
-    pub fn shell_used(&self) -> usize {
+    pub(crate) fn shell_used(&self) -> usize {
         self.shell_invocations.load(Ordering::Relaxed)
     }
 
-    pub fn cost_usd(&self) -> f64 {
+    pub(crate) fn cost_usd(&self) -> f64 {
         self.cost_millicents.load(Ordering::Relaxed) as f64 / 100_000.0
     }
 
     /// Returns `Some(message)` when the session cost cap is exceeded (#794).
     /// Returns `None` when no cap is configured, the cap isn't reached, or
     /// `LEAN_CTX_COST_CAP_OVERRIDE=1` is set.
-    pub fn cost_cap_message(&self) -> Option<String> {
+    pub(crate) fn cost_cap_message(&self) -> Option<String> {
         let cfg = crate::core::config::Config::load();
         let cap = cfg.cost.max_session_cost_usd;
         if cap <= 0.0 {
@@ -90,7 +90,7 @@ impl BudgetTracker {
         ))
     }
 
-    pub fn reset(&self) {
+    pub(crate) fn reset(&self) {
         self.context_tokens.store(0, Ordering::Relaxed);
         self.shell_invocations.store(0, Ordering::Relaxed);
         self.cost_millicents.store(0, Ordering::Relaxed);
@@ -106,7 +106,7 @@ impl BudgetTracker {
         }
     }
 
-    pub fn check(&self) -> BudgetSnapshot {
+    pub(crate) fn check(&self) -> BudgetSnapshot {
         let mut limits = roles::active_role().limits;
         let role_name = roles::active_role_name();
 

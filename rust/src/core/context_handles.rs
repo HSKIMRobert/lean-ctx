@@ -19,7 +19,7 @@ use super::context_field::{ContextItemId, ContextKind, ViewCosts, ViewKind};
 /// The handle carries just enough information for the agent to decide
 /// whether to expand the item, without paying the full token cost upfront.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextHandle {
+pub(crate) struct ContextHandle {
     pub ref_label: String,
     pub item_id: ContextItemId,
     pub kind: ContextKind,
@@ -33,7 +33,7 @@ pub struct ContextHandle {
 
 /// Registry that owns all active handles and generates sequential ref-labels.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandleRegistry {
+pub(crate) struct HandleRegistry {
     handles: Vec<ContextHandle>,
     counters: HashMap<ContextKind, usize>,
 }
@@ -57,7 +57,7 @@ fn kind_prefix(kind: &ContextKind) -> &'static str {
 // ---------------------------------------------------------------------------
 
 impl HandleRegistry {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             handles: Vec::new(),
             counters: HashMap::new(),
@@ -67,7 +67,7 @@ impl HandleRegistry {
     /// Register a new context item and assign the next sequential ref-label.
     ///
     /// Returns a reference to the newly created handle.
-    pub fn register(
+    pub(crate) fn register(
         &mut self,
         item_id: ContextItemId,
         kind: ContextKind,
@@ -117,28 +117,28 @@ impl HandleRegistry {
     /// Look up a handle by its ref-label (e.g. "F1", "S3").
     ///
     /// Accepts labels with or without the leading `@`.
-    pub fn resolve(&self, ref_label: &str) -> Option<&ContextHandle> {
+    pub(crate) fn resolve(&self, ref_label: &str) -> Option<&ContextHandle> {
         let label = ref_label.strip_prefix('@').unwrap_or(ref_label);
         self.handles.iter().find(|h| h.ref_label == label)
     }
 
     /// Look up a handle by its underlying item ID.
-    pub fn resolve_by_item(&self, item_id: &ContextItemId) -> Option<&ContextHandle> {
+    pub(crate) fn resolve_by_item(&self, item_id: &ContextItemId) -> Option<&ContextHandle> {
         self.handles.iter().find(|h| h.item_id == *item_id)
     }
 
     /// All registered handles, in registration order.
-    pub fn all(&self) -> &[ContextHandle] {
+    pub(crate) fn all(&self) -> &[ContextHandle] {
         &self.handles
     }
 
     /// Sum of `handle_tokens` across all registered handles.
-    pub fn total_handle_tokens(&self) -> usize {
+    pub(crate) fn total_handle_tokens(&self) -> usize {
         self.handles.iter().map(|h| h.handle_tokens).sum()
     }
 
     /// Render the compact handle manifest for inclusion in a system prompt.
-    pub fn format_manifest(&self, budget_total: usize, budget_used: usize) -> String {
+    pub(crate) fn format_manifest(&self, budget_total: usize, budget_used: usize) -> String {
         if self.handles.is_empty() {
             return String::new();
         }

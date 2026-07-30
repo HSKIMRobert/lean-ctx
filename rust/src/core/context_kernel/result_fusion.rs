@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 /// A child agent's result with its confidence and quality metadata.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ChildResult {
+pub(crate) struct ChildResult {
     pub agent_id: String,
     pub receipt_ref: String,
     pub evidence: Vec<String>,
@@ -15,7 +15,7 @@ pub struct ChildResult {
 
 /// How to merge multiple child results.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
-pub enum FusionStrategy {
+pub(crate) enum FusionStrategy {
     /// Take the result with highest confidence.
     #[default]
     BestConfidence,
@@ -27,7 +27,7 @@ pub enum FusionStrategy {
 
 /// Result of fusing child results.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct FusionReport {
+pub(crate) struct FusionReport {
     pub winning_agent: String,
     pub merged_evidence: Vec<String>,
     pub conflicts: Vec<Conflict>,
@@ -37,7 +37,7 @@ pub struct FusionReport {
 
 /// An explicit contradiction between two child agents.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Conflict {
+pub(crate) struct Conflict {
     pub agent_a: String,
     pub agent_b: String,
     pub reason: String,
@@ -45,14 +45,14 @@ pub struct Conflict {
 
 /// A child's normalized contribution to a fusion report.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ChildAttribution {
+pub(crate) struct ChildAttribution {
     pub agent_id: String,
     pub weight: f64,
     pub evidence_contributed: usize,
 }
 
 /// Fuse child results according to the selected strategy.
-pub fn fuse_results(results: &[ChildResult], strategy: FusionStrategy) -> FusionReport {
+pub(crate) fn fuse_results(results: &[ChildResult], strategy: FusionStrategy) -> FusionReport {
     if results.is_empty() {
         return FusionReport::default();
     }
@@ -88,7 +88,7 @@ pub fn fuse_results(results: &[ChildResult], strategy: FusionStrategy) -> Fusion
 }
 
 /// Extract and deduplicate all explicit contradiction pairs.
-pub fn detect_contradictions(results: &[ChildResult]) -> Vec<Conflict> {
+pub(crate) fn detect_contradictions(results: &[ChildResult]) -> Vec<Conflict> {
     let mut seen = HashSet::new();
     let mut conflicts = Vec::new();
     for result in results {

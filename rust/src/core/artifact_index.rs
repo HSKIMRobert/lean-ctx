@@ -7,19 +7,19 @@ use crate::core::bm25_index::{BM25Index, ChunkKind, CodeChunk, IndexedFileState}
 const MAX_ARTIFACT_BYTES: u64 = 2_000_000;
 const MAX_CHUNKS_PER_FILE: usize = 50;
 
-pub fn index_file_path(project_root: &Path) -> PathBuf {
+pub(crate) fn index_file_path(project_root: &Path) -> PathBuf {
     let code_idx = BM25Index::index_file_path(project_root);
     let dir = code_idx.parent().unwrap_or_else(|| Path::new("."));
     dir.join("bm25_artifacts_index.json")
 }
 
-pub fn load(project_root: &Path) -> Option<BM25Index> {
+pub(crate) fn load(project_root: &Path) -> Option<BM25Index> {
     let path = index_file_path(project_root);
     let data = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
 
-pub fn save(project_root: &Path, idx: &BM25Index) -> std::io::Result<()> {
+pub(crate) fn save(project_root: &Path, idx: &BM25Index) -> std::io::Result<()> {
     let path = index_file_path(project_root);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -31,7 +31,7 @@ pub fn save(project_root: &Path, idx: &BM25Index) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn load_or_build(project_root: &Path) -> (BM25Index, Vec<String>) {
+pub(crate) fn load_or_build(project_root: &Path) -> (BM25Index, Vec<String>) {
     let (files_now, mut warnings) = list_artifact_files(project_root);
     if files_now.is_empty() {
         return (load(project_root).unwrap_or_default(), warnings);
@@ -55,7 +55,7 @@ pub fn load_or_build(project_root: &Path) -> (BM25Index, Vec<String>) {
     (built, warnings)
 }
 
-pub fn rebuild_from_scratch(project_root: &Path) -> (BM25Index, Vec<String>) {
+pub(crate) fn rebuild_from_scratch(project_root: &Path) -> (BM25Index, Vec<String>) {
     let (files_now, mut warnings) = list_artifact_files(project_root);
     let idx = build_full(project_root, &files_now, &mut warnings);
     let _ = save(project_root, &idx);

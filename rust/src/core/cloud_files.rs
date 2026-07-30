@@ -28,7 +28,7 @@ pub fn is_cloud_placeholder(path: &Path) -> bool {
 /// macOS variant: evicted iCloud Drive files carry `SF_DATALESS` in `st_flags`.
 /// `lstat` reads the flag without materialising the content.
 #[cfg(target_os = "macos")]
-pub fn is_cloud_placeholder(path: &Path) -> bool {
+pub(crate) fn is_cloud_placeholder(path: &Path) -> bool {
     use std::os::unix::ffi::OsStrExt;
     const SF_DATALESS: u32 = 0x4000_0000;
     let Ok(cpath) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
@@ -52,7 +52,7 @@ pub fn is_cloud_placeholder(_path: &Path) -> bool {
 
 /// Predicate for `ignore::WalkBuilder::filter_entry`: prune cloud placeholders so
 /// a scan never descends into — or reads — an un-hydrated file or directory.
-pub fn keep_entry(entry: &ignore::DirEntry) -> bool {
+pub(crate) fn keep_entry(entry: &ignore::DirEntry) -> bool {
     !is_cloud_placeholder(entry.path())
 }
 

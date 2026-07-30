@@ -29,7 +29,7 @@ const GRAPH_EXPANSION_FACTOR: u64 = 2;
 const BUILDER_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuildKind {
+pub(crate) enum BuildKind {
     Bm25,
     GraphScan,
 }
@@ -52,7 +52,7 @@ impl BuildKind {
 
 /// Admission decision for a heavy index build.
 #[derive(Debug, Clone)]
-pub struct Admission {
+pub(crate) struct Admission {
     /// `true`: the parallel fast path fits the memory budget.
     /// `false`: degrade to the sequential build (fine-grained pressure breaks).
     pub parallel_ok: bool,
@@ -78,7 +78,7 @@ impl Admission {
 /// pointless to start in parallel. Everything below stays on the fast path;
 /// normal repositories (a few hundred MB of source) are never affected.
 #[must_use]
-pub fn admit(kind: BuildKind, corpus_bytes: u64) -> Admission {
+pub(crate) fn admit(kind: BuildKind, corpus_bytes: u64) -> Admission {
     let Some(limit) = super::memory_guard::rss_limit_bytes() else {
         // No platform memory introspection — nothing to enforce.
         return Admission::admitted();
@@ -120,7 +120,7 @@ fn admit_with(kind: BuildKind, corpus_bytes: u64, rss_bytes: u64, limit_bytes: u
 /// "fits / does not fit", so a 1M-file corpus never pays a full stat walk when
 /// the first thousands of files already blow the budget.
 #[must_use]
-pub fn corpus_bytes_capped(root: &Path, files: &[String], cap: u64) -> u64 {
+pub(crate) fn corpus_bytes_capped(root: &Path, files: &[String], cap: u64) -> u64 {
     let mut total: u64 = 0;
     for rel in files {
         if let Ok(meta) = std::fs::metadata(root.join(rel)) {
@@ -140,7 +140,7 @@ pub fn corpus_bytes_capped(root: &Path, files: &[String], cap: u64) -> u64 {
 /// Convenience: full admission check for a file list — stat-walk with early
 /// bail, then the headroom decision. Logs the denial reason once.
 #[must_use]
-pub fn admit_files(kind: BuildKind, root: &Path, files: &[String]) -> Admission {
+pub(crate) fn admit_files(kind: BuildKind, root: &Path, files: &[String]) -> Admission {
     let Some(limit) = super::memory_guard::rss_limit_bytes() else {
         return Admission::admitted();
     };

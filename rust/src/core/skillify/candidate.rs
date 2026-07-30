@@ -11,7 +11,7 @@ use crate::core::knowledge::ProjectKnowledge;
 /// A distilled pattern mined from a project's memory, before the gate decides
 /// whether it is durable enough to become a rule.
 #[derive(Debug, Clone)]
-pub struct SkillCandidate {
+pub(crate) struct SkillCandidate {
     /// Normalized, prefix-free slug (e.g. `stop-before-build`).
     pub slug: String,
     /// One-line human title (becomes the rule `description`).
@@ -39,7 +39,7 @@ fn knowledge_category_is_skillable(cat: &str) -> bool {
 
 /// Mine candidates from the project's knowledge facts and agent diaries,
 /// merged by slug (recurrence summed, strongest body + confidence kept).
-pub fn mine_candidates(project_root: &str) -> Vec<SkillCandidate> {
+pub(crate) fn mine_candidates(project_root: &str) -> Vec<SkillCandidate> {
     let mut by_slug: HashMap<String, SkillCandidate> = HashMap::new();
 
     // Source 1 — curated knowledge facts (already deduped by the knowledge layer).
@@ -154,7 +154,7 @@ fn first_sentence(text: &str) -> String {
 }
 
 /// URL/file-safe slug: lowercase alphanumerics, single dashes, trimmed, capped.
-pub fn slugify(text: &str) -> String {
+pub(crate) fn slugify(text: &str) -> String {
     let mut slug = String::new();
     let mut prev_dash = false;
     for ch in text.trim().to_ascii_lowercase().chars() {

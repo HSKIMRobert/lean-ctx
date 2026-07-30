@@ -132,6 +132,14 @@ pub fn check_system_health() -> SystemHealth {
     }
 }
 
+/// Seeds the A2A agent registry for integration tests that assert on
+/// [`check_system_health`].
+#[doc(hidden)]
+pub fn seed_agent_registry(id: &str, role: Option<&str>, root: &str) -> Result<(), String> {
+    crate::core::agents::AgentRegistry::mutate_locked(|registry| registry.register(id, role, root))
+        .map(|_| ())
+}
+
 fn poll_capability<F>(name: &str, poll: F) -> ComponentHealth
 where
     F: FnOnce() -> OclaCapability,

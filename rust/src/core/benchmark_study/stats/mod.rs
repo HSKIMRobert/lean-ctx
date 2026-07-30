@@ -1,4 +1,4 @@
 //! Statistical framework: bootstrap CIs, non-inferiority tests.
 
-pub mod bootstrap;
-pub mod significance;
+pub(crate) mod bootstrap;
+pub(crate) mod significance;

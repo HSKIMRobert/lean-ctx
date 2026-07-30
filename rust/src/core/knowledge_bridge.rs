@@ -18,7 +18,7 @@ const PUBLISHABLE_ARCHETYPES: &[KnowledgeArchetype] = &[
 const MIN_PUBLISH_CONFIDENCE: f32 = 0.8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BridgeEntry {
+pub(crate) struct BridgeEntry {
     pub fact_key: String,
     pub fact_category: String,
     pub fact_value: String,
@@ -30,14 +30,14 @@ pub struct BridgeEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeBridge {
+pub(crate) struct KnowledgeBridge {
     pub project_hash: String,
     pub shared_facts: Vec<BridgeEntry>,
     pub updated_at: DateTime<Utc>,
 }
 
 impl KnowledgeBridge {
-    pub fn new(project_hash: &str) -> Self {
+    pub(crate) fn new(project_hash: &str) -> Self {
         Self {
             project_hash: project_hash.to_string(),
             shared_facts: Vec::new(),
@@ -45,24 +45,24 @@ impl KnowledgeBridge {
         }
     }
 
-    pub fn path(project_hash: &str) -> Result<PathBuf, String> {
+    pub(crate) fn path(project_hash: &str) -> Result<PathBuf, String> {
         Ok(crate::core::data_dir::lean_ctx_data_dir()?
             .join("knowledge")
             .join(project_hash)
             .join("bridge.json"))
     }
 
-    pub fn load(project_hash: &str) -> Option<Self> {
+    pub(crate) fn load(project_hash: &str) -> Option<Self> {
         let path = Self::path(project_hash).ok()?;
         let content = std::fs::read_to_string(&path).ok()?;
         serde_json::from_str::<Self>(&content).ok()
     }
 
-    pub fn load_or_create(project_hash: &str) -> Self {
+    pub(crate) fn load_or_create(project_hash: &str) -> Self {
         Self::load(project_hash).unwrap_or_else(|| Self::new(project_hash))
     }
 
-    pub fn save(&mut self) -> Result<(), String> {
+    pub(crate) fn save(&mut self) -> Result<(), String> {
         self.updated_at = Utc::now();
         let path = Self::path(&self.project_hash)?;
         if let Some(parent) = path.parent() {
@@ -75,7 +75,7 @@ impl KnowledgeBridge {
     /// Publish eligible facts from an agent's knowledge store.
     /// Only publishes facts with sufficient confidence, a publishable archetype,
     /// and that haven't already been published by this agent.
-    pub fn publish(&mut self, agent_id: &str, facts: &[KnowledgeFact]) -> u32 {
+    pub(crate) fn publish(&mut self, agent_id: &str, facts: &[KnowledgeFact]) -> u32 {
         let mut count = 0u32;
         for fact in facts {
             if !fact.is_current() {
@@ -111,7 +111,7 @@ impl KnowledgeBridge {
     }
 
     /// Pull facts from the bridge that were published by other agents.
-    pub fn pull(&self, requesting_agent: &str) -> Vec<BridgeEntry> {
+    pub(crate) fn pull(&self, requesting_agent: &str) -> Vec<BridgeEntry> {
         self.shared_facts
             .iter()
             .filter(|e| e.source_agent != requesting_agent)
@@ -121,7 +121,7 @@ impl KnowledgeBridge {
 
     /// Convert a [`BridgeEntry`] into a [`KnowledgeFact`] for import.
     /// Applies a 10% trust penalty to imported confidence.
-    pub fn entry_to_fact(entry: &BridgeEntry) -> KnowledgeFact {
+    pub(crate) fn entry_to_fact(entry: &BridgeEntry) -> KnowledgeFact {
         let now = Utc::now();
         KnowledgeFact {
             category: entry.fact_category.clone(),
@@ -150,7 +150,7 @@ impl KnowledgeBridge {
     }
 
     /// Remove entries older than `max_age_days` or below `min_confidence`.
-    pub fn cleanup(&mut self, max_age_days: i64, min_confidence: f32) -> usize {
+    pub(crate) fn cleanup(&mut self, max_age_days: i64, min_confidence: f32) -> usize {
         let cutoff = Utc::now() - chrono::Duration::days(max_age_days);
         let before = self.shared_facts.len();
         self.shared_facts
@@ -158,14 +158,14 @@ impl KnowledgeBridge {
         before - self.shared_facts.len()
     }
 
-    pub fn entries_for_agent(&self, agent_id: &str) -> Vec<&BridgeEntry> {
+    pub(crate) fn entries_for_agent(&self, agent_id: &str) -> Vec<&BridgeEntry> {
         self.shared_facts
             .iter()
             .filter(|e| e.source_agent == agent_id)
             .collect()
     }
 
-    pub fn summary(&self) -> String {
+    pub(crate) fn summary(&self) -> String {
         if self.shared_facts.is_empty() {
             return format!(
                 "Knowledge Bridge [{}]: empty",

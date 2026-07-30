@@ -4,7 +4,7 @@ use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 #[derive(Debug, Clone)]
-pub struct SandboxResult {
+pub(crate) struct SandboxResult {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
@@ -18,7 +18,7 @@ const MAX_OUTPUT_BYTES: usize = 32_768;
 /// agent from forcing a multi-megabyte temp-file write / interpreter argv → memory abuse.
 const MAX_CODE_BYTES: usize = 256 * 1024;
 
-pub fn execute(language: &str, code: &str, timeout_secs: Option<u64>) -> SandboxResult {
+pub(crate) fn execute(language: &str, code: &str, timeout_secs: Option<u64>) -> SandboxResult {
     if code.len() > MAX_CODE_BYTES {
         return SandboxResult {
             stdout: String::new(),
@@ -126,7 +126,7 @@ pub fn execute(language: &str, code: &str, timeout_secs: Option<u64>) -> Sandbox
     }
 }
 
-pub fn batch_execute(items: &[(String, String)]) -> Vec<SandboxResult> {
+pub(crate) fn batch_execute(items: &[(String, String)]) -> Vec<SandboxResult> {
     items
         .iter()
         .map(|(lang, code)| execute(lang, code, None))
@@ -644,7 +644,7 @@ fn truncate_smart(output: &str, max_bytes: usize) -> String {
     )
 }
 
-pub fn supported_languages() -> &'static [&'static str] {
+pub(crate) fn supported_languages() -> &'static [&'static str] {
     &[
         "javascript",
         "typescript",

@@ -243,7 +243,7 @@ const PHRASE_RULES: &[(&[&str], TaskType, f64)] = &[
     ),
 ];
 
-pub fn classify(query: &str) -> TaskClassification {
+pub(crate) fn classify(query: &str) -> TaskClassification {
     let q = query.to_lowercase();
     let words: Vec<&str> = q.split_whitespace().collect();
     let lang = intent_lang::detect_query_lang(&words);
@@ -418,7 +418,7 @@ fn extract_keywords(query: &str, lang: intent_lang::QueryLang) -> Vec<String> {
         .collect()
 }
 
-pub fn classify_complexity(
+pub(crate) fn classify_complexity(
     query: &str,
     classification: &TaskClassification,
 ) -> super::adaptive::TaskComplexity {
@@ -452,7 +452,7 @@ pub fn classify_complexity(
     }
 }
 
-pub fn detect_multi_intent(query: &str) -> Vec<TaskClassification> {
+pub(crate) fn detect_multi_intent(query: &str) -> Vec<TaskClassification> {
     let delimiters = [" and then ", " then ", " also ", " + ", ". "];
 
     let mut parts: Vec<&str> = vec![query];
@@ -476,7 +476,7 @@ pub fn detect_multi_intent(query: &str) -> Vec<TaskClassification> {
     parts.iter().map(|part| classify(part)).collect()
 }
 
-pub fn format_briefing_header(classification: &TaskClassification) -> String {
+pub(crate) fn format_briefing_header(classification: &TaskClassification) -> String {
     format!(
         "[TASK:{} CONF:{:.0}% TARGETS:{} KW:{}]",
         classification.task_type.as_str(),
@@ -834,7 +834,7 @@ pub struct IntentRoute {
     pub reasoning: String,
 }
 
-pub fn route_intent(query: &str, classification: &TaskClassification) -> IntentRoute {
+pub(crate) fn route_intent(query: &str, classification: &TaskClassification) -> IntentRoute {
     let (base_dimension, base_tier) = match classification.task_type {
         TaskType::Explore | TaskType::Debug => (IntentDimension::What, ModelTier::Fast),
         TaskType::Review | TaskType::FixBug | TaskType::Test => {

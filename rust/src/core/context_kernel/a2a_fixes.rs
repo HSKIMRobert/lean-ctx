@@ -10,7 +10,7 @@ const BUDGET_WARNING_PERCENT: f64 = 80.0;
 
 /// Lightweight representation of an agent scratchpad message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageEntry {
+pub(crate) struct MessageEntry {
     pub category: String,
     pub body: String,
     pub from_agent: String,
@@ -18,10 +18,10 @@ pub struct MessageEntry {
 }
 
 /// Compatibility name for a lightweight scratchpad message.
-pub type ScratchpadEntry = MessageEntry;
+pub(crate) type ScratchpadEntry = MessageEntry;
 
 /// Compute the stable content ID used to track whether a message was read.
-pub fn message_id(message: &MessageEntry) -> String {
+pub(crate) fn message_id(message: &MessageEntry) -> String {
     let mut hasher = blake3::Hasher::new();
     for field in [&message.category, &message.body, &message.from_agent] {
         hasher.update(&(field.len() as u64).to_le_bytes());
@@ -31,7 +31,7 @@ pub fn message_id(message: &MessageEntry) -> String {
 }
 
 /// Properly filter messages to only return genuinely unread ones.
-pub fn filter_truly_unread<'a>(
+pub(crate) fn filter_truly_unread<'a>(
     messages: &'a [ScratchpadEntry],
     read_ids: &HashSet<String>,
 ) -> Vec<&'a ScratchpadEntry> {
@@ -42,13 +42,13 @@ pub fn filter_truly_unread<'a>(
 }
 
 /// Compute a real agent budget from configuration instead of `usize::MAX`.
-pub fn real_agent_budget(config_limit: Option<usize>) -> usize {
+pub(crate) fn real_agent_budget(config_limit: Option<usize>) -> usize {
     config_limit.unwrap_or(DEFAULT_AGENT_BUDGET)
 }
 
 /// Result of checking a requested token consumption against a real budget.
 #[derive(Debug, Clone, PartialEq)]
-pub enum BudgetCheckResult {
+pub(crate) enum BudgetCheckResult {
     Allowed {
         remaining: usize,
     },
@@ -62,7 +62,7 @@ pub enum BudgetCheckResult {
 }
 
 /// Validate that a token consumption will not exceed the budget.
-pub fn check_budget_with_real_limit(
+pub(crate) fn check_budget_with_real_limit(
     current_used: usize,
     budget_limit: usize,
     tokens_to_consume: usize,
@@ -91,7 +91,7 @@ pub fn check_budget_with_real_limit(
 }
 
 /// Convert JSON to compact format after stripping null and empty values.
-pub fn compact_json(pretty: &Value) -> String {
+pub(crate) fn compact_json(pretty: &Value) -> String {
     match serde_json::to_string(&strip_nulls(pretty)) {
         Ok(compact) => compact,
         Err(_) => "null".to_owned(),
@@ -99,12 +99,12 @@ pub fn compact_json(pretty: &Value) -> String {
 }
 
 /// Estimate a JSON string's token count using four characters per token.
-pub fn json_token_estimate(json: &str) -> usize {
+pub(crate) fn json_token_estimate(json: &str) -> usize {
     json.chars().count().div_ceil(4)
 }
 
 /// Strip null and empty values from a JSON value recursively.
-pub fn strip_nulls(value: &Value) -> Value {
+pub(crate) fn strip_nulls(value: &Value) -> Value {
     prune_value(value).unwrap_or(Value::Null)
 }
 

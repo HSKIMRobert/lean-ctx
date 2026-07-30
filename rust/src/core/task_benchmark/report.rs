@@ -16,20 +16,20 @@ struct ReportRow {
 
 /// Formatted benchmark report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BenchReport {
+pub(crate) struct BenchReport {
     pub result: BenchmarkResult,
 }
 
 impl BenchReport {
-    pub fn new(result: BenchmarkResult) -> Self {
+    pub(crate) fn new(result: BenchmarkResult) -> Self {
         Self { result }
     }
 
-    pub fn to_json(&self) -> String {
+    pub(crate) fn to_json(&self) -> String {
         serde_json::to_string_pretty(&self.result).unwrap_or_else(|_| "{}".into())
     }
 
-    pub fn to_human(&self) -> String {
+    pub(crate) fn to_human(&self) -> String {
         let mut out = String::new();
         out.push_str(&self.header());
         out.push_str(&self.summary_table());
@@ -40,7 +40,7 @@ impl BenchReport {
         out
     }
 
-    pub fn to_markdown(&self) -> String {
+    pub(crate) fn to_markdown(&self) -> String {
         let mut out = String::new();
         out.push_str("# lean-ctx Task Benchmark Report\n\n");
         out.push_str(&format!("Repeats per config: {}\n\n", self.result.repeats));
@@ -273,8 +273,7 @@ mod tests {
     use crate::core::task_benchmark::{
         config::BenchConfig,
         fixtures::canonical_suite,
-        run_benchmark,
-        runner::{BenchmarkResult, ProfileResult},
+        runner::{BenchmarkResult, ProfileResult, run_benchmark},
     };
 
     #[test]

@@ -1,7 +1,7 @@
 //! Pass@k metric computation.
 
 /// Compute pass@1 from a list of boolean outcomes.
-pub fn pass_at_1(outcomes: &[bool]) -> f64 {
+pub(crate) fn pass_at_1(outcomes: &[bool]) -> f64 {
     if outcomes.is_empty() {
         return 0.0;
     }
@@ -11,7 +11,7 @@ pub fn pass_at_1(outcomes: &[bool]) -> f64 {
 
 /// Compute pass@k using the unbiased estimator from the Codex paper.
 /// `n` = total samples, `c` = correct samples, `k` = k value.
-pub fn pass_at_k(n: usize, c: usize, k: usize) -> f64 {
+pub(crate) fn pass_at_k(n: usize, c: usize, k: usize) -> f64 {
     if n < k {
         return 0.0;
     }

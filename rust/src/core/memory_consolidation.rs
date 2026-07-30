@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Knowledge unit subject to consolidation.
 #[derive(Debug, Clone, PartialEq)]
-pub struct KnowledgeEntry {
+pub(crate) struct KnowledgeEntry {
     pub key: String,
     pub content: String,
     pub access_count: u64,
@@ -16,7 +16,7 @@ pub struct KnowledgeEntry {
 }
 
 /// Jaccard similarity over whitespace-split tokens (case-folded).
-pub fn token_jaccard(a: &str, b: &str) -> f64 {
+pub(crate) fn token_jaccard(a: &str, b: &str) -> f64 {
     let sa: HashSet<String> = a.split_whitespace().map(str::to_lowercase).collect();
     let sb: HashSet<String> = b.split_whitespace().map(str::to_lowercase).collect();
     let inter = sa.intersection(&sb).count();
@@ -48,7 +48,7 @@ const REPLAY_BOOST_SCALE: f64 = 0.02;
 /// NREM: merge highly similar entries (keep highest-access body).
 /// REM: drop stale + low-importance.
 /// Replay: boost importance of pairwise related entries that are often accessed together (proxy).
-pub fn consolidate(entries: &mut Vec<KnowledgeEntry>) {
+pub(crate) fn consolidate(entries: &mut Vec<KnowledgeEntry>) {
     if entries.is_empty() {
         return;
     }

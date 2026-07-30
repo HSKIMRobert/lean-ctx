@@ -168,7 +168,11 @@ fn expansion_bm25_for_chunk(
 }
 
 /// BM25 top-100 → SPLADE-like expansion → combined re-rank.
-pub fn hybrid_retrieve(query: &str, bm25_index: &BM25Index, top_k: usize) -> Vec<SpladeResult> {
+pub(crate) fn hybrid_retrieve(
+    query: &str,
+    bm25_index: &BM25Index,
+    top_k: usize,
+) -> Vec<SpladeResult> {
     if bm25_index.doc_count == 0 || top_k == 0 {
         return Vec::new();
     }

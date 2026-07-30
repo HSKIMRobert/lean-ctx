@@ -6,7 +6,7 @@ use super::model_pricing::ModelCost;
 use crate::core::context_overhead::NATIVE_BASELINE_TOKENS_PER_TURN;
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
-pub struct StreamSavings {
+pub(crate) struct StreamSavings {
     pub first_inject_tokens_saved: u64,
     pub reread_tokens_saved: u64,
     pub input_tokens_saved: u64,
@@ -25,7 +25,7 @@ pub struct StreamSavings {
 
 impl StreamSavings {
     #[must_use]
-    pub fn calculate(
+    pub(crate) fn calculate(
         first_inject_tokens_saved: u64,
         reread_tokens_saved: u64,
         overhead_per_turn: u64,

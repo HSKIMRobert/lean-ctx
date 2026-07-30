@@ -16,14 +16,14 @@
 //! it only ever passes through bytes that already survived redaction.
 
 /// Opening marker for a verbatim-preserved span.
-pub const SAFE_OPEN: &str = "<lc_safe>";
+pub(crate) const SAFE_OPEN: &str = "<lc_safe>";
 /// Closing marker for a verbatim-preserved span.
-pub const SAFE_CLOSE: &str = "</lc_safe>";
+pub(crate) const SAFE_CLOSE: &str = "</lc_safe>";
 
 /// Cheap pre-check: does the input contain at least one protect marker? Lets
 /// hot paths skip the span-splitting machinery entirely when nothing is marked.
 #[must_use]
-pub fn has_markers(s: &str) -> bool {
+pub(crate) fn has_markers(s: &str) -> bool {
     s.contains(SAFE_OPEN)
 }
 
@@ -36,7 +36,7 @@ pub fn has_markers(s: &str) -> bool {
 /// user tried to protect). When there are no markers the input is handed to `f`
 /// unchanged, so existing callers keep their exact byte output.
 #[must_use]
-pub fn compress_preserving<F: Fn(&str) -> String>(input: &str, f: F) -> String {
+pub(crate) fn compress_preserving<F: Fn(&str) -> String>(input: &str, f: F) -> String {
     if !has_markers(input) {
         return f(input);
     }
@@ -60,7 +60,7 @@ pub fn compress_preserving<F: Fn(&str) -> String>(input: &str, f: F) -> String {
 /// the explicit `protect` tokens. Empty tokens are ignored so an empty list (or
 /// a list of empty strings) reproduces today's behaviour exactly.
 #[must_use]
-pub fn line_is_protected(line: &str, needles: &[String]) -> bool {
+pub(crate) fn line_is_protected(line: &str, needles: &[String]) -> bool {
     needles
         .iter()
         .any(|n| !n.is_empty() && line.contains(n.as_str()))
@@ -73,7 +73,7 @@ pub fn line_is_protected(line: &str, needles: &[String]) -> bool {
 /// set operation, so `["a","b"]` and `["b","a","a"]` must map to the same key
 /// (#498). Tokens are canonicalised (non-empty, sorted, deduped) before hashing.
 #[must_use]
-pub fn protect_fragment(needles: &[String]) -> String {
+pub(crate) fn protect_fragment(needles: &[String]) -> String {
     let mut canon: Vec<&str> = needles
         .iter()
         .map(String::as_str)

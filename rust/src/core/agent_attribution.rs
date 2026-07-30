@@ -10,11 +10,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const ATTRIBUTION_SCHEMA_VERSION: u16 = 1;
+pub(crate) const ATTRIBUTION_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum OutcomeVerdict {
+pub(crate) enum OutcomeVerdict {
     Pending,
     Accepted,
     Rejected,
@@ -22,7 +22,7 @@ pub enum OutcomeVerdict {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AgentCostRecord {
+pub(crate) struct AgentCostRecord {
     pub agent_id: String,
     pub node_id: String,
     pub tokens_consumed: u64,
@@ -31,7 +31,7 @@ pub struct AgentCostRecord {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ChainAttribution {
+pub(crate) struct ChainAttribution {
     pub schema_version: u16,
     pub chain_id: String,
     pub outcome_verdict: OutcomeVerdict,
@@ -45,7 +45,7 @@ pub struct ChainAttribution {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct AgentContribution {
+pub(crate) struct AgentContribution {
     pub agent_id: String,
     pub tokens: u64,
     pub cost_micros: u64,
@@ -55,7 +55,7 @@ pub struct AgentContribution {
 
 /// Tracks costs per agent/node and computes ETPAO attribution once the chain
 /// outcome is known.
-pub struct AttributionTracker {
+pub(crate) struct AttributionTracker {
     chain_id: String,
     records: BTreeMap<String, AgentCostRecord>,
     outcome: OutcomeVerdict,
@@ -63,7 +63,7 @@ pub struct AttributionTracker {
 
 impl AttributionTracker {
     #[must_use]
-    pub fn new(chain_id: String) -> Self {
+    pub(crate) fn new(chain_id: String) -> Self {
         Self {
             chain_id,
             records: BTreeMap::new(),
@@ -72,7 +72,7 @@ impl AttributionTracker {
     }
 
     /// Record cost for an agent at a specific work node.
-    pub fn record_cost(
+    pub(crate) fn record_cost(
         &mut self,
         agent_id: String,
         node_id: String,
@@ -95,7 +95,7 @@ impl AttributionTracker {
     }
 
     /// Mark which nodes are on the accepted outcome path.
-    pub fn mark_accepted_path(&mut self, node_ids: &[String]) {
+    pub(crate) fn mark_accepted_path(&mut self, node_ids: &[String]) {
         for id in node_ids {
             if let Some(record) = self.records.get_mut(id) {
                 record.is_on_accepted_path = true;
@@ -104,14 +104,14 @@ impl AttributionTracker {
     }
 
     /// Set the final chain outcome verdict.
-    pub fn set_outcome(&mut self, verdict: OutcomeVerdict) {
+    pub(crate) fn set_outcome(&mut self, verdict: OutcomeVerdict) {
         self.outcome = verdict;
     }
 
     /// Compute the final ETPAO attribution. Costs on rejected/redundant paths
     /// are classified as waste; only accepted-path costs count toward the
     /// effective metric.
-    pub fn compute_attribution(&self) -> ChainAttribution {
+    pub(crate) fn compute_attribution(&self) -> ChainAttribution {
         let total_tokens: u64 = self.records.values().map(|r| r.tokens_consumed).sum();
         let total_cost: u64 = self.records.values().map(|r| r.cost_micros).sum();
 
@@ -179,7 +179,7 @@ impl AttributionTracker {
         }
     }
 
-    pub fn outcome(&self) -> OutcomeVerdict {
+    pub(crate) fn outcome(&self) -> OutcomeVerdict {
         self.outcome
     }
 }

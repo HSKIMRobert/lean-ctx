@@ -22,7 +22,7 @@ use std::path::Path;
 
 /// Effective state of the filesystem path jail.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum JailState {
+pub(crate) enum JailState {
     /// Fully enforced: tools are confined to the project root (+ any configured
     /// `allow_paths`/`extra_roots`), with no blanket relaxation active.
     Enforced,
@@ -38,14 +38,14 @@ pub enum JailState {
 impl JailState {
     /// True when containment over the filesystem is effectively gone.
     #[must_use]
-    pub fn is_disabled(&self) -> bool {
+    pub(crate) fn is_disabled(&self) -> bool {
         matches!(self, JailState::Disabled(_))
     }
 }
 
 /// Coarse, derived label summarising the whole posture for at-a-glance display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostureLevel {
+pub(crate) enum PostureLevel {
     /// Both containment planes fully enforced (the secure default).
     Strict,
     /// Partially relaxed (e.g. jail widened, or shell in `warn`).
@@ -57,7 +57,7 @@ pub enum PostureLevel {
 impl PostureLevel {
     /// Lower-case, stable name (used in status output and tests).
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             PostureLevel::Strict => "strict",
             PostureLevel::Relaxed => "relaxed",
@@ -69,7 +69,7 @@ impl PostureLevel {
 /// A snapshot of every security-relevant switch, resolved exactly the way the
 /// runtime enforces it (env → config → secure default).
 #[derive(Debug, Clone)]
-pub struct SecurityPosture {
+pub(crate) struct SecurityPosture {
     /// Filesystem path-jail state.
     pub jail: JailState,
     /// Shell-command gating mode.
@@ -83,7 +83,7 @@ pub struct SecurityPosture {
 impl SecurityPosture {
     /// Resolve the live posture from config + env. Pure read, no side effects.
     #[must_use]
-    pub fn detect() -> Self {
+    pub(crate) fn detect() -> Self {
         let cfg = Config::load();
         Self {
             jail: detect_jail(&cfg),
@@ -96,7 +96,7 @@ impl SecurityPosture {
     /// Derived coarse label. `Open` only when *both* containment planes are off,
     /// so it precisely reflects what `lean-ctx yolo` produces.
     #[must_use]
-    pub fn level(&self) -> PostureLevel {
+    pub(crate) fn level(&self) -> PostureLevel {
         let containment_off = self.jail.is_disabled() && self.shell == ShellSecurity::Off;
         if containment_off {
             return PostureLevel::Open;
@@ -113,7 +113,7 @@ impl SecurityPosture {
     /// True when secrets still cannot leak to the provider (detection + masking
     /// both on). This stays independent of [`Self::level`] on purpose.
     #[must_use]
-    pub fn secrets_protected(&self) -> bool {
+    pub(crate) fn secrets_protected(&self) -> bool {
         self.secrets_enabled && self.secrets_redact
     }
 }

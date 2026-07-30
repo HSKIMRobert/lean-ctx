@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single MBPP task.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MbppTask {
+pub(crate) struct MbppTask {
     pub task_id: u32,
     pub text: String,
     pub code: String,
@@ -14,7 +14,7 @@ pub struct MbppTask {
 }
 
 /// Load MBPP tasks from an NDJSON file.
-pub fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<MbppTask>> {
+pub(crate) fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<MbppTask>> {
     let content = std::fs::read_to_string(path)?;
     let tasks: Vec<MbppTask> = content
         .lines()
@@ -25,7 +25,7 @@ pub fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<MbppTask>
 }
 
 /// Build the test script for an MBPP task: solution + assertions.
-pub fn build_test_script(task: &MbppTask, solution: &str) -> String {
+pub(crate) fn build_test_script(task: &MbppTask, solution: &str) -> String {
     let mut script = solution.to_string();
     script.push_str("\n\n");
     for test in &task.test_list {

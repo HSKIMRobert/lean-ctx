@@ -19,21 +19,21 @@ static RAW_CAP_COUNT: AtomicU64 = AtomicU64::new(0);
 static RAW_CAP_PREVENTED: AtomicU64 = AtomicU64::new(0);
 
 /// Fully-delivered entries whose delivery flag was reset by a host compaction.
-pub fn record_compaction(n: u64) {
+pub(crate) fn record_compaction(n: u64) {
     if n > 0 {
         COMPACTION.fetch_add(n, Ordering::Relaxed);
     }
 }
 
 /// Fully-delivered entries dropped by an idle-TTL cache clear.
-pub fn record_idle(n: u64) {
+pub(crate) fn record_idle(n: u64) {
     if n > 0 {
         IDLE.fetch_add(n, Ordering::Relaxed);
     }
 }
 
 /// Fully-delivered entries evicted under RAM / token-budget pressure.
-pub fn record_eviction(n: u64) {
+pub(crate) fn record_eviction(n: u64) {
     if n > 0 {
         EVICTION.fetch_add(n, Ordering::Relaxed);
     }
@@ -41,21 +41,21 @@ pub fn record_eviction(n: u64) {
 
 /// A re-read that fell back to full content because the reading conversation
 /// differed from the one the entry was delivered to (conversation scoping, #954).
-pub fn record_conversation_mismatch() {
+pub(crate) fn record_conversation_mismatch() {
     CONVERSATION.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Framed output was larger than raw content — `cap_to_raw()` fell back to
 /// verbatim to prevent negative savings. Tracked so the dashboard can
 /// distinguish "no savings" from "savings prevented inflation".
-pub fn record_raw_cap(prevented_inflation_tokens: u64) {
+pub(crate) fn record_raw_cap(prevented_inflation_tokens: u64) {
     RAW_CAP_COUNT.fetch_add(1, Ordering::Relaxed);
     RAW_CAP_PREVENTED.fetch_add(prevented_inflation_tokens, Ordering::Relaxed);
 }
 
 /// Immutable snapshot of the re-delivery counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Snapshot {
+pub(crate) struct Snapshot {
     pub compaction: u64,
     pub idle: u64,
     pub eviction: u64,
@@ -66,7 +66,7 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// Total forced re-deliveries across all causes.
-    pub fn total(&self) -> u64 {
+    pub(crate) fn total(&self) -> u64 {
         self.compaction
             .saturating_add(self.idle)
             .saturating_add(self.eviction)
@@ -75,7 +75,7 @@ impl Snapshot {
 }
 
 /// Reads the current counters into a consistent snapshot.
-pub fn snapshot() -> Snapshot {
+pub(crate) fn snapshot() -> Snapshot {
     Snapshot {
         compaction: COMPACTION.load(Ordering::Relaxed),
         idle: IDLE.load(Ordering::Relaxed),

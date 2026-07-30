@@ -58,7 +58,7 @@ impl EmbeddingEntry {
 
 /// Outcome of a `build_or_update` call from the index orchestrator.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EmbeddingBuildOutcome {
+pub(crate) enum EmbeddingBuildOutcome {
     /// Embeddings were built or already up-to-date.
     Ready,
     /// Skipped because the embeddings feature is not enabled or disabled by config.
@@ -71,7 +71,7 @@ pub enum EmbeddingBuildOutcome {
 }
 
 impl EmbeddingBuildOutcome {
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Ready => "ready",
             Self::Skipped => "skipped",
@@ -80,7 +80,7 @@ impl EmbeddingBuildOutcome {
         }
     }
 
-    pub fn reason(&self) -> Option<&str> {
+    pub(crate) fn reason(&self) -> Option<&str> {
         match self {
             Self::ModelNotAvailable(r) => Some(r.as_str()),
             _ => None,
@@ -100,7 +100,10 @@ impl EmbeddingBuildOutcome {
 ///
 /// Feature-gated: when `embeddings` is not compiled in, this is a no-op that
 /// returns `Skipped`.
-pub fn build_or_update(root: &Path, bm25: &super::bm25_index::BM25Index) -> EmbeddingBuildOutcome {
+pub(crate) fn build_or_update(
+    root: &Path,
+    bm25: &super::bm25_index::BM25Index,
+) -> EmbeddingBuildOutcome {
     #[cfg(feature = "embeddings")]
     {
         // Respect the config gates so the orchestrator does not force-embed when

@@ -8,7 +8,7 @@ const MAX_VALUE_EXCERPT_CHARS: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EvidenceItemKindV1 {
+pub(crate) enum EvidenceItemKindV1 {
     ToolReceipt,
     Manual,
     ProofArtifact,
@@ -16,7 +16,7 @@ pub enum EvidenceItemKindV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvidenceItemV1 {
+pub(crate) struct EvidenceItemV1 {
     pub id: String,
     pub kind: EvidenceItemKindV1,
     pub key: String,
@@ -43,7 +43,7 @@ pub struct EvidenceItemV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EvidenceLedgerV1 {
+pub(crate) struct EvidenceLedgerV1 {
     pub schema_version: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -70,7 +70,7 @@ fn ledger_path() -> Option<PathBuf> {
 }
 
 impl EvidenceLedgerV1 {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let Some(path) = ledger_path() else {
             return Self::default();
         };
@@ -78,7 +78,7 @@ impl EvidenceLedgerV1 {
         serde_json::from_str::<Self>(&content).unwrap_or_default()
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let Some(path) = ledger_path() else {
             return Err("no data dir".to_string());
         };
@@ -90,11 +90,11 @@ impl EvidenceLedgerV1 {
         Ok(())
     }
 
-    pub fn has_key(&self, key: &str) -> bool {
+    pub(crate) fn has_key(&self, key: &str) -> bool {
         self.items.iter().any(|i| i.key == key)
     }
 
-    pub fn record_tool_receipt(
+    pub(crate) fn record_tool_receipt(
         &mut self,
         tool: &str,
         action: Option<&str>,
@@ -150,7 +150,12 @@ impl EvidenceLedgerV1 {
         });
     }
 
-    pub fn record_manual(&mut self, key: &str, value: Option<&str>, created_at: DateTime<Utc>) {
+    pub(crate) fn record_manual(
+        &mut self,
+        key: &str,
+        value: Option<&str>,
+        created_at: DateTime<Utc>,
+    ) {
         let key = truncate(key, MAX_KEY_CHARS);
         let value_redacted = value.map(crate::core::redaction::redact_text);
         let value_md5 = value_redacted.as_deref().map(crate::core::hasher::hash_str);
@@ -179,7 +184,7 @@ impl EvidenceLedgerV1 {
         self.prune_in_place();
     }
 
-    pub fn record_artifact_file(
+    pub(crate) fn record_artifact_file(
         &mut self,
         key: &str,
         path: &Path,

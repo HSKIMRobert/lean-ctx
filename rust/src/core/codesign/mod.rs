@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 mod setup;
-pub use setup::{SetupOutcome, setup_identity};
+pub(crate) use setup::{SetupOutcome, setup_identity};
 
 /// Common Name of the signing certificate (stable across builds).
 pub(crate) const IDENTITY_CN: &str = "lean-ctx-codesign";
@@ -29,7 +29,7 @@ pub(crate) const CODESIGN_IDENTIFIER: &str = "com.leanctx.cli";
 
 /// Which signing path [`sign_binary`] took.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SignKind {
+pub(crate) enum SignKind {
     /// Signed with the persistent identity — TCC grant survives updates.
     Stable,
     /// Fell back to ad-hoc — runnable, but TCC re-prompts after updates.
@@ -59,7 +59,7 @@ pub(crate) fn load_password() -> Option<String> {
 
 /// Is the persistent identity present AND trusted for code signing?
 /// Pure query — reads only the certificate, never prompts.
-pub fn is_ready() -> bool {
+pub(crate) fn is_ready() -> bool {
     let Some(kc) = keychain_path() else {
         return false;
     };
@@ -84,7 +84,7 @@ pub fn is_ready() -> bool {
 
 /// Sign `binary`, preferring the stable identity. Ad-hoc fallback guarantees the
 /// binary always runs even before [`setup_identity`] has been run.
-pub fn sign_binary(binary: &Path) -> SignKind {
+pub(crate) fn sign_binary(binary: &Path) -> SignKind {
     if is_ready() && sign_with_identity(binary).is_ok() {
         return SignKind::Stable;
     }

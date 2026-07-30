@@ -24,7 +24,7 @@ mod tests;
 use graph::{AdjGraph, edge_counts};
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Community {
+pub(crate) struct Community {
     pub id: usize,
     pub files: Vec<String>,
     pub internal_edges: usize,
@@ -33,7 +33,7 @@ pub struct Community {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CommunityResult {
+pub(crate) struct CommunityResult {
     pub communities: Vec<Community>,
     pub modularity: f64,
     pub node_count: usize,
@@ -51,7 +51,7 @@ impl CommunityResult {
     }
 
     /// `file_path → community_id` for every assigned node.
-    pub fn assignment(&self) -> HashMap<String, usize> {
+    pub(crate) fn assignment(&self) -> HashMap<String, usize> {
         self.assignment_min_size(1)
     }
 
@@ -59,7 +59,7 @@ impl CommunityResult {
     /// `min_size` members. Singletons (isolated files) are dropped so the
     /// dashboard can fall back to a neutral/language colour instead of painting
     /// every orphan file a distinct hue.
-    pub fn assignment_min_size(&self, min_size: usize) -> HashMap<String, usize> {
+    pub(crate) fn assignment_min_size(&self, min_size: usize) -> HashMap<String, usize> {
         let mut map = HashMap::new();
         for community in &self.communities {
             if community.files.len() < min_size {
@@ -76,21 +76,24 @@ impl CommunityResult {
 /// Detect communities on the PropertyGraph (ids are deterministic but not
 /// remapped to a previous run). Prefer [`detect_communities_stable`] when a
 /// project root is available.
-pub fn detect_communities(conn: &Connection) -> CommunityResult {
+pub(crate) fn detect_communities(conn: &Connection) -> CommunityResult {
     let graph = AdjGraph::from_property_graph(conn);
     analyze(&graph, None).1
 }
 
 /// Detect communities on the PropertyGraph with ids kept stable across rebuilds
 /// (remapped to, and persisted alongside, the project's previous assignment).
-pub fn detect_communities_stable(conn: &Connection, project_root: &str) -> CommunityResult {
+pub(crate) fn detect_communities_stable(conn: &Connection, project_root: &str) -> CommunityResult {
     let graph = AdjGraph::from_property_graph(conn);
     detect_stable(&graph, project_root)
 }
 
 /// Detect communities on any [`GraphProvider`] (PropertyGraph or graph index)
 /// with stable ids. This is the entry point for the dashboard graph view.
-pub fn detect_communities_for_provider(gp: &GraphProvider, project_root: &str) -> CommunityResult {
+pub(crate) fn detect_communities_for_provider(
+    gp: &GraphProvider,
+    project_root: &str,
+) -> CommunityResult {
     let graph = AdjGraph::from_provider(gp);
     detect_stable(&graph, project_root)
 }

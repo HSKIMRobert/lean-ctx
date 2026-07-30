@@ -14,7 +14,7 @@
 /// Concrete tuning derived from one aggressiveness value. Every field is a pure
 /// function of `a`, so the same `a` always yields the same knobs (determinism).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct AggressivenessProfile {
+pub(crate) struct AggressivenessProfile {
     /// Fraction of tokens to keep (density target for `density:` / IB prose).
     /// `a=0.0 → 1.00` (keep everything), `a=1.0 → 0.15` (keep ~15%).
     pub density_target: f64,
@@ -31,7 +31,7 @@ impl AggressivenessProfile {
     /// a deliberate, monotonic starting point; Epic E (accuracy suite) is meant
     /// to calibrate them empirically.
     #[must_use]
-    pub fn from_level(a: f64) -> Self {
+    pub(crate) fn from_level(a: f64) -> Self {
         let a = a.clamp(0.0, 1.0);
         Self {
             density_target: (1.0 - 0.85 * a).clamp(0.10, 1.0),
@@ -45,7 +45,7 @@ impl AggressivenessProfile {
 /// per-call value, the `LEAN_CTX_AGGRESSIVENESS` env var, and the config field.
 /// Returns `None` when nothing is set so callers keep their current defaults.
 #[must_use]
-pub fn effective(explicit: Option<f64>) -> Option<f64> {
+pub(crate) fn effective(explicit: Option<f64>) -> Option<f64> {
     if let Some(a) = explicit {
         return Some(a.clamp(0.0, 1.0));
     }
@@ -65,7 +65,7 @@ pub fn effective(explicit: Option<f64>) -> Option<f64> {
 /// while distinct settings still get distinct keys (#498). `None` → empty
 /// string so today's keys are unchanged when the knob is unset.
 #[must_use]
-pub fn cache_fragment(a: Option<f64>) -> String {
+pub(crate) fn cache_fragment(a: Option<f64>) -> String {
     match a {
         Some(a) => format!("a{}", (a.clamp(0.0, 1.0) * 20.0).round() as u32),
         None => String::new(),

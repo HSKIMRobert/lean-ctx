@@ -34,7 +34,7 @@ use ort::ep::ExecutionProviderDispatch;
 ///
 /// Returns an eager error when the shared library cannot be found (session
 /// creation would otherwise hang).
-pub fn ensure_ort_env(eps: &[ExecutionProviderDispatch]) -> anyhow::Result<()> {
+pub(crate) fn ensure_ort_env(eps: &[ExecutionProviderDispatch]) -> anyhow::Result<()> {
     static INIT: OnceLock<anyhow::Result<()>> = OnceLock::new();
     // get_or_init runs the closure at most once; all subsequent calls return
     // a reference to the stored Result.

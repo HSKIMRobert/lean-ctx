@@ -5,14 +5,14 @@ use std::time::{Duration, Instant};
 
 /// A first-in, first-out queue with a fixed upper bound.
 #[derive(Debug, Clone)]
-pub struct BoundedQueue<T> {
+pub(crate) struct BoundedQueue<T> {
     items: VecDeque<T>,
     max_size: usize,
 }
 
 impl<T> BoundedQueue<T> {
     /// Creates an empty queue that retains at most `max_size` items.
-    pub fn new(max_size: usize) -> Self {
+    pub(crate) fn new(max_size: usize) -> Self {
         Self {
             items: VecDeque::with_capacity(max_size),
             max_size,
@@ -20,7 +20,7 @@ impl<T> BoundedQueue<T> {
     }
 
     /// Appends an item and returns the oldest item when capacity is exceeded.
-    pub fn push(&mut self, item: T) -> Option<T> {
+    pub(crate) fn push(&mut self, item: T) -> Option<T> {
         if self.max_size == 0 {
             return Some(item);
         }
@@ -35,40 +35,40 @@ impl<T> BoundedQueue<T> {
     }
 
     /// Returns the number of retained items.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.items.len()
     }
 
     /// Returns whether the queue contains no items.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
     /// Returns whether the queue has reached its configured capacity.
-    pub fn is_full(&self) -> bool {
+    pub(crate) fn is_full(&self) -> bool {
         self.items.len() >= self.max_size
     }
 
     /// Iterates over retained items from oldest to newest.
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
         self.items.iter()
     }
 
     /// Removes and returns up to `n` oldest items.
-    pub fn drain_oldest(&mut self, n: usize) -> Vec<T> {
+    pub(crate) fn drain_oldest(&mut self, n: usize) -> Vec<T> {
         let count = n.min(self.items.len());
         self.items.drain(..count).collect()
     }
 
     /// Removes all retained items.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.items.clear();
     }
 }
 
 /// Operational state of a circuit breaker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CircuitState {
+pub(crate) enum CircuitState {
     /// Requests are allowed normally.
     Closed,
     /// Requests are rejected until the cooldown elapses.
@@ -79,7 +79,7 @@ pub enum CircuitState {
 
 /// Failure isolation state for a fallible dependency.
 #[derive(Debug, Clone)]
-pub struct CircuitBreaker {
+pub(crate) struct CircuitBreaker {
     state: CircuitState,
     failure_count: u32,
     success_count: u32,
@@ -91,7 +91,7 @@ pub struct CircuitBreaker {
 
 impl CircuitBreaker {
     /// Creates a circuit breaker with caller-defined thresholds and cooldown.
-    pub fn new(failure_threshold: u32, recovery_threshold: u32, cooldown: Duration) -> Self {
+    pub(crate) fn new(failure_threshold: u32, recovery_threshold: u32, cooldown: Duration) -> Self {
         Self {
             state: CircuitState::Closed,
             failure_count: 0,
@@ -104,17 +104,17 @@ impl CircuitBreaker {
     }
 
     /// Creates the standard kernel circuit breaker.
-    pub fn default_breaker() -> Self {
+    pub(crate) fn default_breaker() -> Self {
         Self::new(3, 2, Duration::from_secs(30))
     }
 
     /// Returns the current circuit state.
-    pub fn state(&self) -> CircuitState {
+    pub(crate) fn state(&self) -> CircuitState {
         self.state
     }
 
     /// Records a successful dependency call.
-    pub fn record_success(&mut self) {
+    pub(crate) fn record_success(&mut self) {
         match self.state {
             CircuitState::Closed => {
                 self.failure_count = 0;
@@ -130,7 +130,7 @@ impl CircuitBreaker {
     }
 
     /// Records a failed dependency call.
-    pub fn record_failure(&mut self) {
+    pub(crate) fn record_failure(&mut self) {
         match self.state {
             CircuitState::Closed => {
                 self.failure_count = self.failure_count.saturating_add(1);
@@ -147,7 +147,7 @@ impl CircuitBreaker {
     ///
     /// **Side effect**: if the breaker is `Open` and the cooldown has
     /// elapsed, this transitions the state to `HalfOpen`.
-    pub fn should_allow(&mut self) -> bool {
+    pub(crate) fn should_allow(&mut self) -> bool {
         match self.state {
             CircuitState::Closed | CircuitState::HalfOpen => true,
             CircuitState::Open => {
@@ -162,7 +162,7 @@ impl CircuitBreaker {
     }
 
     /// Forces the circuit into its initial closed state.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.transition_to(CircuitState::Closed);
     }
 
@@ -176,7 +176,7 @@ impl CircuitBreaker {
 
 /// Circuit breaker and lifetime call statistics for one provider.
 #[derive(Debug, Clone)]
-pub struct ProviderCircuit {
+pub(crate) struct ProviderCircuit {
     pub provider_id: String,
     pub breaker: CircuitBreaker,
     pub total_calls: u64,
@@ -185,7 +185,7 @@ pub struct ProviderCircuit {
 
 impl ProviderCircuit {
     /// Creates provider state using the standard kernel breaker settings.
-    pub fn new(provider_id: String) -> Self {
+    pub(crate) fn new(provider_id: String) -> Self {
         Self {
             provider_id,
             breaker: CircuitBreaker::default_breaker(),
@@ -195,12 +195,12 @@ impl ProviderCircuit {
     }
 
     /// Returns whether the provider circuit currently permits a call.
-    pub fn is_available(&mut self) -> bool {
+    pub(crate) fn is_available(&mut self) -> bool {
         self.breaker.should_allow()
     }
 
     /// Records a completed provider call and updates circuit state.
-    pub fn record_outcome(&mut self, success: bool) {
+    pub(crate) fn record_outcome(&mut self, success: bool) {
         self.total_calls = self.total_calls.saturating_add(1);
         if success {
             self.breaker.record_success();

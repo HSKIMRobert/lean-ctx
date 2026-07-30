@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 
 /// A named compression profile to benchmark against.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct CompressionProfile {
+pub(crate) struct CompressionProfile {
     pub name: String,
     pub mode: ProfileMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ProfileMode {
+pub(crate) enum ProfileMode {
     /// No compression — raw file content (baseline).
     Stock,
     /// lean-ctx auto mode (default production config).
@@ -20,7 +20,7 @@ pub enum ProfileMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProfileSelection {
+pub(crate) enum ProfileSelection {
     All,
     Stock,
     Standard,
@@ -28,7 +28,7 @@ pub enum ProfileSelection {
 }
 
 impl ProfileSelection {
-    pub fn parse(value: &str) -> Result<Self, String> {
+    pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value {
             "all" => Ok(Self::All),
             "stock" => Ok(Self::Stock),
@@ -42,7 +42,7 @@ impl ProfileSelection {
 }
 
 impl ProfileMode {
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Stock => "stock",
             Self::Standard => "standard",
@@ -53,7 +53,7 @@ impl ProfileMode {
 
 /// Top-level benchmark configuration.
 #[derive(Debug, Clone)]
-pub struct BenchConfig {
+pub(crate) struct BenchConfig {
     pub profiles: Vec<CompressionProfile>,
     pub repeats: u32,
     /// Quality score threshold: if any profile scores below this fraction of
@@ -85,7 +85,7 @@ impl Default for BenchConfig {
 }
 
 impl BenchConfig {
-    pub fn for_selection(selection: ProfileSelection) -> Self {
+    pub(crate) fn for_selection(selection: ProfileSelection) -> Self {
         let mut config = Self::default();
         config.profiles = match selection {
             ProfileSelection::All => config.profiles,
@@ -103,7 +103,7 @@ impl BenchConfig {
         config
     }
 
-    pub fn single_profile(mode: ProfileMode) -> Self {
+    pub(crate) fn single_profile(mode: ProfileMode) -> Self {
         Self {
             profiles: vec![profile(mode)],
             repeats: 1,

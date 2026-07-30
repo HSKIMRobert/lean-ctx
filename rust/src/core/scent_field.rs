@@ -19,13 +19,13 @@ const GC_THRESHOLD: f64 = 0.05;
 /// Superposed intensity per (agent, kind, target) is capped here.
 const INTENSITY_CAP: f64 = 3.0;
 /// A foreign claim is considered active at or above this effective intensity.
-pub const CLAIM_ACTIVE_THRESHOLD: f64 = 0.3;
+pub(crate) const CLAIM_ACTIVE_THRESHOLD: f64 = 0.3;
 /// Max rendered lines in the sync view.
 const SYNC_TOP_K: usize = 15;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ScentKind {
+pub(crate) enum ScentKind {
     /// Agent is actively working on this target (file, task, deploy unit).
     Claimed,
     /// Agent finished something related to the target.
@@ -48,7 +48,7 @@ impl ScentKind {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             ScentKind::Claimed => "CLAIMED",
             ScentKind::Done => "DONE",
@@ -60,7 +60,7 @@ impl ScentKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Scent {
+pub(crate) struct Scent {
     pub agent_id: String,
     pub kind: ScentKind,
     /// Normalized target: relative file path, task label, or deploy unit.
@@ -72,14 +72,14 @@ pub struct Scent {
 }
 
 impl Scent {
-    pub fn effective_intensity(&self, now: u64) -> f64 {
+    pub(crate) fn effective_intensity(&self, now: u64) -> f64 {
         let dt = now.saturating_sub(self.deposited_at) as f64;
         self.intensity * (-(std::f64::consts::LN_2) * dt / self.kind.half_life_secs()).exp()
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ScentField {
+pub(crate) struct ScentField {
     pub scents: Vec<Scent>,
     pub schema_version: u32,
     /// Lifetime count of rejected claims (#549): every rejection is a piece
@@ -107,7 +107,7 @@ fn now_secs() -> u64 {
 /// disambiguate with the PID; ledger/heatmap attribution keeps using the
 /// stable shared identity and is intentionally NOT changed.
 #[must_use]
-pub fn scent_agent_id() -> &'static str {
+pub(crate) fn scent_agent_id() -> &'static str {
     static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
         let base = crate::core::agent_identity::current_agent_id();
@@ -138,14 +138,14 @@ impl ScentField {
     }
 
     /// Drop scents whose effective intensity fell below the GC threshold.
-    pub fn gc(&mut self, now: u64) {
+    pub(crate) fn gc(&mut self, now: u64) {
         self.scents
             .retain(|s| s.effective_intensity(now) >= GC_THRESHOLD);
     }
 
     /// Superpose a deposit: same (agent, kind, target) folds into one scent
     /// with summed effective intensity (capped), fresh timestamp.
-    pub fn deposit(
+    pub(crate) fn deposit(
         &mut self,
         agent_id: &str,
         kind: ScentKind,
@@ -178,7 +178,12 @@ impl ScentField {
     }
 
     /// Active foreign claim on `target`, if any: returns (agent_id, age_secs).
-    pub fn foreign_claim(&self, target: &str, self_agent: &str, now: u64) -> Option<(String, u64)> {
+    pub(crate) fn foreign_claim(
+        &self,
+        target: &str,
+        self_agent: &str,
+        now: u64,
+    ) -> Option<(String, u64)> {
         self.scents
             .iter()
             .filter(|s| {
@@ -197,7 +202,7 @@ impl ScentField {
 
     /// Arithmetic sync view: targets grouped, intensities superposed across
     /// agents, sorted by total intensity, capped at SYNC_TOP_K lines.
-    pub fn render_sync(&self, now: u64) -> String {
+    pub(crate) fn render_sync(&self, now: u64) -> String {
         use std::collections::HashMap;
         // (kind, target) -> (total intensity, agents)
         type SyncKey<'a> = (ScentKind, &'a str);
@@ -263,13 +268,13 @@ fn with_field<R>(f: impl FnOnce(&mut ScentField, u64) -> R) -> Result<R, String>
 
 /// Deposit a scent as a side effect of normal work. Errors are swallowed —
 /// coordination hints must never break the primary operation.
-pub fn deposit(agent_id: &str, kind: ScentKind, target: &str, intensity: f64) {
+pub(crate) fn deposit(agent_id: &str, kind: ScentKind, target: &str, intensity: f64) {
     let _ = with_field(|field, now| field.deposit(agent_id, kind, target, intensity, now));
 }
 
 /// Atomic claim: fails with the holder's id if another agent's claim is still
 /// active, otherwise deposits a strong Claimed scent for `agent_id`.
-pub fn claim(agent_id: &str, target: &str) -> Result<(), String> {
+pub(crate) fn claim(agent_id: &str, target: &str) -> Result<(), String> {
     with_field(|field, now| {
         if let Some((holder, age)) = field.foreign_claim(target, agent_id, now) {
             field.claims_rejected += 1;
@@ -284,14 +289,14 @@ pub fn claim(agent_id: &str, target: &str) -> Result<(), String> {
 }
 
 /// Lifetime rejected-claim counter (#549): duplicate work prevented.
-pub fn claims_rejected_total() -> u64 {
+pub(crate) fn claims_rejected_total() -> u64 {
     field_path().map_or(0, |p| ScentField::load_unlocked(&p).claims_rejected)
 }
 
 /// Read-only view of currently effective scents for the dashboard (#548):
 /// `(scent, effective_intensity_now)`, strongest first. Lock-free read —
 /// a slightly stale view is fine for display.
-pub fn active_scents() -> Vec<(Scent, f64)> {
+pub(crate) fn active_scents() -> Vec<(Scent, f64)> {
     let Ok(path) = field_path() else {
         return Vec::new();
     };
@@ -310,7 +315,7 @@ pub fn active_scents() -> Vec<(Scent, f64)> {
 }
 
 /// Release a claim (and any Hot scent) on `target` held by `agent_id`.
-pub fn release(agent_id: &str, target: &str) {
+pub(crate) fn release(agent_id: &str, target: &str) {
     let _ = with_field(|field, now| {
         field.scents.retain(|s| {
             !(s.agent_id == agent_id && s.target == target && s.kind == ScentKind::Claimed)
@@ -321,7 +326,7 @@ pub fn release(agent_id: &str, target: &str) {
 
 /// One-line hint for ctx_read when someone else actively claimed this path.
 /// Costs ~10 tokens and prevents duplicate work.
-pub fn read_hint(path: &str, self_agent: &str) -> Option<String> {
+pub(crate) fn read_hint(path: &str, self_agent: &str) -> Option<String> {
     let field_file = field_path().ok()?;
     // Read-only fast path: no lock needed for a hint; stale reads are fine.
     let field = ScentField::load_unlocked(&field_file);
@@ -332,7 +337,7 @@ pub fn read_hint(path: &str, self_agent: &str) -> Option<String> {
 }
 
 /// Arithmetic sync block for ctx_agent sync.
-pub fn sync_block() -> String {
+pub(crate) fn sync_block() -> String {
     let Ok(path) = field_path() else {
         return String::new();
     };

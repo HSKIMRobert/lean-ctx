@@ -12,7 +12,7 @@ use super::{IDENTITY_CN, keychain_path, password_path};
 
 /// Result of [`setup_identity`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SetupOutcome {
+pub(crate) enum SetupOutcome {
     /// Identity created (or recreated) and trusted — ready to sign.
     Created,
     /// Identity already present and trusted; nothing to do.
@@ -25,7 +25,7 @@ pub enum SetupOutcome {
 /// The `CODESIGN_IDENTIFIER` constant ends up in the signature, but trust is
 /// keyed to the freshly generated certificate, so re-running this replaces the
 /// identity and requires re-granting TCC once.
-pub fn setup_identity() -> Result<SetupOutcome, String> {
+pub(crate) fn setup_identity() -> Result<SetupOutcome, String> {
     if super::is_ready() {
         return Ok(SetupOutcome::AlreadyReady);
     }

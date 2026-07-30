@@ -12,7 +12,7 @@
 
 /// A parsed repository reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepoRef {
+pub(crate) struct RepoRef {
     /// Host, e.g. `github.com`.
     pub host: String,
     /// Namespace before the repo name (may contain `/` for GitLab subgroups).
@@ -29,19 +29,19 @@ pub struct RepoRef {
 
 impl RepoRef {
     /// `owner/repo` (namespace + name), the human project path.
-    pub fn project_path(&self) -> String {
+    pub(crate) fn project_path(&self) -> String {
         format!("{}/{}", self.owner, self.repo)
     }
 
     /// A stable cache slug, filesystem-safe: `host/owner/repo` with the owner's
     /// internal slashes preserved as nested dirs.
-    pub fn cache_slug(&self) -> String {
+    pub(crate) fn cache_slug(&self) -> String {
         format!("{}/{}/{}", self.host, self.owner, self.repo)
     }
 }
 
 /// Parse a repository URL, or return `None` when it is not an https repo URL.
-pub fn parse(url: &str) -> Option<RepoRef> {
+pub(crate) fn parse(url: &str) -> Option<RepoRef> {
     let rest = url.trim().strip_prefix("https://")?;
     let (host, path) = rest.split_once('/')?;
     if !is_valid_host(host) {

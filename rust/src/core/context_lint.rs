@@ -40,7 +40,7 @@ const MIN_SIGNIFICANT_LINE_CHARS: usize = 24;
 
 /// Whether a finding gates CI or is merely surfaced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Severity {
+pub(crate) enum Severity {
     /// Fails the CI gate.
     Error,
     /// Surfaced for triage, does not gate.
@@ -49,7 +49,7 @@ pub enum Severity {
 
 /// The category of a lint finding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LintKind {
+pub(crate) enum LintKind {
     /// Two identical content lines in the rules block.
     DuplicateLine,
     /// A low-signal re-teaching phrase in the rules block.
@@ -62,7 +62,7 @@ pub enum LintKind {
 
 /// One linter finding against the injected context.
 #[derive(Debug, Clone)]
-pub struct LintFinding {
+pub(crate) struct LintFinding {
     pub severity: Severity,
     pub kind: LintKind,
     /// Where it was found (`"rules"` or `"tool:<name>"`).
@@ -73,7 +73,7 @@ pub struct LintFinding {
 impl LintFinding {
     /// Whether this finding gates CI.
     #[must_use]
-    pub fn is_error(&self) -> bool {
+    pub(crate) fn is_error(&self) -> bool {
         self.severity == Severity::Error
     }
 }
@@ -87,7 +87,7 @@ fn is_content_line(line: &str) -> bool {
 /// Lints a rules-block text for re-teaching phrases (Error) and exact-duplicate
 /// content lines (Error).
 #[must_use]
-pub fn lint_rules_text(source: &str, text: &str) -> Vec<LintFinding> {
+pub(crate) fn lint_rules_text(source: &str, text: &str) -> Vec<LintFinding> {
     let mut findings = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for raw in text.lines() {
@@ -121,7 +121,7 @@ pub fn lint_rules_text(source: &str, text: &str) -> Vec<LintFinding> {
 /// Lints advertised tool descriptions for byte-identical copies (Error) and
 /// gotcha-budget overruns (Warn).
 #[must_use]
-pub fn lint_tool_descriptions(tools: &[rmcp::model::Tool]) -> Vec<LintFinding> {
+pub(crate) fn lint_tool_descriptions(tools: &[rmcp::model::Tool]) -> Vec<LintFinding> {
     let mut findings = Vec::new();
     let mut seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for t in tools {
@@ -154,7 +154,7 @@ pub fn lint_tool_descriptions(tools: &[rmcp::model::Tool]) -> Vec<LintFinding> {
 
 /// Lints the live injected context this install would emit (rules + tool schemas).
 #[must_use]
-pub fn lint_injected_context() -> Vec<LintFinding> {
+pub(crate) fn lint_injected_context() -> Vec<LintFinding> {
     let mut findings = lint_rules_text("rules", &crate::rules_inject::canonical_rules_block());
     let tools = crate::server::tool_visibility::advertised_tool_defs_default();
     findings.extend(lint_tool_descriptions(&tools));
@@ -163,7 +163,7 @@ pub fn lint_injected_context() -> Vec<LintFinding> {
 
 /// Number of gating (Error) findings.
 #[must_use]
-pub fn error_count(findings: &[LintFinding]) -> usize {
+pub(crate) fn error_count(findings: &[LintFinding]) -> usize {
     findings.iter().filter(|f| f.is_error()).count()
 }
 

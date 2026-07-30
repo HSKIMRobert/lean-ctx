@@ -9,7 +9,7 @@ use super::types::ReceiptOutcome;
 
 /// A single entry in the receipt chain — one context delivery lifecycle.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ChainEntry {
+pub(crate) struct ChainEntry {
     /// Unique chain ID (monotonic counter).
     pub chain_id: u64,
     /// Tool or proxy path that initiated the request.
@@ -38,7 +38,7 @@ static CHAIN: OnceLock<Mutex<ReceiptChain>> = OnceLock::new();
 
 /// Aggregate statistics for the receipt chain.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ChainSummary {
+pub(crate) struct ChainSummary {
     /// Number of recorded delivery lifecycles.
     pub total_entries: usize,
     /// Number of accepted deliveries.
@@ -64,7 +64,7 @@ fn chain() -> MutexGuard<'static, ReceiptChain> {
 }
 
 /// Records a context delivery lifecycle and returns its monotonic chain ID.
-pub fn record_chain_entry(
+pub(crate) fn record_chain_entry(
     source: &str,
     envelope: TokenEnvelope,
     accounting: PostDeliveryAccounting,
@@ -92,17 +92,17 @@ pub fn record_chain_entry(
 }
 
 /// Returns the number of entries in the chain.
-pub fn chain_length() -> usize {
+pub(crate) fn chain_length() -> usize {
     chain().entries.len()
 }
 
 /// Returns an owned snapshot of the full chain.
-pub fn chain_entries() -> Vec<ChainEntry> {
+pub(crate) fn chain_entries() -> Vec<ChainEntry> {
     chain().entries.clone()
 }
 
 /// Returns aggregate statistics for all recorded entries.
-pub fn chain_summary() -> ChainSummary {
+pub(crate) fn chain_summary() -> ChainSummary {
     let chain = chain();
     let mut summary = ChainSummary {
         total_entries: chain.entries.len(),
@@ -130,12 +130,12 @@ pub fn chain_summary() -> ChainSummary {
 }
 
 /// Returns an owned snapshot containing only accepted entries.
-pub fn accepted_entries() -> Vec<ChainEntry> {
+pub(crate) fn accepted_entries() -> Vec<ChainEntry> {
     outcome_entries(ReceiptOutcome::Accepted)
 }
 
 /// Returns an owned snapshot containing only rejected entries.
-pub fn rejected_entries() -> Vec<ChainEntry> {
+pub(crate) fn rejected_entries() -> Vec<ChainEntry> {
     outcome_entries(ReceiptOutcome::Rejected)
 }
 
@@ -149,7 +149,7 @@ fn outcome_entries(outcome: ReceiptOutcome) -> Vec<ChainEntry> {
 }
 
 /// Returns the fraction of entries supplemented by the kernel.
-pub fn kernel_hit_rate() -> f64 {
+pub(crate) fn kernel_hit_rate() -> f64 {
     let summary = chain_summary();
     if summary.total_entries == 0 {
         0.0
@@ -159,7 +159,7 @@ pub fn kernel_hit_rate() -> f64 {
 }
 
 /// Clears all entries and resets the monotonic counter for testing.
-pub fn reset_chain() {
+pub(crate) fn reset_chain() {
     *chain() = ReceiptChain::default();
 }
 

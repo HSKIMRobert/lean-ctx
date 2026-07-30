@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// Which experimental arm a task is running under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Arm {
+pub(crate) enum Arm {
     /// No compression, no routing — reference model only.
     Control,
     /// lean-ctx compression, reference model (no routing).
@@ -17,7 +17,7 @@ pub enum Arm {
 }
 
 impl Arm {
-    pub fn all() -> &'static [Arm] {
+    pub(crate) fn all() -> &'static [Arm] {
         &[
             Arm::Control,
             Arm::CompressOnly,
@@ -26,7 +26,7 @@ impl Arm {
         ]
     }
 
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Arm::Control => "control",
             Arm::CompressOnly => "compress_only",
@@ -35,11 +35,11 @@ impl Arm {
         }
     }
 
-    pub fn uses_compression(&self) -> bool {
+    pub(crate) fn uses_compression(&self) -> bool {
         matches!(self, Arm::CompressOnly | Arm::Combined)
     }
 
-    pub fn uses_routing(&self) -> bool {
+    pub(crate) fn uses_routing(&self) -> bool {
         matches!(self, Arm::RouteOnly | Arm::Combined)
     }
 }
@@ -52,7 +52,7 @@ impl std::fmt::Display for Arm {
 
 /// Configuration for a benchmark study run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StudyConfig {
+pub(crate) struct StudyConfig {
     /// Which arms to run (default: all four).
     pub arms: Vec<Arm>,
     /// Reference model for Control + CompressOnly arms.
@@ -85,7 +85,7 @@ impl Default for StudyConfig {
 
 /// Model tier configuration for routing arms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TierConfig {
+pub(crate) struct TierConfig {
     pub fast: String,
     pub standard: String,
     pub premium: String,
@@ -103,7 +103,7 @@ impl Default for TierConfig {
 
 /// A single experiment combining a dataset with all arms.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FourArmExperiment {
+pub(crate) struct FourArmExperiment {
     pub config: StudyConfig,
     pub dataset_name: String,
     pub results: Vec<ArmResult>,
@@ -111,7 +111,7 @@ pub struct FourArmExperiment {
 
 /// Results for a single arm across all tasks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArmResult {
+pub(crate) struct ArmResult {
     pub arm: Arm,
     pub tasks_total: usize,
     pub tasks_passed: usize,
@@ -122,14 +122,14 @@ pub struct ArmResult {
 }
 
 impl ArmResult {
-    pub fn pass_rate(&self) -> f64 {
+    pub(crate) fn pass_rate(&self) -> f64 {
         if self.tasks_total == 0 {
             return 0.0;
         }
         self.tasks_passed as f64 / self.tasks_total as f64
     }
 
-    pub fn cost_per_1k(&self) -> f64 {
+    pub(crate) fn cost_per_1k(&self) -> f64 {
         if self.tasks_total == 0 {
             return 0.0;
         }
@@ -139,7 +139,7 @@ impl ArmResult {
 
 /// Result for a single task under a specific arm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskResult {
+pub(crate) struct TaskResult {
     pub task_id: String,
     pub passed: bool,
     pub input_tokens: u64,

@@ -33,7 +33,7 @@ const STALE_FACT_DAYS: i64 = 30;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum ToolStatus {
+pub(crate) enum ToolStatus {
     /// Called regularly — earns its schema cost.
     Active,
     /// Used, but rarely, while carrying a heavy schema.
@@ -46,7 +46,7 @@ pub enum ToolStatus {
 
 impl ToolStatus {
     #[must_use]
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             ToolStatus::Active => "active",
             ToolStatus::LowUse => "low-use",
@@ -57,7 +57,7 @@ impl ToolStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ToolEntry {
+pub(crate) struct ToolEntry {
     pub name: String,
     pub schema_tokens: usize,
     pub calls: u64,
@@ -70,7 +70,7 @@ pub struct ToolEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RuleEntry {
+pub(crate) struct RuleEntry {
     pub path: String,
     pub file_tokens: usize,
     pub lean_ctx_tokens: usize,
@@ -80,7 +80,7 @@ pub struct RuleEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
-pub struct KnowledgeHealth {
+pub(crate) struct KnowledgeHealth {
     pub total_facts: usize,
     pub active_facts: usize,
     pub stale_facts: usize,
@@ -88,7 +88,7 @@ pub struct KnowledgeHealth {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ToolHealthReport {
+pub(crate) struct ToolHealthReport {
     pub tool_profile: String,
     pub advertised_tools: usize,
     pub tool_schema_tokens: usize,
@@ -166,7 +166,7 @@ fn resolve_alias(name: &str) -> Option<&'static str> {
 /// Pure report builder — every input is supplied, so it is fully deterministic
 /// and unit-testable without touching disk or the clock.
 #[must_use]
-pub fn build_report(
+pub(crate) fn build_report(
     advertised: &[rmcp::model::Tool],
     usage: &CostStore,
     rules: &[RulesFileCost],
@@ -371,7 +371,7 @@ fn knowledge_health(project: &Path) -> KnowledgeHealth {
 
 /// Gathers real on-disk telemetry for `home`/`project` and builds the report.
 #[must_use]
-pub fn compute(home: &Path, project: &Path) -> ToolHealthReport {
+pub(crate) fn compute(home: &Path, project: &Path) -> ToolHealthReport {
     let advertised = crate::server::tool_visibility::advertised_tool_defs_default();
     let usage = CostStore::load();
     let rules = collect_rules_files(home, project);

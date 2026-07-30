@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::config::RulesConfig;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LintSeverity {
+pub(crate) enum LintSeverity {
     Error,
     Warning,
     Info,
@@ -20,7 +20,7 @@ impl std::fmt::Display for LintSeverity {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LintWarning {
+pub(crate) struct LintWarning {
     pub severity: LintSeverity,
     pub code: String,
     pub message: String,
@@ -62,7 +62,7 @@ const KNOWN_TOOLS: &[&str] = &[
 
 const REQUIRED_SECTIONS: &[&str] = &["Mode Selection", "File Editing"];
 
-pub fn lint(config: &RulesConfig, home: &std::path::Path) -> Vec<LintWarning> {
+pub(crate) fn lint(config: &RulesConfig, home: &std::path::Path) -> Vec<LintWarning> {
     let mut warnings = Vec::new();
 
     lint_core_content(&config.rules.core.content, &mut warnings);

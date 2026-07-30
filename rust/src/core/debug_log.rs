@@ -34,7 +34,7 @@ const FIELD_CLAMP: usize = 200;
 
 /// Where a hook sent an intercepted native tool call.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Route {
+pub(crate) enum Route {
     /// Rewritten / redirected through lean-ctx (compression + caching).
     LeanCtx,
     /// Left to the editor's native tool.
@@ -57,7 +57,7 @@ impl Route {
 /// makes it persistent and is what hook subprocesses read when the IDE does not
 /// export the env var into the hook environment.
 #[must_use]
-pub fn is_enabled() -> bool {
+pub(crate) fn is_enabled() -> bool {
     if let Ok(v) = std::env::var("LEAN_CTX_DEBUG_LOG") {
         let v = v.trim().to_ascii_lowercase();
         return !matches!(v.as_str(), "" | "0" | "false" | "off" | "no");
@@ -68,14 +68,14 @@ pub fn is_enabled() -> bool {
 /// `<state_dir>/logs/debug.log`. Returns `None` if the state dir cannot be
 /// resolved or the `logs/` directory cannot be created.
 #[must_use]
-pub fn log_path() -> Option<PathBuf> {
+pub(crate) fn log_path() -> Option<PathBuf> {
     let dir = crate::core::paths::state_dir().ok()?.join("logs");
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir.join("debug.log"))
 }
 
 /// Record an MCP tool call handled by the lean-ctx server.
-pub fn log_mcp_call(
+pub(crate) fn log_mcp_call(
     tool: &str,
     args: Option<&Map<String, Value>>,
     result_first_line: &str,
@@ -95,7 +95,7 @@ pub fn log_mcp_call(
 }
 
 /// Record an MCP tool call that failed before producing a result.
-pub fn log_mcp_error(tool: &str, args: Option<&Map<String, Value>>, error: &str) {
+pub(crate) fn log_mcp_error(tool: &str, args: Option<&Map<String, Value>>, error: &str) {
     if !is_enabled() {
         return;
     }
@@ -110,7 +110,13 @@ pub fn log_mcp_error(tool: &str, args: Option<&Map<String, Value>>, error: &str)
 ///
 /// `subject` is the command / path / pattern that was inspected; `reason`
 /// explains the choice (e.g. `"rewritable shell command"`, `"sensitive path"`).
-pub fn log_hook_decision(event: &str, tool: &str, route: Route, subject: &str, reason: &str) {
+pub(crate) fn log_hook_decision(
+    event: &str,
+    tool: &str,
+    route: Route,
+    subject: &str,
+    reason: &str,
+) {
     if !is_enabled() {
         return;
     }
@@ -123,7 +129,7 @@ pub fn log_hook_decision(event: &str, tool: &str, route: Route, subject: &str, r
 
 /// Return the log content for display (most-recent `tail_lines`, `0` = all).
 #[must_use]
-pub fn read_log(tail_lines: usize) -> String {
+pub(crate) fn read_log(tail_lines: usize) -> String {
     let Some(path) = log_path() else {
         return "Debug log unavailable (state dir not resolvable).".to_string();
     };
@@ -145,7 +151,7 @@ pub fn read_log(tail_lines: usize) -> String {
 
 /// Delete the debug log (and its rotated backup). Returns a status line.
 #[must_use]
-pub fn clear() -> String {
+pub(crate) fn clear() -> String {
     let Some(path) = log_path() else {
         return "Debug log unavailable (state dir not resolvable).".to_string();
     };

@@ -36,14 +36,14 @@ static STORE: OnceLock<Mutex<GrammarUsage>> = OnceLock::new();
 static RECORD_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ExtUsage {
+pub(crate) struct ExtUsage {
     pub tree_sitter_hits: u64,
     pub regex_hits: u64,
     pub last_used_unix: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GrammarUsage {
+pub(crate) struct GrammarUsage {
     pub extensions: HashMap<String, ExtUsage>,
     #[serde(skip)]
     dirty: bool,
@@ -85,7 +85,7 @@ impl GrammarUsage {
         self.dirty = true;
     }
 
-    pub fn record(&mut self, ext: &str, tree_sitter: bool, now: u64) {
+    pub(crate) fn record(&mut self, ext: &str, tree_sitter: bool, now: u64) {
         let entry = self.extensions.entry(normalize_ext(ext)).or_default();
         if tree_sitter {
             entry.tree_sitter_hits = entry.tree_sitter_hits.saturating_add(1);
@@ -99,7 +99,7 @@ impl GrammarUsage {
 
     /// Extensions sorted by total hits (desc), then name (asc) for a stable
     /// order — the input to any tiering decision.
-    pub fn ranked(&self) -> Vec<(String, ExtUsage)> {
+    pub(crate) fn ranked(&self) -> Vec<(String, ExtUsage)> {
         let mut rows: Vec<(String, ExtUsage)> = self
             .extensions
             .iter()
@@ -113,7 +113,7 @@ impl GrammarUsage {
         rows
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         let path = store_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -150,7 +150,7 @@ fn global() -> &'static Mutex<GrammarUsage> {
 /// Process-global: record one signature extraction for `ext` via the given
 /// backend. Called from the hot `extract_signatures` path — no I/O here;
 /// disk writes happen every `FLUSH_EVERY` records or on [`flush`].
-pub fn record(ext: &str, tree_sitter: bool) {
+pub(crate) fn record(ext: &str, tree_sitter: bool) {
     if ext.is_empty() {
         return;
     }
@@ -165,7 +165,7 @@ pub fn record(ext: &str, tree_sitter: bool) {
 }
 
 /// Flush pending counts (wired into `tool_lifecycle::flush_all`).
-pub fn flush() {
+pub(crate) fn flush() {
     if let Ok(store) = global().lock()
         && store.dirty
     {
@@ -175,13 +175,13 @@ pub fn flush() {
 
 /// Ranked per-extension usage, read straight from disk so a separate process
 /// (dashboard, `doctor`) sees what the MCP/CLI processes persisted.
-pub fn disk_ranked() -> Vec<(String, ExtUsage)> {
+pub(crate) fn disk_ranked() -> Vec<(String, ExtUsage)> {
     GrammarUsage::load_from_disk().ranked()
 }
 
 /// Ranked per-extension usage from the live in-process store (includes
 /// not-yet-flushed records) — what `ctx_metrics` shows.
-pub fn live_ranked() -> Vec<(String, ExtUsage)> {
+pub(crate) fn live_ranked() -> Vec<(String, ExtUsage)> {
     global().lock().map(|s| s.ranked()).unwrap_or_default()
 }
 

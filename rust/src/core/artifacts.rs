@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactRegistry {
+pub(crate) struct ArtifactRegistry {
     pub artifacts: Vec<ArtifactSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactSpec {
+pub(crate) struct ArtifactSpec {
     pub name: String,
     pub path: String,
     pub description: String,
@@ -28,12 +28,12 @@ pub struct ResolvedArtifact {
 }
 
 #[derive(Debug, Default, Serialize)]
-pub struct ResolvedArtifacts {
+pub(crate) struct ResolvedArtifacts {
     pub artifacts: Vec<ResolvedArtifact>,
     pub warnings: Vec<String>,
 }
 
-pub fn load_resolved(project_root: &Path) -> ResolvedArtifacts {
+pub(crate) fn load_resolved(project_root: &Path) -> ResolvedArtifacts {
     let mut out = ResolvedArtifacts::default();
     // Must go through the same canonicalizer as the jail below, otherwise the
     // two sides disagree on Windows (verbatim prefix, 8.3 short names, case)

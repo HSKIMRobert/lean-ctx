@@ -46,7 +46,7 @@ struct Baseline {
 static BASELINE: Mutex<Option<Baseline>> = Mutex::new(None);
 
 /// True when the operator explicitly enabled the push exporter.
-pub fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     std::env::var(ENABLE_ENV).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         && std::env::var(API_KEY_ENV).is_ok_and(|v| !v.trim().is_empty())
 }
@@ -68,7 +68,7 @@ fn intake_url() -> String {
 /// Spawn the background push loop if (and only if) the operator opted in.
 /// Called from long-running entry points (dashboard server). Returns whether
 /// the loop was started.
-pub fn spawn_if_enabled() -> bool {
+pub(crate) fn spawn_if_enabled() -> bool {
     if !enabled() {
         return false;
     }
@@ -91,7 +91,7 @@ pub fn spawn_if_enabled() -> bool {
 }
 
 /// Build and submit one batch. Returns the number of series sent.
-pub fn push_once() -> Result<usize, String> {
+pub(crate) fn push_once() -> Result<usize, String> {
     let api_key = std::env::var(API_KEY_ENV).map_err(|_| "DD_API_KEY not set".to_string())?;
     let series = build_series(now_ts());
     if series.is_empty() {

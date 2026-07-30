@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum EvolutionStage {
+pub(crate) enum EvolutionStage {
     #[default]
     Egg,
     Baby,
@@ -11,7 +11,7 @@ pub enum EvolutionStage {
 }
 
 impl EvolutionStage {
-    pub fn from_level(level: u32) -> Self {
+    pub(crate) fn from_level(level: u32) -> Self {
         match level {
             0..=4 => Self::Egg,
             5..=14 => Self::Baby,
@@ -21,7 +21,7 @@ impl EvolutionStage {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Egg => "Egg",
             Self::Baby => "Baby",
@@ -31,7 +31,7 @@ impl EvolutionStage {
         }
     }
 
-    pub fn icon(&self) -> &'static str {
+    pub(crate) fn icon(&self) -> &'static str {
         match self {
             Self::Egg => "🥚",
             Self::Baby => "🐣",
@@ -41,7 +41,7 @@ impl EvolutionStage {
         }
     }
 
-    pub fn sprite_height(&self) -> usize {
+    pub(crate) fn sprite_height(&self) -> usize {
         match self {
             Self::Egg => 3,
             Self::Baby => 8,
@@ -52,7 +52,7 @@ impl EvolutionStage {
     }
 
     /// The next stage, or `None` if already Mythic.
-    pub fn next(&self) -> Option<Self> {
+    pub(crate) fn next(&self) -> Option<Self> {
         match self {
             Self::Egg => Some(Self::Baby),
             Self::Baby => Some(Self::Teen),
@@ -63,7 +63,7 @@ impl EvolutionStage {
     }
 
     /// Level required to reach this stage.
-    pub fn min_level(&self) -> u32 {
+    pub(crate) fn min_level(&self) -> u32 {
         match self {
             Self::Egg => 0,
             Self::Baby => 5,
@@ -74,7 +74,7 @@ impl EvolutionStage {
     }
 
     /// Progress (0.0..1.0) toward the next evolution within the current stage.
-    pub fn progress(&self, level: u32) -> f64 {
+    pub(crate) fn progress(&self, level: u32) -> f64 {
         let Some(next) = self.next() else {
             return 1.0;
         };

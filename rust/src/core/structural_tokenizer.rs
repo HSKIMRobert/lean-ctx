@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use regex::Regex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenKind {
+pub(crate) enum TokenKind {
     Keyword,
     Identifier,
     Operator,
@@ -16,7 +16,7 @@ pub enum TokenKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct StructuralToken {
+pub(crate) struct StructuralToken {
     pub kind: TokenKind,
     pub text: String,
     pub weight: f64,
@@ -234,7 +234,7 @@ fn push_op(out: &mut Vec<StructuralToken>, text: &str) {
 }
 
 /// Tokenize source into weighted structural tokens (motifs, keywords, literals, …).
-pub fn structural_tokenize(code: &str, lang: &str) -> Vec<StructuralToken> {
+pub(crate) fn structural_tokenize(code: &str, lang: &str) -> Vec<StructuralToken> {
     let lang_lower = lang.to_lowercase();
     let lang_k = match lang_lower.as_str() {
         "rust" | "rs" => "rust",

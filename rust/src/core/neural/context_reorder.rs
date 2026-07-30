@@ -1,7 +1,7 @@
 use super::attention_learned::LearnedAttention;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LineCategory {
+pub(crate) enum LineCategory {
     ErrorHandling,
     Import,
     TypeDefinition,
@@ -11,13 +11,13 @@ pub enum LineCategory {
     Empty,
 }
 
-pub struct CategorizedLine<'a> {
+pub(crate) struct CategorizedLine<'a> {
     pub line: &'a str,
     pub category: LineCategory,
     pub original_index: usize,
 }
 
-pub fn categorize_line(line: &str) -> LineCategory {
+pub(crate) fn categorize_line(line: &str) -> LineCategory {
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return LineCategory::Empty;
@@ -46,7 +46,7 @@ pub fn categorize_line(line: &str) -> LineCategory {
     LineCategory::Logic
 }
 
-pub fn reorder_for_lcurve(content: &str, task_keywords: &[String]) -> String {
+pub(crate) fn reorder_for_lcurve(content: &str, task_keywords: &[String]) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if lines.len() <= 5 {
         return content.to_string();

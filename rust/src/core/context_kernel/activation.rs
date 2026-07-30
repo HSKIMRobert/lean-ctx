@@ -14,7 +14,7 @@ const MAX_SUPPLEMENT_TOKENS: usize = 150;
 
 /// Configuration for kernel activation mode and feedback.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ActivationConfig {
+pub(crate) struct ActivationConfig {
     /// Kernel operating mode: Shadow (log only), Enforce (apply decisions),
     /// or Explain (log + annotate).
     pub mode: KernelModeConfig,
@@ -29,7 +29,7 @@ pub struct ActivationConfig {
 /// Serializable kernel operating mode.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum KernelModeConfig {
+pub(crate) enum KernelModeConfig {
     /// Log kernel decisions but don't enforce them. Safe default.
     #[default]
     Shadow,
@@ -67,7 +67,7 @@ struct KernelOverrides {
 ///
 /// Missing or malformed files retain safe defaults. Project-local settings in
 /// `.lean-ctx.toml` override the global `config.toml` settings.
-pub fn load_config(project_root: &str) -> ActivationConfig {
+pub(crate) fn load_config(project_root: &str) -> ActivationConfig {
     let mut config = safe_defaults();
 
     if let Some(path) = crate::core::config::Config::path()
@@ -85,7 +85,7 @@ pub fn load_config(project_root: &str) -> ActivationConfig {
 }
 
 /// Returns a receipt copy carrying the observed accept/reject outcome.
-pub fn record_real_outcome(receipt: &ContextReceiptV1, accepted: bool) -> ContextReceiptV1 {
+pub(crate) fn record_real_outcome(receipt: &ContextReceiptV1, accepted: bool) -> ContextReceiptV1 {
     let mut recorded = receipt.clone();
     recorded.outcome = if accepted {
         ReceiptOutcome::Accepted
@@ -99,7 +99,7 @@ pub fn record_real_outcome(receipt: &ContextReceiptV1, accepted: bool) -> Contex
 ///
 /// Unknown and partial outcomes carry no binary accept/reject signal and are
 /// ignored. Feedback persistence handles unavailable paths without panicking.
-pub fn connect_feedback(receipt: &ContextReceiptV1, project_root: &str) {
+pub(crate) fn connect_feedback(receipt: &ContextReceiptV1, project_root: &str) {
     if !matches!(
         receipt.outcome,
         ReceiptOutcome::Accepted | ReceiptOutcome::Rejected
@@ -123,7 +123,7 @@ pub fn connect_feedback(receipt: &ContextReceiptV1, project_root: &str) {
 }
 
 /// Returns whether kernel supplementation should run in the configured mode.
-pub fn should_supplement(config: &ActivationConfig) -> bool {
+pub(crate) fn should_supplement(config: &ActivationConfig) -> bool {
     matches!(
         config.mode,
         KernelModeConfig::Shadow | KernelModeConfig::Enforce | KernelModeConfig::Explain
@@ -131,12 +131,12 @@ pub fn should_supplement(config: &ActivationConfig) -> bool {
 }
 
 /// Returns the bounded per-request token budget for kernel supplementation.
-pub fn supplement_budget(config: &ActivationConfig) -> usize {
+pub(crate) fn supplement_budget(config: &ActivationConfig) -> usize {
     config.max_supplement_tokens.min(MAX_SUPPLEMENT_TOKENS)
 }
 
 /// Returns whether the selected mode may suppress low-value context.
-pub fn should_suppress_in_mode(mode: KernelModeConfig) -> bool {
+pub(crate) fn should_suppress_in_mode(mode: KernelModeConfig) -> bool {
     matches!(KernelMode::from(mode), KernelMode::Enforce)
 }
 

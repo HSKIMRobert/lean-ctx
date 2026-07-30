@@ -12,7 +12,7 @@ use super::graph_model::{GraphSummary, MarketplaceMeta};
 /// and old readers (which tolerate unknown fields) keep working.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PackageKind {
+pub(crate) enum PackageKind {
     #[default]
     Context,
     Skills,
@@ -21,7 +21,7 @@ pub enum PackageKind {
 }
 
 impl PackageKind {
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Context => "context",
             Self::Skills => "skills",
@@ -31,13 +31,13 @@ impl PackageKind {
     }
 
     /// True for the default kind (used to omit the field when serializing).
-    pub fn is_context(&self) -> bool {
+    pub(crate) fn is_context(&self) -> bool {
         matches!(self, Self::Context)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageManifest {
+pub(crate) struct PackageManifest {
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conformance_level: Option<u32>,
@@ -79,7 +79,7 @@ pub struct PackageManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageSignature {
+pub(crate) struct PackageSignature {
     pub algorithm: String,
     pub public_key: String,
     pub value: String,
@@ -87,7 +87,7 @@ pub struct PackageSignature {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PackageLayer {
+pub(crate) enum PackageLayer {
     Knowledge,
     Graph,
     Session,
@@ -96,7 +96,7 @@ pub enum PackageLayer {
 }
 
 impl PackageLayer {
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Knowledge => "knowledge",
             Self::Graph => "graph",
@@ -106,7 +106,7 @@ impl PackageLayer {
         }
     }
 
-    pub fn filename(&self) -> &'static str {
+    pub(crate) fn filename(&self) -> &'static str {
         match self {
             Self::Knowledge => "knowledge.json",
             Self::Graph => "graph.json",
@@ -126,14 +126,14 @@ pub struct PackageDependency {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageIntegrity {
+pub(crate) struct PackageIntegrity {
     pub sha256: String,
     pub content_hash: String,
     pub byte_size: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageProvenance {
+pub(crate) struct PackageProvenance {
     pub tool: String,
     pub tool_version: String,
     pub project_hash: Option<String>,
@@ -142,7 +142,7 @@ pub struct PackageProvenance {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CompatibilitySpec {
+pub(crate) struct CompatibilitySpec {
     #[serde(default)]
     pub min_lean_ctx_version: Option<String>,
     #[serde(default)]
@@ -152,7 +152,7 @@ pub struct CompatibilitySpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PackageStats {
+pub(crate) struct PackageStats {
     pub knowledge_facts: u32,
     pub graph_nodes: u32,
     pub graph_edges: u32,
@@ -162,11 +162,11 @@ pub struct PackageStats {
 }
 
 impl PackageManifest {
-    pub fn is_v2(&self) -> bool {
+    pub(crate) fn is_v2(&self) -> bool {
         self.schema_version >= crate::core::contracts::CONTEXT_PACKAGE_V2_SCHEMA_VERSION
     }
 
-    pub fn validate(&self) -> Result<(), Vec<String>> {
+    pub(crate) fn validate(&self) -> Result<(), Vec<String>> {
         let mut errors = Vec::new();
 
         let v1 = crate::core::contracts::CONTEXT_PACKAGE_V1_SCHEMA_VERSION;
@@ -248,7 +248,7 @@ impl PackageManifest {
         }
     }
 
-    pub fn has_layer(&self, layer: PackageLayer) -> bool {
+    pub(crate) fn has_layer(&self, layer: PackageLayer) -> bool {
         self.layers.contains(&layer)
     }
 }

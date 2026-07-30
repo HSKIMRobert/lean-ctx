@@ -9,7 +9,7 @@ fn slow_log_path() -> Option<PathBuf> {
         .map(|d| d.join(LOG_FILENAME))
 }
 
-pub fn record(command: &str, duration_ms: u128, exit_code: i32) {
+pub(crate) fn record(command: &str, duration_ms: u128, exit_code: i32) {
     let Some(path) = slow_log_path() else { return };
 
     if let Some(parent) = path.parent() {
@@ -37,7 +37,7 @@ pub fn record(command: &str, duration_ms: u128, exit_code: i32) {
     let _ = std::fs::write(&path, content);
 }
 
-pub fn list() -> String {
+pub(crate) fn list() -> String {
     let Some(path) = slow_log_path() else {
         return "Cannot determine data directory.".to_string();
     };
@@ -73,7 +73,7 @@ pub fn list() -> String {
     }
 }
 
-pub fn clear() -> String {
+pub(crate) fn clear() -> String {
     let Some(path) = slow_log_path() else {
         return "Cannot determine data directory.".to_string();
     };

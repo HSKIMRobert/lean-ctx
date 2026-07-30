@@ -26,13 +26,13 @@ struct CompiledRule {
 }
 
 /// Regex-based output filter engine loaded from user-defined TOML rules.
-pub struct FilterEngine {
+pub(crate) struct FilterEngine {
     rules: Vec<CompiledRule>,
 }
 
 impl FilterEngine {
     /// Loads and compiles all filter rules from `~/.lean-ctx/filters/*.toml`.
-    pub fn load() -> Option<Self> {
+    pub(crate) fn load() -> Option<Self> {
         let dir = crate::core::data_dir::lean_ctx_data_dir()
             .ok()?
             .join("filters");
@@ -69,7 +69,7 @@ impl FilterEngine {
     }
 
     /// Applies the first matching filter rule to the command output.
-    pub fn apply(&self, command: &str, output: &str) -> Option<String> {
+    pub(crate) fn apply(&self, command: &str, output: &str) -> Option<String> {
         let cmd_lower = command.to_ascii_lowercase();
 
         for rule in &self.rules {
@@ -105,7 +105,7 @@ impl FilterEngine {
     }
 
     /// Returns a human-readable summary of each loaded filter rule.
-    pub fn list_rules(&self) -> Vec<String> {
+    pub(crate) fn list_rules(&self) -> Vec<String> {
         self.rules
             .iter()
             .map(|r| {
@@ -158,7 +158,7 @@ fn compile_rule(raw: RawFilterRule, path: &Path) -> CompiledRule {
 }
 
 /// Validates a filter TOML file, returning the number of valid rules or an error.
-pub fn validate_filter_file(path: &str) -> Result<usize, String> {
+pub(crate) fn validate_filter_file(path: &str) -> Result<usize, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("Cannot read {path}: {e}"))?;
     let file: FilterFile =
         toml::from_str(&content).map_err(|e| format!("TOML parse error: {e}"))?;
@@ -187,7 +187,7 @@ pub fn validate_filter_file(path: &str) -> Result<usize, String> {
 }
 
 /// Creates an example filter TOML file in the filters directory.
-pub fn create_example_filter() -> Result<String, String> {
+pub(crate) fn create_example_filter() -> Result<String, String> {
     let dir = crate::core::data_dir::lean_ctx_data_dir()?.join("filters");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
@@ -217,7 +217,7 @@ pub fn create_example_filter() -> Result<String, String> {
 }
 
 /// Applies aggressive compression (strips comments, blank lines, normalizes indent).
-pub fn aggressive_filter(content: &str) -> String {
+pub(crate) fn aggressive_filter(content: &str) -> String {
     crate::core::compressor::aggressive_compress(content, None)
 }
 

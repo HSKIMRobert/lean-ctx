@@ -52,7 +52,7 @@ impl Compressor for MarkdownCompressor {
 
 /// Register the non-code compressors into `reg`. Called from
 /// [`ExtensionRegistry::with_builtins`].
-pub fn register_into(reg: &mut ExtensionRegistry) {
+pub(crate) fn register_into(reg: &mut ExtensionRegistry) {
     reg.register_compressor(Arc::new(ProseCompressor));
     reg.register_compressor(Arc::new(MarkdownCompressor));
 }

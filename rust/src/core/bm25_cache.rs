@@ -55,11 +55,11 @@ fn ttl_secs() -> u64 {
         .unwrap_or(DEFAULT_TTL_SECS)
 }
 
-pub type SharedBm25Cache = std::sync::Arc<std::sync::Mutex<Option<Bm25CacheEntry>>>;
+pub(crate) type SharedBm25Cache = std::sync::Arc<std::sync::Mutex<Option<Bm25CacheEntry>>>;
 
 /// Get the BM25 index from cache if available and fresh, otherwise load/build,
 /// cache it, and return. Uses Arc to avoid cloning the entire index.
-pub fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> Arc<BM25Index> {
+pub(crate) fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> Arc<BM25Index> {
     {
         let guard = cache
             .lock()
@@ -89,7 +89,7 @@ pub fn get_or_load(cache: &SharedBm25Cache, root: &Path) -> Arc<BM25Index> {
 
 /// Get index from cache (fresh or stale), triggering background rebuild if stale.
 /// Returns None only if no cache entry exists at all.
-pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM25Index>> {
+pub(crate) fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM25Index>> {
     let guard = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -136,7 +136,7 @@ pub fn get_or_background(cache: &SharedBm25Cache, root: &Path) -> Option<Arc<BM2
 
 /// Drops the cached BM25 index, freeing its heap memory.
 /// The index will be rebuilt from disk on the next search.
-pub fn unload(cache: &SharedBm25Cache) {
+pub(crate) fn unload(cache: &SharedBm25Cache) {
     let mut guard = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -147,7 +147,7 @@ pub fn unload(cache: &SharedBm25Cache) {
 }
 
 /// Returns the approximate heap memory used by the cached BM25 index, or 0.
-pub fn memory_usage(cache: &SharedBm25Cache) -> usize {
+pub(crate) fn memory_usage(cache: &SharedBm25Cache) -> usize {
     let guard = cache
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -168,7 +168,7 @@ pub fn memory_usage(cache: &SharedBm25Cache) -> usize {
 /// has not yet dropped its clone, or a background refresh is in flight. The next
 /// search call retries against the then-sole-owner cache entry. Returns the bytes
 /// reclaimed (0 if skipped).
-pub fn shrink_resident_to_snippet(
+pub(crate) fn shrink_resident_to_snippet(
     cache: &SharedBm25Cache,
     root: &Path,
     keep_lines: usize,

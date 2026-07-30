@@ -1,7 +1,7 @@
 use crate::core::session::SessionState;
 use crate::core::stats;
 
-pub struct WrappedReport {
+pub(crate) struct WrappedReport {
     pub period: String,
     pub tokens_saved: u64,
     pub tokens_input: u64,
@@ -26,7 +26,7 @@ pub struct WrappedReport {
 }
 
 impl WrappedReport {
-    pub fn generate(period: &str) -> Self {
+    pub(crate) fn generate(period: &str) -> Self {
         let store = stats::load_for_display();
         let sessions = SessionState::list_sessions();
 
@@ -137,7 +137,7 @@ impl WrappedReport {
     /// One-line, conservative explanation of how the headline numbers were derived.
     /// Reused by the ASCII footer, the compact summary, and the SVG share card so the
     /// figure is always explainable and never over-claimed.
-    pub fn methodology_line(&self) -> String {
+    pub(crate) fn methodology_line(&self) -> String {
         let price = if self.pricing_estimated {
             format!(
                 "{} blended fallback price (set LEAN_CTX_MODEL for exact)",
@@ -161,7 +161,7 @@ impl WrappedReport {
     /// stdout is a TTY (see `theme::no_color`), so piping to a file or social post
     /// yields clean copy-pasteable ASCII.
     #[allow(clippy::many_single_char_names)] // ANSI formatting helpers: t/r/b/d
-    pub fn format_ascii(&self) -> String {
+    pub(crate) fn format_ascii(&self) -> String {
         use crate::core::theme;
 
         let cfg = crate::core::config::Config::load();
@@ -285,7 +285,7 @@ impl WrappedReport {
         out.join("\n")
     }
 
-    pub fn format_compact(&self) -> String {
+    pub(crate) fn format_compact(&self) -> String {
         let saved_str = format_tokens(self.tokens_saved);
         let cost_str = format!("${:.2}", self.cost_avoided_usd);
         let top_str = self

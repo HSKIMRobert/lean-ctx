@@ -9,7 +9,7 @@ const MBPP_URL: &str =
 
 /// Ensure the HumanEval dataset exists at the expected path.
 /// Downloads and decompresses if missing.
-pub fn ensure_humaneval(data_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn ensure_humaneval(data_dir: &Path) -> Result<PathBuf, String> {
     let target = data_dir.join("humaneval.ndjson");
     if target.exists() {
         return Ok(target);
@@ -43,7 +43,7 @@ pub fn ensure_humaneval(data_dir: &Path) -> Result<PathBuf, String> {
 
 /// Ensure the MBPP dataset exists at the expected path.
 /// Downloads if missing.
-pub fn ensure_mbpp(data_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn ensure_mbpp(data_dir: &Path) -> Result<PathBuf, String> {
     let target = data_dir.join("mbpp.ndjson");
     if target.exists() {
         return Ok(target);

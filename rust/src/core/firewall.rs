@@ -20,7 +20,7 @@ const JSON_PREVIEW_KEYS: usize = 32;
 
 /// Tools whose large outputs are eligible for the firewall. Explicit file reads are
 /// intentionally excluded — they have their own read-mode (`lines:`, `signatures`, …).
-pub fn is_firewallable_tool(name: &str) -> bool {
+pub(crate) fn is_firewallable_tool(name: &str) -> bool {
     matches!(
         name,
         "ctx_shell" | "ctx_execute" | "ctx_search" | "ctx_tree"
@@ -33,17 +33,17 @@ pub fn is_firewallable_tool(name: &str) -> bool {
 /// of output size or config. This is the single source of truth for "an explicit
 /// read always returns content"; both the firewall and the reference-results path
 /// honour it so a `ctx_read` can never degrade to a preview the agent can't edit.
-pub fn is_protected_read(name: &str) -> bool {
+pub(crate) fn is_protected_read(name: &str) -> bool {
     matches!(name, "ctx_read" | "ctx_multi_read" | "ctx_smart_read")
 }
 
 /// Effective minimum token count before firewalling (config + env override).
-pub fn min_tokens(config: &Config) -> usize {
+pub(crate) fn min_tokens(config: &Config) -> usize {
     config.archive.ephemeral_min_tokens_effective()
 }
 
 /// Whether a result of `output_tokens` from `tool` should be firewalled.
-pub fn should_firewall(tool: &str, output_tokens: usize, config: &Config) -> bool {
+pub(crate) fn should_firewall(tool: &str, output_tokens: usize, config: &Config) -> bool {
     config.archive.ephemeral_effective()
         && is_firewallable_tool(tool)
         && output_tokens >= min_tokens(config)
@@ -54,12 +54,12 @@ pub fn should_firewall(tool: &str, output_tokens: usize, config: &Config) -> boo
 /// elision does not compress those — it deletes the interior rows, which for
 /// sorted output is exactly where the answer lives (#1260). No size threshold
 /// makes that safe, so these bypass the firewall entirely.
-pub const DEFAULT_RAW_COMMANDS: &[&str] = &["sqlite3", "psql", "duckdb", "jq"];
+pub(crate) const DEFAULT_RAW_COMMANDS: &[&str] = &["sqlite3", "psql", "duckdb", "jq"];
 
 /// Whether `command` runs a dataset program in any of its pipeline segments.
 /// `gh` counts only with `--json`/`--jq` — plain `gh` output is prose and
 /// compresses fine.
-pub fn is_raw_command(command: &str, config: &Config) -> bool {
+pub(crate) fn is_raw_command(command: &str, config: &Config) -> bool {
     command
         .split(['|', ';', '&', '\n'])
         .any(|seg| match seg.split_whitespace().next() {
@@ -76,7 +76,11 @@ pub fn is_raw_command(command: &str, config: &Config) -> bool {
 
 /// Whether an explicitly requested `ctx_shell(inline=true)` result fits the
 /// configured verbatim-delivery cap.
-pub fn should_inline_shell(inline_requested: bool, output_bytes: usize, config: &Config) -> bool {
+pub(crate) fn should_inline_shell(
+    inline_requested: bool,
+    output_bytes: usize,
+    config: &Config,
+) -> bool {
     inline_requested && output_bytes <= config.archive.inline_max_bytes_effective()
 }
 
@@ -84,7 +88,7 @@ pub fn should_inline_shell(inline_requested: bool, output_bytes: usize, config: 
 /// a head/tail excerpt for multi-line output, or a char-bounded excerpt for output with
 /// few but very long lines (e.g. a single giant JSON line), followed by drilldown
 /// instructions keyed on `archive_id`.
-pub fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens: usize) -> String {
+pub(crate) fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens: usize) -> String {
     let chars = full.len();
     let lines: Vec<&str> = full.lines().collect();
     let line_count = lines.len();

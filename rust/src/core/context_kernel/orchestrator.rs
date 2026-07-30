@@ -16,14 +16,14 @@ use super::types::{
 
 /// The Context Control Kernel — orchestrates candidate gathering, Phi scoring,
 /// budget-optimal selection, and plan/receipt generation.
-pub struct ContextKernel {
+pub(crate) struct ContextKernel {
     providers: Vec<Box<dyn CandidateProvider>>,
     field: ContextField,
 }
 
 impl ContextKernel {
     /// Create a new kernel with the given providers.
-    pub fn new(providers: Vec<Box<dyn CandidateProvider>>) -> Self {
+    pub(crate) fn new(providers: Vec<Box<dyn CandidateProvider>>) -> Self {
         Self {
             providers,
             field: ContextField::active(),
@@ -31,17 +31,17 @@ impl ContextKernel {
     }
 
     /// Create a kernel with default providers for a project.
-    pub fn for_project(project_root: &str) -> Self {
+    pub(crate) fn for_project(project_root: &str) -> Self {
         Self::new(super::providers::default_providers(project_root))
     }
 
     /// Register an additional provider.
-    pub fn register(&mut self, provider: Box<dyn CandidateProvider>) {
+    pub(crate) fn register(&mut self, provider: Box<dyn CandidateProvider>) {
         self.providers.push(provider);
     }
 
     /// Gather and content-deduplicate candidates from all registered providers.
-    pub fn gather(&self, ctx: &RetrievalContext) -> Vec<ContextObjectV1> {
+    pub(crate) fn gather(&self, ctx: &RetrievalContext) -> Vec<ContextObjectV1> {
         let mut all = Vec::new();
         for provider in &self.providers {
             all.extend(provider.candidates(ctx));
@@ -51,7 +51,7 @@ impl ContextKernel {
     }
 
     /// Score candidates, compile the best package under budget, and return its plan.
-    pub fn plan(&self, ctx: &RetrievalContext) -> ContextPlanV1 {
+    pub(crate) fn plan(&self, ctx: &RetrievalContext) -> ContextPlanV1 {
         let candidates = self.gather(ctx);
         let scored: Vec<_> = candidates
             .into_iter()
@@ -71,7 +71,7 @@ impl ContextKernel {
     }
 
     /// Record delivery outcome and provider-level feedback for a completed plan.
-    pub fn record_receipt(
+    pub(crate) fn record_receipt(
         &self,
         plan: &ContextPlanV1,
         delivered_tokens: usize,

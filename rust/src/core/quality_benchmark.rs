@@ -15,13 +15,13 @@ const MAX_REPLAY_BYTES: u64 = 16 * 1024 * 1024;
 const Z_95: f64 = 1.959_963_984_540_054;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReplaySuite {
+pub(crate) struct ReplaySuite {
     pub kind: String,
     pub sessions: Vec<RecordedSession>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordedSession {
+pub(crate) struct RecordedSession {
     pub id: String,
     pub model: String,
     pub without_compression: RecordedArm,
@@ -29,7 +29,7 @@ pub struct RecordedSession {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordedArm {
+pub(crate) struct RecordedArm {
     pub success: bool,
     pub turns: u64,
     pub usage: TokenUsage,
@@ -38,7 +38,7 @@ pub struct RecordedArm {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct TokenUsage {
+pub(crate) struct TokenUsage {
     pub new_input_tokens: u64,
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
@@ -46,7 +46,7 @@ pub struct TokenUsage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecordedToolCall {
+pub(crate) struct RecordedToolCall {
     pub name: String,
     #[serde(default)]
     pub source: Option<String>,
@@ -59,13 +59,13 @@ pub struct RecordedToolCall {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ConfidenceInterval {
+pub(crate) struct ConfidenceInterval {
     pub low: f64,
     pub high: f64,
 }
 
 #[derive(Debug, Clone)]
-pub struct ArmSummary {
+pub(crate) struct ArmSummary {
     pub successes: u64,
     pub sessions: u64,
     pub success_ci: ConfidenceInterval,
@@ -81,7 +81,7 @@ pub struct ArmSummary {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReplayReport {
+pub(crate) struct ReplayReport {
     pub without: ArmSummary,
     pub with: ArmSummary,
     pub success_delta: ConfidenceInterval,
@@ -102,7 +102,7 @@ struct ArmSamples {
     bounce: BounceTracker,
 }
 
-pub fn load_replay(path: &Path) -> Result<ReplaySuite> {
+pub(crate) fn load_replay(path: &Path) -> Result<ReplaySuite> {
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("reading replay metadata {}", path.display()))?;
     if metadata.len() > MAX_REPLAY_BYTES {
@@ -150,7 +150,7 @@ fn validate(suite: &ReplaySuite) -> Result<()> {
     Ok(())
 }
 
-pub fn replay(suite: &ReplaySuite) -> Result<ReplayReport> {
+pub(crate) fn replay(suite: &ReplaySuite) -> Result<ReplayReport> {
     validate(suite)?;
     let pricing = ModelPricing::embedded();
     let mut without = ArmSamples::default();
@@ -301,7 +301,7 @@ fn wilson_ci(successes: u64, total: u64) -> ConfidenceInterval {
     }
 }
 
-pub fn format_markdown(report: &ReplayReport) -> String {
+pub(crate) fn format_markdown(report: &ReplayReport) -> String {
     let arm = |name: &str, a: &ArmSummary| {
         format!(
             "| {name} | {}/{} ({:.2}% [{:.2}, {:.2}]) | {:.2} [{:.2}, {:.2}] | {}/{} ({:.2}% [{:.2}, {:.2}]) | ${:.6} (${:.6} [{:.6}, {:.6}]) | {} |",

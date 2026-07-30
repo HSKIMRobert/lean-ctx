@@ -12,7 +12,7 @@ const DEFAULT_MAX_CONFIG_TOKENS: usize = 800;
 
 /// Configuration for context budget enforcement.
 #[derive(Debug, Clone)]
-pub struct BudgetConfig {
+pub(crate) struct BudgetConfig {
     pub max_config_tokens: usize,
     pub threshold: f64,
     pub rebalance_on_context_change: bool,
@@ -30,7 +30,7 @@ impl Default for BudgetConfig {
 
 /// Metrics from a budget enforcement cycle.
 #[derive(Debug, Clone, Default)]
-pub struct BudgetMetrics {
+pub(crate) struct BudgetMetrics {
     pub total_rules: usize,
     pub injected_rules: usize,
     pub dormant_rules: usize,
@@ -42,7 +42,7 @@ pub struct BudgetMetrics {
 }
 
 /// The budget enforcer maintains state across context changes.
-pub struct BudgetEnforcer {
+pub(crate) struct BudgetEnforcer {
     config: BudgetConfig,
     current_allocation: Option<BudgetAllocation>,
     last_context_hash: u64,
@@ -50,7 +50,7 @@ pub struct BudgetEnforcer {
 }
 
 impl BudgetEnforcer {
-    pub fn new(config: BudgetConfig) -> Self {
+    pub(crate) fn new(config: BudgetConfig) -> Self {
         Self {
             config,
             current_allocation: None,
@@ -61,7 +61,7 @@ impl BudgetEnforcer {
 
     /// Enforce budget: score rules, allocate within budget, return the
     /// config text to inject into the context window.
-    pub fn enforce(&mut self, rules: &[AgentRule], context: &SessionContext) -> String {
+    pub(crate) fn enforce(&mut self, rules: &[AgentRule], context: &SessionContext) -> String {
         let context_hash = hash_context(context);
         let needs_rebalance = self.should_rebalance(context_hash);
 
@@ -81,12 +81,12 @@ impl BudgetEnforcer {
     }
 
     /// Get current metrics for observability.
-    pub fn metrics(&self) -> &BudgetMetrics {
+    pub(crate) fn metrics(&self) -> &BudgetMetrics {
         &self.metrics
     }
 
     /// Force a rebalance on next `enforce` call.
-    pub fn invalidate(&mut self) {
+    pub(crate) fn invalidate(&mut self) {
         self.last_context_hash = 0;
     }
 

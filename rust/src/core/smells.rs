@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SmellFinding {
+pub(crate) struct SmellFinding {
     pub rule: &'static str,
     pub severity: Severity,
     pub file_path: String,
@@ -20,20 +20,20 @@ pub struct SmellFinding {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Severity {
+pub(crate) enum Severity {
     Info,
     Warning,
     Error,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct SmellSummary {
+pub(crate) struct SmellSummary {
     pub rule: &'static str,
     pub description: &'static str,
     pub findings: usize,
 }
 
-pub struct SmellConfig {
+pub(crate) struct SmellConfig {
     pub long_function_lines: usize,
     pub long_file_lines: usize,
     pub god_file_symbols: usize,
@@ -51,7 +51,7 @@ impl Default for SmellConfig {
     }
 }
 
-pub static RULES: &[(&str, &str)] = &[
+pub(crate) static RULES: &[(&str, &str)] = &[
     ("dead_code", "Symbols defined but never referenced"),
     ("long_function", "Functions exceeding line threshold"),
     ("long_file", "Files exceeding line threshold"),
@@ -71,7 +71,7 @@ pub static RULES: &[(&str, &str)] = &[
     ),
 ];
 
-pub fn scan_all(conn: &Connection, cfg: &SmellConfig) -> Vec<SmellFinding> {
+pub(crate) fn scan_all(conn: &Connection, cfg: &SmellConfig) -> Vec<SmellFinding> {
     let mut all = Vec::new();
     for &(rule, _) in RULES {
         all.extend(scan_rule(conn, rule, cfg));
@@ -79,7 +79,7 @@ pub fn scan_all(conn: &Connection, cfg: &SmellConfig) -> Vec<SmellFinding> {
     all
 }
 
-pub fn scan_rule(conn: &Connection, rule: &str, cfg: &SmellConfig) -> Vec<SmellFinding> {
+pub(crate) fn scan_rule(conn: &Connection, rule: &str, cfg: &SmellConfig) -> Vec<SmellFinding> {
     match rule {
         "dead_code" => detect_dead_code(conn),
         "long_function" => detect_long_functions(conn, cfg.long_function_lines),
@@ -93,7 +93,7 @@ pub fn scan_rule(conn: &Connection, rule: &str, cfg: &SmellConfig) -> Vec<SmellF
     }
 }
 
-pub fn summarize(findings: &[SmellFinding]) -> Vec<SmellSummary> {
+pub(crate) fn summarize(findings: &[SmellFinding]) -> Vec<SmellSummary> {
     RULES
         .iter()
         .map(|&(rule, desc)| SmellSummary {

@@ -1,7 +1,7 @@
 use crate::core::intent_engine::{TaskClassification, TaskType, classify};
 
 #[derive(Debug)]
-pub struct TaskBriefing {
+pub(crate) struct TaskBriefing {
     pub classification: TaskClassification,
     pub completeness_signal: CompletenessSignal,
     pub output_instruction: &'static str,
@@ -12,7 +12,7 @@ pub struct TaskBriefing {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum CompletenessSignal {
+pub(crate) enum CompletenessSignal {
     SingleFile,
     MultiFile,
     CrossModule,
@@ -20,7 +20,7 @@ pub enum CompletenessSignal {
 }
 
 impl CompletenessSignal {
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::SingleFile => "SCOPE:single-file",
             Self::MultiFile => "SCOPE:multi-file",
@@ -30,7 +30,7 @@ impl CompletenessSignal {
     }
 }
 
-pub fn build_briefing(task: &str, file_context: &[(String, usize)]) -> TaskBriefing {
+pub(crate) fn build_briefing(task: &str, file_context: &[(String, usize)]) -> TaskBriefing {
     let classification = classify(task);
 
     let completeness = estimate_completeness(&classification, file_context);
@@ -111,7 +111,7 @@ fn build_context_hints(
     hints
 }
 
-pub fn format_briefing(briefing: &TaskBriefing) -> String {
+pub(crate) fn format_briefing(briefing: &TaskBriefing) -> String {
     let mut parts = Vec::new();
 
     parts.push(format!(
@@ -131,7 +131,7 @@ pub fn format_briefing(briefing: &TaskBriefing) -> String {
     parts.join("\n")
 }
 
-pub fn inject_into_instructions(base_instructions: &str, task: &str) -> String {
+pub(crate) fn inject_into_instructions(base_instructions: &str, task: &str) -> String {
     if task.trim().is_empty() {
         return base_instructions.to_string();
     }

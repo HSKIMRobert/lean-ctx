@@ -11,16 +11,16 @@ use std::fmt::Write as _;
 use thiserror::Error;
 
 /// Stable schema identifier for tokenizer calibration reports.
-pub const TOKEN_CALIBRATION_SCHEMA_VERSION: &str = "leanctx.token-calibration/v1";
+pub(crate) const TOKEN_CALIBRATION_SCHEMA_VERSION: &str = "leanctx.token-calibration/v1";
 /// Stable report version for the first calibration contract.
-pub const TOKEN_CALIBRATION_REPORT_VERSION: &str = "1.0.0";
+pub(crate) const TOKEN_CALIBRATION_REPORT_VERSION: &str = "1.0.0";
 const MAX_ENTRIES: usize = 4_096;
 const MAX_TEXT_FIELD_CHARS: usize = 256;
 const MAX_AUTHORITY_REF_CHARS: usize = 512;
 
 /// A single provider-count observation, identified without retaining payload.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TokenCalibrationEntry {
+pub(crate) struct TokenCalibrationEntry {
     /// Immutable provider/corpus reference for the measured sample.
     pub sample_ref: String,
     /// Provider-reported input token count for the sample.
@@ -29,7 +29,7 @@ pub struct TokenCalibrationEntry {
 
 /// Versioned provider-count calibration report.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct TokenCalibrationReportV1 {
+pub(crate) struct TokenCalibrationReportV1 {
     pub schema_version: String,
     pub report_version: String,
     pub provider: String,
@@ -45,7 +45,7 @@ pub struct TokenCalibrationReportV1 {
 
 /// Fail-closed validation errors for calibration evidence.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum TokenCalibrationError {
+pub(crate) enum TokenCalibrationError {
     #[error("unsupported calibration schema version")]
     UnsupportedSchema,
     #[error("unsupported calibration report version")]
@@ -70,7 +70,7 @@ pub enum TokenCalibrationError {
 
 impl TokenCalibrationReportV1 {
     /// Constructs an authoritative report and computes its deterministic digest.
-    pub fn new_provider_authoritative(
+    pub(crate) fn new_provider_authoritative(
         provider: impl Into<String>,
         model: impl Into<String>,
         tokenizer_family: impl Into<String>,
@@ -94,7 +94,7 @@ impl TokenCalibrationReportV1 {
     }
 
     /// Validates all bounds, canonical ordering, authority, and digest fields.
-    pub fn validate(&self) -> Result<(), TokenCalibrationError> {
+    pub(crate) fn validate(&self) -> Result<(), TokenCalibrationError> {
         if self.schema_version != TOKEN_CALIBRATION_SCHEMA_VERSION {
             return Err(TokenCalibrationError::UnsupportedSchema);
         }
@@ -138,7 +138,7 @@ impl TokenCalibrationReportV1 {
     }
 
     /// Returns canonical JSON only for a fully validated report.
-    pub fn canonical_json(&self) -> Result<Vec<u8>, TokenCalibrationError> {
+    pub(crate) fn canonical_json(&self) -> Result<Vec<u8>, TokenCalibrationError> {
         self.validate()?;
         serde_json::to_vec(self).map_err(|_| TokenCalibrationError::Serialization)
     }

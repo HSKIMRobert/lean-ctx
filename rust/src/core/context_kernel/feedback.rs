@@ -12,27 +12,27 @@ const LEARNING_RATE: f64 = 0.1;
 const DEFAULT_PROVIDER_WEIGHT: f64 = 1.0;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FeedbackEntry {
+pub(crate) struct FeedbackEntry {
     pub plan_id: String,
     pub outcome: String,
     pub provider_scores: HashMap<String, f64>,
     pub timestamp_epoch: u64,
 }
 
-pub struct FeedbackCollector {
+pub(crate) struct FeedbackCollector {
     log_path: PathBuf,
     provider_weights: HashMap<String, f64>,
 }
 
 impl FeedbackCollector {
-    pub fn new(log_path: PathBuf) -> Self {
+    pub(crate) fn new(log_path: PathBuf) -> Self {
         Self {
             log_path,
             provider_weights: HashMap::new(),
         }
     }
 
-    pub fn default_for_project(_project_root: &str) -> Self {
+    pub(crate) fn default_for_project(_project_root: &str) -> Self {
         let cache_root = std::env::var_os("HOME")
             .map_or_else(|| PathBuf::from("."), PathBuf::from)
             .join(".cache")
@@ -41,7 +41,7 @@ impl FeedbackCollector {
         Self::new(cache_root.join("feedback.jsonl"))
     }
 
-    pub fn record_outcome(&mut self, receipt: &ContextReceiptV1) {
+    pub(crate) fn record_outcome(&mut self, receipt: &ContextReceiptV1) {
         let score = outcome_score(&receipt.outcome);
         let provider_scores: HashMap<String, f64> = receipt
             .feedback_attribution
@@ -80,14 +80,14 @@ impl FeedbackCollector {
         }
     }
 
-    pub fn provider_weight(&self, provider: &str) -> f64 {
+    pub(crate) fn provider_weight(&self, provider: &str) -> f64 {
         self.provider_weights
             .get(provider)
             .copied()
             .unwrap_or(DEFAULT_PROVIDER_WEIGHT)
     }
 
-    pub fn load_weights(&mut self) {
+    pub(crate) fn load_weights(&mut self) {
         self.provider_weights.clear();
         let Ok(contents) = fs::read_to_string(&self.log_path) else {
             return;
@@ -103,7 +103,7 @@ impl FeedbackCollector {
     }
 }
 
-pub fn record_kernel_feedback(project_root: &str, receipt: &ContextReceiptV1) {
+pub(crate) fn record_kernel_feedback(project_root: &str, receipt: &ContextReceiptV1) {
     let mut collector = FeedbackCollector::default_for_project(project_root);
     collector.load_weights();
     collector.record_outcome(receipt);

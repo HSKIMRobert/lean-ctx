@@ -8,7 +8,7 @@ const CACHE_TTL_SECS: u64 = 300;
 const MAX_ENTRIES: usize = 200;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CliCacheEntry {
+pub(crate) struct CliCacheEntry {
     pub path: String,
     pub hash: String,
     pub line_count: usize,
@@ -18,13 +18,13 @@ pub struct CliCacheEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CliCacheStore {
+pub(crate) struct CliCacheStore {
     pub entries: HashMap<String, CliCacheEntry>,
     pub total_hits: u64,
     pub total_reads: u64,
 }
 
-pub enum CacheResult {
+pub(crate) enum CacheResult {
     Hit {
         entry: CliCacheEntry,
         file_ref: String,
@@ -89,7 +89,7 @@ fn file_ref(key: &str, store: &CliCacheStore) -> String {
     format!("F{}", idx + 1)
 }
 
-pub fn check_and_read(path: &str) -> CacheResult {
+pub(crate) fn check_and_read(path: &str) -> CacheResult {
     let Ok(content) = crate::core::io_boundary::read_file_lossy(path) else {
         return CacheResult::Miss {
             content: String::new(),
@@ -137,14 +137,14 @@ pub fn check_and_read(path: &str) -> CacheResult {
     CacheResult::Miss { content }
 }
 
-pub fn invalidate(path: &str) {
+pub(crate) fn invalidate(path: &str) {
     let key = normalize_key(path);
     let mut store = load_store();
     store.entries.remove(&key);
     save_store(&store);
 }
 
-pub fn clear() -> usize {
+pub(crate) fn clear() -> usize {
     let mut store = load_store();
     let count = store.entries.len();
     store.entries.clear();
@@ -152,7 +152,7 @@ pub fn clear() -> usize {
     count
 }
 
-pub fn clear_project(project_root: &str) -> usize {
+pub(crate) fn clear_project(project_root: &str) -> usize {
     let mut store = load_store();
     let prefix = normalize_key(project_root);
     let before = store.entries.len();
@@ -164,7 +164,7 @@ pub fn clear_project(project_root: &str) -> usize {
     removed
 }
 
-pub fn stats() -> (u64, u64, usize) {
+pub(crate) fn stats() -> (u64, u64, usize) {
     let store = load_store();
     (store.total_hits, store.total_reads, store.entries.len())
 }
@@ -188,7 +188,7 @@ fn evict_stale(store: &mut CliCacheStore, now: u64) {
     }
 }
 
-pub fn format_hit(entry: &CliCacheEntry, file_ref: &str, short_path: &str) -> String {
+pub(crate) fn format_hit(entry: &CliCacheEntry, file_ref: &str, short_path: &str) -> String {
     if crate::core::protocol::savings_footer_visible() {
         format!(
             "{file_ref} cached {short_path} [{}L {}t] (read #{})",

@@ -11,13 +11,13 @@ const MAX_BUNDLE_BYTES: usize = 250_000;
 const MAX_NEXT_STEPS: usize = 25;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BundlePrivacyV1 {
+pub(crate) enum BundlePrivacyV1 {
     Redacted,
     Full,
 }
 
 impl BundlePrivacyV1 {
-    pub fn parse(s: Option<&str>) -> Self {
+    pub(crate) fn parse(s: Option<&str>) -> Self {
         match s.unwrap_or("redacted").trim().to_lowercase().as_str() {
             "full" => Self::Full,
             _ => Self::Redacted,
@@ -26,7 +26,7 @@ impl BundlePrivacyV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CcpSessionBundleV1 {
+pub(crate) struct CcpSessionBundleV1 {
     pub schema_version: u32,
     pub exported_at: DateTime<Utc>,
     pub project: ProjectIdentityV1,
@@ -36,19 +36,19 @@ pub struct CcpSessionBundleV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectIdentityV1 {
+pub(crate) struct ProjectIdentityV1 {
     pub project_root_hash: Option<String>,
     pub project_identity_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PolicyIdentityV1 {
+pub(crate) struct PolicyIdentityV1 {
     pub name: String,
     pub policy_md5: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionExcerptV1 {
+pub(crate) struct SessionExcerptV1 {
     pub id: String,
     pub version: u32,
     pub started_at: DateTime<Utc>,
@@ -70,7 +70,10 @@ pub struct SessionExcerptV1 {
     pub compression_level: String,
 }
 
-pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpSessionBundleV1 {
+pub(crate) fn build_bundle_v1(
+    session: &SessionState,
+    privacy: BundlePrivacyV1,
+) -> CcpSessionBundleV1 {
     let role_name = crate::core::roles::active_role_name();
     let role = crate::core::roles::active_role();
     let profile_name = crate::core::profiles::active_profile_name();
@@ -168,7 +171,7 @@ pub fn build_bundle_v1(session: &SessionState, privacy: BundlePrivacyV1) -> CcpS
     }
 }
 
-pub fn serialize_bundle_v1_pretty(bundle: &CcpSessionBundleV1) -> Result<String, String> {
+pub(crate) fn serialize_bundle_v1_pretty(bundle: &CcpSessionBundleV1) -> Result<String, String> {
     let json = serde_json::to_string_pretty(bundle).map_err(|e| e.to_string())?;
     if json.len() > MAX_BUNDLE_BYTES {
         return Err(format!(
@@ -180,7 +183,7 @@ pub fn serialize_bundle_v1_pretty(bundle: &CcpSessionBundleV1) -> Result<String,
     Ok(json)
 }
 
-pub fn parse_bundle_v1(json: &str) -> Result<CcpSessionBundleV1, String> {
+pub(crate) fn parse_bundle_v1(json: &str) -> Result<CcpSessionBundleV1, String> {
     let b: CcpSessionBundleV1 = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if b.schema_version != crate::core::contracts::CCP_SESSION_BUNDLE_V1_SCHEMA_VERSION {
         return Err(format!(
@@ -192,7 +195,7 @@ pub fn parse_bundle_v1(json: &str) -> Result<CcpSessionBundleV1, String> {
     Ok(b)
 }
 
-pub fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
+pub(crate) fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "ERROR: invalid path".to_string())?;
@@ -210,7 +213,7 @@ pub fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn read_bundle_v1(path: &Path) -> Result<CcpSessionBundleV1, String> {
+pub(crate) fn read_bundle_v1(path: &Path) -> Result<CcpSessionBundleV1, String> {
     let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     if json.len() > MAX_BUNDLE_BYTES {
         return Err(format!(
@@ -222,7 +225,7 @@ pub fn read_bundle_v1(path: &Path) -> Result<CcpSessionBundleV1, String> {
     parse_bundle_v1(&json)
 }
 
-pub fn import_bundle_v1_into_session(
+pub(crate) fn import_bundle_v1_into_session(
     session: &mut SessionState,
     bundle: &CcpSessionBundleV1,
     current_project_root: Option<&str>,
@@ -298,7 +301,7 @@ pub fn import_bundle_v1_into_session(
 }
 
 #[derive(Debug, Clone)]
-pub struct ImportReportV1 {
+pub(crate) struct ImportReportV1 {
     pub session_id: String,
     pub version: u32,
     pub files_touched: u32,

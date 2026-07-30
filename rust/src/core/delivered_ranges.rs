@@ -11,19 +11,19 @@ use std::sync::{Mutex, PoisonError};
 static GLOBAL: Mutex<Option<DeliveredRanges>> = Mutex::new(None);
 
 /// Access the global delivered-ranges tracker.
-pub fn global() -> std::sync::MutexGuard<'static, Option<DeliveredRanges>> {
+pub(crate) fn global() -> std::sync::MutexGuard<'static, Option<DeliveredRanges>> {
     GLOBAL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Sorted, non-overlapping intervals of 1-based line numbers.
 #[derive(Debug, Clone, Default)]
-pub struct IntervalSet {
+pub(crate) struct IntervalSet {
     intervals: Vec<(usize, usize)>,
 }
 
 impl IntervalSet {
     /// Mark lines `start..=end` as delivered.
-    pub fn insert(&mut self, start: usize, end: usize) {
+    pub(crate) fn insert(&mut self, start: usize, end: usize) {
         if start > end {
             return;
         }
@@ -32,7 +32,7 @@ impl IntervalSet {
     }
 
     /// Returns line numbers in `start..=end` that have NOT been delivered.
-    pub fn novel_lines(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
+    pub(crate) fn novel_lines(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
         if start > end {
             return Vec::new();
         }
@@ -59,7 +59,7 @@ impl IntervalSet {
     }
 
     /// Fraction of `start..=end` that is already delivered.
-    pub fn overlap_fraction(&self, start: usize, end: usize) -> f64 {
+    pub(crate) fn overlap_fraction(&self, start: usize, end: usize) -> f64 {
         if start > end {
             return 0.0;
         }
@@ -98,17 +98,17 @@ impl IntervalSet {
 
 /// Session-scoped tracker of delivered line ranges per file.
 #[derive(Debug, Clone, Default)]
-pub struct DeliveredRanges {
+pub(crate) struct DeliveredRanges {
     files: HashMap<PathBuf, IntervalSet>,
 }
 
 impl DeliveredRanges {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Record that lines `start..=end` of `path` have been delivered.
-    pub fn record(&mut self, path: &str, start: usize, end: usize) {
+    pub(crate) fn record(&mut self, path: &str, start: usize, end: usize) {
         self.files
             .entry(PathBuf::from(path))
             .or_default()
@@ -116,7 +116,7 @@ impl DeliveredRanges {
     }
 
     /// Get novel (not-yet-delivered) line ranges for a read request.
-    pub fn novel_ranges(&self, path: &str, start: usize, end: usize) -> Vec<(usize, usize)> {
+    pub(crate) fn novel_ranges(&self, path: &str, start: usize, end: usize) -> Vec<(usize, usize)> {
         match self.files.get(&PathBuf::from(path)) {
             Some(set) => set.novel_lines(start, end),
             None => vec![(start, end)],
@@ -124,7 +124,7 @@ impl DeliveredRanges {
     }
 
     /// Fraction of the requested range already delivered.
-    pub fn overlap_fraction(&self, path: &str, start: usize, end: usize) -> f64 {
+    pub(crate) fn overlap_fraction(&self, path: &str, start: usize, end: usize) -> f64 {
         match self.files.get(&PathBuf::from(path)) {
             Some(set) => set.overlap_fraction(start, end),
             None => 0.0,
@@ -132,18 +132,18 @@ impl DeliveredRanges {
     }
 
     /// Record a full-file delivery (all lines).
-    pub fn record_full(&mut self, path: &str, line_count: usize) {
+    pub(crate) fn record_full(&mut self, path: &str, line_count: usize) {
         if line_count > 0 {
             self.record(path, 1, line_count);
         }
     }
 
     /// Reset tracking for a specific file (e.g., after modification).
-    pub fn invalidate(&mut self, path: &str) {
+    pub(crate) fn invalidate(&mut self, path: &str) {
         self.files.remove(&PathBuf::from(path));
     }
 
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.files.clear();
     }
 }

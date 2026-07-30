@@ -3,7 +3,7 @@
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
-pub enum FidelityClassV1 {
+pub(crate) enum FidelityClassV1 {
     /// Byte-exact reproduction of the original content.
     Exact,
     /// Structural elements preserved (functions, exports, imports, identifiers).
@@ -18,7 +18,7 @@ pub enum FidelityClassV1 {
 
 /// Result of assessing the fidelity of a compression operation.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FidelityAssessment {
+pub(crate) struct FidelityAssessment {
     pub class: FidelityClassV1,
     pub preservation_score: f64,
     pub identifier_score: f64,
@@ -27,21 +27,25 @@ pub struct FidelityAssessment {
 }
 
 impl FidelityClassV1 {
-    pub fn is_lossless(&self) -> bool {
+    pub(crate) fn is_lossless(&self) -> bool {
         matches!(self, Self::Exact | Self::Structural)
     }
 
-    pub fn savings_eligible(&self) -> bool {
+    pub(crate) fn savings_eligible(&self) -> bool {
         matches!(self, Self::Exact | Self::Structural)
     }
 
-    pub fn requires_policy_opt_in(&self) -> bool {
+    pub(crate) fn requires_policy_opt_in(&self) -> bool {
         matches!(self, Self::Lossy)
     }
 }
 
 impl FidelityAssessment {
-    pub fn token_savings_pct(&self, original_tokens: usize, compressed_tokens: usize) -> f64 {
+    pub(crate) fn token_savings_pct(
+        &self,
+        original_tokens: usize,
+        compressed_tokens: usize,
+    ) -> f64 {
         if original_tokens == 0 {
             return 0.0;
         }
@@ -50,7 +54,7 @@ impl FidelityAssessment {
     }
 }
 
-pub fn assess_fidelity(original: &str, compressed: &str, ext: &str) -> FidelityAssessment {
+pub(crate) fn assess_fidelity(original: &str, compressed: &str, ext: &str) -> FidelityAssessment {
     if original == compressed {
         return FidelityAssessment {
             class: FidelityClassV1::Exact,
@@ -108,7 +112,7 @@ fn classify(qs: &crate::core::quality::QualityScore, preservation: f64) -> Fidel
     FidelityClassV1::Lossy
 }
 
-pub fn assess_fidelity_from_bytes(
+pub(crate) fn assess_fidelity_from_bytes(
     original: &[u8],
     compressed: &[u8],
     ext: &str,

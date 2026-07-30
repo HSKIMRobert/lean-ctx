@@ -11,7 +11,7 @@ use std::path::Path;
 
 /// A staleness finding for a single rule.
 #[derive(Debug, Clone)]
-pub struct StalenessFinding {
+pub(crate) struct StalenessFinding {
     pub rule_id: String,
     pub rule_path: String,
     pub reason: StalenessReason,
@@ -20,7 +20,7 @@ pub struct StalenessFinding {
 
 /// Why a rule is considered stale.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StalenessReason {
+pub(crate) enum StalenessReason {
     ReferencesDeletedFile,
     ReferencesDeletedDirectory,
     ReferencesDeprecatedPattern,
@@ -42,7 +42,7 @@ impl std::fmt::Display for StalenessReason {
 
 /// Audit result for a set of rules.
 #[derive(Debug)]
-pub struct AuditReport {
+pub(crate) struct AuditReport {
     pub findings: Vec<StalenessFinding>,
     pub rules_checked: usize,
     pub rules_stale: usize,
@@ -50,7 +50,7 @@ pub struct AuditReport {
 }
 
 /// Audit rules for staleness against the project root.
-pub fn audit_rules(
+pub(crate) fn audit_rules(
     rules: &[(String, String, String)], // (id, path, content)
     project_root: &Path,
 ) -> AuditReport {
@@ -232,7 +232,7 @@ fn extract_deprecation_indicators(content: &str) -> Vec<String> {
 }
 
 /// Format the audit report for CLI output.
-pub fn format_report(report: &AuditReport) -> String {
+pub(crate) fn format_report(report: &AuditReport) -> String {
     let mut out = String::new();
     out.push_str(&format!(
         "Rule Staleness Audit: {} rules checked, {} stale ({} wasted tokens)\n",

@@ -3,7 +3,7 @@ use super::context_ledger::{ContextLedger, PressureAction};
 use super::intent_engine::{IntentScope, StructuredIntent, TaskType};
 
 #[derive(Debug, Clone)]
-pub struct ContextDeficit {
+pub(crate) struct ContextDeficit {
     pub missing_targets: Vec<String>,
     pub suggested_files: Vec<SuggestedFile>,
     pub pressure_action: PressureAction,
@@ -11,7 +11,7 @@ pub struct ContextDeficit {
 }
 
 #[derive(Debug, Clone)]
-pub struct SuggestedFile {
+pub(crate) struct SuggestedFile {
     pub path: String,
     pub item_id: ContextItemId,
     pub reason: DeficitReason,
@@ -20,7 +20,7 @@ pub struct SuggestedFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DeficitReason {
+pub(crate) enum DeficitReason {
     TargetNotLoaded,
     DependencyOfTarget,
     TestFileForTarget,
@@ -38,7 +38,7 @@ impl DeficitReason {
     }
 }
 
-pub fn detect_deficit(
+pub(crate) fn detect_deficit(
     ledger: &ContextLedger,
     intent: &StructuredIntent,
     known_files: &[String],

@@ -48,7 +48,7 @@ const MIN_ROWS: usize = 3;
 /// Lossless columnar crush of delimited `text`, returning the compact JSON form
 /// only when it clears the `beneficial` reduction gate. `None` for non-tabular,
 /// ragged, or low-redundancy input — the caller keeps its own path.
-pub fn crush_text_if_beneficial(text: &str, delimiter: char) -> Option<String> {
+pub(crate) fn crush_text_if_beneficial(text: &str, delimiter: char) -> Option<String> {
     let res = crush(text, delimiter, 1.0)?;
     (res.lossless && beneficial(&res.text, text)).then_some(res.text)
 }
@@ -60,7 +60,7 @@ pub fn crush_text_if_beneficial(text: &str, delimiter: char) -> Option<String> {
 /// caller MUST persist the verbatim original out-of-band (CCR) before emitting —
 /// the dropped columns are never reconstructible from the text. `None` for
 /// non-tabular, low-redundancy, or all-lossless input.
-pub fn crush_text_lossy_if_beneficial(
+pub(crate) fn crush_text_lossy_if_beneficial(
     text: &str,
     delimiter: char,
     drop_entropy: f64,
@@ -179,7 +179,7 @@ fn crush(text: &str, delimiter: char, drop_entropy: f64) -> Option<CrushResult> 
 /// lossless forms; for lossy forms the `_dropped` columns are simply absent from
 /// the header and every row (recover them via CCR). `None` if `text` is not a
 /// tabular-crush document or is internally inconsistent.
-pub fn reconstruct(text: &str) -> Option<Vec<Vec<String>>> {
+pub(crate) fn reconstruct(text: &str) -> Option<Vec<Vec<String>>> {
     let v: Value = serde_json::from_str(text).ok()?;
     let obj = v.as_object()?;
     obj.get(MARKER)?;

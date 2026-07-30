@@ -55,23 +55,6 @@ pub(crate) mod structured_read;
 pub(crate) mod tabular_crush;
 pub(crate) mod yaml_crush;
 
-/// Convenience re-export: all compression-related modules.
-pub(crate) mod compression {
-    pub(crate) use super::adaptive_chunking;
-    pub(crate) use super::codebook;
-    pub(crate) use super::compression_safety;
-    pub(crate) use super::compressor;
-    pub(crate) use super::entropy;
-    pub(crate) use super::information_bottleneck;
-    pub(crate) use super::json_crush;
-    pub(crate) use super::json_sample;
-    pub(crate) use super::pop_pruning;
-    pub(crate) use super::preservation;
-    pub(crate) use super::progressive_compression;
-    pub(crate) use super::rabin_karp;
-    pub(crate) use super::structural_tokenizer;
-}
-
 // ---------------------------------------------------------------------------
 // Domain: Memory
 // ---------------------------------------------------------------------------
@@ -88,17 +71,6 @@ pub(crate) mod memory_salience;
 pub mod multiscale_index;
 pub(crate) mod procedural_memory;
 pub(crate) mod prospective_memory;
-
-/// Convenience re-export: all memory-related modules.
-pub(crate) mod memory {
-    pub(crate) use super::episodic_memory;
-    pub(crate) use super::memory_boundary;
-    pub(crate) use super::memory_consolidation;
-    pub(crate) use super::memory_lifecycle;
-    pub(crate) use super::memory_policy;
-    pub(crate) use super::procedural_memory;
-    pub(crate) use super::prospective_memory;
-}
 
 // ---------------------------------------------------------------------------
 // Domain: Graph
@@ -118,21 +90,6 @@ pub mod graph_provider;
 pub(crate) mod pagerank;
 pub mod property_graph;
 pub(crate) mod repomap;
-
-/// Convenience re-export: all graph-related modules.
-pub(crate) mod graph {
-    pub(crate) use super::call_graph;
-    pub(crate) use super::community;
-    pub(crate) use super::gamma_cover;
-    pub(crate) use super::graph_context;
-    pub(crate) use super::graph_enricher;
-    pub(crate) use super::graph_export;
-    pub(crate) use super::graph_features;
-    pub(crate) use super::graph_index;
-    pub(crate) use super::graph_provider;
-    pub(crate) use super::pagerank;
-    pub(crate) use super::property_graph;
-}
 
 // ---------------------------------------------------------------------------
 // Domain: Context
@@ -159,24 +116,6 @@ pub(crate) mod context_snapshot;
 pub mod cross_source_edges;
 pub mod cross_source_hints;
 
-/// Convenience re-export: all context-related modules.
-pub(crate) mod context {
-    pub(crate) use super::context_artifacts;
-    pub(crate) use super::context_column;
-    pub(crate) use super::context_compiler;
-    pub(crate) use super::context_deficit;
-    pub(crate) use super::context_field;
-    pub(crate) use super::context_handles;
-    pub(crate) use super::context_ir;
-    pub(crate) use super::context_ledger;
-    pub(crate) use super::context_os;
-    pub(crate) use super::context_overlay;
-    pub(crate) use super::context_package;
-    pub(crate) use super::context_policies;
-    pub(crate) use super::context_proof;
-    pub(crate) use super::context_proof_v2;
-}
-
 // ---------------------------------------------------------------------------
 // Domain: Knowledge
 // ---------------------------------------------------------------------------
@@ -189,17 +128,6 @@ pub(crate) mod knowledge_bridge;
 pub mod knowledge_embedding;
 pub mod knowledge_provider_extract;
 pub mod knowledge_relations;
-
-/// Convenience re-export: all knowledge-related modules.
-pub(crate) mod knowledge_domain {
-    pub(crate) use super::claim_extractor;
-    pub(crate) use super::cognition_loop;
-    pub(crate) use super::knowledge;
-    pub(crate) use super::knowledge_bootstrap;
-    pub(crate) use super::knowledge_bridge;
-    pub(crate) use super::knowledge_embedding;
-    pub(crate) use super::knowledge_relations;
-}
 
 // ---------------------------------------------------------------------------
 // Domain: Search & Retrieval
@@ -226,20 +154,6 @@ pub(crate) mod semantic_chunks;
 pub(crate) mod splade_retrieval;
 pub mod spreading_activation;
 
-/// Convenience re-export: all search-related modules.
-pub(crate) mod search {
-    pub(crate) use super::bm25_index;
-    pub(crate) use super::content_chunk;
-    pub(crate) use super::dense_backend;
-    pub(crate) use super::embedding_index;
-    pub(crate) use super::embeddings;
-    pub(crate) use super::hybrid_search;
-    pub(crate) use super::search_reranking;
-    pub(crate) use super::semantic_cache;
-    pub(crate) use super::semantic_chunks;
-    pub(crate) use super::splade_retrieval;
-}
-
 // ---------------------------------------------------------------------------
 // Domain: Session & Handoff
 // ---------------------------------------------------------------------------
@@ -251,15 +165,6 @@ pub(crate) mod session_diff;
 pub(crate) mod session_summary;
 pub(crate) mod skillify;
 
-/// Convenience re-export: all session-related modules.
-pub(crate) mod session_domain {
-    pub(crate) use super::ccp_session_bundle;
-    pub(crate) use super::handoff_ledger;
-    pub(crate) use super::handoff_transfer_bundle;
-    pub(crate) use super::session;
-    pub(crate) use super::session_diff;
-}
-
 // ---------------------------------------------------------------------------
 // Domain: Attention & Placement
 // ---------------------------------------------------------------------------
@@ -267,14 +172,6 @@ pub(crate) mod attention_layout_driver;
 pub mod attention_model;
 pub(crate) mod attention_placement;
 pub(crate) mod litm;
-
-/// Convenience re-export: all attention-related modules.
-pub(crate) mod attention {
-    pub(crate) use super::attention_layout_driver;
-    pub(crate) use super::attention_model;
-    pub(crate) use super::attention_placement;
-    pub(crate) use super::litm;
-}
 
 // ---------------------------------------------------------------------------
 // Domain: Neural / ML

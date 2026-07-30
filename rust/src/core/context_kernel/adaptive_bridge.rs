@@ -9,7 +9,7 @@ static SIGNALS_RECEIVED: AtomicUsize = AtomicUsize::new(0);
 
 /// Kernel-level recommendation for adjusting compression depth.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
-pub enum KernelCompressionAdvice {
+pub(crate) enum KernelCompressionAdvice {
     /// No change to current compression.
     #[default]
     Maintain,
@@ -21,7 +21,7 @@ pub enum KernelCompressionAdvice {
 
 /// Snapshot of the kernel's adaptive compression signal state.
 #[derive(Debug, Clone, Default, serde::Serialize)]
-pub struct AdaptiveSummary {
+pub(crate) struct AdaptiveSummary {
     /// Most recently observed bounce rate.
     pub current_bounce_rate: f64,
     /// Compression adjustment advised by the current signal.
@@ -32,7 +32,7 @@ pub struct AdaptiveSummary {
 
 /// Advises how compression should change for a measured bounce rate.
 #[must_use]
-pub fn compression_advice(bounce_rate: f64) -> KernelCompressionAdvice {
+pub(crate) fn compression_advice(bounce_rate: f64) -> KernelCompressionAdvice {
     if !kernel_config::is_enabled() {
         return KernelCompressionAdvice::Maintain;
     }
@@ -46,20 +46,20 @@ pub fn compression_advice(bounce_rate: f64) -> KernelCompressionAdvice {
 }
 
 /// Stores the latest bounce-rate signal for kernel consumers.
-pub fn update_bounce_signal(bounce_rate: f64) {
+pub(crate) fn update_bounce_signal(bounce_rate: f64) {
     BOUNCE_RATE_BITS.store(bounce_rate.to_bits(), Ordering::Relaxed);
     SIGNALS_RECEIVED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Returns the most recently stored bounce rate.
 #[must_use]
-pub fn current_bounce_rate() -> f64 {
+pub(crate) fn current_bounce_rate() -> f64 {
     f64::from_bits(BOUNCE_RATE_BITS.load(Ordering::Relaxed))
 }
 
 /// Returns the current adaptive compression state.
 #[must_use]
-pub fn adaptive_summary() -> AdaptiveSummary {
+pub(crate) fn adaptive_summary() -> AdaptiveSummary {
     let current_bounce_rate = current_bounce_rate();
     AdaptiveSummary {
         current_bounce_rate,
@@ -69,7 +69,7 @@ pub fn adaptive_summary() -> AdaptiveSummary {
 }
 
 /// Clears all adaptive compression signal state.
-pub fn reset() {
+pub(crate) fn reset() {
     BOUNCE_RATE_BITS.store(0.0_f64.to_bits(), Ordering::Relaxed);
     SIGNALS_RECEIVED.store(0, Ordering::Relaxed);
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// A single SWE-bench instance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SweBenchInstance {
+pub(crate) struct SweBenchInstance {
     pub instance_id: String,
     pub repo: String,
     pub base_commit: String,
@@ -18,7 +18,7 @@ pub struct SweBenchInstance {
 }
 
 /// Load SWE-bench instances from an NDJSON file.
-pub fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<SweBenchInstance>> {
+pub(crate) fn load_from_ndjson(path: &std::path::Path) -> std::io::Result<Vec<SweBenchInstance>> {
     let content = std::fs::read_to_string(path)?;
     let instances: Vec<SweBenchInstance> = content
         .lines()

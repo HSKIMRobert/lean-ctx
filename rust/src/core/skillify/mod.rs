@@ -6,9 +6,9 @@
 //! (create / merge / unchanged). Runs on demand only; nothing is written unless
 //! the miner is invoked, and re-runs are idempotent.
 
-pub mod candidate;
-pub mod gate;
-pub mod rule_file;
+pub(crate) mod candidate;
+pub(crate) mod gate;
+pub(crate) mod rule_file;
 
 use std::path::PathBuf;
 
@@ -17,7 +17,7 @@ use rule_file::WriteOutcome;
 
 /// Summary of one mining run, for human + machine reporting.
 #[derive(Debug, Default)]
-pub struct MineReport {
+pub(crate) struct MineReport {
     pub created: Vec<String>,
     pub merged: Vec<String>,
     pub unchanged: Vec<String>,
@@ -29,7 +29,7 @@ pub struct MineReport {
 
 /// One generated rule on disk.
 #[derive(Debug, Clone)]
-pub struct RuleSummary {
+pub(crate) struct RuleSummary {
     pub slug: String,
     pub version: u32,
     pub title: String,
@@ -51,7 +51,7 @@ fn output_root(project_root: &str, scope: &str) -> PathBuf {
 
 /// Run the miner end-to-end. Returns an error only when skillify is disabled or
 /// a write fails; an empty project simply yields an empty report.
-pub fn mine(project_root: &str) -> Result<MineReport, String> {
+pub(crate) fn mine(project_root: &str) -> Result<MineReport, String> {
     let cfg = config();
     if !cfg.enabled {
         return Err("skillify is disabled — set `[skillify] enabled = true`".to_string());
@@ -83,7 +83,7 @@ pub fn mine(project_root: &str) -> Result<MineReport, String> {
 }
 
 /// List the generated rules currently on disk for the configured scope.
-pub fn list_rules(project_root: &str) -> Vec<RuleSummary> {
+pub(crate) fn list_rules(project_root: &str) -> Vec<RuleSummary> {
     let cfg = config();
     let root = output_root(project_root, &cfg.scope);
     let dir = rule_file::rules_dir(&root);
@@ -119,7 +119,7 @@ pub fn list_rules(project_root: &str) -> Vec<RuleSummary> {
 
 /// Copy a project-scoped generated rule into the global `~/.cursor/rules` so it
 /// applies to every project. Returns the destination path on success.
-pub fn promote(project_root: &str, slug: &str) -> Result<String, String> {
+pub(crate) fn promote(project_root: &str, slug: &str) -> Result<String, String> {
     let full = if slug.starts_with(rule_file::SLUG_PREFIX) {
         slug.to_string()
     } else {
@@ -140,6 +140,6 @@ pub fn promote(project_root: &str, slug: &str) -> Result<String, String> {
 }
 
 /// Current skillify configuration, for `status`.
-pub fn current_config() -> crate::core::config::SkillifyConfig {
+pub(crate) fn current_config() -> crate::core::config::SkillifyConfig {
     config()
 }

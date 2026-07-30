@@ -10,7 +10,7 @@ static HOOK_CHILD: AtomicBool = AtomicBool::new(false);
 static DASHBOARD_PROJECT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 static ALLOW_PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
 
-pub struct FlagGuard {
+pub(crate) struct FlagGuard {
     flag: &'static AtomicBool,
     previous: bool,
 }
@@ -26,34 +26,34 @@ fn set_scoped(flag: &'static AtomicBool) -> FlagGuard {
     FlagGuard { flag, previous }
 }
 
-pub fn enable_raw() {
+pub(crate) fn enable_raw() {
     RAW.store(true, Ordering::Relaxed);
 }
 
-pub fn enable_compress() {
+pub(crate) fn enable_compress() {
     COMPRESS.store(true, Ordering::Relaxed);
 }
 
-pub fn enable_mcp_server() {
+pub(crate) fn enable_mcp_server() {
     MCP_SERVER.store(true, Ordering::Relaxed);
 }
 
-pub fn mark_hook_child() {
+pub(crate) fn mark_hook_child() {
     HOOK_CHILD.store(true, Ordering::Relaxed);
 }
 
-pub fn scoped_quiet() -> FlagGuard {
+pub(crate) fn scoped_quiet() -> FlagGuard {
     set_scoped(&QUIET)
 }
 
-pub fn set_dashboard_project(project: String) {
+pub(crate) fn set_dashboard_project(project: String) {
     let slot = DASHBOARD_PROJECT.get_or_init(|| Mutex::new(None));
     if let Ok(mut value) = slot.lock() {
         *value = Some(project);
     }
 }
 
-pub fn add_allow_paths(paths: Vec<PathBuf>) {
+pub(crate) fn add_allow_paths(paths: Vec<PathBuf>) {
     if paths.is_empty() {
         return;
     }
@@ -63,29 +63,29 @@ pub fn add_allow_paths(paths: Vec<PathBuf>) {
     }
 }
 
-pub fn raw_enabled() -> bool {
+pub(crate) fn raw_enabled() -> bool {
     RAW.load(Ordering::Relaxed) || std::env::var("LEAN_CTX_RAW").is_ok()
 }
 
-pub fn compress_enabled() -> bool {
+pub(crate) fn compress_enabled() -> bool {
     COMPRESS.load(Ordering::Relaxed) || std::env::var("LEAN_CTX_COMPRESS").is_ok()
 }
 
-pub fn quiet_enabled() -> bool {
+pub(crate) fn quiet_enabled() -> bool {
     QUIET.load(Ordering::Relaxed)
         || matches!(std::env::var("LEAN_CTX_QUIET"), Ok(value) if value.trim() == "1")
 }
 
-pub fn mcp_server_enabled() -> bool {
+pub(crate) fn mcp_server_enabled() -> bool {
     MCP_SERVER.load(Ordering::Relaxed)
         || std::env::var("LEAN_CTX_MCP_SERVER").is_ok_and(|value| value == "1")
 }
 
-pub fn hook_child_enabled() -> bool {
+pub(crate) fn hook_child_enabled() -> bool {
     HOOK_CHILD.load(Ordering::Relaxed) || std::env::var("LEAN_CTX_HOOK_CHILD").is_ok()
 }
 
-pub fn dashboard_project() -> Option<String> {
+pub(crate) fn dashboard_project() -> Option<String> {
     if let Some(value) = DASHBOARD_PROJECT
         .get()
         .and_then(|slot| slot.lock().ok().and_then(|value| value.clone()))
@@ -98,14 +98,14 @@ pub fn dashboard_project() -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-pub fn allow_paths() -> Vec<PathBuf> {
+pub(crate) fn allow_paths() -> Vec<PathBuf> {
     ALLOW_PATHS
         .get()
         .and_then(|slot| slot.lock().ok().map(|value| value.clone()))
         .unwrap_or_default()
 }
 
-pub fn allow_path_enabled() -> bool {
+pub(crate) fn allow_path_enabled() -> bool {
     !allow_paths().is_empty()
         || std::env::var("LEAN_CTX_ALLOW_PATH").is_ok()
         || std::env::var("LCTX_ALLOW_PATH").is_ok()

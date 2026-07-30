@@ -26,13 +26,13 @@ const MAX_DIAGNOSTICS: usize = 200;
 static STORE: OnceLock<Mutex<DiagnosticsStore>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Severity {
+pub(crate) enum Severity {
     Error,
     Warning,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Diagnostic {
+pub(crate) struct Diagnostic {
     pub path: String,
     pub line: Option<u32>,
     pub severity: Severity,
@@ -42,7 +42,7 @@ pub struct Diagnostic {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct DiagnosticsStore {
+pub(crate) struct DiagnosticsStore {
     pub diagnostics: Vec<Diagnostic>,
     #[serde(skip)]
     dirty: bool,
@@ -86,7 +86,7 @@ impl DiagnosticsStore {
         }
     }
 
-    pub fn clear_for_tool(&mut self, tool: &str) {
+    pub(crate) fn clear_for_tool(&mut self, tool: &str) {
         let before = self.diagnostics.len();
         self.diagnostics.retain(|d| d.tool != tool);
         if self.diagnostics.len() != before {
@@ -94,21 +94,21 @@ impl DiagnosticsStore {
         }
     }
 
-    pub fn replace_for_tool(&mut self, tool: &str, mut fresh: Vec<Diagnostic>) {
+    pub(crate) fn replace_for_tool(&mut self, tool: &str, mut fresh: Vec<Diagnostic>) {
         self.diagnostics.retain(|d| d.tool != tool);
         fresh.truncate(MAX_DIAGNOSTICS);
         self.diagnostics.extend(fresh);
         self.dirty = true;
     }
 
-    pub fn has_error(&self, path: &str) -> bool {
+    pub(crate) fn has_error(&self, path: &str) -> bool {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         self.diagnostics.iter().any(|d| {
             d.severity == Severity::Error && (norm.ends_with(&d.path) || d.path.ends_with(&norm))
         })
     }
 
-    pub fn severity_for(&self, path: &str) -> Option<Severity> {
+    pub(crate) fn severity_for(&self, path: &str) -> Option<Severity> {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         let mut found: Option<Severity> = None;
         for d in &self.diagnostics {
@@ -122,7 +122,7 @@ impl DiagnosticsStore {
         found
     }
 
-    pub fn for_path(&self, path: &str) -> Vec<&Diagnostic> {
+    pub(crate) fn for_path(&self, path: &str) -> Vec<&Diagnostic> {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         self.diagnostics
             .iter()
@@ -130,7 +130,7 @@ impl DiagnosticsStore {
             .collect()
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         let path = store_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -161,7 +161,7 @@ fn global() -> &'static Mutex<DiagnosticsStore> {
 /// Shell-layer hook: parse diagnostics out of a finished command.
 /// Success clears the tool's previous diagnostics; failure replaces them.
 /// Cheap for non-diagnostic commands (one `contains` probe).
-pub fn record_from_shell(command: &str, output: &str, exit_code: i32) {
+pub(crate) fn record_from_shell(command: &str, output: &str, exit_code: i32) {
     let Some(tool) = tool_of_command(command) else {
         return;
     };
@@ -184,16 +184,16 @@ pub fn record_from_shell(command: &str, output: &str, exit_code: i32) {
 }
 
 /// Does any tracked file currently carry a compile error?
-pub fn has_error(path: &str) -> bool {
+pub(crate) fn has_error(path: &str) -> bool {
     global().lock().is_ok_and(|s| s.has_error(path))
 }
 
-pub fn severity_for(path: &str) -> Option<Severity> {
+pub(crate) fn severity_for(path: &str) -> Option<Severity> {
     global().lock().ok().and_then(|s| s.severity_for(path))
 }
 
 /// Snapshot for ranking/triage consumers: `(path, severity)` pairs.
-pub fn snapshot() -> Vec<(String, Severity)> {
+pub(crate) fn snapshot() -> Vec<(String, Severity)> {
     global()
         .lock()
         .map(|s| {
@@ -206,7 +206,7 @@ pub fn snapshot() -> Vec<(String, Severity)> {
 }
 
 /// Diagnostics for one path: `(line, severity, message)` triples.
-pub fn details_for(path: &str) -> Vec<(Option<u32>, Severity, String)> {
+pub(crate) fn details_for(path: &str) -> Vec<(Option<u32>, Severity, String)> {
     global()
         .lock()
         .map(|s| {
@@ -393,7 +393,7 @@ fn parse_eslint(output: &str) -> Vec<Diagnostic> {
 }
 
 /// Ranking boost per path: errors dominate, warnings hint (#499).
-pub fn relevance_boost(path: &str) -> f64 {
+pub(crate) fn relevance_boost(path: &str) -> f64 {
     match severity_for(path) {
         Some(Severity::Error) => 0.35,
         Some(Severity::Warning) => 0.10,
@@ -402,7 +402,7 @@ pub fn relevance_boost(path: &str) -> f64 {
 }
 
 /// Apply diagnostic boosts to a relevance ranking and re-sort.
-pub fn apply_boost(scores: &mut [crate::core::task_relevance::RelevanceScore]) {
+pub(crate) fn apply_boost(scores: &mut [crate::core::task_relevance::RelevanceScore]) {
     let snap = snapshot();
     if snap.is_empty() {
         return;

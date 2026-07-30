@@ -14,13 +14,13 @@ use std::time::SystemTime;
 static HANDLES: Mutex<Option<HandleStore>> = Mutex::new(None);
 
 /// Access the global handle store.
-pub fn global() -> std::sync::MutexGuard<'static, Option<HandleStore>> {
+pub(crate) fn global() -> std::sync::MutexGuard<'static, Option<HandleStore>> {
     HANDLES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A content handle that references previously-delivered content.
 #[derive(Debug, Clone)]
-pub struct ContentHandle {
+pub(crate) struct ContentHandle {
     pub hash: String,
     pub path: String,
     pub line_count: usize,
@@ -30,7 +30,7 @@ pub struct ContentHandle {
 
 impl ContentHandle {
     /// Check if the referenced content is still fresh.
-    pub fn is_fresh(&self) -> bool {
+    pub(crate) fn is_fresh(&self) -> bool {
         let Some(stored) = self.stored_mtime else {
             return false;
         };
@@ -41,7 +41,7 @@ impl ContentHandle {
     }
 
     /// Format as a compact reference for the agent.
-    pub fn format_reference(&self) -> String {
+    pub(crate) fn format_reference(&self) -> String {
         let status = if self.is_fresh() { "fresh" } else { "stale" };
         format!(
             "[handle:{} {} {}L/{}tok {}]",
@@ -56,17 +56,17 @@ impl ContentHandle {
 
 /// Session-scoped store of content handles.
 #[derive(Debug, Clone, Default)]
-pub struct HandleStore {
+pub(crate) struct HandleStore {
     handles: HashMap<String, ContentHandle>,
 }
 
 impl HandleStore {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Create and store a handle for delivered content.
-    pub fn create_handle(
+    pub(crate) fn create_handle(
         &mut self,
         path: &str,
         content: &str,
@@ -93,20 +93,20 @@ impl HandleStore {
     }
 
     /// Look up a handle.
-    pub fn get(&self, handle_id: &str) -> Option<&ContentHandle> {
+    pub(crate) fn get(&self, handle_id: &str) -> Option<&ContentHandle> {
         self.handles.get(handle_id)
     }
 
     /// Invalidate handles for a modified file.
-    pub fn invalidate(&mut self, path: &str) {
+    pub(crate) fn invalidate(&mut self, path: &str) {
         self.handles.retain(|_, h| h.path != path);
     }
 
-    pub fn handle_count(&self) -> usize {
+    pub(crate) fn handle_count(&self) -> usize {
         self.handles.len()
     }
 
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.handles.clear();
     }
 }

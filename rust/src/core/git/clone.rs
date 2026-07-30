@@ -13,7 +13,7 @@ use super::repo_url::RepoRef;
 use super::run_git;
 
 /// Default wall-clock timeout for a clone/fetch.
-pub const DEFAULT_CLONE_TIMEOUT_SECS: u64 = 90;
+pub(crate) const DEFAULT_CLONE_TIMEOUT_SECS: u64 = 90;
 /// How long a cached clone is reused before a refresh fetch.
 const CACHE_TTL: Duration = Duration::from_hours(1);
 /// Stamp file written after a successful fetch; its mtime drives freshness.
@@ -24,7 +24,7 @@ const STAMP: &str = ".lean-ctx-fetched";
 /// Reuses the cached checkout while it is younger than the cache TTL; otherwise
 /// refreshes (or performs) a shallow fetch of the requested ref (default: the
 /// remote's `HEAD`).
-pub fn ensure_repo(repo: &RepoRef, timeout: Duration) -> Result<PathBuf, String> {
+pub(crate) fn ensure_repo(repo: &RepoRef, timeout: Duration) -> Result<PathBuf, String> {
     guard_clone_url(&repo.clone_url)?;
 
     let dir = repo_cache_dir(repo)?;
@@ -55,7 +55,7 @@ fn guard_clone_url(url: &str) -> Result<(), String> {
 
 /// Cache directory for a repo+ref, with every path segment sanitized so a
 /// hostile owner/repo/ref cannot escape the cache root.
-pub fn repo_cache_dir(repo: &RepoRef) -> Result<PathBuf, String> {
+pub(crate) fn repo_cache_dir(repo: &RepoRef) -> Result<PathBuf, String> {
     let mut dir = cache_root()?;
     for seg in repo.cache_slug().split('/') {
         dir.push(sanitize_segment(seg));

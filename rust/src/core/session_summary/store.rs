@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::record::SummaryRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SummaryStore {
+pub(crate) struct SummaryStore {
     pub project_hash: String,
     /// Tool-call count at the last recorded summary (cadence watermark).
     #[serde(default)]
@@ -36,7 +36,7 @@ impl SummaryStore {
         Some(dir.join(format!("{project_hash}.json")))
     }
 
-    pub fn load_or_create(project_root: &str) -> Self {
+    pub(crate) fn load_or_create(project_root: &str) -> Self {
         let hash = crate::core::project_hash::hash_project_root(project_root);
         let Some(path) = Self::store_path(&hash) else {
             return Self::new(&hash);
@@ -47,7 +47,7 @@ impl SummaryStore {
             .unwrap_or_else(|| Self::new(&hash))
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let path = Self::store_path(&self.project_hash)
             .ok_or_else(|| "cannot resolve data dir".to_string())?;
         if let Some(parent) = path.parent() {
@@ -58,7 +58,7 @@ impl SummaryStore {
     }
 
     /// Next sequence number (1-based), monotonic across the store's lifetime.
-    pub fn next_seq(&self) -> u32 {
+    pub(crate) fn next_seq(&self) -> u32 {
         self.summaries
             .iter()
             .filter_map(|s| s.id.rsplit('-').next())
@@ -69,7 +69,7 @@ impl SummaryStore {
     }
 
     /// Append a record and prune to `max_kept` (newest kept).
-    pub fn push(&mut self, record: SummaryRecord, max_kept: usize) {
+    pub(crate) fn push(&mut self, record: SummaryRecord, max_kept: usize) {
         self.summaries.push(record);
         let cap = max_kept.max(1);
         if self.summaries.len() > cap {
@@ -79,7 +79,7 @@ impl SummaryStore {
     }
 
     /// Lexical token-overlap search → `(index, score)`, best first.
-    pub fn search_lexical(&self, query: &str, top_k: usize) -> Vec<(usize, f64)> {
+    pub(crate) fn search_lexical(&self, query: &str, top_k: usize) -> Vec<(usize, f64)> {
         let terms = tokenize(query);
         if terms.is_empty() {
             return Vec::new();

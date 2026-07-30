@@ -41,7 +41,7 @@ pub(super) fn generate_short_id() -> String {
 /// MCP session's entry to `Finished`, leaving `registry.json` accumulating
 /// stale `Active` entries forever — the root cause of the "N active agents"
 /// dashboard bug on Windows.
-pub fn is_process_alive(pid: u32) -> bool {
+pub(crate) fn is_process_alive(pid: u32) -> bool {
     crate::ipc::process::is_alive(pid)
 }
 

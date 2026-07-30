@@ -11,7 +11,7 @@ static HEATMAP_BUFFER: Mutex<Option<HeatMap>> = Mutex::new(None);
 static HEATMAP_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeatEntry {
+pub(crate) struct HeatEntry {
     pub path: String,
     pub access_count: u32,
     pub last_access: String,
@@ -26,14 +26,14 @@ pub struct HeatEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct HeatMap {
+pub(crate) struct HeatMap {
     pub entries: HashMap<String, HeatEntry>,
     #[serde(skip)]
     dirty: bool,
 }
 
 impl HeatMap {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let mut guard = HEATMAP_BUFFER
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -45,12 +45,17 @@ impl HeatMap {
         hm
     }
 
-    pub fn record_access(&mut self, file_path: &str, original_tokens: usize, saved_tokens: usize) {
+    pub(crate) fn record_access(
+        &mut self,
+        file_path: &str,
+        original_tokens: usize,
+        saved_tokens: usize,
+    ) {
         self.record_access_with_agent(file_path, original_tokens, saved_tokens, None);
     }
 
     /// Record a file access with an optional agent identifier (stigmergic trace).
-    pub fn record_access_with_agent(
+    pub(crate) fn record_access_with_agent(
         &mut self,
         file_path: &str,
         original_tokens: usize,
@@ -87,7 +92,7 @@ impl HeatMap {
         self.dirty = true;
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         if !self.dirty && !self.entries.is_empty() {
             return Ok(());
         }
@@ -99,7 +104,7 @@ impl HeatMap {
         Ok(())
     }
 
-    pub fn top_files(&self, limit: usize) -> Vec<&HeatEntry> {
+    pub(crate) fn top_files(&self, limit: usize) -> Vec<&HeatEntry> {
         let mut sorted: Vec<&HeatEntry> = self.entries.values().collect();
         sorted.sort_by_key(|x| std::cmp::Reverse(x.access_count));
         sorted.truncate(limit);
@@ -109,7 +114,7 @@ impl HeatMap {
     /// Mean original (pre-compression) token size of a recorded file access.
     /// `None` when nothing has been recorded yet — callers must NOT substitute a
     /// guessed constant (this backs the ghost report's redundant-read estimate).
-    pub fn avg_original_tokens_per_access(&self) -> Option<u64> {
+    pub(crate) fn avg_original_tokens_per_access(&self) -> Option<u64> {
         let mut total_original: u64 = 0;
         let mut total_accesses: u64 = 0;
         for e in self.entries.values() {
@@ -125,7 +130,7 @@ impl HeatMap {
     /// pointed B to useful context. The credit for each (agent_A, file) pair is
     /// proportional to how many *other* agents also accessed that file.
     /// Returns `Vec<(agent_id, total_credit)>` sorted descending.
-    pub fn context_credit(&self) -> Vec<(String, f64)> {
+    pub(crate) fn context_credit(&self) -> Vec<(String, f64)> {
         let mut credit: HashMap<String, f64> = HashMap::new();
         for entry in self.entries.values() {
             let n_agents = entry.agent_accesses.len();
@@ -145,7 +150,7 @@ impl HeatMap {
         sorted
     }
 
-    pub fn directory_summary(&self) -> Vec<(String, u32, u64)> {
+    pub(crate) fn directory_summary(&self) -> Vec<(String, u32, u64)> {
         let mut dirs: HashMap<String, (u32, u64)> = HashMap::new();
         for entry in self.entries.values() {
             let dir = std::path::Path::new(&entry.path)
@@ -163,7 +168,7 @@ impl HeatMap {
         result
     }
 
-    pub fn cold_files(&self, all_files: &[String], limit: usize) -> Vec<String> {
+    pub(crate) fn cold_files(&self, all_files: &[String], limit: usize) -> Vec<String> {
         let hot: std::collections::HashSet<&str> = self
             .entries
             .keys()
@@ -204,7 +209,7 @@ fn save_to_disk(hm: &HeatMap) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
-pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens: usize) {
+pub(crate) fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens: usize) {
     // Attribute every read to the current agent identity so the per-agent
     // pheromone field (stigmergic trace) is populated in production, not just
     // when callers explicitly pass an id.
@@ -214,7 +219,7 @@ pub fn record_file_access(file_path: &str, original_tokens: usize, saved_tokens:
 
 /// Like [`record_file_access`] but attaches an agent identifier so the heatmap
 /// builds a per-agent pheromone field (stigmergic trace for multi-agent routing).
-pub fn record_file_access_with_agent(
+pub(crate) fn record_file_access_with_agent(
     file_path: &str,
     original_tokens: usize,
     saved_tokens: usize,
@@ -258,7 +263,7 @@ pub fn record_file_access_with_agent(
     }
 }
 
-pub fn flush() {
+pub(crate) fn flush() {
     let guard = HEATMAP_BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -272,7 +277,7 @@ pub fn flush() {
 /// Cheap read-only lookup against the in-process heatmap buffer:
 /// `(access_count, avg_compression_ratio)` for a file, if tracked.
 /// Paths are canonicalized the same way `record_file_access` stores them.
-pub fn entry_stats(file_path: &str) -> Option<(u32, f32)> {
+pub(crate) fn entry_stats(file_path: &str) -> Option<(u32, f32)> {
     let canonical = std::fs::canonicalize(file_path).map_or_else(
         |_| file_path.to_string(),
         |p| p.to_string_lossy().into_owned(),
@@ -286,7 +291,7 @@ pub fn entry_stats(file_path: &str) -> Option<(u32, f32)> {
         .map(|e| (e.access_count, e.avg_compression_ratio))
 }
 
-pub fn reset() {
+pub(crate) fn reset() {
     let mut guard = HEATMAP_BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -296,7 +301,7 @@ pub fn reset() {
     }
 }
 
-pub fn format_heatmap_status(heatmap: &HeatMap, limit: usize) -> String {
+pub(crate) fn format_heatmap_status(heatmap: &HeatMap, limit: usize) -> String {
     let top = heatmap.top_files(limit);
     if top.is_empty() {
         return "No file access data recorded yet.".to_string();
@@ -321,7 +326,7 @@ pub fn format_heatmap_status(heatmap: &HeatMap, limit: usize) -> String {
     lines.join("\n")
 }
 
-pub fn format_directory_summary(heatmap: &HeatMap) -> String {
+pub(crate) fn format_directory_summary(heatmap: &HeatMap) -> String {
     let dirs = heatmap.directory_summary();
     if dirs.is_empty() {
         return "No directory data.".to_string();

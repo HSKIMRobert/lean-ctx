@@ -9,7 +9,7 @@ static PREDICTOR_BUFFER: Mutex<Option<(Arc<ModePredictor>, Instant)>> = Mutex::n
 
 /// Observed outcome of a read mode: tokens in/out and information density.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ModeOutcome {
+pub(crate) struct ModeOutcome {
     pub mode: String,
     pub tokens_in: usize,
     pub tokens_out: usize,
@@ -18,7 +18,7 @@ pub struct ModeOutcome {
 
 impl ModeOutcome {
     /// Computes an efficiency score: density / compression ratio.
-    pub fn efficiency(&self) -> f64 {
+    pub(crate) fn efficiency(&self) -> f64 {
         if self.tokens_out == 0 {
             return 0.0;
         }
@@ -28,14 +28,14 @@ impl ModeOutcome {
 
 /// File identity for mode prediction: extension + token-count size bucket.
 #[derive(Clone, Debug, Hash, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FileSignature {
+pub(crate) struct FileSignature {
     pub ext: String,
     pub size_bucket: u8,
 }
 
 impl FileSignature {
     /// Creates a file signature from its path and token count.
-    pub fn from_path(path: &str, token_count: usize) -> Self {
+    pub(crate) fn from_path(path: &str, token_count: usize) -> Self {
         let ext = std::path::Path::new(path)
             .extension()
             .and_then(|e| e.to_str())
@@ -54,7 +54,7 @@ impl FileSignature {
 
 /// Learns the best read mode per file signature from historical outcomes.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ModePredictor {
+pub(crate) struct ModePredictor {
     // `FileSignature` is a struct, so a plain `HashMap<FileSignature, _>`
     // serializes to a JSON object with non-string keys — which `serde_json`
     // rejects ("key must be a string"). That made `save_to_disk` fail silently,
@@ -92,7 +92,7 @@ mod history_serde {
 
 impl ModePredictor {
     /// Loads or creates the predictor, using an in-memory buffer for caching.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut guard = PREDICTOR_BUFFER
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -112,17 +112,17 @@ impl ModePredictor {
         loaded
     }
 
-    pub fn with_project_root(mut self, root: &str) -> Self {
+    pub(crate) fn with_project_root(mut self, root: &str) -> Self {
         self.project_root = Some(root.to_string());
         self
     }
 
-    pub fn set_project_root(&mut self, root: &str) {
+    pub(crate) fn set_project_root(&mut self, root: &str) {
         self.project_root = Some(root.to_string());
     }
 
     /// Records a mode outcome for a file signature (capped at 100 entries).
-    pub fn record(&mut self, sig: FileSignature, outcome: ModeOutcome) {
+    pub(crate) fn record(&mut self, sig: FileSignature, outcome: ModeOutcome) {
         let entries = self.history.entry(sig).or_default();
         entries.push(outcome);
         if entries.len() > 100 {
@@ -132,7 +132,7 @@ impl ModePredictor {
 
     /// Returns the best mode based on historical efficiency.
     /// Chain: local history -> cloud adaptive models -> built-in defaults.
-    pub fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
+    pub(crate) fn predict_best_mode(&self, sig: &FileSignature) -> Option<String> {
         let default_mode = Self::predict_from_defaults(sig);
 
         let allow_override = |candidate: &str| -> bool {
@@ -312,7 +312,7 @@ impl ModePredictor {
     }
 
     /// Saves to the in-memory buffer and flushes to disk if the interval elapsed.
-    pub fn save(&self) {
+    pub(crate) fn save(&self) {
         let mut guard = PREDICTOR_BUFFER
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -341,7 +341,7 @@ impl ModePredictor {
     }
 
     /// Forces an immediate write of the buffered predictor state to disk.
-    pub fn flush() {
+    pub(crate) fn flush() {
         let guard = PREDICTOR_BUFFER
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);

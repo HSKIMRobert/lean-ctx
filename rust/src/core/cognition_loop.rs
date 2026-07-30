@@ -23,7 +23,7 @@ const SYNTHESIS_MAX_MEMBERS: usize = 6;
 const SYNTHESIS_VALUE_MAX: usize = 400;
 
 #[derive(Debug, Clone, Default)]
-pub struct CognitionLoopReport {
+pub(crate) struct CognitionLoopReport {
     pub steps_run: u8,
     pub facts_promoted: u32,
     pub edges_repaired: u32,
@@ -65,7 +65,7 @@ impl std::fmt::Display for CognitionLoopReport {
     }
 }
 
-pub fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopReport {
+pub(crate) fn run_cognition_loop(project_root: &str, max_steps: u8) -> CognitionLoopReport {
     let start = std::time::Instant::now();
     let mut report = CognitionLoopReport::default();
     if crate::core::memory_guard::is_under_pressure() {
@@ -437,7 +437,7 @@ fn step_replay_consolidation(knowledge: &mut ProjectKnowledge) -> u32 {
 /// step, and reports the facts whose confidence the replay lifted. Distinct from
 /// the in-loop step (#3) so idle-time "rest" consolidation is observable on its
 /// own via `introspect`. Deterministic; mutates the store, never tool output.
-pub fn run_idle_replay(project_root: &str) -> u32 {
+pub(crate) fn run_idle_replay(project_root: &str) -> u32 {
     let mut promoted = 0u32;
     let _ = ProjectKnowledge::mutate_locked(project_root, |knowledge| {
         promoted = step_replay_consolidation(knowledge);

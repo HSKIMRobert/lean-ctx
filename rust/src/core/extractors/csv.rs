@@ -11,7 +11,7 @@ const ROWS_PER_CHUNK: usize = 20;
 
 /// Parse delimited text into rows of fields (RFC-4180 quoting aware).
 #[must_use]
-pub fn parse(input: &str, delimiter: char) -> Vec<Vec<String>> {
+pub(crate) fn parse(input: &str, delimiter: char) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     let mut field = String::new();
     let mut record: Vec<String> = Vec::new();
@@ -62,14 +62,14 @@ fn push_record(rows: &mut Vec<Vec<String>>, record: Vec<String>) {
 
 /// Render all data rows as `header: value | …` records.
 #[must_use]
-pub fn to_text(input: &str, delimiter: char) -> String {
+pub(crate) fn to_text(input: &str, delimiter: char) -> String {
     let rows = parse(input, delimiter);
     record_lines(&rows).join("\n")
 }
 
 /// Row-group chunks; each chunk repeats the header line for context.
 #[must_use]
-pub fn chunks(input: &str, delimiter: char) -> Vec<String> {
+pub(crate) fn chunks(input: &str, delimiter: char) -> Vec<String> {
     let rows = parse(input, delimiter);
     if rows.is_empty() {
         return Vec::new();

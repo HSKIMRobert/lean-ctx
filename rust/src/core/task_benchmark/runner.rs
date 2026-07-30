@@ -9,7 +9,7 @@ use super::fixtures::{QualityScore, TaskFixture};
 
 /// Result of running a single task under a single compression profile.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskRun {
+pub(crate) struct TaskRun {
     pub task_id: String,
     pub profile: String,
     pub raw_tokens: usize,
@@ -21,7 +21,7 @@ pub struct TaskRun {
 
 /// Aggregated results for one profile across all tasks and repeats.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProfileResult {
+pub(crate) struct ProfileResult {
     pub profile: String,
     pub mode: ProfileMode,
     pub runs: Vec<TaskRun>,
@@ -36,7 +36,7 @@ pub struct ProfileResult {
 
 /// Complete benchmark result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BenchmarkResult {
+pub(crate) struct BenchmarkResult {
     pub profiles: Vec<ProfileResult>,
     pub repeats: u32,
     pub regression_detected: bool,
@@ -44,7 +44,7 @@ pub struct BenchmarkResult {
 }
 
 /// Run the full benchmark suite.
-pub fn run_benchmark(tasks: &[TaskFixture], config: &BenchConfig) -> BenchmarkResult {
+pub(crate) fn run_benchmark(tasks: &[TaskFixture], config: &BenchConfig) -> BenchmarkResult {
     let mut profile_results = Vec::new();
 
     for profile in &config.profiles {

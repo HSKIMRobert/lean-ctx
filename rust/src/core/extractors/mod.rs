@@ -22,9 +22,9 @@
 // Chunker::name returns &str; literals here would otherwise trip the lint.
 #![allow(clippy::unnecessary_literal_bound)]
 
-pub mod csv;
-pub mod eml;
-pub mod json;
+pub(crate) mod csv;
+pub(crate) mod eml;
+pub(crate) mod json;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ use super::extension_registry::{Chunker, ExtensionRegistry};
 /// The result of extracting one document: a stable kind tag, clean text, and
 /// structure-aware chunks.
 #[derive(Debug, Clone)]
-pub struct Extracted {
+pub(crate) struct Extracted {
     pub kind: &'static str,
     pub text: String,
     pub chunks: Vec<String>,
@@ -44,7 +44,7 @@ pub struct Extracted {
 /// extension. Binary formats (PDF) read from bytes; text formats decode UTF-8
 /// lossily so malformed encodings still produce content.
 #[must_use]
-pub fn extract(path: &Path, bytes: &[u8]) -> Extracted {
+pub(crate) fn extract(path: &Path, bytes: &[u8]) -> Extracted {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -116,7 +116,7 @@ pub fn extract(path: &Path, bytes: &[u8]) -> Extracted {
 /// before they can enter the text index. Grows as binary extractors (DOCX,
 /// XLSX, …) are added. Single source of truth for the indexer's read path.
 #[must_use]
-pub fn is_binary_document(path: &Path) -> bool {
+pub(crate) fn is_binary_document(path: &Path) -> bool {
     matches!(
         path.extension()
             .and_then(|e| e.to_str())
@@ -129,7 +129,7 @@ pub fn is_binary_document(path: &Path) -> bool {
 /// Split `text` into paragraph chunks on blank-line boundaries, trimming and
 /// dropping empties. The shared fallback chunker for prose-like formats.
 #[must_use]
-pub fn paragraph_chunks(text: &str) -> Vec<String> {
+pub(crate) fn paragraph_chunks(text: &str) -> Vec<String> {
     text.split("\n\n")
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -140,7 +140,7 @@ pub fn paragraph_chunks(text: &str) -> Vec<String> {
 /// Register the text-based format chunkers into `reg`. Called from
 /// [`ExtensionRegistry::with_builtins`] so the formats are first-class,
 /// discoverable, and conformance-checked.
-pub fn register_into(reg: &mut ExtensionRegistry) {
+pub(crate) fn register_into(reg: &mut ExtensionRegistry) {
     reg.register_chunker(Arc::new(FormatChunker {
         name: "csv",
         f: |s| csv::chunks(s, ','),

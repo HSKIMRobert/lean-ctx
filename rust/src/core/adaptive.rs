@@ -1,14 +1,14 @@
 use crate::core::cache::SessionCache;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskComplexity {
+pub(crate) enum TaskComplexity {
     Mechanical,
     Standard,
     Architectural,
 }
 
 impl TaskComplexity {
-    pub fn instruction_suffix(&self) -> &'static str {
+    pub(crate) fn instruction_suffix(&self) -> &'static str {
         match self {
             TaskComplexity::Mechanical => {
                 "TASK COMPLEXITY: mechanical\n\
@@ -25,7 +25,7 @@ impl TaskComplexity {
         }
     }
 
-    pub fn encoded_suffix(&self) -> String {
+    pub(crate) fn encoded_suffix(&self) -> String {
         use crate::core::protocol::encode_instructions;
         match self {
             TaskComplexity::Mechanical => encode_instructions("mechanical"),
@@ -35,7 +35,7 @@ impl TaskComplexity {
     }
 }
 
-pub fn classify_from_context(cache: &SessionCache) -> TaskComplexity {
+pub(crate) fn classify_from_context(cache: &SessionCache) -> TaskComplexity {
     let stats = cache.get_stats();
     let unique_files = cache.get_all_entries().len();
     let total_reads = stats.total_reads();
@@ -52,7 +52,7 @@ pub fn classify_from_context(cache: &SessionCache) -> TaskComplexity {
 }
 
 #[cfg(test)]
-pub fn classify_from_signals(
+pub(crate) fn classify_from_signals(
     file_count: usize,
     has_tests: bool,
     has_multi_lang: bool,

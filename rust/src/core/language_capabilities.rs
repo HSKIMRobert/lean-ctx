@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LanguageId {
+pub(crate) enum LanguageId {
     Rust,
     TypeScript,
     JavaScript,
@@ -31,14 +31,14 @@ pub enum LanguageId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LanguageCapabilities {
+pub(crate) struct LanguageCapabilities {
     pub deps_edges: bool,
     pub deep_queries: bool,
     pub import_resolver: bool,
 }
 
 impl LanguageId {
-    pub fn id_str(&self) -> &'static str {
+    pub(crate) fn id_str(&self) -> &'static str {
         match self {
             LanguageId::Rust => "rust",
             LanguageId::TypeScript => "typescript",
@@ -68,7 +68,7 @@ impl LanguageId {
     }
 }
 
-pub fn capabilities(lang: LanguageId) -> LanguageCapabilities {
+pub(crate) fn capabilities(lang: LanguageId) -> LanguageCapabilities {
     match lang {
         // tree-sitter backed (deep_queries + resolver can be meaningful)
         LanguageId::Rust
@@ -112,7 +112,7 @@ pub fn capabilities(lang: LanguageId) -> LanguageCapabilities {
     }
 }
 
-pub fn language_for_ext(ext: &str) -> Option<LanguageId> {
+pub(crate) fn language_for_ext(ext: &str) -> Option<LanguageId> {
     let e = ext.trim().trim_start_matches('.').to_lowercase();
     match e.as_str() {
         "rs" => Some(LanguageId::Rust),
@@ -143,20 +143,20 @@ pub fn language_for_ext(ext: &str) -> Option<LanguageId> {
     }
 }
 
-pub fn language_for_path(path: &str) -> Option<LanguageId> {
+pub(crate) fn language_for_path(path: &str) -> Option<LanguageId> {
     std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
         .and_then(language_for_ext)
 }
 
-pub fn is_indexable_ext(ext: &str) -> bool {
+pub(crate) fn is_indexable_ext(ext: &str) -> bool {
     language_for_ext(ext).is_some()
 }
 
 /// Every language the property graph / code-map can index, for capability
 /// enumeration and UI hints. Keep in sync with `language_for_ext`.
-pub const ALL_LANGUAGES: &[LanguageId] = &[
+pub(crate) const ALL_LANGUAGES: &[LanguageId] = &[
     LanguageId::Rust,
     LanguageId::TypeScript,
     LanguageId::JavaScript,
@@ -184,7 +184,7 @@ pub const ALL_LANGUAGES: &[LanguageId] = &[
 ];
 
 /// Friendly names of every graph-indexable language (e.g. for an empty-graph hint).
-pub fn graph_supported_language_names() -> Vec<&'static str> {
+pub(crate) fn graph_supported_language_names() -> Vec<&'static str> {
     ALL_LANGUAGES.iter().map(LanguageId::id_str).collect()
 }
 
@@ -192,7 +192,7 @@ pub fn graph_supported_language_names() -> Vec<&'static str> {
 /// call graph). Keep in sync with `deep_queries::calls::parse_call` — a language
 /// missing there yields zero call edges, which the dashboard must communicate
 /// honestly instead of suggesting an index rebuild that cannot help.
-pub fn supports_call_graph(lang: LanguageId) -> bool {
+pub(crate) fn supports_call_graph(lang: LanguageId) -> bool {
     matches!(
         lang,
         LanguageId::TypeScript
@@ -210,7 +210,7 @@ pub fn supports_call_graph(lang: LanguageId) -> bool {
 }
 
 /// Friendly names of every language with call-graph extraction support.
-pub fn callgraph_supported_language_names() -> Vec<&'static str> {
+pub(crate) fn callgraph_supported_language_names() -> Vec<&'static str> {
     ALL_LANGUAGES
         .iter()
         .filter(|l| supports_call_graph(**l))
@@ -222,7 +222,7 @@ pub fn callgraph_supported_language_names() -> Vec<&'static str> {
 /// language and how many files use it. Backs the dashboard capability legend so
 /// each detected language is labelled honestly (symbols / import edges / calls).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct LanguageCapabilityRow {
+pub(crate) struct LanguageCapabilityRow {
     pub language: &'static str,
     pub files: usize,
     pub symbols: bool,
@@ -241,7 +241,7 @@ pub struct LanguageCapabilityRow {
 /// Build a capability matrix for the languages actually present in `file_paths`,
 /// sorted by file count (desc) then name. `symbols`/`imports` come from
 /// `capabilities()`; `call_graph` from `supports_call_graph()`.
-pub fn language_capability_matrix<I, S>(file_paths: I) -> Vec<LanguageCapabilityRow>
+pub(crate) fn language_capability_matrix<I, S>(file_paths: I) -> Vec<LanguageCapabilityRow>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -288,7 +288,7 @@ where
 /// - `import_from_files`: the source file of each import/reexport edge,
 /// - `call_caller_files`: the caller file of each call edge, or `None` when call
 ///   data isn't available (then `calls_found` stays `None`).
-pub fn language_capability_matrix_realized(
+pub(crate) fn language_capability_matrix_realized(
     file_paths: &[String],
     symbol_files: &[String],
     import_from_files: &[String],
@@ -374,7 +374,10 @@ fn unsupported_source_language_name(ext: &str) -> Option<&'static str> {
 /// Honors .gitignore/hidden like the graph walker and stops after `max_entries`
 /// filesystem entries. Lets the dashboard turn a confusing empty graph into a
 /// clear "Lua is not graph-indexed" message instead of an endless loading state.
-pub fn scan_unsupported_source_languages(root: &str, max_entries: usize) -> Vec<(String, usize)> {
+pub(crate) fn scan_unsupported_source_languages(
+    root: &str,
+    max_entries: usize,
+) -> Vec<(String, usize)> {
     let mut counts: std::collections::HashMap<&'static str, usize> =
         std::collections::HashMap::new();
     let walker = ignore::WalkBuilder::new(root)

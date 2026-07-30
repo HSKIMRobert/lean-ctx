@@ -15,7 +15,7 @@ const SCENE_SOURCE_EXTS: [&str; 2] = ["gd", "tscn"];
 
 /// Extracts the script/scene dependencies declared by a `.tscn` file's
 /// `[ext_resource]` headers, as resolver-ready [`ImportInfo`] entries.
-pub fn extract_scene_imports(content: &str) -> Vec<ImportInfo> {
+pub(crate) fn extract_scene_imports(content: &str) -> Vec<ImportInfo> {
     let mut imports = Vec::new();
     for (idx, line) in content.lines().enumerate() {
         let trimmed = line.trim_start();

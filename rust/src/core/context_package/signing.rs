@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use super::content::PackageContent;
 use super::manifest::{PackageManifest, PackageSignature};
 
-pub fn sign_package(
+pub(crate) fn sign_package(
     manifest: &mut PackageManifest,
     _content: &PackageContent,
     signing_key: &SigningKey,
@@ -20,7 +20,7 @@ pub fn sign_package(
     });
 }
 
-pub fn verify_signature(manifest: &PackageManifest) -> Result<bool, String> {
+pub(crate) fn verify_signature(manifest: &PackageManifest) -> Result<bool, String> {
     let Some(ref sig) = manifest.signature else {
         return Ok(false);
     };

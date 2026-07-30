@@ -3,10 +3,10 @@
 //! Provides a ranked view of the most structurally important symbols,
 //! personalized by session context (recent files, focus files).
 
-pub mod budget;
-pub mod graph;
-pub mod ranking;
+pub(crate) mod budget;
+pub(crate) mod graph;
+pub(crate) mod ranking;
 
-pub use budget::fit_to_budget;
-pub use graph::RepoGraph;
-pub use ranking::rank_symbols;
+pub(crate) use budget::fit_to_budget;
+pub(crate) use graph::RepoGraph;
+pub(crate) use ranking::rank_symbols;

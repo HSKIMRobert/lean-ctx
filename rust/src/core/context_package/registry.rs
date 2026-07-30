@@ -10,14 +10,14 @@ const INDEX_FILE: &str = "package-index.json";
 const PACKAGES_DIR: &str = "packages";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageIndex {
+pub(crate) struct PackageIndex {
     pub schema_version: u32,
     pub updated_at: DateTime<Utc>,
     pub entries: Vec<PackageEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PackageEntry {
+pub(crate) struct PackageEntry {
     pub name: String,
     pub version: String,
     pub description: String,
@@ -41,30 +41,30 @@ impl PackageIndex {
     }
 }
 
-pub struct LocalRegistry {
+pub(crate) struct LocalRegistry {
     root: PathBuf,
 }
 
 impl LocalRegistry {
-    pub fn open() -> Result<Self, String> {
+    pub(crate) fn open() -> Result<Self, String> {
         let data_dir = crate::core::data_dir::lean_ctx_data_dir()?;
         let root = data_dir.join(PACKAGES_DIR);
         std::fs::create_dir_all(&root).map_err(|e| format!("create packages dir: {e}"))?;
         Ok(Self { root })
     }
 
-    pub fn open_at(root: &Path) -> Result<Self, String> {
+    pub(crate) fn open_at(root: &Path) -> Result<Self, String> {
         std::fs::create_dir_all(root).map_err(|e| format!("create packages dir: {e}"))?;
         Ok(Self {
             root: root.to_path_buf(),
         })
     }
 
-    pub fn root(&self) -> &Path {
+    pub(crate) fn root(&self) -> &Path {
         &self.root
     }
 
-    pub fn install(
+    pub(crate) fn install(
         &self,
         manifest: &PackageManifest,
         content: &PackageContent,
@@ -122,7 +122,7 @@ impl LocalRegistry {
         Ok(pkg_dir)
     }
 
-    pub fn remove(&self, name: &str, version: Option<&str>) -> Result<u32, String> {
+    pub(crate) fn remove(&self, name: &str, version: Option<&str>) -> Result<u32, String> {
         let mut index = self.load_index()?;
         let before = index.entries.len();
 
@@ -161,12 +161,16 @@ impl LocalRegistry {
         Ok(removed)
     }
 
-    pub fn list(&self) -> Result<Vec<PackageEntry>, String> {
+    pub(crate) fn list(&self) -> Result<Vec<PackageEntry>, String> {
         let index = self.load_index()?;
         Ok(index.entries)
     }
 
-    pub fn get(&self, name: &str, version: Option<&str>) -> Result<Option<PackageEntry>, String> {
+    pub(crate) fn get(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<Option<PackageEntry>, String> {
         let index = self.load_index()?;
         Ok(index
             .entries
@@ -174,7 +178,7 @@ impl LocalRegistry {
             .find(|e| e.name == name && version.is_none_or(|v| e.version == v)))
     }
 
-    pub fn load_package(
+    pub(crate) fn load_package(
         &self,
         name: &str,
         version: &str,
@@ -199,7 +203,12 @@ impl LocalRegistry {
         Ok((manifest, content))
     }
 
-    pub fn set_auto_load(&self, name: &str, version: &str, auto_load: bool) -> Result<(), String> {
+    pub(crate) fn set_auto_load(
+        &self,
+        name: &str,
+        version: &str,
+        auto_load: bool,
+    ) -> Result<(), String> {
         let mut index = self.load_index()?;
         if let Some(entry) = index
             .entries
@@ -215,12 +224,17 @@ impl LocalRegistry {
         Ok(())
     }
 
-    pub fn auto_load_packages(&self) -> Result<Vec<PackageEntry>, String> {
+    pub(crate) fn auto_load_packages(&self) -> Result<Vec<PackageEntry>, String> {
         let index = self.load_index()?;
         Ok(index.entries.into_iter().filter(|e| e.auto_load).collect())
     }
 
-    pub fn export_to_file(&self, name: &str, version: &str, output: &Path) -> Result<u64, String> {
+    pub(crate) fn export_to_file(
+        &self,
+        name: &str,
+        version: &str,
+        output: &Path,
+    ) -> Result<u64, String> {
         let (manifest, content) = self.load_package(name, version)?;
 
         let bundle = ExportBundle { manifest, content };
@@ -235,7 +249,7 @@ impl LocalRegistry {
     /// required by the hosted registry. The stored package stays untouched;
     /// only the exported bundle carries the signature. `private` stamps
     /// `visibility=private` into the bundle for the hosted registry (#524).
-    pub fn export_to_file_signed(
+    pub(crate) fn export_to_file_signed(
         &self,
         name: &str,
         version: &str,
@@ -258,7 +272,7 @@ impl LocalRegistry {
         Ok(bytes.len() as u64)
     }
 
-    pub fn import_from_file(&self, path: &Path) -> Result<PackageManifest, String> {
+    pub(crate) fn import_from_file(&self, path: &Path) -> Result<PackageManifest, String> {
         if !crate::core::contracts::is_package_file(path) {
             let ext = path
                 .extension()

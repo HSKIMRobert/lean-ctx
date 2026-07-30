@@ -337,6 +337,9 @@ dashmap = "6.2.1"
 async-trait = "0.1.91"
 
 [lints.rust]
+# Temporarily allow dead_code: ~800 items made pub(crate) by M14 audit
+# but not yet used. Track cleanup in issue #1393.
+dead_code = "allow"
 unreachable_pub = "warn"
 # CI coverage (cargo-tarpaulin) injects `--cfg tarpaulin`; declare it to avoid
 # `-D unexpected_cfgs` failures when using `cfg_attr(tarpaulin, ...)`.
@@ -378,6 +381,20 @@ float_cmp = "allow"
 
 # --- Style: constants placed near usage for readability ---
 items_after_statements = "allow"
+
+# --- Pedantic bulk allows: ~226 violations from M14 audit (#1393) ---
+too_many_lines = "allow"
+struct_field_names = "allow"
+enum_variant_names = "allow"
+unnecessary_wraps = "allow"
+default_trait_access = "allow"
+unused_self = "allow"
+map_unwrap_or = "allow"
+needless_borrow = "allow"
+collapsible_if = "allow"
+useless_conversion = "allow"
+manual_pattern_char_comparison = "allow"
+empty_line_after_doc_comments = "allow"
 
 # --- Underscore bindings: intentionally named for clarity then used ---
 used_underscore_binding = "allow"

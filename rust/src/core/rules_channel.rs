@@ -19,12 +19,12 @@ use std::path::Path;
 /// that actually drives cross-channel duplication. Defined in `rules_canonical`
 /// (the single marker source of truth) and re-exported here so the coverage/dedup
 /// readers and the `render()` writer can never disagree (#548).
-pub use crate::core::rules_canonical::{COMPRESSION_BLOCK_END, COMPRESSION_BLOCK_START};
+pub(crate) use crate::core::rules_canonical::{COMPRESSION_BLOCK_END, COMPRESSION_BLOCK_START};
 
 /// The agents that auto-load the shared project `AGENTS.md`. Kept in sync with
 /// `core::rules_overhead::collect_rules_files`, which attributes `AGENTS.md` to
 /// the same set.
-pub const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
+pub(crate) const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
 
 /// True when `content` carries a *full* lean-ctx payload — the canonical rule
 /// set (the `RULES_MARKER` header) or the compression/output-style block —
@@ -33,14 +33,14 @@ pub const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
 /// A pointer-only file (a thinned `AGENTS.md` / `.cursorrules` that merely says
 /// "the full rules live in the canonical file") does not duplicate guidance and
 /// must not be counted as a second source for its client.
-pub fn carries_full_rules(content: &str) -> bool {
+pub(crate) fn carries_full_rules(content: &str) -> bool {
     content.contains(crate::core::rules_canonical::START_MARK)
         || content.contains(COMPRESSION_BLOCK_START)
 }
 
 /// True when `content` contains a lean-ctx block but only the lightweight
 /// pointer (no canonical rules, no compression payload).
-pub fn is_pointer_only(content: &str) -> bool {
+pub(crate) fn is_pointer_only(content: &str) -> bool {
     content.contains("<!-- lean-ctx") && !carries_full_rules(content)
 }
 
@@ -50,7 +50,7 @@ fn file_has_compression(path: &Path) -> bool {
 
 /// Cursor auto-loads `~/.cursor/rules/lean-ctx.mdc`; it is "covered" for the
 /// compression payload once that canonical file carries the block.
-pub fn cursor_compression_covered(home: &Path) -> bool {
+pub(crate) fn cursor_compression_covered(home: &Path) -> bool {
     file_has_compression(&home.join(".cursor/rules/lean-ctx.mdc"))
 }
 
@@ -59,7 +59,7 @@ pub fn cursor_compression_covered(home: &Path) -> bool {
 /// for BOTH the Shell rewrite and the Read/Grep redirect. Only then is the
 /// "use ctx_* instead of native" mapping dead weight — with partial or no
 /// hook coverage the full guidance stays.
-pub fn cursor_hooks_cover_native_tools(home: &Path) -> bool {
+pub(crate) fn cursor_hooks_cover_native_tools(home: &Path) -> bool {
     cursor_hooks_json_covers(&home.join(".cursor/hooks.json"))
 }
 
@@ -69,7 +69,7 @@ pub fn cursor_hooks_cover_native_tools(home: &Path) -> bool {
 ///
 /// Conservative by construction: unreadable/invalid JSON, a missing file, or
 /// a redirect that was manually removed all mean "not covered".
-pub fn cursor_hooks_json_covers(hooks_json: &Path) -> bool {
+pub(crate) fn cursor_hooks_json_covers(hooks_json: &Path) -> bool {
     let Ok(content) = std::fs::read_to_string(hooks_json) else {
         return false;
     };
@@ -94,7 +94,7 @@ pub fn cursor_hooks_json_covers(hooks_json: &Path) -> bool {
 /// anchor wording (GL #1153) — repeating "ctx_* replaces native tools" to a
 /// hook-covered Cursor re-creates exactly the instruction dissonance the
 /// HookCovered profile removes.
-pub fn client_hook_covered(client_name: &str, home: &Path) -> bool {
+pub(crate) fn client_hook_covered(client_name: &str, home: &Path) -> bool {
     let lower = client_name.to_lowercase();
     lower.contains("cursor") && cursor_hooks_cover_native_tools(home)
 }
@@ -105,12 +105,12 @@ fn codex_dir(home: &Path) -> std::path::PathBuf {
 }
 
 /// Codex is present on this machine when its config dir exists.
-pub fn codex_present(home: &Path) -> bool {
+pub(crate) fn codex_present(home: &Path) -> bool {
     codex_dir(home).exists()
 }
 
 /// Codex auto-loads `~/.codex/AGENTS.md`; covered once it carries the block.
-pub fn codex_compression_covered(home: &Path) -> bool {
+pub(crate) fn codex_compression_covered(home: &Path) -> bool {
     file_has_compression(&codex_dir(home).join("AGENTS.md"))
 }
 
@@ -121,7 +121,7 @@ pub fn codex_compression_covered(home: &Path) -> bool {
 ///
 /// Conservative by construction (#684, "thin only if covered"): if any reader
 /// would lose the guidance, `AGENTS.md` stays the full carrier.
-pub fn agents_md_can_thin(home: &Path) -> bool {
+pub(crate) fn agents_md_can_thin(home: &Path) -> bool {
     if !cursor_compression_covered(home) {
         return false;
     }
@@ -135,7 +135,7 @@ pub fn agents_md_can_thin(home: &Path) -> bool {
 /// compression payload from a rule file? If so, repeating the output-style
 /// block in the per-session instructions is pure cross-channel duplication and
 /// can be dropped (the file copy governs).
-pub fn client_autoloads_compression(client_name: &str, home: &Path) -> bool {
+pub(crate) fn client_autoloads_compression(client_name: &str, home: &Path) -> bool {
     let lower = client_name.to_lowercase();
     if lower.is_empty() {
         return false;
@@ -171,7 +171,7 @@ fn file_has_canonical_rules(path: &Path) -> bool {
 /// Conservative by construction: only clients whose auto-loaded carrier holds
 /// the canonical block *right now* count. Any stale/removed file falls back to
 /// the full skeleton.
-pub fn client_autoloads_rules(client_name: &str, home: &Path) -> bool {
+pub(crate) fn client_autoloads_rules(client_name: &str, home: &Path) -> bool {
     let lower = client_name.to_lowercase();
     if lower.is_empty() {
         return false;

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// Complete analysis artifact suitable for blog publication.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublicationAnalysis {
+pub(crate) struct PublicationAnalysis {
     pub headline: HeadlineMetrics,
     pub per_dataset: Vec<DatasetAnalysis>,
     pub non_inferiority: NonInferiorityResult,
@@ -17,7 +17,7 @@ pub struct PublicationAnalysis {
 
 /// Top-line numbers for marketing / blog headline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeadlineMetrics {
+pub(crate) struct HeadlineMetrics {
     pub cost_savings_pct: f64,
     pub cost_savings_ci: (f64, f64),
     pub quality_retained_pct: f64,
@@ -28,14 +28,14 @@ pub struct HeadlineMetrics {
 
 /// Per-dataset four-arm breakdown with CIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatasetAnalysis {
+pub(crate) struct DatasetAnalysis {
     pub dataset: String,
     pub arms: Vec<ArmAnalysis>,
 }
 
 /// Single arm analysis with confidence intervals.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArmAnalysis {
+pub(crate) struct ArmAnalysis {
     pub arm: Arm,
     pub pass_rate: f64,
     pub pass_rate_ci: (f64, f64),
@@ -47,7 +47,7 @@ pub struct ArmAnalysis {
 
 /// Non-inferiority test result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NonInferiorityResult {
+pub(crate) struct NonInferiorityResult {
     pub is_non_inferior: bool,
     pub epsilon: f64,
     pub p_value: f64,
@@ -57,7 +57,7 @@ pub struct NonInferiorityResult {
 
 impl PublicationAnalysis {
     /// Compute full publication analysis from a study report.
-    pub fn from_report(report: &StudyReport) -> Self {
+    pub(crate) fn from_report(report: &StudyReport) -> Self {
         let per_dataset: Vec<DatasetAnalysis> =
             report.experiments.iter().map(analyze_experiment).collect();
 
@@ -73,7 +73,7 @@ impl PublicationAnalysis {
     }
 
     /// Render as a blog-post Markdown document.
-    pub fn to_blog_markdown(&self) -> String {
+    pub(crate) fn to_blog_markdown(&self) -> String {
         let mut md = String::new();
         md.push_str("---\n");
         md.push_str("title: \"Combined Savings Benchmark: Compression × Routing\"\n");

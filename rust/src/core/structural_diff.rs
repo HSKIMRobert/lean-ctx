@@ -8,7 +8,7 @@ use super::bm25_index::ChunkKind;
 
 /// Added / removed / modified structural symbol (declaration identified by name + start line).
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct StructuralSymbolDiff {
+pub(crate) struct StructuralSymbolDiff {
     pub change: StructuralChangeKind,
     pub name: String,
     pub symbol_kind: ChunkKind,
@@ -18,7 +18,7 @@ pub struct StructuralSymbolDiff {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum StructuralChangeKind {
+pub(crate) enum StructuralChangeKind {
     Added,
     Removed,
     Modified,
@@ -56,7 +56,7 @@ fn chunk_order(source: &str, extension: &str) -> Option<Vec<ChunkKey>> {
 ///
 /// Identity is `(symbol_name, start_line)` within each version; body text inequality ⇒ `Modified`.
 /// Returns an empty list when tree-sitter is disabled or the language is unsupported.
-pub fn structural_symbol_diff(
+pub(crate) fn structural_symbol_diff(
     old_source: &str,
     new_source: &str,
     extension: &str,

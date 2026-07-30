@@ -15,7 +15,7 @@ const SYSTEM_PROMPT: &str = "You are an expert Python programmer. \
     Do not include test code or example usage.";
 
 /// Run the full benchmark study for the given datasets.
-pub fn run_study(config: &StudyConfig, dataset_names: &[&str]) -> StudyReport {
+pub(crate) fn run_study(config: &StudyConfig, dataset_names: &[&str]) -> StudyReport {
     let mut experiments = Vec::new();
 
     for &name in dataset_names {

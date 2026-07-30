@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// Result of a quiet maintenance pass.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct MaintenanceResult {
+pub(crate) struct MaintenanceResult {
     pub quarantined_removed: u32,
     pub bytes_freed: u64,
     pub archive_entries_pruned: u32,
@@ -57,7 +57,7 @@ fn prune_quarantined_bm25() -> (u32, u64) {
 
 /// Run a silent maintenance pass: prune quarantined BM25 indexes and enforce
 /// the archive FTS size cap. Safe to call from the MCP daemon.
-pub fn run_quiet() -> MaintenanceResult {
+pub(crate) fn run_quiet() -> MaintenanceResult {
     let (quarantined_removed, bytes_freed) = prune_quarantined_bm25();
     // Enforce the archive TTL + on-disk size budget (prunes `.txt`/`.meta.json`
     // + FTS rows together), then backstop the DB cap. Without this the archive

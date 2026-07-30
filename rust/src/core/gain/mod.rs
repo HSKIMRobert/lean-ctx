@@ -1,9 +1,9 @@
-pub mod bridge_status;
-pub mod gain_score;
-pub mod live_pricing;
-pub mod model_pricing;
-pub mod stream_savings;
-pub mod task_classifier;
+pub(crate) mod bridge_status;
+pub(crate) mod gain_score;
+pub(crate) mod live_pricing;
+pub(crate) mod model_pricing;
+pub(crate) mod stream_savings;
+pub(crate) mod task_classifier;
 
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +16,7 @@ use crate::core::heatmap::HeatMap;
 use crate::core::stats::StatsStore;
 
 #[derive(Clone)]
-pub struct GainEngine {
+pub(crate) struct GainEngine {
     pub stats: StatsStore,
     pub costs: CostStore,
     pub heatmap: HeatMap,
@@ -26,7 +26,7 @@ pub struct GainEngine {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GainSummary {
+pub(crate) struct GainSummary {
     pub model: ModelQuote,
     pub total_commands: u64,
     pub input_tokens: u64,
@@ -92,7 +92,7 @@ pub struct GainSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskGainRow {
+pub(crate) struct TaskGainRow {
     pub category: TaskCategory,
     pub commands: u64,
     pub tokens_saved: u64,
@@ -101,7 +101,7 @@ pub struct TaskGainRow {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileGainRow {
+pub(crate) struct FileGainRow {
     pub path: String,
     pub access_count: u32,
     pub tokens_saved: u64,
@@ -118,7 +118,7 @@ fn current_project_navigability() -> Option<u32> {
 }
 
 impl GainEngine {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         Self {
             // Aggregate across split data dirs so the gain score, cost view and
             // net-of-injection line agree with the hero headline (#500).
@@ -131,7 +131,7 @@ impl GainEngine {
         }
     }
 
-    pub fn summary(&self, model: Option<&str>) -> GainSummary {
+    pub(crate) fn summary(&self, model: Option<&str>) -> GainSummary {
         let quote = self.pricing.quote(model);
         let total_tokens_saved = self
             .stats
@@ -227,7 +227,7 @@ impl GainEngine {
         }
     }
 
-    pub fn gain_score(&self, model: Option<&str>) -> GainScore {
+    pub(crate) fn gain_score(&self, model: Option<&str>) -> GainScore {
         GainScore::compute(
             &self.stats,
             &self.costs,
@@ -237,7 +237,7 @@ impl GainEngine {
         )
     }
 
-    pub fn task_breakdown(&self) -> Vec<TaskGainRow> {
+    pub(crate) fn task_breakdown(&self) -> Vec<TaskGainRow> {
         use std::collections::HashMap;
 
         let mut by_cat: HashMap<TaskCategory, TaskGainRow> = HashMap::new();
@@ -273,7 +273,7 @@ impl GainEngine {
         out
     }
 
-    pub fn heatmap_gains(&self, limit: usize) -> Vec<FileGainRow> {
+    pub(crate) fn heatmap_gains(&self, limit: usize) -> Vec<FileGainRow> {
         let mut items: Vec<_> = self.heatmap.entries.values().collect();
         items.sort_by_key(|x| std::cmp::Reverse(x.total_tokens_saved));
         items.truncate(limit);

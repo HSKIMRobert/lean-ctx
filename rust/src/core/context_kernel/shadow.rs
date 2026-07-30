@@ -6,14 +6,14 @@ use std::path::PathBuf;
 use super::types::{ContextPlanV1, ContextReceiptV1};
 
 /// Persists kernel artifacts for debugging and observability.
-pub struct ShadowLogger {
+pub(crate) struct ShadowLogger {
     log_dir: PathBuf,
     max_entries: usize,
 }
 
 impl ShadowLogger {
     /// Creates a shadow logger with the supplied storage limit.
-    pub fn new(log_dir: PathBuf, max_entries: usize) -> Self {
+    pub(crate) fn new(log_dir: PathBuf, max_entries: usize) -> Self {
         Self {
             log_dir,
             max_entries,
@@ -21,7 +21,7 @@ impl ShadowLogger {
     }
 
     /// Creates the default per-user kernel shadow logger.
-    pub fn default_for_project(_project_root: &str) -> Self {
+    pub(crate) fn default_for_project(_project_root: &str) -> Self {
         let dir = dirs::cache_dir()
             .unwrap_or_else(|| PathBuf::from("/tmp"))
             .join("lean-ctx")
@@ -30,7 +30,7 @@ impl ShadowLogger {
     }
 
     /// Writes a context plan as pretty-printed JSON.
-    pub fn log_plan(&self, plan: &ContextPlanV1) {
+    pub(crate) fn log_plan(&self, plan: &ContextPlanV1) {
         if fs::create_dir_all(&self.log_dir).is_err() {
             return;
         }
@@ -43,7 +43,7 @@ impl ShadowLogger {
     }
 
     /// Writes a context receipt as pretty-printed JSON.
-    pub fn log_receipt(&self, receipt: &ContextReceiptV1) {
+    pub(crate) fn log_receipt(&self, receipt: &ContextReceiptV1) {
         if fs::create_dir_all(&self.log_dir).is_err() {
             return;
         }
@@ -82,7 +82,7 @@ impl ShadowLogger {
 }
 
 /// Logs a plan using the default project logger.
-pub fn log_kernel_event(project_root: &str, plan: &ContextPlanV1) {
+pub(crate) fn log_kernel_event(project_root: &str, plan: &ContextPlanV1) {
     let logger = ShadowLogger::default_for_project(project_root);
     logger.log_plan(plan);
 }

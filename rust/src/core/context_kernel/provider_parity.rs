@@ -15,7 +15,7 @@ const SUPPORTED: [ProviderKind; 7] = [
 ];
 
 /// Detects a provider from its API base URL.
-pub fn detect_provider(base_url: &str) -> ProviderKind {
+pub(crate) fn detect_provider(base_url: &str) -> ProviderKind {
     let url = base_url.to_ascii_lowercase();
     if url.contains("api.openai.com") {
         ProviderKind::OpenAi
@@ -50,7 +50,11 @@ fn token(usage: &Value, path: &[&str]) -> usize {
 }
 
 /// Creates a canonical token envelope from provider-specific usage JSON.
-pub fn envelope_from_usage(provider: ProviderKind, model: &str, usage: &Value) -> TokenEnvelope {
+pub(crate) fn envelope_from_usage(
+    provider: ProviderKind,
+    model: &str,
+    usage: &Value,
+) -> TokenEnvelope {
     let (input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens) =
         match provider {
             ProviderKind::Anthropic => (
@@ -102,7 +106,7 @@ pub fn envelope_from_usage(provider: ProviderKind, model: &str, usage: &Value) -
 }
 
 /// Returns the stable human-readable name for a provider.
-pub const fn provider_display_name(kind: ProviderKind) -> &'static str {
+pub(crate) const fn provider_display_name(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::OpenAi => "OpenAI",
         ProviderKind::Anthropic => "Anthropic",
@@ -116,7 +120,7 @@ pub const fn provider_display_name(kind: ProviderKind) -> &'static str {
 }
 
 /// Returns every provider with a supported canonical usage mapping.
-pub const fn all_supported() -> &'static [ProviderKind] {
+pub(crate) const fn all_supported() -> &'static [ProviderKind] {
     &SUPPORTED
 }
 

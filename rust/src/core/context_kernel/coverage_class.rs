@@ -4,7 +4,7 @@
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
-pub enum CoverageClass {
+pub(crate) enum CoverageClass {
     /// All client traffic passes through the inline proxy.
     FullInline,
     /// Context is managed through MCP, without inline traffic control.
@@ -18,7 +18,7 @@ pub enum CoverageClass {
 
 /// Operations available for a coverage class.
 #[derive(Debug, Clone, Copy)]
-pub struct CoverageCapabilities {
+pub(crate) struct CoverageCapabilities {
     /// Whether input context can be compressed.
     pub can_compress: bool,
     /// Whether requests can be routed.
@@ -30,7 +30,7 @@ pub struct CoverageCapabilities {
 }
 
 /// Detects the strongest coverage class supported by the available integrations.
-pub fn detect_coverage(has_proxy: bool, has_mcp: bool, has_hooks: bool) -> CoverageClass {
+pub(crate) fn detect_coverage(has_proxy: bool, has_mcp: bool, has_hooks: bool) -> CoverageClass {
     if has_proxy {
         CoverageClass::FullInline
     } else if has_mcp {
@@ -43,7 +43,7 @@ pub fn detect_coverage(has_proxy: bool, has_mcp: bool, has_hooks: bool) -> Cover
 }
 
 /// Returns the stable machine-readable label for a coverage class.
-pub fn coverage_label(class: CoverageClass) -> &'static str {
+pub(crate) fn coverage_label(class: CoverageClass) -> &'static str {
     match class {
         CoverageClass::FullInline => "full_inline",
         CoverageClass::ContextControlled => "context_controlled",
@@ -53,7 +53,7 @@ pub fn coverage_label(class: CoverageClass) -> &'static str {
 }
 
 /// Returns whether lean-ctx can directly modify context for the client.
-pub fn is_addressable(class: CoverageClass) -> bool {
+pub(crate) fn is_addressable(class: CoverageClass) -> bool {
     matches!(
         class,
         CoverageClass::FullInline | CoverageClass::ContextControlled
@@ -61,7 +61,7 @@ pub fn is_addressable(class: CoverageClass) -> bool {
 }
 
 /// Returns the operations available for a coverage class.
-pub fn capabilities(class: CoverageClass) -> CoverageCapabilities {
+pub(crate) fn capabilities(class: CoverageClass) -> CoverageCapabilities {
     match class {
         CoverageClass::FullInline => CoverageCapabilities {
             can_compress: true,

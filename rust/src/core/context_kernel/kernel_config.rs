@@ -4,7 +4,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// Runtime feature toggles for the Context Kernel.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct KernelFeatures {
+pub(crate) struct KernelFeatures {
     /// Master switch: enable kernel processing.
     pub enabled: bool,
     /// Record ETPAO metrics for proxy requests.
@@ -73,24 +73,24 @@ fn env_usize(name: &str, default: usize) -> usize {
 
 /// Returns a snapshot of the current kernel feature configuration.
 #[must_use]
-pub fn features() -> KernelFeatures {
+pub(crate) fn features() -> KernelFeatures {
     feature_guard().clone()
 }
 
 /// Replaces the current kernel feature configuration.
-pub fn update_features(features: KernelFeatures) {
+pub(crate) fn update_features(features: KernelFeatures) {
     *feature_guard() = features;
 }
 
 /// Returns whether Context Kernel processing is enabled.
 #[must_use]
-pub fn is_enabled() -> bool {
+pub(crate) fn is_enabled() -> bool {
     feature_guard().enabled
 }
 
 /// Returns whether a named feature and the master kernel switch are enabled.
 #[must_use]
-pub fn is_feature_enabled(feature: &str) -> bool {
+pub(crate) fn is_feature_enabled(feature: &str) -> bool {
     let features = feature_guard();
     features.enabled
         && match feature {
@@ -107,13 +107,13 @@ pub fn is_feature_enabled(feature: &str) -> bool {
 }
 
 /// Restores the runtime feature configuration to its defaults.
-pub fn reset_features() {
+pub(crate) fn reset_features() {
     update_features(KernelFeatures::default());
 }
 
 /// Builds kernel feature configuration from supported environment variables.
 #[must_use]
-pub fn from_env() -> KernelFeatures {
+pub(crate) fn from_env() -> KernelFeatures {
     let defaults = KernelFeatures::default();
     KernelFeatures {
         enabled: env_bool("LEAN_CTX_KERNEL_ENABLED", defaults.enabled),
@@ -126,7 +126,7 @@ pub fn from_env() -> KernelFeatures {
 
 /// Global test lock for all kernel modules sharing global state.
 #[cfg(test)]
-pub static KERNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static KERNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(test)]
 mod tests {
     use super::{

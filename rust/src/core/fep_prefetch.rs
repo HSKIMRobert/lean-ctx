@@ -26,7 +26,7 @@ const MAX_PREFETCH: usize = 3;
 /// files (by learned association weight, strongest first) that are NOT already
 /// loaded in `ledger` — an already-loaded file offers no information gain.
 /// Returns `(path, weight)` pairs, empty when nothing clears the threshold.
-pub fn prefetch_candidates(
+pub(crate) fn prefetch_candidates(
     project_root: &str,
     path: &str,
     ledger: &ContextLedger,
@@ -52,7 +52,11 @@ pub fn prefetch_candidates(
 /// Format an FEP prefetch hint for the agent, or `None` when there is nothing
 /// worth warming. Registers activity ([`crate::core::introspect`]) only when a
 /// real suggestion is produced, so `introspect cognition` reflects genuine use.
-pub fn prefetch_hint(project_root: &str, path: &str, ledger: &ContextLedger) -> Option<String> {
+pub(crate) fn prefetch_hint(
+    project_root: &str,
+    path: &str,
+    ledger: &ContextLedger,
+) -> Option<String> {
     let candidates = prefetch_candidates(project_root, path, ledger);
     if candidates.is_empty() {
         return None;

@@ -2,7 +2,7 @@ use crate::core::tokens::{TokenizerFamily, count_tokens_for, detect_tokenizer};
 
 /// Accuracy level of a calibrated token count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum CalibrationAccuracy {
+pub(crate) enum CalibrationAccuracy {
     /// Exact BPE encoding match (e.g., o200k_base for GPT-4o)
     ExactTextEncoding,
     /// Proxy tokenizer with empirical correction factor applied
@@ -38,7 +38,7 @@ impl PartialOrd for CalibrationAccuracy {
 
 /// Token count with calibration metadata.
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
-pub struct CalibratedCount {
+pub(crate) struct CalibratedCount {
     pub tokens: u64,
     #[serde(
         serialize_with = "serialize_tokenizer_family",
@@ -50,7 +50,7 @@ pub struct CalibratedCount {
 
 /// Calibration data for a tokenizer family.
 #[derive(Debug, Clone)]
-pub struct CalibrationProfile {
+pub(crate) struct CalibrationProfile {
     pub family: TokenizerFamily,
     pub correction_factor: f64,
     pub accuracy: CalibrationAccuracy,
@@ -58,7 +58,7 @@ pub struct CalibrationProfile {
 }
 
 /// Returns the built-in calibration profile for a tokenizer family.
-pub fn calibration_profile(family: TokenizerFamily) -> CalibrationProfile {
+pub(crate) fn calibration_profile(family: TokenizerFamily) -> CalibrationProfile {
     match family {
         TokenizerFamily::O200kBase => CalibrationProfile {
             family,
@@ -88,7 +88,10 @@ pub fn calibration_profile(family: TokenizerFamily) -> CalibrationProfile {
 }
 
 /// Counts tokens and applies the tokenizer family's calibration profile.
-pub fn count_tokens_with_calibration(text: &str, family: TokenizerFamily) -> CalibratedCount {
+pub(crate) fn count_tokens_with_calibration(
+    text: &str,
+    family: TokenizerFamily,
+) -> CalibratedCount {
     if text.is_empty() {
         return CalibratedCount {
             tokens: 0,
@@ -109,12 +112,12 @@ pub fn count_tokens_with_calibration(text: &str, family: TokenizerFamily) -> Cal
 }
 
 /// Detects the tokenizer family from a model name and returns a calibrated count.
-pub fn count_tokens_calibrated_from_model(text: &str, model: &str) -> CalibratedCount {
+pub(crate) fn count_tokens_calibrated_from_model(text: &str, model: &str) -> CalibratedCount {
     count_tokens_with_calibration(text, detect_tokenizer(model))
 }
 
 /// Returns inclusive lower and upper bounds for a calibrated count.
-pub fn calibration_variance(count: &CalibratedCount) -> (u64, u64) {
+pub(crate) fn calibration_variance(count: &CalibratedCount) -> (u64, u64) {
     let variance_pct = calibration_profile(count.family).variance_pct;
     let variance = count.tokens as f64 * variance_pct / 100.0;
     let lower = (count.tokens as f64 - variance).floor().max(0.0) as u64;
@@ -123,7 +126,7 @@ pub fn calibration_variance(count: &CalibratedCount) -> (u64, u64) {
 }
 
 /// Returns calibrated counts for every supported tokenizer family.
-pub fn compare_calibration(text: &str) -> Vec<CalibratedCount> {
+pub(crate) fn compare_calibration(text: &str) -> Vec<CalibratedCount> {
     [
         TokenizerFamily::O200kBase,
         TokenizerFamily::Cl100k,

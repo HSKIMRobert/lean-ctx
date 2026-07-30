@@ -7,7 +7,7 @@ use super::types::{ContextPlanV1, ContextReceiptV1, PlanEntry, ReceiptOutcome, R
 
 /// Result of kernel gating: what to add and what to suppress.
 #[derive(Debug, Clone)]
-pub struct KernelVerdict {
+pub(crate) struct KernelVerdict {
     /// Cross-store context to supplement (hard-capped, never exceeds budget).
     pub supplement: Option<String>,
     /// Content identifiers that are already in context and should not be resent.
@@ -17,7 +17,7 @@ pub struct KernelVerdict {
 }
 /// Result of kernel enrichment for compose integration.
 #[derive(Debug, Clone)]
-pub struct KernelEnrichment {
+pub(crate) struct KernelEnrichment {
     /// The selection plan that produced the injected blocks.
     pub plan: ContextPlanV1,
     /// Human-readable blocks suitable for compose output injection.
@@ -29,13 +29,13 @@ pub struct KernelEnrichment {
 }
 /// Check whether `path` should be suppressed as already delivered.
 /// Returns `false` until the orchestrator exposes recent-delivery state.
-pub fn kernel_gate(_path: &str, _project_root: &str) -> bool {
+pub(crate) fn kernel_gate(_path: &str, _project_root: &str) -> bool {
     false
 }
 /// Enrich a compose response with kernel-selected context.
 ///
 /// Returns cross-store context that the compose pipeline misses, or `None`.
-pub fn kernel_enrich(
+pub(crate) fn kernel_enrich(
     task: &str,
     project_root: &str,
     budget_tokens: usize,
@@ -178,7 +178,7 @@ fn append_provider_block(
 }
 
 /// Emit a plan-created event on the OclaBus.
-pub fn emit_plan_event(plan: &ContextPlanV1) {
+pub(crate) fn emit_plan_event(plan: &ContextPlanV1) {
     use crate::core::ocla_bus::{self, OclaEvent};
 
     ocla_bus::emit(OclaEvent::AgentChainEvent {
@@ -195,7 +195,7 @@ pub fn emit_plan_event(plan: &ContextPlanV1) {
 }
 
 /// Emit a receipt-recorded event on the OclaBus.
-pub fn emit_receipt_event(receipt: &ContextReceiptV1) {
+pub(crate) fn emit_receipt_event(receipt: &ContextReceiptV1) {
     use crate::core::ocla_bus::{self, OclaEvent};
 
     ocla_bus::emit(OclaEvent::AgentChainEvent {
@@ -212,7 +212,7 @@ pub fn emit_receipt_event(receipt: &ContextReceiptV1) {
 ///
 /// Accepted outcomes reinforce the balanced arm, rejected outcomes penalize
 /// the aggressive arm, and partial outcomes inform the conservative arm.
-pub fn apply_feedback(receipt: &ContextReceiptV1) {
+pub(crate) fn apply_feedback(receipt: &ContextReceiptV1) {
     use crate::core::context_field::{FieldWeights, set_active_weights};
 
     let arm_name = match receipt.outcome {
@@ -231,7 +231,7 @@ pub fn apply_feedback(receipt: &ContextReceiptV1) {
 }
 
 /// Format a plan as a compact human-readable summary.
-pub fn format_plan_summary(plan: &ContextPlanV1) -> String {
+pub(crate) fn format_plan_summary(plan: &ContextPlanV1) -> String {
     let mut out = String::new();
     let plan_prefix = &plan.plan_id[..plan.plan_id.len().min(8)];
     out.push_str(&format!(

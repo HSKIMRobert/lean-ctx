@@ -51,7 +51,7 @@ pub struct TokenEnvelope {
 
 /// Converts proxy request usage into a canonical token envelope.
 #[must_use]
-pub fn from_proxy_data(data: &super::proxy_bridge::ProxyRequestData) -> TokenEnvelope {
+pub(crate) fn from_proxy_data(data: &super::proxy_bridge::ProxyRequestData) -> TokenEnvelope {
     TokenEnvelope {
         model: data.model.clone().unwrap_or_default(),
         provider: data
@@ -69,7 +69,7 @@ pub fn from_proxy_data(data: &super::proxy_bridge::ProxyRequestData) -> TokenEnv
 
 /// Converts MCP call usage into a canonical token envelope.
 #[must_use]
-pub fn from_mcp_call(data: &super::mcp_bridge::McpCallData) -> TokenEnvelope {
+pub(crate) fn from_mcp_call(data: &super::mcp_bridge::McpCallData) -> TokenEnvelope {
     TokenEnvelope {
         provider: ProviderKind::Unknown,
         input_tokens: data.input_tokens,
@@ -81,7 +81,7 @@ pub fn from_mcp_call(data: &super::mcp_bridge::McpCallData) -> TokenEnvelope {
 
 /// Parses a provider label into its canonical provider kind.
 #[must_use]
-pub fn parse_provider(label: &str) -> ProviderKind {
+pub(crate) fn parse_provider(label: &str) -> ProviderKind {
     match label.trim().to_ascii_lowercase().as_str() {
         "openai" => ProviderKind::OpenAi,
         "anthropic" => ProviderKind::Anthropic,

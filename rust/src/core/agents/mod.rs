@@ -7,12 +7,10 @@ mod roles;
 mod shared;
 mod types;
 
-pub use bridge::*;
-pub use diary::*;
-pub use persistence::*;
-pub use reaper::*;
+pub(crate) use bridge::*;
+pub(crate) use diary::*;
+pub(crate) use persistence::*;
 #[allow(unreachable_pub, unused_imports)]
 pub use registry::*;
-pub use roles::*;
-pub use shared::*;
-pub use types::*;
+pub(crate) use roles::*;
+pub(crate) use types::*;

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::core::bm25_index::{BM25Index, CodeChunk};
 
 #[derive(Debug, Clone)]
-pub struct QdrantConfig {
+pub(crate) struct QdrantConfig {
     pub url: String,
     pub api_key: Option<String>,
     pub timeout_secs: u64,
@@ -21,7 +21,7 @@ pub struct QdrantConfig {
 }
 
 impl QdrantConfig {
-    pub fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         let url = std::env::var("LEANCTX_QDRANT_URL")
             .map_err(|_| "LEANCTX_QDRANT_URL is required for qdrant backend".to_string())?;
         let url = url.trim().trim_end_matches('/').to_string();
@@ -56,13 +56,13 @@ impl QdrantConfig {
 }
 
 #[derive(Debug, Clone)]
-pub struct QdrantStore {
+pub(crate) struct QdrantStore {
     cfg: QdrantConfig,
     agent: ureq::Agent,
 }
 
 #[derive(Debug, Clone)]
-pub struct QdrantHit {
+pub(crate) struct QdrantHit {
     pub score: f32,
     pub file_path: String,
     pub symbol_name: String,
@@ -72,7 +72,7 @@ pub struct QdrantHit {
 }
 
 impl QdrantStore {
-    pub fn from_env() -> Result<Self, String> {
+    pub(crate) fn from_env() -> Result<Self, String> {
         let cfg = QdrantConfig::from_env()?;
         let agent = crate::core::http_client::ureq_agent(
             ureq::config::Config::builder()
@@ -84,7 +84,7 @@ impl QdrantStore {
         Ok(Self { cfg, agent })
     }
 
-    pub fn collection_name(&self, root: &Path, dimensions: usize) -> Result<String, String> {
+    pub(crate) fn collection_name(&self, root: &Path, dimensions: usize) -> Result<String, String> {
         let ns = crate::core::index_namespace::namespace_hash(root);
         Ok(format!(
             "{}{}_d{}",
@@ -93,7 +93,11 @@ impl QdrantStore {
     }
 
     /// Ensure the collection exists. Returns `true` if it was created.
-    pub fn ensure_collection(&self, collection: &str, dimensions: usize) -> Result<bool, String> {
+    pub(crate) fn ensure_collection(
+        &self,
+        collection: &str,
+        dimensions: usize,
+    ) -> Result<bool, String> {
         let url = format!("{}/collections/{collection}", self.cfg.url);
         let payload = serde_json::json!({
             "vectors": { "size": dimensions, "distance": "Cosine" }
@@ -126,7 +130,7 @@ impl QdrantStore {
         ))
     }
 
-    pub fn sync_index(
+    pub(crate) fn sync_index(
         &self,
         collection: &str,
         index: &BM25Index,
@@ -164,7 +168,7 @@ impl QdrantStore {
         self.upsert_files(collection, index, aligned_embeddings, &changed_set)
     }
 
-    pub fn search(
+    pub(crate) fn search(
         &self,
         collection: &str,
         query_vec: &[f32],

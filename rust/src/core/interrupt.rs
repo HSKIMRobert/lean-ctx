@@ -22,12 +22,12 @@ static HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
 static SIGNAL_COUNT: AtomicU8 = AtomicU8::new(0);
 
 /// `true` once the user has requested cancellation via Ctrl-C.
-pub fn is_cancelled() -> bool {
+pub(crate) fn is_cancelled() -> bool {
     CANCELLED.load(Ordering::Relaxed)
 }
 
 /// Clear the cancellation state before starting a fresh cancellable operation.
-pub fn reset() {
+pub(crate) fn reset() {
     CANCELLED.store(false, Ordering::SeqCst);
     SIGNAL_COUNT.store(0, Ordering::SeqCst);
 }
@@ -55,7 +55,7 @@ extern "C" fn handle_sigint(_sig: libc::c_int) {
 /// Call this at the start of a long-running, cancellable CLI operation. The
 /// daemon/MCP server never calls it, so [`is_cancelled`] stays `false` there
 /// and background embedding is unaffected.
-pub fn install_ctrlc_handler() {
+pub(crate) fn install_ctrlc_handler() {
     if HANDLER_INSTALLED.swap(true, Ordering::SeqCst) {
         return;
     }

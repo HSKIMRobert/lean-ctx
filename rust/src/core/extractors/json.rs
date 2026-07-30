@@ -10,7 +10,7 @@ use serde_json::Value;
 /// Render `input` as normalized JSON text (pretty, stable key order via serde).
 /// Falls back to the trimmed input when it is not valid JSON.
 #[must_use]
-pub fn to_text(input: &str) -> String {
+pub(crate) fn to_text(input: &str) -> String {
     match serde_json::from_str::<Value>(input) {
         Ok(v) => serde_json::to_string_pretty(&v).unwrap_or_else(|_| input.trim().to_string()),
         Err(_) => input.trim().to_string(),
@@ -21,7 +21,7 @@ pub fn to_text(input: &str) -> String {
 /// `"key": value` entry; scalar/invalid ⇒ a single chunk. Never empty for
 /// non-empty input.
 #[must_use]
-pub fn chunks(input: &str) -> Vec<String> {
+pub(crate) fn chunks(input: &str) -> Vec<String> {
     let out = match serde_json::from_str::<Value>(input) {
         Ok(Value::Array(items)) if !items.is_empty() => items
             .iter()

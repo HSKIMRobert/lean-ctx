@@ -8,7 +8,7 @@ use super::bridge::{KernelEnrichment, kernel_enrich};
 
 /// Result of the unified kernel integration for a single hot-path call.
 #[derive(Debug, Clone)]
-pub struct KernelIntegration {
+pub(crate) struct KernelIntegration {
     /// Text to append to the tool output (budget-capped, deduplicated).
     pub supplement: Option<String>,
     /// Whether the content should be suppressed (already delivered, enforce mode).
@@ -24,7 +24,7 @@ pub struct KernelIntegration {
 /// Call this instead of manually orchestrating kernel enrichment, activation,
 /// and accounting. The returned supplement is already bounded by the active
 /// kernel budget.
-pub fn kernel_integrate(
+pub(crate) fn kernel_integrate(
     query: &str,
     project_root: &str,
     original_tokens: usize,
@@ -38,12 +38,12 @@ pub fn kernel_integrate(
 }
 
 /// Returns the stable delimiter placed before appended kernel context.
-pub fn format_integration_header() -> &'static str {
+pub(crate) fn format_integration_header() -> &'static str {
     "\n--- kernel context ---\n"
 }
 
 /// Returns the kernel token overhead recorded for an integration.
-pub fn integration_overhead(integration: &KernelIntegration) -> usize {
+pub(crate) fn integration_overhead(integration: &KernelIntegration) -> usize {
     integration.budget_used
 }
 
@@ -75,7 +75,7 @@ fn finish_integration(
 /// Unlike [`kernel_integrate`], which takes raw token counts, this function
 /// takes headers and determines the optimal integration strategy based on
 /// the client's coverage class and profile.
-pub fn integrate_for_mcp(
+pub(crate) fn integrate_for_mcp(
     query: &str,
     project_root: &str,
     headers: &[(String, String)],
@@ -98,7 +98,7 @@ pub fn integrate_for_mcp(
 }
 
 /// Returns the coverage-aware kernel budget for an MCP request.
-pub fn mcp_kernel_budget(headers: &[(String, String)]) -> usize {
+pub(crate) fn mcp_kernel_budget(headers: &[(String, String)]) -> usize {
     let profile = super::client_profile::detect_from_headers(headers);
     let broker = super::context_broker::ContextBroker::new(profile);
     broker.compute_budget().kernel_tokens

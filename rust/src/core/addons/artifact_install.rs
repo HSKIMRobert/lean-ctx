@@ -5,7 +5,7 @@
 //! Extracted from `grammar_install` (which keeps its zero-config policy
 //! gates and now delegates the mechanics here) so the flow exists exactly
 //! once: bounded-timeout fetch via
-//! [`crate::core::http_client::ureq_agent_with_timeouts`], SHA-256 verify of
+//! `crate::core::http_client::ureq_agent_with_timeouts`, SHA-256 verify of
 //! a sibling `.tmp` file via [`super::binhash::sha256_file`], hardened file
 //! permissions + macOS ad-hoc signing, then an atomic rename — a bad
 //! download never lands at the destination.

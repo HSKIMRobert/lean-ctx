@@ -5,7 +5,7 @@ use std::path::PathBuf;
 const MAX_DIARY_ENTRIES: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentDiary {
+pub(crate) struct AgentDiary {
     pub agent_id: String,
     pub agent_type: String,
     pub project_root: String,
@@ -15,7 +15,7 @@ pub struct AgentDiary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiaryEntry {
+pub(crate) struct DiaryEntry {
     pub entry_type: DiaryEntryType,
     pub content: String,
     pub context: Option<String>,
@@ -23,7 +23,7 @@ pub struct DiaryEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum DiaryEntryType {
+pub(crate) enum DiaryEntryType {
     Discovery,
     Decision,
     Blocker,
@@ -32,7 +32,7 @@ pub enum DiaryEntryType {
 }
 
 impl AgentDiary {
-    pub fn new(agent_id: &str, agent_type: &str, project_root: &str) -> Self {
+    pub(crate) fn new(agent_id: &str, agent_type: &str, project_root: &str) -> Self {
         let now = Utc::now();
         Self {
             agent_id: agent_id.to_string(),
@@ -44,7 +44,12 @@ impl AgentDiary {
         }
     }
 
-    pub fn add_entry(&mut self, entry_type: DiaryEntryType, content: &str, context: Option<&str>) {
+    pub(crate) fn add_entry(
+        &mut self,
+        entry_type: DiaryEntryType,
+        content: &str,
+        context: Option<&str>,
+    ) {
         self.entries.push(DiaryEntry {
             entry_type,
             content: content.to_string(),
@@ -58,7 +63,7 @@ impl AgentDiary {
         self.updated_at = Utc::now();
     }
 
-    pub fn format_summary(&self) -> String {
+    pub(crate) fn format_summary(&self) -> String {
         if self.entries.is_empty() {
             return format!("Diary [{}]: empty", self.agent_id);
         }
@@ -87,7 +92,7 @@ impl AgentDiary {
         out
     }
 
-    pub fn format_compact(&self) -> String {
+    pub(crate) fn format_compact(&self) -> String {
         if self.entries.is_empty() {
             return String::new();
         }
@@ -110,7 +115,7 @@ impl AgentDiary {
         format!("diary:{}|{}", self.agent_id, items.join("|"))
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let dir = diary_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let path = dir.join(format!("{}.json", sanitize_filename(&self.agent_id)));
@@ -118,18 +123,18 @@ impl AgentDiary {
         std::fs::write(&path, json).map_err(|e| e.to_string())
     }
 
-    pub fn load(agent_id: &str) -> Option<Self> {
+    pub(crate) fn load(agent_id: &str) -> Option<Self> {
         let dir = diary_dir().ok()?;
         let path = dir.join(format!("{}.json", sanitize_filename(agent_id)));
         let content = std::fs::read_to_string(&path).ok()?;
         serde_json::from_str(&content).ok()
     }
 
-    pub fn load_or_create(agent_id: &str, agent_type: &str, project_root: &str) -> Self {
+    pub(crate) fn load_or_create(agent_id: &str, agent_type: &str, project_root: &str) -> Self {
         Self::load(agent_id).unwrap_or_else(|| Self::new(agent_id, agent_type, project_root))
     }
 
-    pub fn list_all() -> Vec<(String, usize, DateTime<Utc>)> {
+    pub(crate) fn list_all() -> Vec<(String, usize, DateTime<Utc>)> {
         let Ok(dir) = diary_dir() else {
             return Vec::new();
         };
@@ -154,7 +159,7 @@ impl AgentDiary {
     /// Load every diary whose `project_root` matches `project_root`, most
     /// recently updated first. Used by skillify to mine a project's decisions
     /// and insights across all its agents (#290).
-    pub fn load_all_for_project(project_root: &str) -> Vec<AgentDiary> {
+    pub(crate) fn load_all_for_project(project_root: &str) -> Vec<AgentDiary> {
         let Ok(dir) = diary_dir() else {
             return Vec::new();
         };

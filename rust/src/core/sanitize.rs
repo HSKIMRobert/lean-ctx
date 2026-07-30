@@ -1,6 +1,6 @@
 const MAX_METADATA_LEN: usize = 200;
 
-pub fn neutralize_metadata(input: &str) -> String {
+pub(crate) fn neutralize_metadata(input: &str) -> String {
     let mut out = String::with_capacity(input.len().min(MAX_METADATA_LEN));
     let mut count = 0usize;
     for ch in input.chars() {
@@ -22,7 +22,7 @@ pub fn neutralize_metadata(input: &str) -> String {
     out
 }
 
-pub fn neutralize_shell_content(input: &str) -> String {
+pub(crate) fn neutralize_shell_content(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut i = 0;
     let chars: Vec<char> = input.chars().collect();
@@ -64,7 +64,7 @@ fn safe_label(label: &str) -> String {
     }
 }
 
-pub fn fence_content(label: &str, content: &str) -> String {
+pub(crate) fn fence_content(label: &str, content: &str) -> String {
     let label = safe_label(label);
     let mut bytes = [0u8; 16];
     let _ = getrandom::fill(&mut bytes);

@@ -9,20 +9,20 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-pub const AGENT_LEASE_SCHEMA_VERSION: u16 = 1;
+pub(crate) const AGENT_LEASE_SCHEMA_VERSION: u16 = 1;
 const DEFAULT_MAX_LEASES: usize = 1_024;
 const MAX_LEASE_DURATION_MS: u64 = 60 * 60 * 1_000;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentLeaseResourceKindV1 {
+pub(crate) enum AgentLeaseResourceKindV1 {
     Path,
     Symbol,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AgentLeaseRequestV1 {
+pub(crate) struct AgentLeaseRequestV1 {
     pub schema_version: u16,
     pub lease_request_ref: String,
     pub resource_kind: AgentLeaseResourceKindV1,
@@ -32,7 +32,7 @@ pub struct AgentLeaseRequestV1 {
 }
 
 impl AgentLeaseRequestV1 {
-    pub fn validate(&self) -> Result<(), AgentLeaseError> {
+    pub(crate) fn validate(&self) -> Result<(), AgentLeaseError> {
         if self.schema_version != AGENT_LEASE_SCHEMA_VERSION {
             return Err(AgentLeaseError::UnsupportedVersion(self.schema_version));
         }
@@ -50,7 +50,7 @@ impl AgentLeaseRequestV1 {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AgentLeaseV1 {
+pub(crate) struct AgentLeaseV1 {
     pub schema_version: u16,
     pub lease_ref: String,
     pub request: AgentLeaseRequestV1,
@@ -58,13 +58,13 @@ pub struct AgentLeaseV1 {
 }
 
 impl AgentLeaseV1 {
-    pub fn is_active_at(&self, now_epoch_ms: u64) -> bool {
+    pub(crate) fn is_active_at(&self, now_epoch_ms: u64) -> bool {
         now_epoch_ms < self.expires_at_epoch_ms
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AgentLeaseAcquireV1 {
+pub(crate) enum AgentLeaseAcquireV1 {
     Granted(AgentLeaseV1),
     HeldBy {
         owner_agent_id: String,
@@ -74,7 +74,7 @@ pub enum AgentLeaseAcquireV1 {
 }
 
 /// Local registry with caller-provided clock for deterministic tests.
-pub struct AgentLeaseRegistryV1 {
+pub(crate) struct AgentLeaseRegistryV1 {
     leases: BTreeMap<(AgentLeaseResourceKindV1, String), AgentLeaseV1>,
     max_leases: usize,
 }
@@ -87,14 +87,14 @@ impl Default for AgentLeaseRegistryV1 {
 
 impl AgentLeaseRegistryV1 {
     #[must_use]
-    pub fn new(max_leases: usize) -> Self {
+    pub(crate) fn new(max_leases: usize) -> Self {
         Self {
             leases: BTreeMap::new(),
             max_leases: max_leases.max(1),
         }
     }
 
-    pub fn acquire(
+    pub(crate) fn acquire(
         &mut self,
         request: AgentLeaseRequestV1,
         now_epoch_ms: u64,
@@ -129,7 +129,7 @@ impl AgentLeaseRegistryV1 {
         Ok(AgentLeaseAcquireV1::Granted(lease))
     }
 
-    pub fn release(
+    pub(crate) fn release(
         &mut self,
         resource_kind: AgentLeaseResourceKindV1,
         resource_ref: &str,
@@ -152,7 +152,7 @@ impl AgentLeaseRegistryV1 {
     }
 
     #[must_use]
-    pub fn active_count(&self, now_epoch_ms: u64) -> usize {
+    pub(crate) fn active_count(&self, now_epoch_ms: u64) -> usize {
         self.leases
             .values()
             .filter(|l| l.is_active_at(now_epoch_ms))
@@ -180,14 +180,16 @@ fn now_epoch_ms() -> u64 {
         .as_millis() as u64
 }
 
-pub fn acquire_local(request: AgentLeaseRequestV1) -> Result<AgentLeaseAcquireV1, AgentLeaseError> {
+pub(crate) fn acquire_local(
+    request: AgentLeaseRequestV1,
+) -> Result<AgentLeaseAcquireV1, AgentLeaseError> {
     let mut reg = global_registry()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     reg.acquire(request, now_epoch_ms())
 }
 
-pub fn release_local(
+pub(crate) fn release_local(
     resource_kind: AgentLeaseResourceKindV1,
     resource_ref: &str,
     owner_agent_id: &str,
@@ -241,7 +243,7 @@ fn agent_id(value: &str) -> Result<(), AgentLeaseError> {
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
-pub enum AgentLeaseError {
+pub(crate) enum AgentLeaseError {
     #[error("unsupported schema version {0}")]
     UnsupportedVersion(u16),
     #[error("invalid lease: {0}")]

@@ -10,11 +10,11 @@ use sha2::{Digest, Sha256};
 use super::manifest::PackageManifest;
 
 /// Default public registry, served via ctxpkg.com (nginx → control plane).
-pub const DEFAULT_REGISTRY: &str = "https://ctxpkg.com/api";
+pub(crate) const DEFAULT_REGISTRY: &str = "https://ctxpkg.com/api";
 
 /// Resolve the registry base URL: explicit flag > `CTXPKG_REGISTRY` env >
 /// the public default. Trailing slashes are trimmed for clean joins.
-pub fn registry_base(flag: Option<&str>) -> String {
+pub(crate) fn registry_base(flag: Option<&str>) -> String {
     flag.map(str::to_string)
         .or_else(|| std::env::var("CTXPKG_REGISTRY").ok())
         .filter(|s| !s.trim().is_empty())
@@ -26,7 +26,7 @@ pub fn registry_base(flag: Option<&str>) -> String {
 /// Resolve the registry token: explicit flag > `CTXPKG_TOKEN` env. Used for
 /// publish (`ctxp_…`) and for installing private packages (`ctxp_…` or the
 /// read-only `ctxr_…`, GL #524).
-pub fn publish_token(flag: Option<&str>) -> Option<String> {
+pub(crate) fn publish_token(flag: Option<&str>) -> Option<String> {
     flag.map(str::to_string)
         .or_else(|| std::env::var("CTXPKG_TOKEN").ok())
         .filter(|s| !s.trim().is_empty())
@@ -35,14 +35,14 @@ pub fn publish_token(flag: Option<&str>) -> Option<String> {
 /// A remote package reference: `@ns/name` or `ns/name`, optional `@version`
 /// pin after the name (`acme/auth-context@1.2.0`).
 #[derive(Debug, PartialEq, Eq)]
-pub struct RemoteRef {
+pub(crate) struct RemoteRef {
     pub namespace: String,
     pub name: String,
     pub version: Option<String>,
 }
 
 /// Parse a remote reference. Returns `None` for plain local names (no `/`).
-pub fn parse_remote_ref(input: &str) -> Option<RemoteRef> {
+pub(crate) fn parse_remote_ref(input: &str) -> Option<RemoteRef> {
     let trimmed = input.strip_prefix('@').unwrap_or(input);
     let (ns, rest) = trimmed.split_once('/')?;
     let (name, version) = match rest.split_once('@') {
@@ -61,7 +61,7 @@ pub fn parse_remote_ref(input: &str) -> Option<RemoteRef> {
 
 /// One version entry from the package index.
 #[derive(Debug)]
-pub struct VersionInfo {
+pub(crate) struct VersionInfo {
     pub version: String,
     pub artifact_sha256: String,
     pub yanked: bool,
@@ -69,7 +69,7 @@ pub struct VersionInfo {
 
 /// `GET {base}/v1/packages/{ns}/{name}/index.json` → all versions.
 /// `token` unlocks private packages; public ones need none.
-pub fn fetch_versions(
+pub(crate) fn fetch_versions(
     base: &str,
     ns: &str,
     name: &str,
@@ -100,7 +100,7 @@ pub fn fetch_versions(
 
 /// Pick the version to install: an explicit pin (yanked allowed, warned by
 /// the caller) or the newest non-yanked version.
-pub fn select_version<'a>(
+pub(crate) fn select_version<'a>(
     versions: &'a [VersionInfo],
     pin: Option<&str>,
 ) -> Result<&'a VersionInfo, String> {
@@ -117,7 +117,7 @@ pub fn select_version<'a>(
 }
 
 /// Download an artifact and verify its SHA-256 against the index entry.
-pub fn download_verified(
+pub(crate) fn download_verified(
     base: &str,
     ns: &str,
     name: &str,
@@ -139,13 +139,13 @@ pub fn download_verified(
 
 /// Publish receipt as returned by the registry.
 #[derive(Debug)]
-pub struct PublishReceipt {
+pub(crate) struct PublishReceipt {
     pub published: String,
     pub artifact_sha256: String,
 }
 
 /// `PUT {base}/v1/packages/{ns}/{name}/{version}` with the artifact bytes.
-pub fn publish(
+pub(crate) fn publish(
     base: &str,
     token: &str,
     ns: &str,
@@ -203,7 +203,7 @@ pub fn publish(
 /// Parse + verify a local bundle before any network call: must be a valid
 /// manifest with a verifying ed25519 signature, and the scoped name must
 /// match the publish target. Returns `(namespace, name, version)`.
-pub fn preflight_bundle(bytes: &[u8]) -> Result<(String, String, String), String> {
+pub(crate) fn preflight_bundle(bytes: &[u8]) -> Result<(String, String, String), String> {
     #[derive(serde::Deserialize)]
     struct BundleProbe {
         manifest: PackageManifest,

@@ -154,7 +154,7 @@ struct PlannedMove {
 }
 
 /// Outcome of a migration run, surfaced through `doctor --fix`.
-pub struct MigrationReport {
+pub(crate) struct MigrationReport {
     /// The single directory that was split.
     pub source: PathBuf,
     /// `(entry, category)` for every entry successfully relocated (moved or
@@ -375,7 +375,7 @@ fn detect() -> Option<(PathBuf, Targets)> {
 
 /// Count entries that a split would relocate, for the read-only `doctor` report.
 /// Returns `None` when no migration applies.
-pub fn pending() -> Option<(PathBuf, usize)> {
+pub(crate) fn pending() -> Option<(PathBuf, usize)> {
     let (src, targets) = detect()?;
     let n = entries_to_move(&src, &targets).len();
     if n == 0 {
@@ -387,7 +387,7 @@ pub fn pending() -> Option<(PathBuf, usize)> {
 /// Split a legacy/mixed single-dir install into the four XDG dirs. Returns
 /// `None` when nothing applies (fresh install, explicit `LEAN_CTX_DATA_DIR`, or
 /// already split). Drives `lean-ctx doctor --fix`.
-pub fn migrate() -> Option<MigrationReport> {
+pub(crate) fn migrate() -> Option<MigrationReport> {
     let (src, targets) = detect()?;
     let report = migrate_from(&src, &targets);
     if report.is_empty() {
@@ -423,11 +423,11 @@ pub fn migrate() -> Option<MigrationReport> {
 ///
 /// [`heal`]: crate::core::layout_pin::heal
 #[must_use]
-pub fn residual_legacy_present() -> bool {
+pub(crate) fn residual_legacy_present() -> bool {
     dirs::home_dir().is_some_and(|h| h.join(".lean-ctx").is_dir())
 }
 
-pub fn reclaim_legacy() -> Option<MigrationReport> {
+pub(crate) fn reclaim_legacy() -> Option<MigrationReport> {
     if std::env::var_os("LEAN_CTX_DATA_DIR").is_some() {
         return None;
     }

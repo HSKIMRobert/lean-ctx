@@ -16,7 +16,7 @@ use super::memory_guard;
 
 type SharedCache = Arc<tokio::sync::RwLock<SessionCache>>;
 
-pub struct EvictionOrchestrator {
+pub(crate) struct EvictionOrchestrator {
     cache: SharedCache,
     bm25_cache: SharedBm25Cache,
     controller: Mutex<HomeostasisController>,
@@ -49,7 +49,7 @@ static TARGETS: std::sync::LazyLock<Mutex<EvictionRegistry>> =
     std::sync::LazyLock::new(|| Mutex::new(EvictionRegistry::default()));
 
 /// Register a server-local eviction target without extending its lifetime.
-pub fn register(target: &Arc<EvictionOrchestrator>) {
+pub(crate) fn register(target: &Arc<EvictionOrchestrator>) {
     TARGETS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -58,7 +58,7 @@ pub fn register(target: &Arc<EvictionOrchestrator>) {
 
 /// Fan process-wide RSS pressure out to every live server-local cache.
 /// Returns whether any eviction target actually reclaimed resident memory.
-pub fn on_memory_pressure(level: memory_guard::PressureLevel) -> bool {
+pub(crate) fn on_memory_pressure(level: memory_guard::PressureLevel) -> bool {
     let live = TARGETS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -84,7 +84,7 @@ pub fn on_memory_pressure(level: memory_guard::PressureLevel) -> bool {
 }
 
 impl EvictionOrchestrator {
-    pub fn new(cache: SharedCache, bm25_cache: SharedBm25Cache) -> Self {
+    pub(crate) fn new(cache: SharedCache, bm25_cache: SharedBm25Cache) -> Self {
         let token_budget = super::cache::max_cache_tokens();
         Self {
             cache,
@@ -96,7 +96,7 @@ impl EvictionOrchestrator {
 
     /// Called by the memory_guard thread when pressure is detected.
     /// Runs on the guardian thread — must not block on async locks for too long.
-    pub fn on_pressure(&self, level: memory_guard::PressureLevel) -> bool {
+    pub(crate) fn on_pressure(&self, level: memory_guard::PressureLevel) -> bool {
         if level == memory_guard::PressureLevel::Normal {
             return false;
         }

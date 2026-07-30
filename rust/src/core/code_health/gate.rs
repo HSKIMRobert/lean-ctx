@@ -10,7 +10,7 @@ use super::{GateMode, cognitive_delta, format_gate_notice, worst_regression};
 use crate::core::config::Config;
 
 /// Decision of the edit-gate for one edit.
-pub enum GateOutcome {
+pub(crate) enum GateOutcome {
     /// Allow the write; if `Some`, append this advisory notice to the output.
     Allow(Option<String>),
     /// Block the write with this reason (only in `gate="block"` mode).
@@ -19,7 +19,7 @@ pub enum GateOutcome {
 
 /// Evaluate the gate for an edit from `old`→`new` source in a file with `ext`,
 /// using the active `[code_health]` config (threshold + mode).
-pub fn evaluate(old: &str, new: &str, ext: &str) -> GateOutcome {
+pub(crate) fn evaluate(old: &str, new: &str, ext: &str) -> GateOutcome {
     let cfg = Config::load();
     evaluate_with(
         old,
@@ -31,7 +31,7 @@ pub fn evaluate(old: &str, new: &str, ext: &str) -> GateOutcome {
 }
 
 /// Pure gate evaluation with explicit `mode`/`threshold` — the unit-tested core.
-pub fn evaluate_with(
+pub(crate) fn evaluate_with(
     old: &str,
     new: &str,
     ext: &str,

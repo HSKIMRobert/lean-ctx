@@ -13,9 +13,8 @@ mod builtins;
 mod loading;
 mod types;
 
-pub use builtins::*;
-pub use loading::*;
-pub use types::*;
+pub(crate) use loading::*;
+pub(crate) use types::*;
 
 #[cfg(test)]
 mod tests;

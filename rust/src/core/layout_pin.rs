@@ -40,7 +40,7 @@ pub(crate) fn is_xdg_pinned_in(config_base: &Path) -> bool {
 /// Runtime read honoring the same env resolution as the resolver
 /// (`$XDG_CONFIG_HOME/lean-ctx`). Used by `doctor`/diagnostics.
 #[must_use]
-pub fn is_xdg_pinned() -> bool {
+pub(crate) fn is_xdg_pinned() -> bool {
     crate::core::paths::xdg_config_lean_ctx_dir()
         .is_some_and(|d| read_mode(&d.join(LAYOUT_FILE)).as_deref() == Some("xdg"))
 }
@@ -55,7 +55,7 @@ pub fn is_xdg_pinned() -> bool {
 ///
 /// Idempotent: a no-op once the pin already says `xdg`. Safe to call from any
 /// startup path.
-pub fn ensure_pinned() {
+pub(crate) fn ensure_pinned() {
     if std::env::var_os("LEAN_CTX_DATA_DIR").is_some() {
         return;
     }
@@ -87,7 +87,7 @@ pub fn ensure_pinned() {
 ///
 /// Cheap to call from any startup path: the reclaim returns immediately when
 /// `~/.lean-ctx` does not exist.
-pub fn heal() {
+pub(crate) fn heal() {
     ensure_pinned();
     if is_xdg_pinned() {
         let _ = crate::core::xdg_migrate::reclaim_legacy();

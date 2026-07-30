@@ -39,7 +39,7 @@ fn db_path() -> PathBuf {
 
 /// Current on-disk size of the archive DB in bytes (including WAL). Used by
 /// `doctor` to surface the footprint budget.
-pub fn db_size_bytes() -> u64 {
+pub(crate) fn db_size_bytes() -> u64 {
     let base = db_path();
     let mut total = 0u64;
     for suffix in ["", "-wal", "-shm"] {
@@ -94,7 +94,7 @@ fn open_db() -> Option<Connection> {
     Some(conn)
 }
 
-pub fn index_entry(archive_id: &str, tool: &str, command: &str, content: &str) {
+pub(crate) fn index_entry(archive_id: &str, tool: &str, command: &str, content: &str) {
     let guard = DB.lock().ok();
     let Some(conn) = guard.as_ref().and_then(|g| g.as_ref()) else {
         return;
@@ -184,7 +184,7 @@ fn enforce_cap_locked(conn: &Connection) {
 
 /// Public entry point to enforce the archive DB size cap on demand (e.g. from
 /// idle maintenance or `doctor`). Returns the resulting size in bytes.
-pub fn enforce_cap() -> u64 {
+pub(crate) fn enforce_cap() -> u64 {
     if let Ok(guard) = DB.lock()
         && let Some(conn) = guard.as_ref()
     {
@@ -193,7 +193,7 @@ pub fn enforce_cap() -> u64 {
     db_size_bytes()
 }
 
-pub fn remove_entry(archive_id: &str) {
+pub(crate) fn remove_entry(archive_id: &str) {
     let guard = DB.lock().ok();
     let Some(conn) = guard.as_ref().and_then(|g| g.as_ref()) else {
         return;
@@ -209,7 +209,7 @@ pub fn remove_entry(archive_id: &str) {
 }
 
 #[derive(Debug, Clone)]
-pub struct FtsResult {
+pub(crate) struct FtsResult {
     pub archive_id: String,
     pub tool: String,
     pub command: String,
@@ -217,7 +217,7 @@ pub struct FtsResult {
     pub rank: f64,
 }
 
-pub fn search(query: &str, limit: usize) -> Vec<FtsResult> {
+pub(crate) fn search(query: &str, limit: usize) -> Vec<FtsResult> {
     let guard = DB.lock().ok();
     let Some(conn) = guard.as_ref().and_then(|g| g.as_ref()) else {
         return Vec::new();
@@ -247,7 +247,7 @@ pub fn search(query: &str, limit: usize) -> Vec<FtsResult> {
     .unwrap_or_default()
 }
 
-pub fn entry_count() -> usize {
+pub(crate) fn entry_count() -> usize {
     let guard = DB.lock().ok();
     let Some(conn) = guard.as_ref().and_then(|g| g.as_ref()) else {
         return 0;

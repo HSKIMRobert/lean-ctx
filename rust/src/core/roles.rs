@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 static ACTIVE_ROLE_NAME: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Role {
+pub(crate) struct Role {
     #[serde(default)]
     pub role: RoleMeta,
     #[serde(default)]
@@ -24,7 +24,7 @@ pub struct Role {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoleMeta {
+pub(crate) struct RoleMeta {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -51,7 +51,7 @@ fn default_shell_policy() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ToolPolicy {
+pub(crate) struct ToolPolicy {
     #[serde(default)]
     pub allowed: Vec<String>,
     #[serde(default)]
@@ -59,7 +59,7 @@ pub struct ToolPolicy {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoleLimits {
+pub(crate) struct RoleLimits {
     #[serde(default = "default_context_tokens")]
     pub max_context_tokens: usize,
     #[serde(default = "default_shell_invocations")]
@@ -104,7 +104,7 @@ fn default_block_pct() -> u8 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IoPolicy {
+pub(crate) struct IoPolicy {
     /// Boundary enforcement mode for sensitive I/O (warn|enforce).
     #[serde(default = "default_boundary_mode")]
     pub boundary_mode: String,
@@ -152,7 +152,7 @@ impl IoPolicy {
 }
 
 impl Role {
-    pub fn is_tool_allowed(&self, tool_name: &str) -> bool {
+    pub(crate) fn is_tool_allowed(&self, tool_name: &str) -> bool {
         if !self.tools.denied.is_empty()
             && self.tools.denied.iter().any(|d| d == tool_name || d == "*")
         {
@@ -164,11 +164,11 @@ impl Role {
         self.tools.allowed.iter().any(|a| a == tool_name)
     }
 
-    pub fn is_shell_allowed(&self) -> bool {
+    pub(crate) fn is_shell_allowed(&self) -> bool {
         self.role.shell_policy != "deny"
     }
 
-    pub fn allowed_tools_set(&self) -> HashSet<String> {
+    pub(crate) fn allowed_tools_set(&self) -> HashSet<String> {
         if self.tools.allowed.is_empty() || self.tools.allowed.iter().any(|a| a == "*") {
             return HashSet::new(); // empty = all allowed
         }
@@ -479,12 +479,12 @@ fn load_role_recursive(name: &str, visited: &mut HashSet<String>) -> Option<Role
 
 // ── Public API ──────────────────────────────────────────────────
 
-pub fn load_role(name: &str) -> Option<Role> {
+pub(crate) fn load_role(name: &str) -> Option<Role> {
     let mut visited = HashSet::new();
     load_role_recursive(name, &mut visited)
 }
 
-pub fn active_role_name() -> String {
+pub(crate) fn active_role_name() -> String {
     let lock = ACTIVE_ROLE_NAME.get_or_init(|| std::sync::Mutex::new(String::new()));
     let mut guard = lock
         .lock()
@@ -501,7 +501,7 @@ pub fn active_role_name() -> String {
     guard.clone()
 }
 
-pub fn active_role() -> Role {
+pub(crate) fn active_role() -> Role {
     let name = active_role_name();
     load_role(&name).unwrap_or_else(builtin_coder)
 }
@@ -516,7 +516,7 @@ const RESERVED_ROLE_NAMES: &[&str] = &["coder", "reviewer", "debugger", "ops", "
 /// Returns true if the named role has elevated privileges that require
 /// explicit configuration (env/config) rather than runtime activation.
 /// Case-insensitive comparison to prevent "Admin" bypass.
-pub fn is_privileged_role(name: &str) -> bool {
+pub(crate) fn is_privileged_role(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     PRIVILEGED_ROLES.iter().any(|p| *p == lower)
 }
@@ -537,12 +537,12 @@ fn is_effectively_privileged(role: &Role) -> bool {
     wildcard_tools || role.io.allow_secret_paths
 }
 
-pub fn set_active_role(name: &str) -> Result<Role, String> {
+pub(crate) fn set_active_role(name: &str) -> Result<Role, String> {
     set_active_role_with_source(name, false)
 }
 
 /// Set active role. `from_config` = true allows privileged roles (env/config startup).
-pub fn set_active_role_with_source(name: &str, from_config: bool) -> Result<Role, String> {
+pub(crate) fn set_active_role_with_source(name: &str, from_config: bool) -> Result<Role, String> {
     if !is_valid_role_name(name) {
         return Err(format!(
             "[SECURITY] Invalid role name '{name}'. Only alphanumeric, underscore, and hyphen allowed."
@@ -579,7 +579,7 @@ pub fn set_active_role_with_source(name: &str, from_config: bool) -> Result<Role
     Ok(role)
 }
 
-pub fn list_roles() -> Vec<RoleInfo> {
+pub(crate) fn list_roles() -> Vec<RoleInfo> {
     let active = active_role_name();
     let builtins = builtin_roles();
     let mut seen = HashSet::new();
@@ -628,7 +628,7 @@ pub fn list_roles() -> Vec<RoleInfo> {
 }
 
 #[derive(Debug, Clone)]
-pub struct RoleInfo {
+pub(crate) struct RoleInfo {
     pub name: String,
     pub source: RoleSource,
     pub description: String,
@@ -636,7 +636,7 @@ pub struct RoleInfo {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RoleSource {
+pub(crate) enum RoleSource {
     BuiltIn,
     Project,
     Global,

@@ -8,7 +8,7 @@ const HASH_LENGTH: usize = 16;
 
 /// Tracks the identity of content that was delivered to the LLM.
 #[derive(Debug, Clone)]
-pub struct ContentFingerprint {
+pub(crate) struct ContentFingerprint {
     /// Blake3 content hash, truncated to 16 hexadecimal characters.
     pub hash: String,
     /// Approximate number of tokens in the delivered content.
@@ -19,7 +19,7 @@ pub struct ContentFingerprint {
 
 /// Whether content needs to be sent or was already delivered.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DedupResult {
+pub(crate) enum DedupResult {
     /// Content is new or changed — must be sent.
     Fresh,
     /// Content is unchanged since last delivery — send a stub instead.
@@ -34,14 +34,14 @@ pub enum DedupResult {
 /// Bounded content deduplication tracker.
 /// Remembers what was sent to the LLM to avoid resending unchanged content.
 #[derive(Debug)]
-pub struct ContextDedup {
+pub(crate) struct ContextDedup {
     fingerprints: HashMap<String, ContentFingerprint>,
     max_entries: usize,
 }
 
 impl ContextDedup {
     /// Creates a tracker limited to `max_entries`; zero selects the default of 1000.
-    pub fn new(max_entries: usize) -> Self {
+    pub(crate) fn new(max_entries: usize) -> Self {
         Self {
             fingerprints: HashMap::new(),
             max_entries: if max_entries == 0 {
@@ -53,7 +53,7 @@ impl ContextDedup {
     }
 
     /// Checks whether `content` for `path` changed and records fresh content.
-    pub fn check_and_record(&mut self, path: &str, content: &str) -> DedupResult {
+    pub(crate) fn check_and_record(&mut self, path: &str, content: &str) -> DedupResult {
         let hash = content_hash(content);
         if let Some(fingerprint) = self.fingerprints.get(path)
             && fingerprint.hash == hash
@@ -79,27 +79,27 @@ impl ContextDedup {
     }
 
     /// Forgets content previously recorded for `path`.
-    pub fn invalidate(&mut self, path: &str) {
+    pub(crate) fn invalidate(&mut self, path: &str) {
         self.fingerprints.remove(path);
     }
 
     /// Forgets every recorded content fingerprint.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.fingerprints.clear();
     }
 
     /// Returns the number of tracked paths.
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.fingerprints.len()
     }
 
     /// Returns whether the tracker contains no fingerprints.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.fingerprints.is_empty()
     }
 
     /// Removes the least recently delivered fingerprint, if any.
-    pub fn evict_oldest(&mut self) {
+    pub(crate) fn evict_oldest(&mut self) {
         let oldest = self
             .fingerprints
             .iter()
@@ -112,13 +112,13 @@ impl ContextDedup {
 }
 
 /// Formats a compact reference to unchanged content already in context.
-pub fn format_unchanged_stub(path: &str, hash: &str) -> String {
+pub(crate) fn format_unchanged_stub(path: &str, hash: &str) -> String {
     let short_hash = &hash[..hash.len().min(8)];
     format!("→ {path} unchanged (ref:{short_hash}), already in context\n")
 }
 
 /// Replaces repeated Context Kernel blocks with compact reference stubs.
-pub fn dedup_kernel_blocks(blocks: &str, seen_hashes: &mut HashSet<String>) -> String {
+pub(crate) fn dedup_kernel_blocks(blocks: &str, seen_hashes: &mut HashSet<String>) -> String {
     let starts = kernel_block_starts(blocks);
     let Some(&first_start) = starts.first() else {
         return blocks.to_owned();
@@ -140,7 +140,7 @@ pub fn dedup_kernel_blocks(blocks: &str, seen_hashes: &mut HashSet<String>) -> S
 }
 
 /// Estimates token usage using an average of four UTF-8 bytes per token.
-pub fn estimate_tokens(content: &str) -> usize {
+pub(crate) fn estimate_tokens(content: &str) -> usize {
     content.len() / 4
 }
 

@@ -5,4 +5,4 @@
 //! but still carry navigable graph dependencies — most importantly the
 //! `PackedScene` text format (`.tscn`) which links scenes to their scripts. (#316)
 
-pub mod scene;
+pub(crate) mod scene;

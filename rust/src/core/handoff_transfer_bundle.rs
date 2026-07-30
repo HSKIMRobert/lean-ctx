@@ -15,20 +15,20 @@ const MAX_NEXT_STEP_CHARS: usize = 1_000;
 const MAX_TASK_CHARS: usize = 4_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BundlePrivacyV1 {
+pub(crate) enum BundlePrivacyV1 {
     Redacted,
     Full,
 }
 
 impl BundlePrivacyV1 {
-    pub fn parse(s: Option<&str>) -> Self {
+    pub(crate) fn parse(s: Option<&str>) -> Self {
         match s.unwrap_or("redacted").trim().to_lowercase().as_str() {
             "full" => Self::Full,
             _ => Self::Redacted,
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Redacted => "redacted",
             Self::Full => "full",
@@ -72,7 +72,7 @@ pub struct ProofFileV1 {
     pub bytes: u64,
 }
 
-pub fn build_bundle_v1(
+pub(crate) fn build_bundle_v1(
     mut ledger: HandoffLedgerV1,
     project_root: Option<&str>,
     privacy: BundlePrivacyV1,
@@ -132,7 +132,10 @@ pub fn build_bundle_v1(
     }
 }
 
-pub fn sign_bundle(bundle: &mut HandoffTransferBundleV1, agent_id: &str) -> Result<(), String> {
+pub(crate) fn sign_bundle(
+    bundle: &mut HandoffTransferBundleV1,
+    agent_id: &str,
+) -> Result<(), String> {
     bundle.signature = None;
     bundle.signer_public_key = None;
     bundle.signer_agent_id = None;
@@ -159,7 +162,7 @@ pub fn sign_bundle(bundle: &mut HandoffTransferBundleV1, agent_id: &str) -> Resu
 /// a legacy [`Unsigned`](BundleSignatureStatus::Unsigned) bundle (allowed
 /// with a warning, for bundles produced before exports were signed).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BundleSignatureStatus {
+pub(crate) enum BundleSignatureStatus {
     /// Valid signature; carries the verified signer agent id.
     Verified(String),
     /// No signature fields at all (legacy bundle).
@@ -170,7 +173,7 @@ pub enum BundleSignatureStatus {
 
 /// Classify a bundle's signature for import-time enforcement (GL #465).
 #[must_use]
-pub fn check_bundle_signature(bundle: &HandoffTransferBundleV1) -> BundleSignatureStatus {
+pub(crate) fn check_bundle_signature(bundle: &HandoffTransferBundleV1) -> BundleSignatureStatus {
     if bundle.signature.is_none()
         && bundle.signer_public_key.is_none()
         && bundle.signer_agent_id.is_none()
@@ -183,7 +186,7 @@ pub fn check_bundle_signature(bundle: &HandoffTransferBundleV1) -> BundleSignatu
     }
 }
 
-pub fn verify_bundle_signature(bundle: &HandoffTransferBundleV1) -> Result<String, String> {
+pub(crate) fn verify_bundle_signature(bundle: &HandoffTransferBundleV1) -> Result<String, String> {
     let sig_hex = bundle
         .signature
         .as_deref()
@@ -215,7 +218,9 @@ pub fn verify_bundle_signature(bundle: &HandoffTransferBundleV1) -> Result<Strin
     }
 }
 
-pub fn serialize_bundle_v1_pretty(bundle: &HandoffTransferBundleV1) -> Result<String, String> {
+pub(crate) fn serialize_bundle_v1_pretty(
+    bundle: &HandoffTransferBundleV1,
+) -> Result<String, String> {
     let json = serde_json::to_string_pretty(bundle).map_err(|e| e.to_string())?;
     if json.len() > MAX_BUNDLE_BYTES {
         return Err(format!(
@@ -227,7 +232,7 @@ pub fn serialize_bundle_v1_pretty(bundle: &HandoffTransferBundleV1) -> Result<St
     Ok(json)
 }
 
-pub fn parse_bundle_v1(json: &str) -> Result<HandoffTransferBundleV1, String> {
+pub(crate) fn parse_bundle_v1(json: &str) -> Result<HandoffTransferBundleV1, String> {
     let b: HandoffTransferBundleV1 = serde_json::from_str(json).map_err(|e| e.to_string())?;
     if b.schema_version != crate::core::contracts::HANDOFF_TRANSFER_BUNDLE_V1_SCHEMA_VERSION {
         return Err(format!(
@@ -239,7 +244,7 @@ pub fn parse_bundle_v1(json: &str) -> Result<HandoffTransferBundleV1, String> {
     Ok(b)
 }
 
-pub fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
+pub(crate) fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| "ERROR: invalid path".to_string())?;
@@ -257,7 +262,7 @@ pub fn write_bundle_v1(path: &Path, json: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn read_bundle_v1(path: &Path) -> Result<HandoffTransferBundleV1, String> {
+pub(crate) fn read_bundle_v1(path: &Path) -> Result<HandoffTransferBundleV1, String> {
     let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     if json.len() > MAX_BUNDLE_BYTES {
         return Err(format!(
@@ -269,7 +274,7 @@ pub fn read_bundle_v1(path: &Path) -> Result<HandoffTransferBundleV1, String> {
     parse_bundle_v1(&json)
 }
 
-pub fn project_identity_warning(
+pub(crate) fn project_identity_warning(
     bundle: &HandoffTransferBundleV1,
     project_root: &str,
 ) -> Option<String> {

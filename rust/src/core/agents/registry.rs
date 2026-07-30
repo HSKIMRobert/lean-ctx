@@ -26,7 +26,7 @@ fn max_scratchpad() -> usize {
 }
 
 impl AgentRegistry {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             agents: Vec::new(),
             scratchpad: Vec::new(),
@@ -36,7 +36,12 @@ impl AgentRegistry {
         }
     }
 
-    pub fn register(&mut self, agent_type: &str, role: Option<&str>, project_root: &str) -> String {
+    pub(crate) fn register(
+        &mut self,
+        agent_type: &str,
+        role: Option<&str>,
+        project_root: &str,
+    ) -> String {
         self.register_process(agent_type, role, project_root, std::process::id())
     }
 
@@ -78,7 +83,7 @@ impl AgentRegistry {
     }
 
     /// Atomically registers this MCP process in the shared on-disk registry.
-    pub fn register_mcp_process(project_root: &str) -> Result<String, String> {
+    pub(crate) fn register_mcp_process(project_root: &str) -> Result<String, String> {
         mutate_persistent(|registry| {
             registry.cleanup_stale(presence_ttl());
             registry.register("mcp", Some("context-engine"), project_root)
@@ -86,24 +91,29 @@ impl AgentRegistry {
     }
 
     /// Atomically refreshes a registered MCP process heartbeat.
-    pub fn heartbeat_persistent(agent_id: &str) -> Result<(), String> {
+    pub(crate) fn heartbeat_persistent(agent_id: &str) -> Result<(), String> {
         mutate_persistent(|registry| registry.update_heartbeat(agent_id))
     }
 
     /// Atomically marks a registered MCP process as finished.
-    pub fn finish_persistent(agent_id: &str) -> Result<(), String> {
+    pub(crate) fn finish_persistent(agent_id: &str) -> Result<(), String> {
         mutate_persistent(|registry| {
             registry.set_status(agent_id, AgentStatus::Finished, Some("connection closed"));
         })
     }
 
-    pub fn update_heartbeat(&mut self, agent_id: &str) {
+    pub(crate) fn update_heartbeat(&mut self, agent_id: &str) {
         if let Some(agent) = self.agents.iter_mut().find(|a| a.agent_id == agent_id) {
             agent.last_active = Utc::now();
         }
     }
 
-    pub fn set_status(&mut self, agent_id: &str, status: AgentStatus, message: Option<&str>) {
+    pub(crate) fn set_status(
+        &mut self,
+        agent_id: &str,
+        status: AgentStatus,
+        message: Option<&str>,
+    ) {
         if let Some(agent) = self.agents.iter_mut().find(|a| a.agent_id == agent_id) {
             agent.status = status;
             agent.status_message = message.map(std::string::ToString::to_string);
@@ -113,7 +123,7 @@ impl AgentRegistry {
     }
     /// Records explicit logical-session presence supplied by an owning editor
     /// integration. Tool activity is deliberately never treated as a session.
-    pub fn open_or_heartbeat_logical_session(
+    pub(crate) fn open_or_heartbeat_logical_session(
         &mut self,
         source: &str,
         workspace: &str,
@@ -139,7 +149,7 @@ impl AgentRegistry {
         self.updated_at = now;
     }
 
-    pub fn close_logical_session(
+    pub(crate) fn close_logical_session(
         &mut self,
         source: &str,
         workspace: &str,
@@ -157,7 +167,7 @@ impl AgentRegistry {
         removed
     }
 
-    pub fn cleanup_stale_logical_sessions(&mut self, max_age_seconds: u64) {
+    pub(crate) fn cleanup_stale_logical_sessions(&mut self, max_age_seconds: u64) {
         let seconds = i64::try_from(max_age_seconds).unwrap_or(i64::MAX);
         let cutoff = Utc::now() - chrono::Duration::seconds(seconds);
         self.logical_sessions
@@ -165,7 +175,7 @@ impl AgentRegistry {
         self.updated_at = Utc::now();
     }
 
-    pub fn record_logical_session_presence(
+    pub(crate) fn record_logical_session_presence(
         event: &str,
         source: &str,
         workspace: &str,
@@ -203,7 +213,7 @@ impl AgentRegistry {
         })
     }
 
-    pub fn list_active(&self, project_root: Option<&str>) -> Vec<&AgentEntry> {
+    pub(crate) fn list_active(&self, project_root: Option<&str>) -> Vec<&AgentEntry> {
         self.agents
             .iter()
             .filter(|a| {
@@ -216,11 +226,11 @@ impl AgentRegistry {
             .collect()
     }
 
-    pub fn list_all(&self) -> &[AgentEntry] {
+    pub(crate) fn list_all(&self) -> &[AgentEntry] {
         &self.agents
     }
 
-    pub fn post_message(
+    pub(crate) fn post_message(
         &mut self,
         from_agent: &str,
         to_agent: Option<&str>,
@@ -238,7 +248,7 @@ impl AgentRegistry {
         )
     }
 
-    pub fn post_message_full(
+    pub(crate) fn post_message_full(
         &mut self,
         from_agent: &str,
         to_agent: Option<&str>,
@@ -282,7 +292,7 @@ impl AgentRegistry {
         id
     }
 
-    pub fn read_messages(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
+    pub(crate) fn read_messages(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
         let now = Utc::now();
         let unread: Vec<usize> = self
             .scratchpad
@@ -310,7 +320,7 @@ impl AgentRegistry {
             .collect()
     }
 
-    pub fn read_unread(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
+    pub(crate) fn read_unread(&mut self, agent_id: &str) -> Vec<&ScratchpadEntry> {
         let now = Utc::now();
         let unread_indices: Vec<usize> = self
             .scratchpad
@@ -343,7 +353,7 @@ impl AgentRegistry {
             .collect()
     }
 
-    pub fn cleanup_stale(&mut self, max_age_hours: u64) {
+    pub(crate) fn cleanup_stale(&mut self, max_age_hours: u64) {
         let cutoff = Utc::now() - chrono::Duration::hours(max_age_hours as i64);
 
         for agent in &mut self.agents {
@@ -374,7 +384,7 @@ impl AgentRegistry {
         self.updated_at = Utc::now();
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let dir = agents_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
@@ -390,14 +400,14 @@ impl AgentRegistry {
         std::fs::write(&path, json).map_err(|e| e.to_string())
     }
 
-    pub fn load() -> Option<Self> {
+    pub(crate) fn load() -> Option<Self> {
         let dir = agents_dir().ok()?;
         let path = dir.join("registry.json");
         let content = std::fs::read_to_string(&path).ok()?;
         serde_json::from_str(&content).ok()
     }
 
-    pub fn load_or_create() -> Self {
+    pub(crate) fn load_or_create() -> Self {
         Self::load().unwrap_or_default()
     }
 
@@ -410,7 +420,7 @@ impl AgentRegistry {
     /// registration vanishing from the dashboard. Holding the lock across
     /// the re-read closes that window: the read inside always sees the
     /// latest on-disk state.
-    pub fn mutate_locked<T>(f: impl FnOnce(&mut Self) -> T) -> Result<(Self, T), String> {
+    pub(crate) fn mutate_locked<T>(f: impl FnOnce(&mut Self) -> T) -> Result<(Self, T), String> {
         let dir = agents_dir()?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 

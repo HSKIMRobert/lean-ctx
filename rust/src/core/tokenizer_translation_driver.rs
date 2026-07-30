@@ -1,13 +1,13 @@
 use crate::core::profiles::TranslationConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TranslationRulesetV1 {
+pub(crate) enum TranslationRulesetV1 {
     Legacy,
     Ascii,
 }
 
 #[derive(Debug, Clone)]
-pub struct TranslationSelectionV1 {
+pub(crate) struct TranslationSelectionV1 {
     pub ruleset: TranslationRulesetV1,
     pub reason_code: String,
     pub reason: String,
@@ -15,14 +15,17 @@ pub struct TranslationSelectionV1 {
 }
 
 #[derive(Debug, Clone)]
-pub struct TranslationApplyResultV1 {
+pub(crate) struct TranslationApplyResultV1 {
     pub output: String,
     pub selection: TranslationSelectionV1,
     pub changed: bool,
     pub skipped_json: bool,
 }
 
-pub fn translate_tool_output(text: &str, cfg: &TranslationConfig) -> TranslationApplyResultV1 {
+pub(crate) fn translate_tool_output(
+    text: &str,
+    cfg: &TranslationConfig,
+) -> TranslationApplyResultV1 {
     let model_key = active_model_key_from_env();
     let selection = select_ruleset(cfg, model_key.as_deref());
 
@@ -53,7 +56,7 @@ pub fn translate_tool_output(text: &str, cfg: &TranslationConfig) -> Translation
     }
 }
 
-pub fn translate_text(text: &str, ruleset: TranslationRulesetV1) -> String {
+pub(crate) fn translate_text(text: &str, ruleset: TranslationRulesetV1) -> String {
     match ruleset {
         TranslationRulesetV1::Legacy => text.to_string(),
         TranslationRulesetV1::Ascii => translate_ascii(text),
@@ -97,7 +100,10 @@ fn infer_model_family(model_key: &str) -> ModelFamilyV1 {
     ModelFamilyV1::Unknown
 }
 
-pub fn select_ruleset(cfg: &TranslationConfig, model_key: Option<&str>) -> TranslationSelectionV1 {
+pub(crate) fn select_ruleset(
+    cfg: &TranslationConfig,
+    model_key: Option<&str>,
+) -> TranslationSelectionV1 {
     let model_key = model_key.map(str::trim).filter(|s| !s.is_empty());
     let model_key = model_key.map(std::string::ToString::to_string);
 

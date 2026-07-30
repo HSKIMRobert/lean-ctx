@@ -13,12 +13,12 @@ mod type_defs;
 mod type_uses;
 mod types;
 
-pub use types::*;
+pub(crate) use types::*;
 
 #[cfg(feature = "tree-sitter")]
 use tree_sitter::{Language, Node, Parser};
 
-pub fn analyze(content: &str, ext: &str) -> DeepAnalysis {
+pub(crate) fn analyze(content: &str, ext: &str) -> DeepAnalysis {
     #[cfg(feature = "tree-sitter")]
     {
         if let Some(result) = analyze_with_tree_sitter(content, ext) {

@@ -53,7 +53,7 @@ fn beneficial(compact: &str, raw: &str) -> bool {
 /// Lossless crush of YAML `text`, returning the compact JSON envelope only when it
 /// clears the `beneficial` reduction gate. `None` for non-YAML, scalar-rooted,
 /// or low-redundancy input — the caller keeps its own path.
-pub fn crush_text_if_beneficial(text: &str) -> Option<String> {
+pub(crate) fn crush_text_if_beneficial(text: &str) -> Option<String> {
     let res = crush(text, 1.0)?;
     (res.lossless && beneficial(&res.text, text)).then_some(res.text)
 }
@@ -66,7 +66,7 @@ pub fn crush_text_if_beneficial(text: &str) -> Option<String> {
 /// verbatim original out-of-band (CCR) before emitting — the dropped columns are
 /// never reconstructible from the text. `None` for non-YAML, low-redundancy, or
 /// all-lossless input.
-pub fn crush_text_lossy_if_beneficial(text: &str, drop_entropy: f64) -> Option<CrushResult> {
+pub(crate) fn crush_text_lossy_if_beneficial(text: &str, drop_entropy: f64) -> Option<CrushResult> {
     let res = crush(text, drop_entropy.clamp(0.0, 1.0))?;
     (!res.lossless && beneficial(&res.text, text)).then_some(res)
 }
@@ -115,7 +115,7 @@ fn crush(text: &str, drop_entropy: f64) -> Option<CrushResult> {
 /// Rebuild the parsed-document [`Value`] from a crushed envelope. Exact for
 /// lossless forms; for lossy forms the `_dropped` columns are simply absent
 /// (recover them via CCR). `None` if `text` is not a YAML-crush envelope.
-pub fn reconstruct(text: &str) -> Option<Value> {
+pub(crate) fn reconstruct(text: &str) -> Option<Value> {
     let v: Value = serde_json::from_str(text).ok()?;
     let inner = v.as_object()?.get(MARKER)?;
     let inner_text = serde_json::to_string(inner).ok()?;

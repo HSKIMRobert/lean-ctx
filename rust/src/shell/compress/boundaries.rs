@@ -122,7 +122,7 @@ pub(super) fn compress_preserving_boundaries(
 /// cleanup but skips boundary detection (preventing infinite recursion) and
 /// the 200-token floor (individual segments are typically small).
 fn compress_single_segment(
-    command: &str,
+    _command: &str,
     content: &str,
     _exit_code: i32,
     family: TokenizerFamily,

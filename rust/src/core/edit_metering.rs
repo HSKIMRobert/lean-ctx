@@ -39,7 +39,7 @@ static RECORD_CALLS: AtomicUsize = AtomicUsize::new(0);
 /// instead of silently resetting all counters via `unwrap_or_default`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct EditMeteringStore {
+pub(crate) struct EditMeteringStore {
     /// Successful `ctx_patch` calls (a batch counts once).
     pub anchored_calls: u64,
     /// Anchored ops applied across those calls.
@@ -66,7 +66,7 @@ impl EditMeteringStore {
         serde_json::from_str(&raw).unwrap_or_default()
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         let path = store_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -102,7 +102,7 @@ fn with_store(f: impl FnOnce(&mut EditMeteringStore)) {
 
 /// A successful anchored patch: `ops` applied, `avoided_tokens` output tokens
 /// the model did not have to reproduce (already anchor-overhead-adjusted).
-pub fn record_anchored_success(ops: u64, avoided_tokens: u64) {
+pub(crate) fn record_anchored_success(ops: u64, avoided_tokens: u64) {
     with_store(|s| {
         s.anchored_calls = s.anchored_calls.saturating_add(1);
         s.anchored_ops = s.anchored_ops.saturating_add(ops);
@@ -113,12 +113,12 @@ pub fn record_anchored_success(ops: u64, avoided_tokens: u64) {
 }
 
 /// A stale-anchor `CONFLICT` response (one extra self-heal round-trip).
-pub fn record_anchored_conflict() {
+pub(crate) fn record_anchored_conflict() {
     with_store(|s| s.anchored_conflicts = s.anchored_conflicts.saturating_add(1));
 }
 
 /// A successful str_replace edit and the `old_string` tokens it paid.
-pub fn record_str_replace_success(old_string_tokens: u64) {
+pub(crate) fn record_str_replace_success(old_string_tokens: u64) {
     with_store(|s| {
         s.str_replace_calls = s.str_replace_calls.saturating_add(1);
         s.str_replace_old_string_tokens = s
@@ -128,12 +128,12 @@ pub fn record_str_replace_success(old_string_tokens: u64) {
 }
 
 /// An `old_string`-not-found miss (one blind retry round-trip).
-pub fn record_str_replace_miss() {
+pub(crate) fn record_str_replace_miss() {
     with_store(|s| s.str_replace_misses = s.str_replace_misses.saturating_add(1));
 }
 
 /// Snapshot for `ctx_metrics` and the dashboard `/api/stats` payload.
-pub fn metrics_snapshot() -> serde_json::Value {
+pub(crate) fn metrics_snapshot() -> serde_json::Value {
     let Ok(store) = global().lock() else {
         return serde_json::json!({});
     };
@@ -148,7 +148,7 @@ pub fn metrics_snapshot() -> serde_json::Value {
     })
 }
 
-pub fn flush() {
+pub(crate) fn flush() {
     if let Ok(store) = global().lock()
         && store.dirty
     {

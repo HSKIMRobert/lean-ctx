@@ -8,7 +8,7 @@ use super::tokens::count_tokens;
 
 /// Budget enforcement result.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BudgetAction {
+pub(crate) enum BudgetAction {
     /// Content fits within budget — pass through unchanged.
     PassThrough,
     /// Content exceeds budget — truncated with expand hint appended.
@@ -24,7 +24,7 @@ pub enum BudgetAction {
 /// an expand hint so the agent can retrieve the remainder.
 ///
 /// Returns `(possibly_truncated_text, action)`.
-pub fn apply_turn_budget(text: &str, fresh_limit: usize) -> (String, BudgetAction) {
+pub(crate) fn apply_turn_budget(text: &str, fresh_limit: usize) -> (String, BudgetAction) {
     if fresh_limit == 0 {
         return (text.to_string(), BudgetAction::PassThrough);
     }

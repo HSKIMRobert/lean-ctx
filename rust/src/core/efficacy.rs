@@ -26,7 +26,7 @@ const MAX_SNAPSHOTS: usize = 30;
 const SURVIVAL_AGE_TURNS: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EfficacySnapshot {
+pub(crate) struct EfficacySnapshot {
     /// Calendar day, `YYYY-MM-DD` (UTC).
     pub day: String,
     /// Cumulative LITM counters at capture time (#539).
@@ -43,7 +43,7 @@ pub struct EfficacySnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct EfficacyStore {
+pub(crate) struct EfficacyStore {
     pub snapshots: Vec<EfficacySnapshot>,
     pub schema_version: u32,
 }
@@ -80,7 +80,7 @@ impl EfficacyStore {
     /// Upsert today's snapshot (cumulative counters only move forward, so
     /// re-capturing within the same day just refreshes the values) and trim
     /// the ring.
-    pub fn upsert(&mut self, snap: EfficacySnapshot) {
+    pub(crate) fn upsert(&mut self, snap: EfficacySnapshot) {
         match self.snapshots.iter_mut().find(|s| s.day == snap.day) {
             Some(existing) => *existing = snap,
             None => self.snapshots.push(snap),
@@ -127,7 +127,7 @@ fn current_snapshot() -> EfficacySnapshot {
 }
 
 /// Capture (upsert) today's snapshot. Called from ctx_metrics and shutdown.
-pub fn capture() {
+pub(crate) fn capture() {
     let mut store = EfficacyStore::load();
     store.upsert(current_snapshot());
     store.save();
@@ -172,7 +172,7 @@ fn fmt_pct(x: f64) -> String {
 }
 
 /// Human-readable efficacy section for ctx_metrics.
-pub fn report() -> Vec<String> {
+pub(crate) fn report() -> Vec<String> {
     let mut out = Vec::new();
 
     match bounce_week_over_week() {
@@ -244,7 +244,7 @@ pub fn report() -> Vec<String> {
 }
 
 /// Machine-readable efficacy for the dashboard (#548).
-pub fn report_json() -> serde_json::Value {
+pub(crate) fn report_json() -> serde_json::Value {
     let (prev, recent) = bounce_week_over_week();
     let store = EfficacyStore::load();
     serde_json::json!({

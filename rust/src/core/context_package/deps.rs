@@ -47,7 +47,7 @@ pub struct ResolvedDep {
 /// local `lean-ctx-addon.toml` carries its `[[dependencies]]` in
 /// [`crate::core::addons::manifest::AddonManifest`], with no hosted
 /// `PackageManifest` to key off (GH #727, Finding A).
-pub fn resolve_dependencies(
+pub(crate) fn resolve_dependencies(
     deps: &[PackageDependency],
     root_name: Option<&str>,
     base: &str,
@@ -72,7 +72,7 @@ pub fn resolve_dependencies(
 /// silently disable the guard (GH #727, Finding A). A local
 /// `lean-ctx-addon.toml` has only a bare slug — a self-reference is unnameable
 /// there, so its caller passes `None` and the guard is vacuous by construction.
-pub fn resolve_one(
+pub(crate) fn resolve_one(
     root_name: Option<&str>,
     dep: &PackageDependency,
     base: &str,
@@ -120,7 +120,7 @@ pub fn resolve_one(
 }
 
 /// Parse a SemVer range. An empty/`*` requirement means "any version".
-pub fn parse_version_req(req: &str) -> Result<semver::VersionReq, String> {
+pub(crate) fn parse_version_req(req: &str) -> Result<semver::VersionReq, String> {
     let trimmed = req.trim();
     if trimmed.is_empty() || trimmed == "*" {
         return Ok(semver::VersionReq::STAR);
@@ -130,7 +130,7 @@ pub fn parse_version_req(req: &str) -> Result<semver::VersionReq, String> {
 
 /// Highest non-yanked version matching `req`. Non-SemVer versions in the
 /// index are skipped (they can never match a range).
-pub fn pick_highest_match<'a>(
+pub(crate) fn pick_highest_match<'a>(
     versions: &'a [VersionInfo],
     req: &semver::VersionReq,
 ) -> Option<&'a VersionInfo> {
@@ -144,7 +144,7 @@ pub fn pick_highest_match<'a>(
 }
 
 /// Version of `name` pinned in the project lockfile, if any.
-pub fn locked_version(name: &str, project_root: &std::path::Path) -> Option<String> {
+pub(crate) fn locked_version(name: &str, project_root: &std::path::Path) -> Option<String> {
     let lock = super::lockfile::load(project_root).ok()?;
     lock.packages
         .iter()
@@ -161,7 +161,7 @@ pub fn locked_version(name: &str, project_root: &std::path::Path) -> Option<Stri
 /// highest-match) so the install step can hand the exact same version to
 /// `[mcp.env]` `{pack_dir:}` expansion — the wiring must point at the version
 /// that actually landed on disk (GH #727, Finding B).
-pub fn already_satisfied(
+pub(crate) fn already_satisfied(
     project_root: &std::path::Path,
     registry: &super::registry::LocalRegistry,
     dep: &PackageDependency,

@@ -60,7 +60,7 @@ fn item_id(file: &str, symbol: &str) -> String {
 ///
 /// Order follows the (pre-sorted) score and a stable worst-first sort, so
 /// repeated builds are byte-identical (#498).
-pub fn build_artifacts(health: &ProjectHealth) -> ConsolidationArtifacts {
+pub(crate) fn build_artifacts(health: &ProjectHealth) -> ConsolidationArtifacts {
     let mut artifacts = ConsolidationArtifacts::default();
 
     // BM25 + knowledge: bounded to the top-N hotspots.
@@ -139,7 +139,7 @@ fn pg_hotspots(health: &ProjectHealth) -> Vec<super::Hotspot> {
 /// Returns the highest cc among same-named hotspots, or `None` when the symbol
 /// is not a recorded hotspot or the graph is unavailable. Best-effort + cheap:
 /// one SQLite read, no parsing.
-pub fn hotspot_cc(root: &str, symbol: &str) -> Option<u32> {
+pub(crate) fn hotspot_cc(root: &str, symbol: &str) -> Option<u32> {
     let pg = crate::core::property_graph::CodeGraph::open(root).ok()?;
     pg.all_cross_source_edges()
         .iter()
@@ -166,7 +166,7 @@ fn prune_spec() -> PrunePrior {
 /// Always prunes the prior pass (even when `health` is clean, so a fixed project
 /// drops its stale hotspots), then ingests the current artifacts. Best-effort
 /// per store; never panics. Safe to call from the background indexer.
-pub fn apply(root: &str, health: &ProjectHealth) {
+pub(crate) fn apply(root: &str, health: &ProjectHealth) {
     let artifacts = build_artifacts(health);
     consolidation::apply_artifacts_to_stores(&artifacts, root, &prune_spec());
 }
@@ -332,8 +332,8 @@ mod tests {
         );
     }
 
-    fn file_report(hotspots: Vec<Hotspot>) -> crate::core::code_health::FileReport {
-        crate::core::code_health::FileReport {
+    fn file_report(hotspots: Vec<Hotspot>) -> crate::core::code_health::scan::FileReport {
+        crate::core::code_health::scan::FileReport {
             file: hotspots.first().map(|h| h.file.clone()).unwrap_or_default(),
             total_functions: hotspots.len(),
             over_threshold: hotspots.len(),

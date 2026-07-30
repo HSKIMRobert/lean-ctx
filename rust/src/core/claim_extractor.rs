@@ -11,12 +11,12 @@ use super::context_proof_v2::{
     lean_proved_claim, policy_claim,
 };
 
-pub struct ClaimExtractor {
+pub(crate) struct ClaimExtractor {
     proof: ContextProofV2,
 }
 
 impl ClaimExtractor {
-    pub fn new(run_id: &str, session_id: Option<&str>) -> Self {
+    pub(crate) fn new(run_id: &str, session_id: Option<&str>) -> Self {
         Self {
             proof: ContextProofV2::new(
                 run_id.to_string(),
@@ -25,7 +25,7 @@ impl ClaimExtractor {
         }
     }
 
-    pub fn verify_pathjail(&mut self, path: &str, jail_root: &Path) {
+    pub(crate) fn verify_pathjail(&mut self, path: &str, jail_root: &Path) {
         let resolved = crate::core::pathjail::jail_path(&std::path::PathBuf::from(path), jail_root);
         let passed = resolved.is_ok();
         self.proof.add_claim(policy_claim(
@@ -36,7 +36,7 @@ impl ClaimExtractor {
         ));
     }
 
-    pub fn verify_no_secrets_in_output(&mut self, output: &str) {
+    pub(crate) fn verify_no_secrets_in_output(&mut self, output: &str) {
         let secret_matches = crate::core::secret_detection::detect_secrets(output);
 
         let passed = secret_matches.is_empty();
@@ -62,7 +62,7 @@ impl ClaimExtractor {
         ));
     }
 
-    pub fn verify_budget_compliance(&mut self) {
+    pub(crate) fn verify_budget_compliance(&mut self) {
         let snapshot = crate::core::budget_tracker::BudgetTracker::global().check();
         let level = snapshot.worst_level();
         let passed = *level != crate::core::budget_tracker::BudgetLevel::Exhausted;
@@ -75,7 +75,11 @@ impl ClaimExtractor {
         ));
     }
 
-    pub fn verify_signatures_preserved(&mut self, original: &[String], compressed: &[String]) {
+    pub(crate) fn verify_signatures_preserved(
+        &mut self,
+        original: &[String],
+        compressed: &[String],
+    ) {
         let mut missing = Vec::new();
         for sig in original {
             if !compressed.iter().any(|c| c.contains(sig)) {
@@ -115,7 +119,11 @@ impl ClaimExtractor {
         });
     }
 
-    pub fn verify_imports_preserved(&mut self, original_imports: &[String], compressed: &str) {
+    pub(crate) fn verify_imports_preserved(
+        &mut self,
+        original_imports: &[String],
+        compressed: &str,
+    ) {
         let mut missing = Vec::new();
         for imp in original_imports {
             if !compressed.contains(imp) {
@@ -138,16 +146,16 @@ impl ClaimExtractor {
             .add_claim(deterministic_claim("imports_preserved", &text, passed));
     }
 
-    pub fn add_lean_proof(&mut self, id: &str, text: &str, kind: ClaimKind, theorem: &str) {
+    pub(crate) fn add_lean_proof(&mut self, id: &str, text: &str, kind: ClaimKind, theorem: &str) {
         self.proof
             .add_claim(lean_proved_claim(id, text, kind, theorem));
     }
 
-    pub fn add_custom_claim(&mut self, claim: Claim) {
+    pub(crate) fn add_custom_claim(&mut self, claim: Claim) {
         self.proof.add_claim(claim);
     }
 
-    pub fn finalize(self) -> ContextProofV2 {
+    pub(crate) fn finalize(self) -> ContextProofV2 {
         self.proof
     }
 }

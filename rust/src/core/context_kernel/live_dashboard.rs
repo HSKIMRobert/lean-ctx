@@ -6,7 +6,7 @@ use super::{coverage_class, mcp_bridge, proxy_bridge, receipt_chain, usage_norma
 
 /// Complete kernel metrics snapshot for dashboard rendering.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct DashboardSnapshot {
+pub(crate) struct DashboardSnapshot {
     /// Current ETPAO (proxy).
     pub proxy_etpao: f64,
     /// Current ETPAO (MCP).
@@ -23,7 +23,7 @@ pub struct DashboardSnapshot {
 
 /// Identity attribution totals visible to the dashboard.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct IdentityView {
+pub(crate) struct IdentityView {
     /// Number of distinct users observed.
     pub total_users: usize,
     /// Tokens attributed to users.
@@ -36,7 +36,7 @@ pub struct IdentityView {
 
 /// Provider-normalized usage totals visible to the dashboard.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct UsageView {
+pub(crate) struct UsageView {
     /// Number of normalized provider requests.
     pub total_requests: usize,
     /// Total normalized tokens consumed.
@@ -51,7 +51,7 @@ pub struct UsageView {
 
 /// Request-to-outcome evidence-chain totals.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct ChainView {
+pub(crate) struct ChainView {
     /// Number of complete or partial chain entries.
     pub total_entries: usize,
     /// Entries with accepted outcomes.
@@ -66,7 +66,7 @@ pub struct ChainView {
 
 /// Coverage labels for the proxy and MCP integration paths.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct CoverageView {
+pub(crate) struct CoverageView {
     /// Stable proxy coverage label.
     pub proxy_coverage: String,
     /// Stable MCP coverage label.
@@ -77,19 +77,19 @@ pub struct CoverageView {
 
 /// Returns a point-in-time view of all live kernel metrics.
 #[must_use]
-pub fn snapshot() -> DashboardSnapshot {
+pub(crate) fn snapshot() -> DashboardSnapshot {
     catch_unwind(AssertUnwindSafe(build_snapshot)).unwrap_or_default()
 }
 
 /// Returns the current dashboard snapshot as JSON.
 #[must_use]
-pub fn snapshot_json() -> String {
+pub(crate) fn snapshot_json() -> String {
     serde_json::to_string(&snapshot()).unwrap_or_else(|_| "{}".to_owned())
 }
 
 /// Returns a compact human-readable dashboard summary.
 #[must_use]
-pub fn format_summary() -> String {
+pub(crate) fn format_summary() -> String {
     let value = snapshot();
     format!(
         "ETPAO proxy={:.2} mcp={:.2}; requests={}; compression={:.2}; chain={}/{} accepted",

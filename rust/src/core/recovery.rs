@@ -21,7 +21,7 @@ use crate::core::config::{Config, RecoveryHints};
 /// Header line of the `Full`-tier compressed-view footer. Single source of truth:
 /// also surfaced verbatim in `tdd_schema` so the published schema and the runtime
 /// affordance can never drift.
-pub const COMPACT_VIEW_HEADER: &str =
+pub(crate) const COMPACT_VIEW_HEADER: &str =
     "[lean-ctx: compact view — nothing lost, full source on request]";
 
 /// Resolve the effective recovery tier for the current call.
@@ -33,7 +33,7 @@ pub const COMPACT_VIEW_HEADER: &str =
 ///    `Some(false)` → [`RecoveryHints::Off`] (explicit profile opt-out).
 /// 3. Global `config.recovery_hints` (default [`RecoveryHints::Minimal`]).
 #[must_use]
-pub fn tier() -> RecoveryHints {
+pub(crate) fn tier() -> RecoveryHints {
     if let Some(t) = RecoveryHints::from_env() {
         return t;
     }
@@ -51,7 +51,7 @@ pub fn tier() -> RecoveryHints {
 /// ("read the file directly") so orgs that forbid MCP still have a route, then
 /// the `ctx_*` shortcuts. `None` when the tier is `Off`.
 #[must_use]
-pub fn read_footer(file_path: &str) -> Option<String> {
+pub(crate) fn read_footer(file_path: &str) -> Option<String> {
     match tier() {
         RecoveryHints::Off => None,
         RecoveryHints::Minimal => Some(format!(
@@ -72,7 +72,7 @@ pub fn read_footer(file_path: &str) -> Option<String> {
 /// collapses it to the bare path so a `recovery_hints=off` operator still gets the
 /// pointer without the coaching.
 #[must_use]
-pub fn handle_clause(id: &str, on_disk_path: Option<&str>) -> String {
+pub(crate) fn handle_clause(id: &str, on_disk_path: Option<&str>) -> String {
     match (tier(), on_disk_path) {
         (RecoveryHints::Off, Some(p)) => format!("full: {p}"),
         (RecoveryHints::Off, None) => format!("full: ctx_expand(id=\"{id}\")"),

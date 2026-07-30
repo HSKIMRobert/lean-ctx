@@ -17,13 +17,13 @@ use crate::core::events;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SloConfig {
+pub(crate) struct SloConfig {
     #[serde(default)]
     pub slo: Vec<SloDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SloDefinition {
+pub(crate) struct SloDefinition {
     pub name: String,
     pub metric: SloMetric,
     pub threshold: f64,
@@ -89,7 +89,7 @@ struct ViolationHistory {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ViolationEntry {
+pub(crate) struct ViolationEntry {
     pub timestamp: String,
     pub slo_name: String,
     pub metric: SloMetric,
@@ -187,14 +187,14 @@ fn default_slos() -> Vec<SloDefinition> {
     ]
 }
 
-pub fn reload() {
+pub(crate) fn reload() {
     let fresh = load_slos_from_disk();
     if let Ok(mut store) = config_store().lock() {
         *store = fresh;
     }
 }
 
-pub fn active_slos() -> Vec<SloDefinition> {
+pub(crate) fn active_slos() -> Vec<SloDefinition> {
     config_store().lock().map(|s| s.clone()).unwrap_or_default()
 }
 
@@ -238,7 +238,7 @@ fn is_violated(actual: f64, threshold: f64, direction: SloDirection) -> bool {
     }
 }
 
-pub fn evaluate() -> SloSnapshot {
+pub(crate) fn evaluate() -> SloSnapshot {
     let defs = active_slos();
     let mut slos = Vec::with_capacity(defs.len());
     let mut violations = Vec::new();
@@ -294,7 +294,7 @@ pub fn evaluate() -> SloSnapshot {
     }
 }
 
-pub fn evaluate_quiet() -> SloSnapshot {
+pub(crate) fn evaluate_quiet() -> SloSnapshot {
     // Record that SLO evaluation happened (count-only observability).
     crate::core::verification_observability::record_slo_eval();
     let defs = active_slos();
@@ -364,7 +364,7 @@ fn emit_slo_event(status: &SloStatus) {
     });
 }
 
-pub fn violation_history(limit: usize) -> Vec<ViolationEntry> {
+pub(crate) fn violation_history(limit: usize) -> Vec<ViolationEntry> {
     violation_store()
         .lock()
         .map(|h| {
@@ -374,7 +374,7 @@ pub fn violation_history(limit: usize) -> Vec<ViolationEntry> {
         .unwrap_or_default()
 }
 
-pub fn clear_violations() {
+pub(crate) fn clear_violations() {
     if let Ok(mut hist) = violation_store().lock() {
         hist.entries.clear();
     }

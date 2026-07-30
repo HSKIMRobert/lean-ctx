@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 /// Response from a single LLM completion.
 #[derive(Debug, Clone)]
-pub struct CompletionResponse {
+pub(crate) struct CompletionResponse {
     pub content: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -18,14 +18,14 @@ pub struct CompletionResponse {
 
 /// API format for the upstream.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ApiFormat {
+pub(crate) enum ApiFormat {
     Anthropic,
     OpenAi,
 }
 
 /// Configuration for LLM calls.
 #[derive(Debug, Clone)]
-pub struct LlmClientConfig {
+pub(crate) struct LlmClientConfig {
     pub base_url: String,
     pub api_key: String,
     pub model: String,
@@ -36,7 +36,7 @@ pub struct LlmClientConfig {
 
 impl LlmClientConfig {
     /// Through lean-ctx proxy with OpenAI format (default for ChatGPT users).
-    pub fn via_proxy_openai(model: &str) -> Self {
+    pub(crate) fn via_proxy_openai(model: &str) -> Self {
         let proxy_port = std::env::var("LEAN_CTX_PROXY_PORT").unwrap_or_else(|_| "4444".into());
         let token = crate::core::session_token::resolve_proxy_token("LEAN_CTX_PROXY_TOKEN");
         Self {
@@ -50,7 +50,7 @@ impl LlmClientConfig {
     }
 
     /// Direct Anthropic API (requires ANTHROPIC_API_KEY).
-    pub fn direct_anthropic(model: &str) -> Result<Self, String> {
+    pub(crate) fn direct_anthropic(model: &str) -> Result<Self, String> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| "ANTHROPIC_API_KEY not set".to_string())?;
         Ok(Self {
@@ -64,7 +64,7 @@ impl LlmClientConfig {
     }
 
     /// Through lean-ctx proxy with Anthropic format (requires ANTHROPIC_API_KEY).
-    pub fn via_proxy_anthropic(model: &str) -> Result<Self, String> {
+    pub(crate) fn via_proxy_anthropic(model: &str) -> Result<Self, String> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| "ANTHROPIC_API_KEY not set".to_string())?;
         let proxy_port = std::env::var("LEAN_CTX_PROXY_PORT").unwrap_or_else(|_| "4444".into());
@@ -80,7 +80,7 @@ impl LlmClientConfig {
 }
 
 /// Call the LLM and return the completion (dispatches by format).
-pub fn complete(
+pub(crate) fn complete(
     config: &LlmClientConfig,
     system: &str,
     prompt: &str,
@@ -212,7 +212,7 @@ fn complete_openai(
 }
 
 /// Pricing per million tokens (input/output) for known models.
-pub fn cost_for_tokens(model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
+pub(crate) fn cost_for_tokens(model: &str, input_tokens: u64, output_tokens: u64) -> f64 {
     let (input_per_m, output_per_m) = match model {
         m if m.contains("haiku") => (0.25, 1.25),
         m if m.contains("sonnet") => (3.0, 15.0),
@@ -226,7 +226,7 @@ pub fn cost_for_tokens(model: &str, input_tokens: u64, output_tokens: u64) -> f6
 }
 
 /// Extract Python code from an LLM response.
-pub fn extract_code(response: &str) -> String {
+pub(crate) fn extract_code(response: &str) -> String {
     if let Some(start) = response.find("```python") {
         let code_start = start + "```python".len();
         if let Some(end) = response[code_start..].find("```") {

@@ -6,7 +6,7 @@ use crate::core::knowledge::{ConsolidatedInsight, KnowledgeFact, ProjectPattern}
 use super::graph_model::ContextGraph;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PackageContent {
+pub(crate) struct PackageContent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub knowledge: Option<KnowledgeLayer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,7 +37,7 @@ pub struct PackageContent {
 /// and the per-platform `[artifacts]` tables (GH #725) all live inside it,
 /// so nothing is duplicated at the pack layer that could drift.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddonContent {
+pub(crate) struct AddonContent {
     /// Verbatim `lean-ctx-addon.toml` text (authoring contract
     /// `docs/contracts/addon-manifest-v1.md`).
     pub manifest_toml: String,
@@ -48,7 +48,7 @@ pub struct AddonContent {
 /// verified *content*; interpretation belongs to the consumer (an addon like
 /// lean-md, or the agent itself).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct DocumentsContent {
+pub(crate) struct DocumentsContent {
     /// Sorted by `path` (byte order) — deterministic pack bytes (#498).
     pub files: Vec<DocumentBlob>,
 }
@@ -56,19 +56,19 @@ pub struct DocumentsContent {
 /// Body encoding marker for [`DocumentBlob::body`]. The only supported value;
 /// a field (not an enum) so future encodings fail with "unsupported encoding"
 /// on old readers instead of a serde parse error.
-pub const DOCUMENT_ENCODING_ZSTD_B64: &str = "zstd+base64";
+pub(crate) const DOCUMENT_ENCODING_ZSTD_B64: &str = "zstd+base64";
 
 /// Per-file caps (plaintext bytes) — a skills pack is documentation and
 /// scripts, not a media archive.
-pub const MAX_DOCUMENT_FILES: usize = 256;
-pub const MAX_DOCUMENT_FILE_BYTES: usize = 1024 * 1024;
-pub const MAX_DOCUMENTS_TOTAL_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_DOCUMENT_FILES: usize = 256;
+pub(crate) const MAX_DOCUMENT_FILE_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_DOCUMENTS_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 
 /// One named blob: `path` + SHA-256 of the **plaintext** + compressed body.
 /// The hash pins the decoded bytes, so tampering with the stored body (or a
 /// decompression bug) is detected before anything lands on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DocumentBlob {
+pub(crate) struct DocumentBlob {
     /// Relative, `/`-separated path inside the pack (e.g. `skills/review.md`).
     pub path: String,
     /// SHA-256 (lowercase hex) of the plaintext bytes.
@@ -81,7 +81,7 @@ pub struct DocumentBlob {
 
 impl DocumentBlob {
     /// Build a blob from plaintext bytes (deterministic: fixed zstd level).
-    pub fn from_plaintext(path: &str, bytes: &[u8]) -> Result<Self, String> {
+    pub(crate) fn from_plaintext(path: &str, bytes: &[u8]) -> Result<Self, String> {
         let compressed =
             zstd::encode_all(bytes, 3).map_err(|e| format!("zstd compress {path}: {e}"))?;
         Ok(Self {
@@ -95,7 +95,7 @@ impl DocumentBlob {
     /// Decode and verify the body against its `sha256` pin. Any mismatch —
     /// tampered body, wrong hash, corrupt compression — is an error; callers
     /// never see unverified bytes.
-    pub fn decode_verified(&self) -> Result<Vec<u8>, String> {
+    pub(crate) fn decode_verified(&self) -> Result<Vec<u8>, String> {
         if self.encoding != DOCUMENT_ENCODING_ZSTD_B64 {
             return Err(format!(
                 "`{}`: unsupported encoding `{}` (newer lean-ctx required)",
@@ -145,7 +145,7 @@ fn base64_decode(text: &str) -> Result<Vec<u8>, String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct KnowledgeLayer {
+pub(crate) struct KnowledgeLayer {
     pub facts: Vec<KnowledgeFact>,
     pub patterns: Vec<ProjectPattern>,
     pub insights: Vec<ConsolidatedInsight>,
@@ -153,14 +153,14 @@ pub struct KnowledgeLayer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphLayer {
+pub(crate) struct GraphLayer {
     pub nodes: Vec<GraphNodeExport>,
     pub edges: Vec<GraphEdgeExport>,
     pub exported_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphNodeExport {
+pub(crate) struct GraphNodeExport {
     pub kind: String,
     pub name: String,
     pub file_path: String,
@@ -173,7 +173,7 @@ pub struct GraphNodeExport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphEdgeExport {
+pub(crate) struct GraphEdgeExport {
     pub source_path: String,
     pub source_name: String,
     pub target_path: String,
@@ -184,7 +184,7 @@ pub struct GraphEdgeExport {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionLayer {
+pub(crate) struct SessionLayer {
     pub task_description: Option<String>,
     pub findings: Vec<SessionFinding>,
     pub decisions: Vec<SessionDecision>,
@@ -194,7 +194,7 @@ pub struct SessionLayer {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionFinding {
+pub(crate) struct SessionFinding {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
@@ -203,26 +203,26 @@ pub struct SessionFinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionDecision {
+pub(crate) struct SessionDecision {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rationale: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PatternsLayer {
+pub(crate) struct PatternsLayer {
     pub patterns: Vec<ProjectPattern>,
     pub exported_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GotchasLayer {
+pub(crate) struct GotchasLayer {
     pub gotchas: Vec<GotchaExport>,
     pub exported_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GotchaExport {
+pub(crate) struct GotchaExport {
     pub id: String,
     pub category: String,
     pub severity: String,
@@ -234,7 +234,7 @@ pub struct GotchaExport {
 }
 
 impl PackageContent {
-    pub fn active_layer_count(&self) -> usize {
+    pub(crate) fn active_layer_count(&self) -> usize {
         let mut n = 0;
         if self.knowledge.is_some() {
             n += 1;
@@ -263,11 +263,11 @@ impl PackageContent {
         n
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.active_layer_count() == 0
     }
 
-    pub fn estimated_token_count(&self) -> usize {
+    pub(crate) fn estimated_token_count(&self) -> usize {
         let json = serde_json::to_string(self).unwrap_or_default();
         json.len() / 4
     }

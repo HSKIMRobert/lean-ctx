@@ -30,7 +30,7 @@ const BOOSTS: &[(&str, u32)] = &[
 
 /// Score the salience of a piece of memory text. Always `>= BASE`.
 #[must_use]
-pub fn text_salience(text: &str) -> u32 {
+pub(crate) fn text_salience(text: &str) -> u32 {
     let s = text.to_lowercase();
     let mut score = BASE;
     for (pat, b) in BOOSTS {

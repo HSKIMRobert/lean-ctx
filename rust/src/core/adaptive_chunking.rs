@@ -3,7 +3,7 @@ use crate::core::tokens::count_tokens;
 
 /// One slice of source text chosen for inclusion.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChunkResult {
+pub(crate) struct ChunkResult {
     pub content: String,
     pub start_line: usize,
     pub end_line: usize,
@@ -127,7 +127,11 @@ fn proportional_body(lines: &[&str], start: usize, end: usize, target_tokens: us
 }
 
 /// Split `content` into prioritized chunks sized to `budget_tokens` spread across `total_items` sibling slices.
-pub fn adaptive_chunk(content: &str, budget_tokens: usize, total_items: usize) -> Vec<ChunkResult> {
+pub(crate) fn adaptive_chunk(
+    content: &str,
+    budget_tokens: usize,
+    total_items: usize,
+) -> Vec<ChunkResult> {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len().max(1);
     let ranges = chunk_ranges(&lines);

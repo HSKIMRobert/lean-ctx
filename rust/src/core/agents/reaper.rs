@@ -21,7 +21,7 @@ fn load_config() -> crate::core::config::AgentsConfig {
 
 /// Spawn the background reaper thread. Safe to call multiple times -- only the
 /// first call starts the thread; subsequent calls are no-ops.
-pub fn spawn_reaper() {
+pub(crate) fn spawn_reaper() {
     let flag = RUNNING.get_or_init(|| AtomicBool::new(false));
     if flag.swap(true, Ordering::SeqCst) {
         return;
@@ -42,7 +42,7 @@ fn reaper_loop(interval: Duration) {
 }
 
 /// Run one reap cycle. Public for testing.
-pub fn reap_cycle() -> Result<ReapStats, String> {
+pub(crate) fn reap_cycle() -> Result<ReapStats, String> {
     let mut stats = ReapStats::default();
     let cfg = load_config();
 
@@ -82,7 +82,7 @@ pub fn reap_cycle() -> Result<ReapStats, String> {
 
 /// Statistics from one reap cycle.
 #[derive(Debug, Default, Clone)]
-pub struct ReapStats {
+pub(crate) struct ReapStats {
     pub presence_removed: usize,
     pub identity_decommissioned: usize,
     pub scratchpad_expired: usize,
@@ -90,7 +90,7 @@ pub struct ReapStats {
 }
 
 impl ReapStats {
-    pub fn total(&self) -> usize {
+    pub(crate) fn total(&self) -> usize {
         self.presence_removed
             + self.identity_decommissioned
             + self.scratchpad_expired

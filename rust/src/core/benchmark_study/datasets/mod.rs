@@ -1,6 +1,6 @@
 //! Benchmark dataset loaders (HumanEval, MBPP, SWE-bench).
 
-pub mod download;
-pub mod humaneval;
-pub mod mbpp;
-pub mod swebench;
+pub(crate) mod download;
+pub(crate) mod humaneval;
+pub(crate) mod mbpp;
+pub(crate) mod swebench;

@@ -8,13 +8,13 @@ use std::collections::{HashMap, HashSet};
 
 use rusqlite::Connection;
 
-pub struct PageRankInput {
+pub(crate) struct PageRankInput {
     pub files: HashSet<String>,
     pub forward: HashMap<String, Vec<String>>,
 }
 
 impl PageRankInput {
-    pub fn from_connection(conn: &Connection) -> Self {
+    pub(crate) fn from_connection(conn: &Connection) -> Self {
         let mut files: HashSet<String> = HashSet::new();
         let mut forward: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -59,14 +59,18 @@ impl PageRankInput {
     }
 }
 
-pub fn compute(input: &PageRankInput, damping: f64, iterations: usize) -> HashMap<String, f64> {
+pub(crate) fn compute(
+    input: &PageRankInput,
+    damping: f64,
+    iterations: usize,
+) -> HashMap<String, f64> {
     compute_personalized(input, damping, iterations, &[])
 }
 
 /// Personalized PageRank: if `seed_files` is non-empty, teleportation bias goes
 /// to those files instead of uniform distribution. Handles dangling nodes
 /// (nodes with no outgoing edges) by redistributing their rank.
-pub fn compute_personalized(
+pub(crate) fn compute_personalized(
     input: &PageRankInput,
     damping: f64,
     iterations: usize,
@@ -155,11 +159,11 @@ pub fn compute_personalized(
     rank
 }
 
-pub fn top_files(conn: &Connection, limit: usize) -> Vec<(String, f64)> {
+pub(crate) fn top_files(conn: &Connection, limit: usize) -> Vec<(String, f64)> {
     top_files_personalized(conn, limit, &[])
 }
 
-pub fn top_files_personalized(
+pub(crate) fn top_files_personalized(
     conn: &Connection,
     limit: usize,
     seed_files: &[String],

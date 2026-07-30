@@ -15,7 +15,7 @@ fn has(p: &ToolProfile, name: &str) -> bool {
 }
 
 /// Intent-to-tool playbook — only advertises tools the profile exposes.
-pub fn intent_section(p: &ToolProfile) -> String {
+pub(crate) fn intent_section(p: &ToolProfile) -> String {
     let mut lines = vec!["Tool selection by intent:".to_string()];
 
     if has(p, "ctx_compose") {
@@ -57,7 +57,7 @@ pub fn intent_section(p: &ToolProfile) -> String {
 
 /// Mandatory tool mapping on hook-covered hosts (Cursor with hooks).
 /// v8: strict mode — always prefer ctx_* even when hooks would cover native tools.
-pub fn hook_covered_tools_section(p: &ToolProfile) -> String {
+pub(crate) fn hook_covered_tools_section(p: &ToolProfile) -> String {
     let mut lines = vec!["MANDATORY MAPPING (always use ctx_* instead of native):".to_string()];
 
     lines.push("• Read/cat -> ctx_read(path, mode) — cached, 10 modes, re-reads ~13 tokens".into());
@@ -100,7 +100,7 @@ pub fn hook_covered_tools_section(p: &ToolProfile) -> String {
 }
 
 /// Shadow-mode exclusive tools (no native trigger to intercept).
-pub fn shadow_minimal_section(p: &ToolProfile) -> String {
+pub(crate) fn shadow_minimal_section(p: &ToolProfile) -> String {
     let mut exclusives = Vec::new();
 
     if has(p, "ctx_compose") {
@@ -134,7 +134,7 @@ pub fn shadow_minimal_section(p: &ToolProfile) -> String {
 }
 
 /// Anti-patterns — only references tools the profile exposes.
-pub fn anti_section(p: &ToolProfile) -> String {
+pub(crate) fn anti_section(p: &ToolProfile) -> String {
     let mut lines = vec!["Anti-patterns — do NOT:".to_string()];
 
     if has(p, "ctx_compose") {
@@ -159,7 +159,7 @@ pub fn anti_section(p: &ToolProfile) -> String {
 }
 
 /// LITM end-of-instructions preference line — only lists enabled tools.
-pub fn litm_end_section(p: &ToolProfile) -> String {
+pub(crate) fn litm_end_section(p: &ToolProfile) -> String {
     let mut prefs = Vec::new();
 
     if has(p, "ctx_compose") {
@@ -179,7 +179,7 @@ pub fn litm_end_section(p: &ToolProfile) -> String {
 
 /// `ctx_call` gateway fallback — shown when the profile hides tools the agent
 /// might need. Returns `None` for Power (all tools visible).
-pub fn ctx_call_fallback(p: &ToolProfile) -> Option<String> {
+pub(crate) fn ctx_call_fallback(p: &ToolProfile) -> Option<String> {
     if matches!(p, ToolProfile::Power) {
         return None;
     }

@@ -74,7 +74,7 @@ impl GitCache {
 }
 
 /// Run a git command with TTL caching. Returns cached result if available.
-pub fn git_cached(args: &[&str], cwd: &str, ttl: Duration) -> Option<String> {
+pub(crate) fn git_cached(args: &[&str], cwd: &str, ttl: Duration) -> Option<String> {
     let key = format!("{cwd}:{}", args.join(" "));
 
     if let Ok(cache) = CACHE.lock()
@@ -103,26 +103,26 @@ pub fn git_cached(args: &[&str], cwd: &str, ttl: Duration) -> Option<String> {
 }
 
 /// Short-TTL (10s) for frequently-changing git data (status, diff).
-pub fn git_status_cached(cwd: &str) -> Option<String> {
+pub(crate) fn git_status_cached(cwd: &str) -> Option<String> {
     git_cached(&["status", "--porcelain"], cwd, Duration::from_secs(10))
 }
 
 /// Short-TTL (10s) for git diff.
-pub fn git_diff_cached(args: &[&str], cwd: &str) -> Option<String> {
+pub(crate) fn git_diff_cached(args: &[&str], cwd: &str) -> Option<String> {
     let mut full_args = vec!["diff"];
     full_args.extend_from_slice(args);
     git_cached(&full_args, cwd, Duration::from_secs(10))
 }
 
 /// Longer-TTL (60s) for git log (rarely changes within a session).
-pub fn git_log_cached(args: &[&str], cwd: &str) -> Option<String> {
+pub(crate) fn git_log_cached(args: &[&str], cwd: &str) -> Option<String> {
     let mut full_args = vec!["log"];
     full_args.extend_from_slice(args);
     git_cached(&full_args, cwd, Duration::from_mins(1))
 }
 
 /// Invalidate all cached entries for a given directory.
-pub fn invalidate(cwd: &str) {
+pub(crate) fn invalidate(cwd: &str) {
     if let Ok(mut cache) = CACHE.lock() {
         cache.entries.retain(|k, _| !k.starts_with(cwd));
     }

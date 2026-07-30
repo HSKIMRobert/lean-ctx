@@ -28,6 +28,8 @@ fn ctx_for(root: &std::path::Path, file: &str) -> ToolContext {
         workflow: None,
         ledger: None,
         client_name: None,
+        client_role: None,
+        shell_access: None,
         pipeline_stats: None,
         call_count: None,
         autonomy: None,

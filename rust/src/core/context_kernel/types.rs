@@ -8,7 +8,7 @@ use crate::core::context_field::{ContextItemId, Provenance, TokenBudget, ViewCos
 
 /// Universal context candidate supplied by any context store.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextObjectV1 {
+pub(crate) struct ContextObjectV1 {
     pub id: ContextItemId,
     pub kind: ContextObjectKind,
     pub source: String,
@@ -48,7 +48,7 @@ impl Default for ContextObjectV1 {
 
 impl ContextObjectV1 {
     /// Creates a materialized knowledge fact candidate.
-    pub fn new_fact(
+    pub(crate) fn new_fact(
         id: ContextItemId,
         key: impl Into<String>,
         value: impl Into<String>,
@@ -77,7 +77,7 @@ impl ContextObjectV1 {
     }
 
     /// Creates a lazy file candidate for a source path.
-    pub fn new_file(id: ContextItemId, path: impl Into<String>, tokens: usize) -> Self {
+    pub(crate) fn new_file(id: ContextItemId, path: impl Into<String>, tokens: usize) -> Self {
         let path = path.into();
 
         Self {
@@ -99,7 +99,7 @@ impl ContextObjectV1 {
     }
 
     /// Creates a materialized episodic-memory candidate.
-    pub fn new_episode(
+    pub(crate) fn new_episode(
         id: ContextItemId,
         summary: impl Into<String>,
         outcome: impl Into<String>,
@@ -131,7 +131,7 @@ impl ContextObjectV1 {
 /// Kinds of context objects that can be retrieved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ContextObjectKind {
+pub(crate) enum ContextObjectKind {
     File,
     Fact,
     Episode,
@@ -142,7 +142,7 @@ pub enum ContextObjectKind {
 
 /// Freshness metadata associated with a context object.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Freshness {
+pub(crate) struct Freshness {
     pub created_at: String,
     pub ttl_secs: Option<u64>,
     pub stale: bool,
@@ -151,7 +151,7 @@ pub struct Freshness {
 /// Access sensitivity assigned to a context object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SensitivityLevel {
+pub(crate) enum SensitivityLevel {
     Public,
     Internal,
     Confidential,
@@ -160,14 +160,14 @@ pub enum SensitivityLevel {
 
 /// Side-effect policy for candidate enumeration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SideEffectPolicy {
+pub(crate) enum SideEffectPolicy {
     ReadOnly,
     MutatesStats,
 }
 
 /// Query context passed to candidate providers.
 #[derive(Debug, Clone)]
-pub struct RetrievalContext {
+pub(crate) struct RetrievalContext {
     pub query: String,
     pub task: Option<String>,
     pub project_root: String,
@@ -176,7 +176,7 @@ pub struct RetrievalContext {
 }
 
 /// Common interface for context stores that enumerate candidates.
-pub trait CandidateProvider: Send + Sync {
+pub(crate) trait CandidateProvider: Send + Sync {
     /// Returns the provider's stable identifier.
     fn provider_id(&self) -> &str;
 

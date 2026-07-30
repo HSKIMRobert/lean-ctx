@@ -15,7 +15,7 @@
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
-pub struct SemanticChunk {
+pub(crate) struct SemanticChunk {
     pub lines: Vec<String>,
     pub kind: ChunkKind,
     pub relevance: f64,
@@ -24,7 +24,7 @@ pub struct SemanticChunk {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ChunkKind {
+pub(crate) enum ChunkKind {
     Imports,
     TypeDefinition,
     FunctionDef,
@@ -33,7 +33,7 @@ pub enum ChunkKind {
 }
 
 /// Detect semantic boundaries in content and group lines into chunks.
-pub fn detect_chunks(content: &str) -> Vec<SemanticChunk> {
+pub(crate) fn detect_chunks(content: &str) -> Vec<SemanticChunk> {
     let lines: Vec<&str> = content.lines().collect();
     if lines.is_empty() {
         return Vec::new();
@@ -129,7 +129,7 @@ pub fn detect_chunks(content: &str) -> Vec<SemanticChunk> {
 }
 
 /// Score chunks by task relevance and reorder for optimal attention flow.
-pub fn order_for_attention(
+pub(crate) fn order_for_attention(
     mut chunks: Vec<SemanticChunk>,
     task_keywords: &[String],
 ) -> Vec<SemanticChunk> {
@@ -216,7 +216,7 @@ pub fn order_for_attention(
 }
 
 /// Render chunks back to text with attention bridges.
-pub fn render_with_bridges(chunks: &[SemanticChunk]) -> String {
+pub(crate) fn render_with_bridges(chunks: &[SemanticChunk]) -> String {
     if chunks.is_empty() {
         return String::new();
     }

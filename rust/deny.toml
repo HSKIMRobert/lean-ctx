@@ -10,7 +10,12 @@ all-features = true
 unmaintained = "all"
 yanked = "deny"
 unused-ignored-advisory = "warn"
-ignore = []
+ignore = [
+    # Transitive deps — no direct replacement available yet:
+    "RUSTSEC-2023-0089", # atomic-polyfill (transitive via hash32/heapless)
+    "RUSTSEC-2024-0436", # paste (transitive, awaiting upstream migration)
+    "RUSTSEC-2026-0192", # ttf-parser (transitive via pdf-extract→lopdf, no safe upgrade)
+]
 
 [licenses]
 # The allow-list below is a deliberately curated, forward-looking policy. Some

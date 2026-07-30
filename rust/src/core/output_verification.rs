@@ -11,7 +11,7 @@ fn global_stats() -> &'static VerificationStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct VerificationConfig {
+pub(crate) struct VerificationConfig {
     pub enabled: Option<bool>,
     /// Optional explicit verification mode.
     /// - "off": disable verifier entirely
@@ -26,22 +26,22 @@ pub struct VerificationConfig {
 }
 
 impl VerificationConfig {
-    pub fn enabled_effective(&self) -> bool {
+    pub(crate) fn enabled_effective(&self) -> bool {
         self.enabled.unwrap_or(true)
     }
-    pub fn strict_mode_effective(&self) -> bool {
+    pub(crate) fn strict_mode_effective(&self) -> bool {
         self.strict_mode.unwrap_or(false)
     }
-    pub fn check_paths_effective(&self) -> bool {
+    pub(crate) fn check_paths_effective(&self) -> bool {
         self.check_paths.unwrap_or(true)
     }
-    pub fn check_identifiers_effective(&self) -> bool {
+    pub(crate) fn check_identifiers_effective(&self) -> bool {
         self.check_identifiers.unwrap_or(true)
     }
-    pub fn check_line_numbers_effective(&self) -> bool {
+    pub(crate) fn check_line_numbers_effective(&self) -> bool {
         self.check_line_numbers.unwrap_or(false)
     }
-    pub fn check_structure_effective(&self) -> bool {
+    pub(crate) fn check_structure_effective(&self) -> bool {
         self.check_structure.unwrap_or(true)
     }
 }
@@ -82,7 +82,7 @@ impl VerificationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum WarningKind {
+pub(crate) enum WarningKind {
     MissingPath,
     MangledIdentifier,
     LineNumberDrift,
@@ -101,21 +101,21 @@ impl std::fmt::Display for WarningKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerificationWarning {
+pub(crate) struct VerificationWarning {
     pub kind: WarningKind,
     pub detail: String,
     pub severity: WarningSeverity,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum WarningSeverity {
+pub(crate) enum WarningSeverity {
     Low,
     Medium,
     High,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerificationResult {
+pub(crate) struct VerificationResult {
     pub pass: bool,
     pub warnings: Vec<VerificationWarning>,
     pub info_loss_score: f64,
@@ -124,7 +124,7 @@ pub struct VerificationResult {
 }
 
 impl VerificationResult {
-    pub fn ok() -> Self {
+    pub(crate) fn ok() -> Self {
         Self {
             pass: true,
             warnings: Vec::new(),
@@ -134,7 +134,7 @@ impl VerificationResult {
         }
     }
 
-    pub fn format_compact(&self) -> String {
+    pub(crate) fn format_compact(&self) -> String {
         if self.warnings.is_empty() {
             return "PASS".to_string();
         }
@@ -155,7 +155,7 @@ impl VerificationResult {
     }
 }
 
-pub fn verify_output(
+pub(crate) fn verify_output(
     source: &str,
     compressed: &str,
     config: &VerificationConfig,
@@ -230,7 +230,7 @@ pub fn verify_output(
 ///
 /// This exercises path and identifier preservation with a known-good compact
 /// representation and records the result in the same counters as live output.
-pub fn run_self_check() -> VerificationResult {
+pub(crate) fn run_self_check() -> VerificationResult {
     const SOURCE: &str =
         r#"fn lean_ctx_verification_probe() { include_str!("src/core/output_verification.rs"); }"#;
     const COMPRESSED: &str = "fn lean_ctx_verification_probe() src/core/output_verification.rs";
@@ -454,7 +454,7 @@ fn record_result(result: &VerificationResult) {
     }
 }
 
-pub fn stats_snapshot() -> VerificationSnapshot {
+pub(crate) fn stats_snapshot() -> VerificationSnapshot {
     let s = global_stats();
     let total = s.total_count.load(Ordering::Relaxed);
     let pass = s.pass_count.load(Ordering::Relaxed);
@@ -488,7 +488,7 @@ pub fn stats_snapshot() -> VerificationSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct VerificationSnapshot {
+pub(crate) struct VerificationSnapshot {
     pub total: u64,
     pub pass: u64,
     pub warn_runs: u64,
@@ -500,7 +500,7 @@ pub struct VerificationSnapshot {
 }
 
 impl VerificationSnapshot {
-    pub fn format_compact(&self) -> String {
+    pub(crate) fn format_compact(&self) -> String {
         format!(
             "Verification: {}/{} pass ({:.0}%), warn_runs={}, warn_items={}, loss(avg)={:.1}%",
             self.pass,

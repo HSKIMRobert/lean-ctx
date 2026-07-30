@@ -30,7 +30,7 @@ struct BounceStats {
 }
 
 #[derive(Debug, Default)]
-pub struct BounceTracker {
+pub(crate) struct BounceTracker {
     recent_reads: HashMap<String, Vec<ReadEvent>>,
     per_extension: HashMap<String, BounceStats>,
     recently_edited: HashMap<String, u64>,
@@ -55,20 +55,20 @@ fn extension_of(path: &str) -> String {
 }
 
 impl BounceTracker {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn next_seq(&mut self) -> u64 {
+    pub(crate) fn next_seq(&mut self) -> u64 {
         self.seq_counter += 1;
         self.seq_counter
     }
 
-    pub fn set_seq(&mut self, seq: u64) {
+    pub(crate) fn set_seq(&mut self, seq: u64) {
         self.seq_counter = seq;
     }
 
-    pub fn record_read(
+    pub(crate) fn record_read(
         &mut self,
         path: &str,
         mode: &str,
@@ -169,7 +169,7 @@ impl BounceTracker {
         }
     }
 
-    pub fn record_shell_file_access(&mut self, path: &str) {
+    pub(crate) fn record_shell_file_access(&mut self, path: &str) {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         let seq = self.seq_counter;
         self.detect_bounce(&norm, seq);
@@ -181,7 +181,7 @@ impl BounceTracker {
     /// rather than a path, so it cannot always be inferred by `detect_bounce`.
     /// Benchmark replay uses this method to keep the quality proxy on the same
     /// tracker as ordinary compressed-then-full bounces.
-    pub fn record_expansion(&mut self, source: Option<&str>, wasted_tokens: usize) {
+    pub(crate) fn record_expansion(&mut self, source: Option<&str>, wasted_tokens: usize) {
         self.total_bounces = self.total_bounces.saturating_add(1);
         self.total_wasted_tokens = self.total_wasted_tokens.saturating_add(wasted_tokens);
 
@@ -195,7 +195,7 @@ impl BounceTracker {
         }
     }
 
-    pub fn record_edit(&mut self, path: &str) {
+    pub(crate) fn record_edit(&mut self, path: &str) {
         let norm = crate::core::pathutil::normalize_tool_path(path);
         self.recently_edited.insert(norm, self.seq_counter);
         self.prune_stale_paths();
@@ -215,7 +215,7 @@ impl BounceTracker {
             .retain(|_, &mut edit_seq| seq.saturating_sub(edit_seq) <= TRACKED_PATH_TTL_SEQ);
     }
 
-    pub fn should_force_full(&self, path: &str) -> bool {
+    pub(crate) fn should_force_full(&self, path: &str) -> bool {
         let norm = crate::core::pathutil::normalize_tool_path(path);
 
         if let Some(&edit_seq) = self.recently_edited.get(&norm)
@@ -238,7 +238,7 @@ impl BounceTracker {
         false
     }
 
-    pub fn bounce_rate_for_extension(&self, path: &str) -> Option<f64> {
+    pub(crate) fn bounce_rate_for_extension(&self, path: &str) -> Option<f64> {
         let ext = extension_of(path);
         self.per_extension.get(&ext).and_then(|s| {
             if s.total_reads >= 3 {
@@ -249,19 +249,19 @@ impl BounceTracker {
         })
     }
 
-    pub fn total_bounces(&self) -> u64 {
+    pub(crate) fn total_bounces(&self) -> u64 {
         self.total_bounces
     }
 
-    pub fn total_wasted_tokens(&self) -> usize {
+    pub(crate) fn total_wasted_tokens(&self) -> usize {
         self.total_wasted_tokens
     }
 
-    pub fn adjusted_savings(&self, raw_savings: usize) -> isize {
+    pub(crate) fn adjusted_savings(&self, raw_savings: usize) -> isize {
         raw_savings as isize - self.total_wasted_tokens as isize
     }
 
-    pub fn per_extension_json(&self) -> Vec<serde_json::Value> {
+    pub(crate) fn per_extension_json(&self) -> Vec<serde_json::Value> {
         let mut exts: Vec<_> = self
             .per_extension
             .iter()
@@ -287,7 +287,7 @@ impl BounceTracker {
             .collect()
     }
 
-    pub fn format_summary(&self) -> String {
+    pub(crate) fn format_summary(&self) -> String {
         if self.total_bounces == 0 {
             return "Bounces: 0".to_string();
         }
@@ -318,7 +318,7 @@ impl BounceTracker {
 
 static GLOBAL_TRACKER: OnceLock<Mutex<BounceTracker>> = OnceLock::new();
 
-pub fn global() -> &'static Mutex<BounceTracker> {
+pub(crate) fn global() -> &'static Mutex<BounceTracker> {
     GLOBAL_TRACKER.get_or_init(|| {
         // Seed from the persistent ledger so every process (including a fresh `gain`)
         // accounts for historical bounce, then mark this tracker as the persisting one.

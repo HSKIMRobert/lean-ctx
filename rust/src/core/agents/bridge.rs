@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct UnifiedAgent {
+pub(crate) struct UnifiedAgent {
     pub agent_id: String,
     pub source: AgentSource,
     pub role: Option<String>,
@@ -23,14 +23,14 @@ pub struct UnifiedAgent {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentSource {
+pub(crate) enum AgentSource {
     Identity,
     Presence,
     Both,
 }
 
 /// Merge identity and presence registries into a unified list.
-pub fn list_unified() -> Vec<UnifiedAgent> {
+pub(crate) fn list_unified() -> Vec<UnifiedAgent> {
     let mut result = Vec::new();
     let mut seen_ids = HashSet::new();
 

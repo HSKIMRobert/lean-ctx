@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 use super::candidate::SkillCandidate;
 
 /// Namespace prefix for generated rule slugs/files.
-pub const SLUG_PREFIX: &str = "skillify-";
+pub(crate) const SLUG_PREFIX: &str = "skillify-";
 /// Leading token of the machine-readable provenance comment.
 const PROV_PREFIX: &str = "<!-- lean-ctx-skillify:";
 
 /// Result of writing a candidate to disk.
 #[derive(Debug, Clone, PartialEq)]
-pub enum WriteOutcome {
+pub(crate) enum WriteOutcome {
     /// Brand-new rule file written.
     Created,
     /// Existing rule whose body changed — version bumped.
@@ -27,29 +27,34 @@ pub enum WriteOutcome {
 
 /// The fields parsed back out of an existing generated rule.
 #[derive(Debug, Clone)]
-pub struct ExistingRule {
+pub(crate) struct ExistingRule {
     pub version: u32,
     pub created: String,
     pub body: String,
 }
 
 /// `<output_root>/.cursor/rules`.
-pub fn rules_dir(output_root: &Path) -> PathBuf {
+pub(crate) fn rules_dir(output_root: &Path) -> PathBuf {
     output_root.join(".cursor").join("rules")
 }
 
 /// Full namespaced slug for a candidate slug (`stop-before-build` → `skillify-stop-before-build`).
-pub fn full_slug(candidate_slug: &str) -> String {
+pub(crate) fn full_slug(candidate_slug: &str) -> String {
     format!("{SLUG_PREFIX}{candidate_slug}")
 }
 
 /// File path for a *full* (already-namespaced) slug.
-pub fn rule_path(output_root: &Path, full_slug: &str) -> PathBuf {
+pub(crate) fn rule_path(output_root: &Path, full_slug: &str) -> PathBuf {
     rules_dir(output_root).join(format!("{full_slug}.mdc"))
 }
 
 /// Render a complete `.mdc` document for a candidate at `version`.
-pub fn render(candidate: &SkillCandidate, version: u32, created: &str, updated: &str) -> String {
+pub(crate) fn render(
+    candidate: &SkillCandidate,
+    version: u32,
+    created: &str,
+    updated: &str,
+) -> String {
     let sources = candidate.sources.join(",");
     format!(
         "---\n\
@@ -81,7 +86,7 @@ fn sanitize_description(s: &str) -> String {
 }
 
 /// Parse the provenance + body out of an existing generated rule.
-pub fn parse_existing(content: &str) -> Option<ExistingRule> {
+pub(crate) fn parse_existing(content: &str) -> Option<ExistingRule> {
     let version = extract_prov_field(content, "version=")?.parse().ok()?;
     let created = extract_prov_field(content, "created=").unwrap_or_default();
     Some(ExistingRule {
@@ -92,7 +97,7 @@ pub fn parse_existing(content: &str) -> Option<ExistingRule> {
 }
 
 /// Read the `description:` value from a generated rule's frontmatter.
-pub fn extract_description(content: &str) -> Option<String> {
+pub(crate) fn extract_description(content: &str) -> Option<String> {
     for line in content.lines() {
         let t = line.trim();
         if let Some(rest) = t.strip_prefix("description:") {
@@ -136,7 +141,7 @@ fn ensure_parent(path: &Path) -> Result<(), String> {
 
 /// Write a candidate, creating a new file or merging into an existing one.
 /// Idempotent: an unchanged body is left untouched.
-pub fn write_candidate(
+pub(crate) fn write_candidate(
     output_root: &Path,
     candidate: &SkillCandidate,
     now: &str,

@@ -1,6 +1,6 @@
 //! The curated addon catalog.
 //!
-//! Layered like [`crate::core::model_registry`]: a registry compiled into the
+//! Layered like `crate::core::model_registry`: a registry compiled into the
 //! binary, optionally overridden per entry by `<data_dir>/addon_registry.json`
 //! (so a release ships a known-good catalog while power users can pin their
 //! own). Both are parsed once behind a [`OnceLock`].

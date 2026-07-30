@@ -32,7 +32,7 @@ const SA_ITERS: usize = 4000;
 
 /// `true` when the experimental QUBO spike is enabled. Off by default — the
 /// greedy selector stays the default selection path regardless.
-pub fn is_enabled() -> bool {
+pub(crate) fn is_enabled() -> bool {
     matches!(
         std::env::var("LEAN_CTX_EXPERIMENTAL_QUBO")
             .ok()
@@ -44,7 +44,7 @@ pub fn is_enabled() -> bool {
 
 /// A candidate item for QUBO selection.
 #[derive(Debug, Clone)]
-pub struct QuboItem {
+pub(crate) struct QuboItem {
     pub id: String,
     pub phi: f64,
     pub tokens: usize,
@@ -115,7 +115,7 @@ fn energy(items: &[QuboItem], sim: &[Vec<f64>], x: &[bool], budget: usize) -> f6
 /// Solve the selection QUBO with deterministic simulated annealing. Returns the
 /// indices of selected items. Seeded by a stable hash of the problem so the
 /// result is reproducible. Registers activity for `introspect cognition`.
-pub fn select(items: &[QuboItem], budget: usize) -> Vec<usize> {
+pub(crate) fn select(items: &[QuboItem], budget: usize) -> Vec<usize> {
     crate::core::introspect::tick("qubo_select");
     let n = items.len();
     if n == 0 {
@@ -190,7 +190,7 @@ fn problem_seed(items: &[QuboItem], budget: usize) -> u64 {
 
 /// Result of a QUBO-vs-greedy benchmark run.
 #[derive(Debug, Clone)]
-pub struct BenchReport {
+pub(crate) struct BenchReport {
     pub items: usize,
     pub budget: usize,
     pub greedy_phi: f64,
@@ -201,14 +201,14 @@ pub struct BenchReport {
 
 impl BenchReport {
     /// Total φ captured, relative gain of QUBO over greedy (can be negative).
-    pub fn phi_gain_pct(&self) -> f64 {
+    pub(crate) fn phi_gain_pct(&self) -> f64 {
         if self.greedy_phi <= 0.0 {
             return 0.0;
         }
         (self.qubo_phi - self.greedy_phi) / self.greedy_phi * 100.0
     }
 
-    pub fn format(&self) -> String {
+    pub(crate) fn format(&self) -> String {
         format!(
             "QUBO spike (experimental, greedy stays default)\n\
              items={}  budget={}\n\
@@ -233,7 +233,7 @@ fn captured(items: &[QuboItem], idx: &[usize]) -> (f64, usize) {
 }
 
 /// Run the QUBO-vs-greedy benchmark on a problem. Pure and deterministic.
-pub fn benchmark(items: &[QuboItem], budget: usize) -> BenchReport {
+pub(crate) fn benchmark(items: &[QuboItem], budget: usize) -> BenchReport {
     let greedy: Vec<usize> = greedy_mask(items, budget)
         .iter()
         .enumerate()
@@ -254,7 +254,7 @@ pub fn benchmark(items: &[QuboItem], budget: usize) -> BenchReport {
 
 /// A deterministic synthetic problem for the CLI harness: clusters of redundant
 /// items plus unique high-φ items, so QUBO's redundancy awareness can show.
-pub fn synthetic_problem() -> (Vec<QuboItem>, usize) {
+pub(crate) fn synthetic_problem() -> (Vec<QuboItem>, usize) {
     let mut items = Vec::new();
     // Three near-duplicate clusters (same sketch) of medium φ.
     for cluster in 0..3 {

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// A self-contained benchmark task with source material and verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskFixture {
+pub(crate) struct TaskFixture {
     pub id: String,
     pub category: TaskCategory,
     pub description: String,
@@ -24,7 +24,7 @@ pub struct TaskFixture {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TaskCategory {
+pub(crate) enum TaskCategory {
     FileRead,
     CodeSearch,
     BugFix,
@@ -34,7 +34,7 @@ pub enum TaskCategory {
 }
 
 impl TaskCategory {
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::FileRead => "file-read",
             Self::CodeSearch => "code-search",
@@ -48,7 +48,7 @@ impl TaskCategory {
 
 /// Quality score for a single task run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QualityScore {
+pub(crate) struct QualityScore {
     pub required_found: usize,
     pub required_total: usize,
     pub preferred_found: usize,
@@ -56,14 +56,14 @@ pub struct QualityScore {
 }
 
 impl QualityScore {
-    pub fn required_ratio(&self) -> f64 {
+    pub(crate) fn required_ratio(&self) -> f64 {
         if self.required_total == 0 {
             return 1.0;
         }
         self.required_found as f64 / self.required_total as f64
     }
 
-    pub fn overall_score(&self) -> f64 {
+    pub(crate) fn overall_score(&self) -> f64 {
         let req = self.required_ratio();
         let pref = if self.preferred_total == 0 {
             1.0
@@ -73,14 +73,14 @@ impl QualityScore {
         req * 0.8 + pref * 0.2
     }
 
-    pub fn passes(&self) -> bool {
+    pub(crate) fn passes(&self) -> bool {
         self.required_found == self.required_total
     }
 }
 
 impl TaskFixture {
     /// Score compressed output against this fixture's signals.
-    pub fn score(&self, compressed_output: &str) -> QualityScore {
+    pub(crate) fn score(&self, compressed_output: &str) -> QualityScore {
         let required_found = self
             .required_signals
             .iter()
@@ -102,7 +102,7 @@ impl TaskFixture {
 }
 
 /// The canonical benchmark suite: 12 tasks across 6 categories.
-pub fn canonical_suite() -> Vec<TaskFixture> {
+pub(crate) fn canonical_suite() -> Vec<TaskFixture> {
     vec![
         fixture_read_rust_module(),
         fixture_read_typescript_component(),

@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DriftStatus {
+pub(crate) enum DriftStatus {
     InSync,
     Drifted,
     Missing,
@@ -26,7 +26,7 @@ impl std::fmt::Display for DriftStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DriftReport {
+pub(crate) struct DriftReport {
     pub target: String,
     pub path: String,
     pub status: DriftStatus,
@@ -42,7 +42,7 @@ pub struct DriftReport {
 /// `rules lint` input and a user-facing export from `rules init`; it never
 /// overrides the canonical rule body (see [`super::config::RulesConfig`]). This
 /// is also why `rules diff` works without running `rules init` first (#548).
-pub fn detect_drift(home: &Path) -> Vec<DriftReport> {
+pub(crate) fn detect_drift(home: &Path) -> Vec<DriftReport> {
     let statuses = crate::rules_inject::collect_rules_status(home);
     // The canonical block lean-ctx would write for each target, keyed by name and
     // chosen by the target's real `RulesFormat` — see the heuristic note below.

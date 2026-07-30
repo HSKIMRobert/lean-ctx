@@ -40,7 +40,7 @@ fn get_vocab_log_probs() -> &'static Vec<f64> {
 /// the LLM = more important to keep.
 ///
 /// Range: typically 5.0 (very common) to 17.0+ (very rare).
-pub fn line_surprise(text: &str) -> f64 {
+pub(crate) fn line_surprise(text: &str) -> f64 {
     let tokens = encode_tokens(text);
     if tokens.is_empty() {
         return 0.0;
@@ -66,7 +66,7 @@ pub fn line_surprise(text: &str) -> f64 {
 /// Classify how surprising a line is relative to the LLM's expected knowledge.
 /// Uses empirically calibrated thresholds for o200k_base.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SurpriseLevel {
+pub(crate) enum SurpriseLevel {
     /// Common patterns — safe to compress aggressively
     Low,
     /// Mixed content — standard compression
@@ -75,7 +75,7 @@ pub enum SurpriseLevel {
     High,
 }
 
-pub fn classify_surprise(text: &str) -> SurpriseLevel {
+pub(crate) fn classify_surprise(text: &str) -> SurpriseLevel {
     let s = line_surprise(text);
     if s < 8.0 {
         SurpriseLevel::Low
@@ -89,7 +89,7 @@ pub fn classify_surprise(text: &str) -> SurpriseLevel {
 /// Enhanced entropy filter that combines Shannon entropy with predictive surprise.
 /// Lines pass if EITHER their entropy is above threshold OR their surprise is high.
 /// This prevents dropping lines that look "low entropy" but contain rare, unique tokens.
-pub fn should_keep_line(trimmed: &str, entropy_threshold: f64) -> bool {
+pub(crate) fn should_keep_line(trimmed: &str, entropy_threshold: f64) -> bool {
     if trimmed.is_empty() || trimmed.len() < 3 {
         return true;
     }
@@ -139,16 +139,16 @@ const REDUNDANCY_COSINE: f64 = 0.92;
 
 /// Sliding context of already-kept line embeddings.
 #[derive(Default)]
-pub struct ScoringCtx {
+pub(crate) struct ScoringCtx {
     kept: std::collections::VecDeque<Vec<f32>>,
 }
 
 impl ScoringCtx {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
-    pub fn push_kept(&mut self, embedding: Vec<f32>) {
+    pub(crate) fn push_kept(&mut self, embedding: Vec<f32>) {
         if self.kept.len() >= KEPT_WINDOW {
             self.kept.pop_front();
         }
@@ -156,7 +156,7 @@ impl ScoringCtx {
     }
 
     /// Max cosine similarity of `emb` to any kept embedding.
-    pub fn max_cosine(&self, emb: &[f32]) -> f64 {
+    pub(crate) fn max_cosine(&self, emb: &[f32]) -> f64 {
         self.kept
             .iter()
             .map(|k| cosine(k, emb))
@@ -187,7 +187,7 @@ fn cosine(a: &[f32], b: &[f32]) -> f64 {
 /// identically to an already-kept line are dropped (MMR). `embed` returning
 /// `None` (engine not loaded / feature off) preserves today's behavior
 /// byte-for-byte.
-pub fn should_keep_line_semantic(
+pub(crate) fn should_keep_line_semantic(
     trimmed: &str,
     entropy_threshold: f64,
     embed: &dyn Fn(&str) -> Option<Vec<f32>>,

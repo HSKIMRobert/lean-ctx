@@ -7,7 +7,7 @@ use crate::core::hnsw::FlatEmbeddings;
 use crate::core::hybrid_search::{DenseSearchResult, HybridConfig, HybridResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DenseBackendKind {
+pub(crate) enum DenseBackendKind {
     Local,
     #[cfg(feature = "qdrant")]
     Qdrant,
@@ -16,7 +16,7 @@ pub enum DenseBackendKind {
 }
 
 impl DenseBackendKind {
-    pub fn try_from_env() -> Result<Self, String> {
+    pub(crate) fn try_from_env() -> Result<Self, String> {
         let explicit = std::env::var("LEANCTX_DENSE_BACKEND")
             .ok()
             .map(|v| v.trim().to_ascii_lowercase())
@@ -59,7 +59,7 @@ impl DenseBackendKind {
         }
     }
 
-    pub fn label(&self) -> &'static str {
+    pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Local => "local",
             #[cfg(feature = "qdrant")]
@@ -72,7 +72,7 @@ impl DenseBackendKind {
 
 #[cfg(feature = "embeddings")]
 #[allow(clippy::too_many_arguments)]
-pub fn dense_results_as_hybrid(
+pub(crate) fn dense_results_as_hybrid(
     backend: DenseBackendKind,
     root: &Path,
     index: &BM25Index,
@@ -115,7 +115,7 @@ pub fn dense_results_as_hybrid(
 
 #[cfg(feature = "embeddings")]
 #[allow(clippy::too_many_arguments)]
-pub fn hybrid_results(
+pub(crate) fn hybrid_results(
     backend: DenseBackendKind,
     root: &Path,
     index: &BM25Index,

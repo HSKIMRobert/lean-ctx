@@ -14,7 +14,7 @@ static ABORT_REQUESTED: AtomicBool = AtomicBool::new(false);
 static CURRENT_PRESSURE: AtomicU8 = AtomicU8::new(0);
 
 /// Current process RSS in bytes, or `None` if unavailable.
-pub fn get_rss_bytes() -> Option<u64> {
+pub(crate) fn get_rss_bytes() -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
         linux_rss()
@@ -30,7 +30,7 @@ pub fn get_rss_bytes() -> Option<u64> {
 }
 
 /// RSS of an arbitrary process by PID, or `None` if unavailable/dead.
-pub fn get_rss_bytes_for_pid(pid: u32) -> Option<u64> {
+pub(crate) fn get_rss_bytes_for_pid(pid: u32) -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
         linux_rss_for_pid(pid)
@@ -47,7 +47,7 @@ pub fn get_rss_bytes_for_pid(pid: u32) -> Option<u64> {
 }
 
 /// Total physical RAM in bytes, or `None` if unavailable.
-pub fn get_system_ram_bytes() -> Option<u64> {
+pub(crate) fn get_system_ram_bytes() -> Option<u64> {
     #[cfg(target_os = "linux")]
     {
         linux_memtotal()
@@ -63,7 +63,7 @@ pub fn get_system_ram_bytes() -> Option<u64> {
 }
 
 /// Returns the RSS limit in bytes based on `max_ram_percent` config.
-pub fn rss_limit_bytes() -> Option<u64> {
+pub(crate) fn rss_limit_bytes() -> Option<u64> {
     let sys_ram = get_system_ram_bytes()?;
     let cfg = super::config::Config::load();
     let pct = super::config::MemoryGuardConfig::effective(&cfg).max_ram_percent;
@@ -131,13 +131,13 @@ mod adaptive_batch_tests {
 }
 
 /// Recorded peak RSS since process start.
-pub fn peak_rss_bytes() -> u64 {
+pub(crate) fn peak_rss_bytes() -> u64 {
     PEAK_RSS.load(Ordering::Relaxed)
 }
 
 /// Snapshot of current memory state for diagnostics.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct MemorySnapshot {
+pub(crate) struct MemorySnapshot {
     pub rss_bytes: u64,
     pub peak_rss_bytes: u64,
     pub system_ram_bytes: u64,
@@ -149,7 +149,7 @@ pub struct MemorySnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 #[repr(u8)]
-pub enum PressureLevel {
+pub(crate) enum PressureLevel {
     Normal = 0,
     Soft = 1,
     Medium = 2,
@@ -171,13 +171,13 @@ impl PressureLevel {
 
 impl MemorySnapshot {
     /// Capture memory snapshot of the **current** process.
-    pub fn capture() -> Option<Self> {
+    pub(crate) fn capture() -> Option<Self> {
         Self::capture_impl(get_rss_bytes()?)
     }
 
     /// Capture memory snapshot for the **daemon** process (by PID).
     /// Falls back to the current process if the PID is dead or unreadable.
-    pub fn capture_for_pid(pid: u32) -> Option<Self> {
+    pub(crate) fn capture_for_pid(pid: u32) -> Option<Self> {
         let rss = get_rss_bytes_for_pid(pid).or_else(get_rss_bytes)?;
         Self::capture_impl(rss)
     }
@@ -228,7 +228,7 @@ impl MemorySnapshot {
 /// Force-purge all jemalloc arenas to return memory to the OS.
 /// Uses `MALLCTL_ARENAS_ALL` (value 4096) which is the jemalloc sentinel
 /// for "all arenas". Logs errors instead of silently swallowing them.
-pub fn jemalloc_purge() {
+pub(crate) fn jemalloc_purge() {
     #[cfg(all(feature = "jemalloc", not(windows)))]
     {
         use tikv_jemalloc_ctl::raw;
@@ -245,18 +245,18 @@ pub fn jemalloc_purge() {
 }
 
 /// Returns `true` if the guardian has requested background tasks to abort.
-pub fn abort_requested() -> bool {
+pub(crate) fn abort_requested() -> bool {
     ABORT_REQUESTED.load(Ordering::Relaxed)
 }
 
 /// Quick, non-allocating memory pressure check for hot loops (scanners, indexers).
 /// Reads the cached atomic flag set by the guardian thread — O(1), no syscalls.
-pub fn is_under_pressure() -> bool {
+pub(crate) fn is_under_pressure() -> bool {
     current_pressure() >= PressureLevel::Soft
 }
 
 /// Returns the current pressure level as last observed by the guardian thread.
-pub fn current_pressure() -> PressureLevel {
+pub(crate) fn current_pressure() -> PressureLevel {
     PressureLevel::from_u8(CURRENT_PRESSURE.load(Ordering::Relaxed))
 }
 
@@ -325,7 +325,7 @@ impl CriticalEvictionBackoff {
 /// stably calm (idle backoff). Critical no-progress eviction rounds back off to
 /// 60s, then pause for five minutes. The callback returns whether it reclaimed
 /// memory so the guard can distinguish a real retry from an empty-cache loop.
-pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) -> bool + Send + Sync>) {
+pub(crate) fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) -> bool + Send + Sync>) {
     // The guardian is a long-lived background monitor for the running
     // server/daemon. Under `cargo test` a single OS process executes the entire
     // suite, so its RSS routinely exceeds the per-operation pressure threshold
@@ -435,7 +435,7 @@ pub fn start_guard(eviction_callback: Arc<dyn Fn(PressureLevel) -> bool + Send +
 }
 
 /// Force immediate purge of all caches and jemalloc arenas.
-pub fn force_purge() {
+pub(crate) fn force_purge() {
     jemalloc_purge();
     tracing::info!("[memory_guard] force_purge completed");
 }

@@ -8,7 +8,7 @@
 /// every hook writer and accepted verbatim by `doctor`'s staleness check —
 /// scoped to hook/agent artifacts only, never to launchd/systemd units
 /// (which do not expand shell variables).
-pub fn hook_binary_override() -> Option<String> {
+pub(crate) fn hook_binary_override() -> Option<String> {
     std::env::var("LEAN_CTX_HOOK_BINARY")
         .ok()
         .or_else(|| crate::core::config::Config::load().hook_binary.clone())
@@ -16,7 +16,7 @@ pub fn hook_binary_override() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-pub fn resolve_portable_binary() -> String {
+pub(crate) fn resolve_portable_binary() -> String {
     let current = std::env::current_exe()
         .ok()
         .map(|p| p.to_string_lossy().into_owned());

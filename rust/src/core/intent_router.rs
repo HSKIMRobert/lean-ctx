@@ -5,7 +5,7 @@ use crate::core::context_ledger::PressureAction;
 use crate::core::intent_engine::{IntentDimension, ModelTier, TaskType, classify, route_intent};
 
 #[derive(Debug, Clone, Serialize)]
-pub struct IntentRouteV1 {
+pub(crate) struct IntentRouteV1 {
     pub schema_version: u32,
     pub created_at: String,
     pub inputs: IntentRouteInputsV1,
@@ -13,7 +13,7 @@ pub struct IntentRouteV1 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct IntentRouteInputsV1 {
+pub(crate) struct IntentRouteInputsV1 {
     pub query_md5: String,
     pub query_redacted: String,
     pub role: String,
@@ -27,7 +27,7 @@ pub struct IntentRouteInputsV1 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PressureSummaryV1 {
+pub(crate) struct PressureSummaryV1 {
     pub utilization_pct: u8,
     pub remaining_tokens: usize,
     pub action: PressureActionV1,
@@ -35,7 +35,7 @@ pub struct PressureSummaryV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PressureActionV1 {
+pub(crate) enum PressureActionV1 {
     NoAction,
     SuggestCompression,
     ForceCompression,
@@ -54,7 +54,7 @@ impl PressureActionV1 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct IntentRouteDecisionV1 {
+pub(crate) struct IntentRouteDecisionV1 {
     pub recommended_model_tier: ModelTier,
     pub effective_model_tier: ModelTier,
     pub recommended_read_mode: String,
@@ -65,7 +65,7 @@ pub struct IntentRouteDecisionV1 {
 }
 
 #[derive(Debug, Clone)]
-pub struct RouteInputs {
+pub(crate) struct RouteInputs {
     pub tokens_level: BudgetLevel,
     pub cost_level: BudgetLevel,
     pub pressure_action: PressureAction,
@@ -73,7 +73,7 @@ pub struct RouteInputs {
     pub pressure_remaining_tokens: usize,
 }
 
-pub fn route_v1(query: &str) -> IntentRouteV1 {
+pub(crate) fn route_v1(query: &str) -> IntentRouteV1 {
     let budgets = crate::core::budget_tracker::BudgetTracker::global().check();
     let ledger = crate::core::context_ledger::ContextLedger::load();
     let pressure = ledger.pressure();
@@ -100,7 +100,7 @@ pub fn route_v1(query: &str) -> IntentRouteV1 {
     )
 }
 
-pub fn route_v1_with(
+pub(crate) fn route_v1_with(
     query: &str,
     role_name: &str,
     profile_name: &str,
@@ -245,7 +245,7 @@ fn cap_to(tier: ModelTier, cap: ModelTier) -> ModelTier {
     }
 }
 
-pub fn read_mode_for_tier(tier: ModelTier, task_type: TaskType) -> String {
+pub(crate) fn read_mode_for_tier(tier: ModelTier, task_type: TaskType) -> String {
     // Editing tasks need the real, complete file — never an abbreviated,
     // signature-only, or identifier-obfuscated view — otherwise the agent is
     // forced into follow-up re-reads mid-edit. This holds across every tier

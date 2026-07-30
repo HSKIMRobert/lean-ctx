@@ -8,7 +8,7 @@
 //! The proxy does NOT terminate TLS. For production/multi-tenant deployments,
 //! place behind a TLS-terminating reverse proxy (nginx, caddy, traefik).
 //! For mTLS, configure the reverse proxy with client certificates.
-//! See: https://github.com/yvgude/lean-ctx/issues/1371
+//! See: <https://github.com/yvgude/lean-ctx/issues/1371>
 //!
 //! # Org gateway coupling (ADR-023)
 //!

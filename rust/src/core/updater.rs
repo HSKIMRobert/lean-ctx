@@ -3,11 +3,11 @@ use std::io::Read;
 const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/yvgude/lean-ctx/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub fn run(args: &[String]) {
+pub(crate) fn run(args: &[String]) {
     run_with_mode(args, UpdateMode::Normal);
 }
 
-pub fn enable_gpu(args: &[String]) {
+pub(crate) fn enable_gpu(args: &[String]) {
     run_with_mode(args, UpdateMode::EnableGpu);
 }
 
@@ -563,7 +563,7 @@ fn migrate_shadow_mode_default() {
 
 /// Public entry point for the shadow_mode migration, callable from
 /// `cmd_dev_install` and other lifecycle commands.
-pub fn migrate_shadow_mode_default_public() {
+pub(crate) fn migrate_shadow_mode_default_public() {
     migrate_shadow_mode_default();
 }
 

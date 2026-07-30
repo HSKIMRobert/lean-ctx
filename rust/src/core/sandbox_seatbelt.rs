@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-pub fn seatbelt_profile(allowed_read_paths: &[&Path], interpreter_path: &str) -> String {
+pub(crate) fn seatbelt_profile(allowed_read_paths: &[&Path], interpreter_path: &str) -> String {
     let mut profile = String::from("(version 1)\n(deny default)\n");
     profile.push_str("(allow process-exec)\n");
     profile.push_str("(allow process-fork)\n");
@@ -38,7 +38,7 @@ pub fn seatbelt_profile(allowed_read_paths: &[&Path], interpreter_path: &str) ->
     profile
 }
 
-pub fn wrap_with_seatbelt(profile: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn wrap_with_seatbelt(profile: &str) -> Result<std::path::PathBuf, String> {
     let tmp = std::env::temp_dir()
         .join("lean-ctx-sandbox")
         .join("profile.sb");
@@ -50,7 +50,7 @@ pub fn wrap_with_seatbelt(profile: &str) -> Result<std::path::PathBuf, String> {
     Ok(tmp)
 }
 
-pub fn execute_sandboxed(
+pub(crate) fn execute_sandboxed(
     interpreter: &str,
     args: &[&str],
     allowed_read_paths: &[&Path],

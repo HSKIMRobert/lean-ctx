@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentRegistry {
+pub(crate) struct AgentRegistry {
     pub agents: Vec<AgentEntry>,
     pub scratchpad: Vec<ScratchpadEntry>,
     #[serde(default)]
@@ -16,7 +16,7 @@ pub struct AgentRegistry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LogicalSessionPresence {
+pub(crate) struct LogicalSessionPresence {
     pub source: String,
     pub workspace: String,
     pub session_id: String,
@@ -25,7 +25,7 @@ pub struct LogicalSessionPresence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentEntry {
+pub(crate) struct AgentEntry {
     pub agent_id: String,
     pub agent_type: String,
     pub role: Option<String>,
@@ -38,7 +38,7 @@ pub struct AgentEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum AgentStatus {
+pub(crate) enum AgentStatus {
     Active,
     Idle,
     Finished,

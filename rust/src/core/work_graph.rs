@@ -13,14 +13,14 @@ use crate::core::a2a::budget_cascade::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const WORK_GRAPH_SCHEMA_VERSION: u16 = 1;
+pub(crate) const WORK_GRAPH_SCHEMA_VERSION: u16 = 1;
 const MAX_GRAPH_NODES: usize = 256;
 const MAX_FAN_OUT: usize = 16;
 const MAX_DEPTH: u16 = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum NodeStatus {
+pub(crate) enum NodeStatus {
     Pending,
     Active,
     Completed,
@@ -30,7 +30,7 @@ pub enum NodeStatus {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum StopReason {
+pub(crate) enum StopReason {
     BudgetExhausted,
     Stale,
     Redundant,
@@ -41,7 +41,7 @@ pub enum StopReason {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct WorkNodeBudget {
+pub(crate) struct WorkNodeBudget {
     pub tokens_allocated: u64,
     pub tokens_consumed: u64,
     pub cost_micros_allocated: u64,
@@ -49,23 +49,23 @@ pub struct WorkNodeBudget {
 }
 
 impl WorkNodeBudget {
-    pub fn tokens_remaining(&self) -> u64 {
+    pub(crate) fn tokens_remaining(&self) -> u64 {
         self.tokens_allocated.saturating_sub(self.tokens_consumed)
     }
 
-    pub fn cost_remaining(&self) -> u64 {
+    pub(crate) fn cost_remaining(&self) -> u64 {
         self.cost_micros_allocated
             .saturating_sub(self.cost_micros_consumed)
     }
 
-    pub fn is_exhausted(&self) -> bool {
+    pub(crate) fn is_exhausted(&self) -> bool {
         self.tokens_remaining() == 0 || self.cost_remaining() == 0
     }
 }
 
 /// Tracks the total budget across an entire delegation chain.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ChainBudget {
+pub(crate) struct ChainBudget {
     pub chain_id: String,
     pub root_budget_tokens: u64,
     pub total_consumed_tokens: u64,
@@ -74,12 +74,12 @@ pub struct ChainBudget {
 }
 
 impl ChainBudget {
-    pub fn remaining(&self) -> u64 {
+    pub(crate) fn remaining(&self) -> u64 {
         self.root_budget_tokens
             .saturating_sub(self.total_consumed_tokens)
     }
 
-    pub fn utilization_pct(&self) -> f64 {
+    pub(crate) fn utilization_pct(&self) -> f64 {
         if self.root_budget_tokens == 0 {
             return 0.0;
         }
@@ -89,7 +89,7 @@ impl ChainBudget {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct WorkNode {
+pub(crate) struct WorkNode {
     pub node_id: String,
     pub agent_id: String,
     pub parent_node_id: Option<String>,
@@ -103,7 +103,7 @@ pub struct WorkNode {
 
 /// Bounded, acyclic work graph with enforced fan-out and budget constraints.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BoundedWorkGraph {
+pub(crate) struct BoundedWorkGraph {
     nodes: BTreeMap<String, WorkNode>,
     children: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -122,7 +122,7 @@ impl Default for BoundedWorkGraph {
 
 impl BoundedWorkGraph {
     #[must_use]
-    pub fn new(max_fan_out: usize, max_depth: u16) -> Self {
+    pub(crate) fn new(max_fan_out: usize, max_depth: u16) -> Self {
         Self {
             nodes: BTreeMap::new(),
             children: BTreeMap::new(),
@@ -134,7 +134,7 @@ impl BoundedWorkGraph {
     }
 
     /// Add a root node (no parent).
-    pub fn add_root(
+    pub(crate) fn add_root(
         &mut self,
         node_id: String,
         agent_id: String,
@@ -173,7 +173,7 @@ impl BoundedWorkGraph {
     }
 
     /// Delegate work to a child node. Validates budget inheritance and fan-out.
-    pub fn delegate(
+    pub(crate) fn delegate(
         &mut self,
         parent_node_id: &str,
         child_node_id: String,
@@ -246,7 +246,7 @@ impl BoundedWorkGraph {
     ///
     /// The returned budget is reserved for `child_id` until it is passed to
     /// [`Self::delegate`], so chain allocation is not counted twice.
-    pub fn allocate_child_budget(
+    pub(crate) fn allocate_child_budget(
         &mut self,
         parent_id: &str,
         child_id: &str,
@@ -324,7 +324,11 @@ impl BoundedWorkGraph {
     }
 
     /// Mark a node as completed with an outcome reference.
-    pub fn complete(&mut self, node_id: &str, outcome_ref: String) -> Result<(), WorkGraphError> {
+    pub(crate) fn complete(
+        &mut self,
+        node_id: &str,
+        outcome_ref: String,
+    ) -> Result<(), WorkGraphError> {
         let node = self
             .nodes
             .get_mut(node_id)
@@ -338,7 +342,7 @@ impl BoundedWorkGraph {
     }
 
     /// Stop a node and all its descendants (cascade).
-    pub fn stop(
+    pub(crate) fn stop(
         &mut self,
         node_id: &str,
         reason: StopReason,
@@ -352,7 +356,7 @@ impl BoundedWorkGraph {
     }
 
     /// Record token consumption on a node.
-    pub fn consume_budget(
+    pub(crate) fn consume_budget(
         &mut self,
         node_id: &str,
         tokens: u64,
@@ -399,19 +403,23 @@ impl BoundedWorkGraph {
     }
 
     /// Records token consumption for a node and updates its chain budget.
-    pub fn consume_tokens(&mut self, node_id: &str, tokens: u64) -> Result<(), WorkGraphError> {
+    pub(crate) fn consume_tokens(
+        &mut self,
+        node_id: &str,
+        tokens: u64,
+    ) -> Result<(), WorkGraphError> {
         self.consume_budget(node_id, tokens, 0)?;
         Ok(())
     }
 
     /// Returns the chain budget for a given node's chain.
-    pub fn chain_budget_for(&self, node_id: &str) -> Option<&ChainBudget> {
+    pub(crate) fn chain_budget_for(&self, node_id: &str) -> Option<&ChainBudget> {
         let chain_id = self.chain_id_for_node(node_id)?;
         self.chain_budgets.get(&chain_id)
     }
 
     /// Returns all chains at or above their utilization threshold.
-    pub fn over_budget_chains(&self, threshold_pct: f64) -> Vec<&ChainBudget> {
+    pub(crate) fn over_budget_chains(&self, threshold_pct: f64) -> Vec<&ChainBudget> {
         self.chain_budgets
             .values()
             .filter(|budget| budget.utilization_pct() >= threshold_pct)
@@ -419,7 +427,7 @@ impl BoundedWorkGraph {
     }
 
     /// Check all nodes for stop conditions and cascade.
-    pub fn enforce_stop_conditions(&mut self) -> Vec<(String, StopReason)> {
+    pub(crate) fn enforce_stop_conditions(&mut self) -> Vec<(String, StopReason)> {
         let exhausted: Vec<String> = self
             .nodes
             .iter()
@@ -437,22 +445,22 @@ impl BoundedWorkGraph {
         stopped
     }
 
-    pub fn get_node(&self, node_id: &str) -> Option<&WorkNode> {
+    pub(crate) fn get_node(&self, node_id: &str) -> Option<&WorkNode> {
         self.nodes.get(node_id)
     }
 
-    pub fn children_of(&self, node_id: &str) -> &[String] {
+    pub(crate) fn children_of(&self, node_id: &str) -> &[String] {
         self.children.get(node_id).map_or(&[], Vec::as_slice)
     }
 
-    pub fn active_count(&self) -> usize {
+    pub(crate) fn active_count(&self) -> usize {
         self.nodes
             .values()
             .filter(|n| n.status == NodeStatus::Active)
             .count()
     }
 
-    pub fn total_count(&self) -> usize {
+    pub(crate) fn total_count(&self) -> usize {
         self.nodes.len()
     }
 
@@ -534,7 +542,7 @@ impl BoundedWorkGraph {
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, thiserror::Error)]
-pub enum WorkGraphError {
+pub(crate) enum WorkGraphError {
     #[error("graph at capacity ({MAX_GRAPH_NODES} nodes)")]
     CapacityExceeded,
     #[error("duplicate node: {0}")]

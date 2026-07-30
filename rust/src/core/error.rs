@@ -82,7 +82,7 @@ pub enum ConfigError {
 }
 
 #[derive(Error, Debug)]
-pub enum DispatchError {
+pub(crate) enum DispatchError {
     #[error("path resolution failed: {message}")]
     PathResolution { message: String },
 
@@ -166,4 +166,4 @@ impl From<toml::de::Error> for LeanCtxError {
     }
 }
 
-pub type Result<T> = std::result::Result<T, LeanCtxError>;
+pub(crate) type Result<T> = std::result::Result<T, LeanCtxError>;

@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// Coupling figures for one module (file).
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct ModuleCoupling {
+pub(crate) struct ModuleCoupling {
     pub module: String,
     /// Afferent coupling `Ca`: number of modules that depend on this one.
     pub afferent: usize,
@@ -25,7 +25,7 @@ pub struct ModuleCoupling {
 /// Compute per-module coupling from directed dependency edges
 /// `(dependent_module, dependency_module)`. Self-edges and duplicates are
 /// ignored. Output is sorted by module name for determinism.
-pub fn module_coupling(edges: &[(String, String)]) -> Vec<ModuleCoupling> {
+pub(crate) fn module_coupling(edges: &[(String, String)]) -> Vec<ModuleCoupling> {
     let mut unique: BTreeSet<(&str, &str)> = BTreeSet::new();
     for (from, to) in edges {
         if from != to {

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 /// Result of a sandboxed execution.
 #[derive(Debug, Clone)]
-pub struct SandboxResult {
+pub(crate) struct SandboxResult {
     pub passed: bool,
     pub stdout: String,
     pub stderr: String,
@@ -43,7 +43,7 @@ fn read_child_output(child: &mut std::process::Child) -> (String, String) {
 ///
 /// The `code` is written to a temp file, executed with the given Python binary,
 /// and the result captured. Timeout prevents hanging.
-pub fn execute_python(python_bin: &str, code: &str, timeout: Duration) -> SandboxResult {
+pub(crate) fn execute_python(python_bin: &str, code: &str, timeout: Duration) -> SandboxResult {
     let temp_dir = match tempfile::TempDir::new() {
         Ok(d) => d,
         Err(e) => {

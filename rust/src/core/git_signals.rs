@@ -23,7 +23,7 @@ const CHURN_MAX_COMMITS: &str = "200";
 static NO_GIT_ROOTS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Default)]
-pub struct GitSignals {
+pub(crate) struct GitSignals {
     /// Relative path -> 0..1. 1.0 = uncommitted change (active working set).
     pub recency: HashMap<String, f64>,
     /// Relative path -> 0..1, commit-count in window normalized to the max.
@@ -31,20 +31,20 @@ pub struct GitSignals {
 }
 
 impl GitSignals {
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.recency.is_empty() && self.churn.is_empty()
     }
 
-    pub fn recency_for(&self, path: &str, root: &str) -> f64 {
+    pub(crate) fn recency_for(&self, path: &str, root: &str) -> f64 {
         lookup(&self.recency, path, root)
     }
 
-    pub fn churn_for(&self, path: &str, root: &str) -> f64 {
+    pub(crate) fn churn_for(&self, path: &str, root: &str) -> f64 {
         lookup(&self.churn, path, root)
     }
 
     /// Combined ranking boost: uncommitted work dominates, churn hints.
-    pub fn boost_for(&self, path: &str, root: &str) -> f64 {
+    pub(crate) fn boost_for(&self, path: &str, root: &str) -> f64 {
         self.recency_for(path, root) * 0.25 + self.churn_for(path, root) * 0.10
     }
 }
@@ -87,7 +87,7 @@ fn remember_non_git(root: &str) {
 
 /// Collect git signals for a project root. Cheap on repeat calls (TTL cache),
 /// empty for non-git roots (probed once per process).
-pub fn collect(project_root: &str) -> GitSignals {
+pub(crate) fn collect(project_root: &str) -> GitSignals {
     if known_non_git(project_root) {
         return GitSignals::default();
     }
@@ -190,7 +190,7 @@ fn collect_churn_and_commit_recency(root: &str, signals: &mut GitSignals) {
 
 /// Apply the git boost to an already-computed relevance ranking and re-sort.
 /// Call sites own the project root; the ranking itself is root-agnostic.
-pub fn apply_boost(scores: &mut [crate::core::task_relevance::RelevanceScore], root: &str) {
+pub(crate) fn apply_boost(scores: &mut [crate::core::task_relevance::RelevanceScore], root: &str) {
     let signals = collect(root);
     if signals.is_empty() {
         return;

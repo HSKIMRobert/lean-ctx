@@ -18,27 +18,20 @@
 //! id/signing semantics, and their tests. The builder that fills snapshots from
 //! live stores and the append-only timeline index land in Phase 1 (#1024).
 
-pub mod builder;
-pub mod digest;
-pub mod publish;
-pub mod restore;
-pub mod signing;
-pub mod timeline;
-pub mod types;
+pub(crate) mod builder;
+pub(crate) mod digest;
+pub(crate) mod publish;
+pub(crate) mod restore;
+pub(crate) mod signing;
+pub(crate) mod timeline;
+pub(crate) mod types;
 
-pub use builder::{SnapshotOptions, build, create};
-pub use digest::{canonical_body, compute_id, finalize_id};
-pub use publish::{ImportOutcome, PublishOptions, PublishOutcome, import, publish};
-pub use restore::{GitRestore, RestoreOptions, RestoreOutcome, SessionMerge, restore};
-pub use signing::{sign_snapshot, verify_snapshot};
-pub use timeline::{
-    TimelineEntry, head_id, load_entries, read_snapshot, resolve_id, snapshots_dir, write_snapshot,
-};
-pub use types::{
-    ContextSnapshotV1, GitAnchorV1, MAX_SNAPSHOT_LEDGER_ITEMS, MAX_SNAPSHOT_LINEAGE_ITEMS,
-    MAX_SNAPSHOT_SESSION_LIST, SnapshotLedgerItemV1, SnapshotLedgerV1, SnapshotLineageItemV1,
-    SnapshotLineageV1, SnapshotProjectV1, SnapshotRoiV1, SnapshotSessionV1, SnapshotSignatureV1,
-};
+pub(crate) use builder::{SnapshotOptions, create};
+pub(crate) use publish::{ImportOutcome, PublishOptions, PublishOutcome, import, publish};
+pub(crate) use restore::{GitRestore, RestoreOptions, RestoreOutcome, restore};
+pub(crate) use signing::verify_snapshot;
+pub(crate) use timeline::{load_entries, read_snapshot, resolve_id};
+pub(crate) use types::ContextSnapshotV1;
 
 #[cfg(test)]
 mod tests {
@@ -130,7 +123,8 @@ mod tests {
     fn sign_then_serde_roundtrip_still_verifies() {
         use ed25519_dalek::SigningKey;
         let mut snap = ContextSnapshotV1::new("2026-06-28T12:00:00Z".into(), "3.9.0".into());
-        super::sign_snapshot(&mut snap, &SigningKey::from_bytes(&[9u8; 32])).expect("sign");
+        super::signing::sign_snapshot(&mut snap, &SigningKey::from_bytes(&[9u8; 32]))
+            .expect("sign");
 
         let json = serde_json::to_string(&snap).expect("serialize");
         let restored: ContextSnapshotV1 = serde_json::from_str(&json).expect("deserialize");

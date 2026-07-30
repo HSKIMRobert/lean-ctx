@@ -26,7 +26,7 @@ impl SplitMix64 {
 /// Bootstrap confidence interval for the mean of `values`.
 ///
 /// Returns `(ci_low, ci_high)` at the 95% level (2.5th and 97.5th percentiles).
-pub fn bootstrap_ci(values: &[f64], iterations: usize, seed: u64) -> (f64, f64) {
+pub(crate) fn bootstrap_ci(values: &[f64], iterations: usize, seed: u64) -> (f64, f64) {
     if values.is_empty() {
         return (0.0, 0.0);
     }
@@ -52,8 +52,8 @@ pub fn bootstrap_ci(values: &[f64], iterations: usize, seed: u64) -> (f64, f64) 
 }
 
 /// Default bootstrap configuration.
-pub const DEFAULT_ITERATIONS: usize = 2000;
-pub const DEFAULT_SEED: u64 = 0x5EED_5EED_5EED_5EED;
+pub(crate) const DEFAULT_ITERATIONS: usize = 2000;
+pub(crate) const DEFAULT_SEED: u64 = 0x5EED_5EED_5EED_5EED;
 
 #[cfg(test)]
 mod tests {

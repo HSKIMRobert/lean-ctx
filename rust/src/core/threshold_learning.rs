@@ -29,7 +29,7 @@ const DAILY_DECAY: f64 = 0.98;
 const FLUSH_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QualitySignal {
+pub(crate) enum QualitySignal {
     /// Compressed read was followed by a full re-read within the bounce window.
     Bounce,
     /// An edit failed after the file was last read in a compressed mode.
@@ -55,7 +55,7 @@ impl QualitySignal {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct LearnedDelta {
+pub(crate) struct LearnedDelta {
     pub delta_entropy: f64,
     pub samples: u32,
     /// Unix epoch day of the last decay application.
@@ -63,7 +63,7 @@ pub struct LearnedDelta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ThresholdLearner {
+pub(crate) struct ThresholdLearner {
     /// Keyed by lowercase extension without dot (e.g. "rs").
     pub per_ext: HashMap<String, LearnedDelta>,
     pub schema_version: u32,
@@ -115,7 +115,7 @@ impl ThresholdLearner {
     /// overwrite. `samples = max(...)` (not the sum) and weighted-mean deltas
     /// make re-importing the same bundle a no-op (idempotent roundtrip) and
     /// prevent double counting. Clamps stay authoritative.
-    pub fn merge_from(&mut self, other: &Self) {
+    pub(crate) fn merge_from(&mut self, other: &Self) {
         for (ext, theirs) in &other.per_ext {
             match self.per_ext.get_mut(ext) {
                 None => {
@@ -140,7 +140,7 @@ impl ThresholdLearner {
     }
 
     /// Apply one quality signal for `ext` at `now` (unix seconds).
-    pub fn record(&mut self, ext: &str, signal: QualitySignal, now: u64) {
+    pub(crate) fn record(&mut self, ext: &str, signal: QualitySignal, now: u64) {
         let ext = normalize_ext(ext);
         if ext.is_empty() {
             return;
@@ -153,7 +153,7 @@ impl ThresholdLearner {
     }
 
     /// Additive entropy-threshold delta for `ext`, or 0.0 before MIN_SAMPLES.
-    pub fn delta_for(&mut self, ext: &str, now: u64) -> f64 {
+    pub(crate) fn delta_for(&mut self, ext: &str, now: u64) -> f64 {
         let ext = normalize_ext(ext);
         let day = epoch_day(now);
         match self.per_ext.get_mut(&ext) {
@@ -184,7 +184,7 @@ impl ThresholdLearner {
     }
 
     /// One line per learned extension, for ctx_metrics.
-    pub fn report_lines(&self) -> Vec<String> {
+    pub(crate) fn report_lines(&self) -> Vec<String> {
         let mut exts: Vec<_> = self.per_ext.iter().collect();
         exts.sort_by(|a, b| a.0.cmp(b.0));
         exts.iter()
@@ -224,7 +224,7 @@ fn with_buffer<R>(f: impl FnOnce(&mut ThresholdLearner) -> R) -> R {
 }
 
 /// Process-global: record a quality signal for the extension of `path`.
-pub fn record_signal(path: &str, signal: QualitySignal) {
+pub(crate) fn record_signal(path: &str, signal: QualitySignal) {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -237,12 +237,12 @@ pub fn record_signal(path: &str, signal: QualitySignal) {
 }
 
 /// Process-global: learned additive delta for the extension (0.0 in warmup).
-pub fn learned_delta(ext: &str) -> f64 {
+pub(crate) fn learned_delta(ext: &str) -> f64 {
     with_buffer(|l| l.delta_for(ext, now_secs()))
 }
 
 /// Process-global: flush the buffer to disk (call from shutdown paths).
-pub fn flush() {
+pub(crate) fn flush() {
     let guard = BUFFER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -252,13 +252,13 @@ pub fn flush() {
 }
 
 /// Process-global: report lines for ctx_metrics.
-pub fn report() -> Vec<String> {
+pub(crate) fn report() -> Vec<String> {
     with_buffer(|l| l.report_lines())
 }
 
 /// Process-global: machine-readable snapshot for the dashboard (#548),
 /// sorted by extension.
-pub fn snapshot() -> Vec<(String, LearnedDelta)> {
+pub(crate) fn snapshot() -> Vec<(String, LearnedDelta)> {
     with_buffer(|l| {
         let mut v: Vec<_> = l
             .per_ext
@@ -271,12 +271,12 @@ pub fn snapshot() -> Vec<(String, LearnedDelta)> {
 }
 
 /// Process-global: clone of the full learner state for export (#550).
-pub fn export_state() -> ThresholdLearner {
+pub(crate) fn export_state() -> ThresholdLearner {
     with_buffer(|l| l.clone())
 }
 
 /// Process-global: merge a foreign learner state in and persist (#550).
-pub fn merge_state(other: &ThresholdLearner) {
+pub(crate) fn merge_state(other: &ThresholdLearner) {
     with_buffer(|l| l.merge_from(other));
     flush();
 }

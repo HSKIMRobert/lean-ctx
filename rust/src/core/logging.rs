@@ -4,7 +4,7 @@ use tracing_subscriber::EnvFilter;
 ///
 /// Respects `LEAN_CTX_LOG` and `RUST_LOG` environment variables for filter control.
 /// Defaults to `warn` level — keeps CLI output clean.
-pub fn init_logging() {
+pub(crate) fn init_logging() {
     let filter = std::env::var("LEAN_CTX_LOG")
         .or_else(|_| std::env::var("RUST_LOG"))
         .unwrap_or_else(|_| "warn".to_string());
@@ -17,7 +17,7 @@ pub fn init_logging() {
 
 /// Initialize logging for daemon/MCP mode (stderr, defaults to `info`).
 /// Daemon logs go to a file, so verbosity is fine.
-pub fn init_mcp_logging() {
+pub(crate) fn init_mcp_logging() {
     let filter = std::env::var("LEAN_CTX_LOG")
         .or_else(|_| std::env::var("RUST_LOG"))
         .unwrap_or_else(|_| "info".to_string());

@@ -53,7 +53,7 @@ impl SerMtime {
 /// One persisted delivery: everything `try_stub_hit_readonly` needs to emit the
 /// `[unchanged]` stub, minus the content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StubRecord {
+pub(crate) struct StubRecord {
     /// Canonical (normalized) path key.
     pub path: String,
     /// md5 of the delivered content (lossy-UTF-8 view, matching `SessionCache`).
@@ -71,7 +71,7 @@ pub struct StubRecord {
 }
 
 impl StubRecord {
-    pub fn new(
+    pub(crate) fn new(
         path: String,
         hash: String,
         stored_mtime: Option<SystemTime>,
@@ -91,7 +91,7 @@ impl StubRecord {
     }
 
     /// The delivered file's mtime as a `SystemTime` for staleness verification.
-    pub fn stored_mtime(&self) -> Option<SystemTime> {
+    pub(crate) fn stored_mtime(&self) -> Option<SystemTime> {
         self.mtime.map(SerMtime::to_system)
     }
 }
@@ -208,7 +208,7 @@ fn save_file(path: &Path, index: &ReadStubIndex) {
 // --- Global API (used by the server / read path) -----------------------------
 
 /// Load the on-disk index into the process-global store (call once at startup).
-pub fn load() {
+pub(crate) fn load() {
     if !enabled() {
         return;
     }
@@ -217,7 +217,7 @@ pub fn load() {
 }
 
 /// Load from an explicit base dir (production: real data dir; tests: tempdir).
-pub fn load_from_dir(data_dir: &Path) {
+pub(crate) fn load_from_dir(data_dir: &Path) {
     let Some(path) = index_path_in(data_dir) else {
         return;
     };
@@ -228,7 +228,7 @@ pub fn load_from_dir(data_dir: &Path) {
 }
 
 /// Atomically persist the global index to the real data dir (call at save points).
-pub fn persist() {
+pub(crate) fn persist() {
     if !enabled() {
         return;
     }
@@ -237,7 +237,7 @@ pub fn persist() {
 }
 
 /// Persist the global index to an explicit base dir.
-pub fn persist_to_dir(data_dir: &Path) {
+pub(crate) fn persist_to_dir(data_dir: &Path) {
     let Some(path) = index_path_in(data_dir) else {
         return;
     };
@@ -249,7 +249,7 @@ pub fn persist_to_dir(data_dir: &Path) {
 /// Write-through a full delivery into the global index (in-memory; flushed to
 /// disk at the next save point). No-op for `None` conversations — they could
 /// never serve a cold stub anyway.
-pub fn record(rec: StubRecord) {
+pub(crate) fn record(rec: StubRecord) {
     if !enabled() || rec.delivered_conversation.is_none() {
         return;
     }
@@ -259,7 +259,7 @@ pub fn record(rec: StubRecord) {
 }
 
 /// Look up a record for the cold stub fallback (returns a clone).
-pub fn lookup(path: &str) -> Option<StubRecord> {
+pub(crate) fn lookup(path: &str) -> Option<StubRecord> {
     if !enabled() {
         return None;
     }
@@ -270,7 +270,7 @@ pub fn lookup(path: &str) -> Option<StubRecord> {
 /// Drop all records (host compaction: the conversation's context was summarised)
 /// and persist the emptied index to the given base dir so a restart can't resurrect
 /// pre-compaction stubs.
-pub fn reset_in_dir(data_dir: &Path) {
+pub(crate) fn reset_in_dir(data_dir: &Path) {
     if let Ok(mut g) = global().write() {
         g.records.clear();
     }

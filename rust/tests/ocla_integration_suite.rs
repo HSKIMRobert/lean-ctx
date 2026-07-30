@@ -14,14 +14,14 @@ use lean_ctx::core::context_capsule::{
 };
 use lean_ctx::core::ocla::budget::{BudgetLedger, BudgetLimit, BudgetScope};
 use lean_ctx::core::ocla::capsule::CapsuleStore;
-use lean_ctx::core::ocla::health::{HealthStatus, check_system_health};
+use lean_ctx::core::ocla::health::{HealthStatus, check_system_health, seed_agent_registry};
 use lean_ctx::core::ocla::response_cache::{CachedResponse, ResponseCache, ResponseCacheKey};
 use lean_ctx::core::ocla::routing_quality::{
     RoutingDecision, RoutingOutcome, RoutingQualityTracker,
 };
 use lean_ctx::core::ocla::tracing::{SpanStatus, spans_for_trace, start_span};
 use lean_ctx::core::ocla::wire_api::ocla_router;
-use lean_ctx::core::{agents::AgentRegistry, savings_ledger};
+use lean_ctx::core::savings_ledger;
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -195,8 +195,7 @@ fn test_full_pipeline() {
     assert_eq!(reconciled_event_count(data.temp.path()), 1);
     assert!(savings_ledger::verify().valid);
 
-    AgentRegistry::mutate_locked(|registry| registry.register("integration", Some("test"), "."))
-        .expect("agent registration");
+    seed_agent_registry("integration", Some("test"), ".").expect("agent registration");
     assert_eq!(check_system_health().overall, HealthStatus::Healthy);
 }
 

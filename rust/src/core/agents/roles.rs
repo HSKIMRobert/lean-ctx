@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum AgentRole {
+pub(crate) enum AgentRole {
     Coder,
     Reviewer,
     Planner,
@@ -15,7 +15,7 @@ pub enum AgentRole {
 }
 
 impl AgentRole {
-    pub fn from_str_loose(s: &str) -> Self {
+    pub(crate) fn from_str_loose(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "review" | "reviewer" | "code_review" => Self::Reviewer,
             "plan" | "planner" | "architect" => Self::Planner,
@@ -29,7 +29,7 @@ impl AgentRole {
 }
 
 #[derive(Debug, Clone)]
-pub struct ContextDepthConfig {
+pub(crate) struct ContextDepthConfig {
     pub max_files_full: usize,
     pub max_files_signatures: usize,
     pub preferred_mode: &'static str,
@@ -40,7 +40,7 @@ pub struct ContextDepthConfig {
 }
 
 impl ContextDepthConfig {
-    pub fn for_role(role: AgentRole) -> Self {
+    pub(crate) fn for_role(role: AgentRole) -> Self {
         match role {
             AgentRole::Coder => Self {
                 max_files_full: 5,
@@ -108,7 +108,7 @@ impl ContextDepthConfig {
         }
     }
 
-    pub fn mode_for_rank(&self, rank: usize) -> &'static str {
+    pub(crate) fn mode_for_rank(&self, rank: usize) -> &'static str {
         if rank < self.max_files_full {
             "full"
         } else if rank < self.max_files_full + self.max_files_signatures {

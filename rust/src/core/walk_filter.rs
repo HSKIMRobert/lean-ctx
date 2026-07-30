@@ -28,7 +28,7 @@ const VENV_DIR_NAMES: &[&str] = &[".venv", "venv"];
 /// leaf, while normal file reads transparently follow it (#1003). Canonicalizing
 /// only the already-jailed root preserves the rule that nested links are never
 /// followed and strips Windows' verbatim prefix for `ignore` compatibility.
-pub fn explicit_walk_root(root: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn explicit_walk_root(root: &std::path::Path) -> std::path::PathBuf {
     #[cfg(windows)]
     {
         return crate::core::pathutil::canonicalize_raw(root)
@@ -42,7 +42,7 @@ pub fn explicit_walk_root(root: &std::path::Path) -> std::path::PathBuf {
 
 /// Returns `true` when `entry` is a vendor/dependency directory that should
 /// never be descended into during a scan.
-pub fn is_vendor_dir(entry: &ignore::DirEntry) -> bool {
+pub(crate) fn is_vendor_dir(entry: &ignore::DirEntry) -> bool {
     if entry.depth() == 0 || !entry.file_type().is_some_and(|ft| ft.is_dir()) {
         return false;
     }
@@ -57,7 +57,7 @@ pub fn is_vendor_dir(entry: &ignore::DirEntry) -> bool {
 
 /// Predicate for `ignore::WalkBuilder::filter_entry`: prunes vendor
 /// directories and cloud placeholders.
-pub fn keep_entry(entry: &ignore::DirEntry) -> bool {
+pub(crate) fn keep_entry(entry: &ignore::DirEntry) -> bool {
     !is_vendor_dir(entry) && crate::core::cloud_files::keep_entry(entry)
 }
 

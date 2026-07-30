@@ -9,27 +9,27 @@ const POLICY_FILE: &str = "adaptive_mode_policy.json";
 const EMA_ALPHA: f64 = 0.2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct AdaptiveModePolicyStore {
+pub(crate) struct AdaptiveModePolicyStore {
     pub global: ModePenaltyTable,
     #[serde(default)]
     pub by_intent: HashMap<String, ModePenaltyTable>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModePenaltyTable {
+pub(crate) struct ModePenaltyTable {
     #[serde(default)]
     pub modes: BTreeMap<String, ModePenalty>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ModePenalty {
+pub(crate) struct ModePenalty {
     pub ema_badness: f64,
     pub samples: u64,
     pub last_ts: Option<String>,
 }
 
 impl AdaptiveModePolicyStore {
-    pub fn load() -> Self {
+    pub(crate) fn load() -> Self {
         let path = policy_path();
         let Ok(s) = std::fs::read_to_string(&path) else {
             return Self::default();
@@ -37,7 +37,7 @@ impl AdaptiveModePolicyStore {
         serde_json::from_str(&s).unwrap_or_default()
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let path = policy_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
@@ -50,7 +50,7 @@ impl AdaptiveModePolicyStore {
         Ok(())
     }
 
-    pub fn reset() -> Result<(), String> {
+    pub(crate) fn reset() -> Result<(), String> {
         let path = policy_path();
         if path.exists() {
             std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
@@ -58,7 +58,7 @@ impl AdaptiveModePolicyStore {
         Ok(())
     }
 
-    pub fn update_from_feedback(&mut self, ev: &LlmFeedbackEvent) {
+    pub(crate) fn update_from_feedback(&mut self, ev: &LlmFeedbackEvent) {
         let ratio = ev.llm_output_tokens as f64 / ev.llm_input_tokens.max(1) as f64;
         let mut badness = ((ratio - 1.2) / 1.2).clamp(0.0, 1.0);
         if ev.llm_output_tokens >= 6000 {
@@ -110,7 +110,7 @@ impl AdaptiveModePolicyStore {
         entry.last_ts = Some(ts.to_string());
     }
 
-    pub fn penalty(&self, intent: Option<&str>, mode: &str) -> f64 {
+    pub(crate) fn penalty(&self, intent: Option<&str>, mode: &str) -> f64 {
         let Some(key) = normalize_mode_key(mode) else {
             return 0.0;
         };
@@ -126,7 +126,7 @@ impl AdaptiveModePolicyStore {
             .map_or(0.0, |p| p.ema_badness.clamp(0.0, 1.0))
     }
 
-    pub fn choose_auto_mode(&self, intent: Option<&str>, predicted: &str) -> String {
+    pub(crate) fn choose_auto_mode(&self, intent: Option<&str>, predicted: &str) -> String {
         let candidates = auto_candidates(predicted);
         let mut best_mode = predicted.to_string();
         let mut best_score = f64::NEG_INFINITY;

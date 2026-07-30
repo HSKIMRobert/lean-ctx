@@ -1,7 +1,7 @@
 //! Deterministic identifiers and grouping for savings attribution records.
 
 /// Generate a stable, compact identifier for an attribution record.
-pub fn generate_attribution_id(
+pub(crate) fn generate_attribution_id(
     tool: &str,
     mechanism: &str,
     session_id: &str,
@@ -13,12 +13,12 @@ pub fn generate_attribution_id(
 }
 
 /// Return whether `new_id` has not already been booked.
-pub fn check_unique(existing_ids: &[&str], new_id: &str) -> bool {
+pub(crate) fn check_unique(existing_ids: &[&str], new_id: &str) -> bool {
     !existing_ids.contains(&new_id)
 }
 
 /// Map a savings mechanism to its canonical attribution group.
-pub fn attribution_group_for_mechanism(mechanism: &str) -> &'static str {
+pub(crate) fn attribution_group_for_mechanism(mechanism: &str) -> &'static str {
     match mechanism {
         "compression" => "input_optimization",
         "routing" => "model_selection",

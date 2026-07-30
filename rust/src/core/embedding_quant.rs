@@ -53,7 +53,7 @@ impl QuantizedVector {
 /// Data-oblivious (no codebook training) and single-pass. A zero vector maps to
 /// all-zero codes with `scale = 0.0`, which [`dot_quant`] treats as a zero result.
 #[must_use]
-pub fn quantize(v: &[f32]) -> QuantizedVector {
+pub(crate) fn quantize(v: &[f32]) -> QuantizedVector {
     let max_abs = v.iter().fold(0.0f32, |m, &x| m.max(x.abs()));
     if max_abs == 0.0 {
         return QuantizedVector {
@@ -80,7 +80,7 @@ pub fn quantize(v: &[f32]) -> QuantizedVector {
 /// vector. For L2-normalized inputs this approximates cosine similarity; the
 /// quantization error is well within embedding-ranking tolerance.
 #[must_use]
-pub fn dot_quant(query: &[f32], doc: &QuantizedVector) -> f32 {
+pub(crate) fn dot_quant(query: &[f32], doc: &QuantizedVector) -> f32 {
     debug_assert_eq!(query.len(), doc.code.len(), "dim mismatch");
     if doc.scale == 0.0 {
         return 0.0;
@@ -110,7 +110,7 @@ pub fn dot_quant(query: &[f32], doc: &QuantizedVector) -> f32 {
 /// non-associative) but far within similarity tolerance, and materially faster
 /// on the 384-dim vectors used for semantic recall.
 #[must_use]
-pub fn dot_f32(a: &[f32], b: &[f32]) -> f32 {
+pub(crate) fn dot_f32(a: &[f32], b: &[f32]) -> f32 {
     debug_assert_eq!(a.len(), b.len(), "dim mismatch");
 
     let mut lanes = [0.0f32; LANES];

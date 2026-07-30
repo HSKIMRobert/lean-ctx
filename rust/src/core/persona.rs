@@ -22,7 +22,7 @@ use super::tool_profiles::ToolProfile;
 
 /// A resolved persona ready to drive the pipeline.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Persona {
+pub(crate) struct Persona {
     pub name: String,
     pub description: String,
     pub tool_profile: ToolProfile,
@@ -35,7 +35,7 @@ pub struct Persona {
 
 /// The on-disk / declarative form of a persona (`persona-spec-v1`).
 #[derive(Debug, Clone, Deserialize)]
-pub struct PersonaSpec {
+pub(crate) struct PersonaSpec {
     pub name: String,
     #[serde(default)]
     pub description: String,
@@ -75,7 +75,7 @@ fn labels(items: &[&str]) -> Vec<String> {
 
 /// Error parsing a persona spec.
 #[derive(Debug, thiserror::Error)]
-pub enum PersonaError {
+pub(crate) enum PersonaError {
     #[error("invalid persona spec: {0}")]
     Validation(String),
     #[error("failed to parse persona: {0}")]
@@ -89,7 +89,7 @@ pub enum PersonaError {
 
 impl PersonaSpec {
     /// Parse a spec from TOML text.
-    pub fn from_toml(text: &str) -> Result<Self, PersonaError> {
+    pub(crate) fn from_toml(text: &str) -> Result<Self, PersonaError> {
         let spec: Self = toml::from_str(text)?;
         spec.validate()?;
         Ok(spec)
@@ -110,7 +110,7 @@ impl PersonaSpec {
 
     /// Resolve the declarative spec into a usable [`Persona`].
     #[must_use]
-    pub fn into_persona(self) -> Persona {
+    pub(crate) fn into_persona(self) -> Persona {
         let tool_profile = if self.tool_profile.eq_ignore_ascii_case("custom") {
             ToolProfile::Custom(self.tools)
         } else {
@@ -135,7 +135,7 @@ impl PersonaSpec {
 }
 
 /// The default persona name when nothing is configured.
-pub const DEFAULT_PERSONA: &str = "coding";
+pub(crate) const DEFAULT_PERSONA: &str = "coding";
 
 /// Resolve the active persona from the loaded config (env > config > default).
 ///
@@ -146,7 +146,7 @@ pub const DEFAULT_PERSONA: &str = "coding";
 /// [`Config::tool_profile_effective`](super::config::Config::tool_profile_effective),
 /// which resolves the persona on every call today.
 #[must_use]
-pub fn active() -> Persona {
+pub(crate) fn active() -> Persona {
     Persona::resolve(&super::config::Config::load())
 }
 
@@ -154,7 +154,7 @@ impl Persona {
     /// The built-in `coding` persona — reproduces today's default behavior so
     /// existing installs see no change.
     #[must_use]
-    pub fn coding() -> Self {
+    pub(crate) fn coding() -> Self {
         Persona {
             name: "coding".to_string(),
             description: "Software engineering on a code repository (default).".to_string(),
@@ -172,7 +172,7 @@ impl Persona {
 
     /// Built-in presets by name (`sales` is an alias of `lead-gen`).
     #[must_use]
-    pub fn builtin(name: &str) -> Option<Self> {
+    pub(crate) fn builtin(name: &str) -> Option<Self> {
         match name.to_ascii_lowercase().as_str() {
             "coding" => Some(Self::coding()),
             "research" => Some(Self::research()),
@@ -185,7 +185,7 @@ impl Persona {
 
     /// Names of the built-in presets (sorted, canonical names only).
     #[must_use]
-    pub fn builtin_names() -> Vec<String> {
+    pub(crate) fn builtin_names() -> Vec<String> {
         vec![
             "coding".to_string(),
             "data-analysis".to_string(),
@@ -197,7 +197,7 @@ impl Persona {
 
     /// `research`: reading the web/docs and synthesizing cited findings.
     #[must_use]
-    pub fn research() -> Self {
+    pub(crate) fn research() -> Self {
         Persona {
             name: "research".to_string(),
             description: "Web/document research with cited synthesis.".to_string(),
@@ -212,7 +212,7 @@ impl Persona {
 
     /// `lead-gen` (alias `sales`): prospecting + enriching sales leads.
     #[must_use]
-    pub fn lead_gen() -> Self {
+    pub(crate) fn lead_gen() -> Self {
         Persona {
             name: "lead-gen".to_string(),
             description: "Outbound sales lead research + enrichment.".to_string(),
@@ -234,7 +234,7 @@ impl Persona {
 
     /// `support`: customer-support triage and resolution.
     #[must_use]
-    pub fn support() -> Self {
+    pub(crate) fn support() -> Self {
         Persona {
             name: "support".to_string(),
             description: "Customer-support triage, diagnosis, resolution.".to_string(),
@@ -249,7 +249,7 @@ impl Persona {
 
     /// `data-analysis`: structured-data ingestion and reporting.
     #[must_use]
-    pub fn data_analysis() -> Self {
+    pub(crate) fn data_analysis() -> Self {
         Persona {
             name: "data-analysis".to_string(),
             description: "Structured-data ingestion, analysis, reporting.".to_string(),
@@ -269,7 +269,7 @@ impl Persona {
     /// file. Unknown/invalid names fall back to `coding` (never an error at a
     /// call site — selection is best-effort).
     #[must_use]
-    pub fn resolve(cfg: &super::config::Config) -> Self {
+    pub(crate) fn resolve(cfg: &super::config::Config) -> Self {
         let name = std::env::var("LEAN_CTX_PERSONA")
             .ok()
             .map(|s| s.trim().to_string())
@@ -296,7 +296,7 @@ impl Persona {
     /// The effective tool surface: an explicit tool-profile setting (env/config)
     /// always wins (backward compatible); otherwise the persona supplies it.
     #[must_use]
-    pub fn effective_tool_profile(&self, cfg: &super::config::Config) -> ToolProfile {
+    pub(crate) fn effective_tool_profile(&self, cfg: &super::config::Config) -> ToolProfile {
         if tool_profile_is_explicit(cfg) {
             ToolProfile::from_config(cfg)
         } else {
@@ -309,7 +309,7 @@ impl Persona {
     /// (the `coding` default) means "no opinion" — the profile/auto selection
     /// decides, exactly as before personas existed.
     #[must_use]
-    pub fn read_mode_override(&self) -> Option<String> {
+    pub(crate) fn read_mode_override(&self) -> Option<String> {
         let mode = self.default_read_mode.trim();
         if mode.is_empty() || mode.eq_ignore_ascii_case("auto") {
             None
@@ -324,7 +324,7 @@ impl Persona {
     /// other persona the block is a deterministic function of the persona —
     /// stable across sessions, so provider prompt caching still applies.
     #[must_use]
-    pub fn prompt_block(&self) -> String {
+    pub(crate) fn prompt_block(&self) -> String {
         if self.name == DEFAULT_PERSONA {
             return String::new();
         }
@@ -357,7 +357,7 @@ fn tool_profile_is_explicit(cfg: &super::config::Config) -> bool {
 /// Root directory holding `<name>.toml` persona files. `LEAN_CTX_PERSONAS_DIR`
 /// overrides the default so containers/CI/tests can isolate it.
 #[must_use]
-pub fn personas_dir() -> PathBuf {
+pub(crate) fn personas_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("LEAN_CTX_PERSONAS_DIR")
         && !dir.is_empty()
     {
@@ -384,7 +384,7 @@ fn load_from_dir(name: &str) -> Result<Option<Persona>, PersonaError> {
 
 /// All persona names available on this instance (built-ins + discovered files).
 #[must_use]
-pub fn list_personas() -> Vec<String> {
+pub(crate) fn list_personas() -> Vec<String> {
     let mut names = Persona::builtin_names();
     if let Ok(entries) = std::fs::read_dir(personas_dir()) {
         for entry in entries.flatten() {

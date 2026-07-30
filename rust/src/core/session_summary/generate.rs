@@ -13,7 +13,7 @@ const MAX_FINDINGS: usize = 6;
 const MAX_NEXT: usize = 6;
 
 /// Build an owned candidate snapshot of the current session.
-pub fn build_candidate(session: &SessionState) -> SummaryCandidate {
+pub(crate) fn build_candidate(session: &SessionState) -> SummaryCandidate {
     let title = session
         .task
         .as_ref()

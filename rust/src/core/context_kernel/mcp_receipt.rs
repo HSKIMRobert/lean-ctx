@@ -7,7 +7,7 @@ use super::accounting_fix::{PostDeliveryAccounting, compute_honest_accounting};
 
 /// Receipt for a single MCP tool call.
 #[derive(Debug, Clone)]
-pub struct McpReceipt {
+pub(crate) struct McpReceipt {
     /// Tool name.
     pub tool: String,
     /// Input tokens, including arguments and context sent to the tool.
@@ -22,7 +22,7 @@ pub struct McpReceipt {
 
 /// Per-tool savings summary.
 #[derive(Debug, Clone, Default)]
-pub struct ToolSavings {
+pub(crate) struct ToolSavings {
     /// Tool name.
     pub tool: String,
     /// Number of recorded calls.
@@ -65,7 +65,7 @@ fn savings_pct(tokens_in: usize, delivered: usize) -> f64 {
 }
 
 /// Stores an MCP receipt and updates its per-tool aggregate.
-pub fn record_receipt(receipt: McpReceipt) {
+pub(crate) fn record_receipt(receipt: McpReceipt) {
     let mut store = lock_store();
     let summary = store
         .per_tool
@@ -88,7 +88,7 @@ pub fn record_receipt(receipt: McpReceipt) {
 }
 
 /// Returns honest accounting aggregated across all MCP receipts.
-pub fn mcp_accounting() -> PostDeliveryAccounting {
+pub(crate) fn mcp_accounting() -> PostDeliveryAccounting {
     let store = lock_store();
     let mut totals = (0usize, 0usize, 0usize);
     for receipt in &store.receipts {
@@ -100,14 +100,14 @@ pub fn mcp_accounting() -> PostDeliveryAccounting {
 }
 
 /// Returns per-tool savings sorted by tool name.
-pub fn per_tool_savings() -> Vec<ToolSavings> {
+pub(crate) fn per_tool_savings() -> Vec<ToolSavings> {
     let mut summaries: Vec<_> = lock_store().per_tool.values().cloned().collect();
     summaries.sort_unstable_by_key(|summary| summary.tool.clone());
     summaries
 }
 
 /// Formats a deterministic per-tool savings summary.
-pub fn savings_report() -> String {
+pub(crate) fn savings_report() -> String {
     per_tool_savings()
         .iter()
         .map(|summary| {
@@ -121,12 +121,12 @@ pub fn savings_report() -> String {
 }
 
 /// Returns the total token overhead added by the kernel.
-pub fn total_kernel_overhead() -> usize {
+pub(crate) fn total_kernel_overhead() -> usize {
     mcp_accounting().kernel_overhead_tokens
 }
 
 /// Clears all recorded MCP receipts and aggregates.
-pub fn reset_receipts() {
+pub(crate) fn reset_receipts() {
     *lock_store() = McpReceiptStore::default();
 }
 

@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 /// process and cached, so all subsystems (heatmap, savings ledger, audit)
 /// attribute traces to the same identity.
 #[must_use]
-pub fn current_agent_id() -> &'static str {
+pub(crate) fn current_agent_id() -> &'static str {
     static CACHE: OnceLock<String> = OnceLock::new();
     CACHE.get_or_init(|| {
         std::env::var("LEAN_CTX_AGENT_ID")
@@ -16,7 +16,7 @@ pub fn current_agent_id() -> &'static str {
     })
 }
 
-pub fn get_or_create_keypair(agent_id: &str) -> Result<SigningKey, String> {
+pub(crate) fn get_or_create_keypair(agent_id: &str) -> Result<SigningKey, String> {
     let path = key_path(agent_id)?;
     if path.exists() {
         load_key(&path)
@@ -25,12 +25,12 @@ pub fn get_or_create_keypair(agent_id: &str) -> Result<SigningKey, String> {
     }
 }
 
-pub fn get_public_key(agent_id: &str) -> Result<VerifyingKey, String> {
+pub(crate) fn get_public_key(agent_id: &str) -> Result<VerifyingKey, String> {
     let key = get_or_create_keypair(agent_id)?;
     Ok(key.verifying_key())
 }
 
-pub fn sign_bytes(agent_id: &str, data: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn sign_bytes(agent_id: &str, data: &[u8]) -> Result<Vec<u8>, String> {
     let key = get_or_create_keypair(agent_id)?;
     let sig = key.sign(data);
     Ok(sig.to_bytes().to_vec())
@@ -45,7 +45,7 @@ pub fn sign_bytes(agent_id: &str, data: &[u8]) -> Result<Vec<u8>, String> {
 /// changes in between (env-driven data-dir moves under test, key
 /// regeneration by a concurrent process), the embedded public key belongs to
 /// a different keypair than the signature — which then can never verify.
-pub fn sign_with_public_key(
+pub(crate) fn sign_with_public_key(
     agent_id: &str,
     data: &[u8],
 ) -> Result<(Vec<u8>, VerifyingKey), String> {
@@ -58,11 +58,15 @@ pub fn sign_with_public_key(
 /// [`get_or_create_keypair`] when the public key must be embedded in the
 /// payload *before* the signature is computed over it.
 #[must_use]
-pub fn sign_bytes_with(key: &SigningKey, data: &[u8]) -> Vec<u8> {
+pub(crate) fn sign_bytes_with(key: &SigningKey, data: &[u8]) -> Vec<u8> {
     key.sign(data).to_bytes().to_vec()
 }
 
-pub fn verify_signature(public_key_bytes: &[u8], data: &[u8], signature_bytes: &[u8]) -> bool {
+pub(crate) fn verify_signature(
+    public_key_bytes: &[u8],
+    data: &[u8],
+    signature_bytes: &[u8],
+) -> bool {
     let pk_bytes: [u8; 32] = match public_key_bytes.try_into() {
         Ok(b) => b,
         Err(_) => return false,
@@ -78,7 +82,7 @@ pub fn verify_signature(public_key_bytes: &[u8], data: &[u8], signature_bytes: &
     verifying_key.verify(data, &signature).is_ok()
 }
 
-pub fn hex_encode(bytes: &[u8]) -> String {
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     use std::fmt::Write;
     bytes.iter().fold(String::new(), |mut s, b| {
         let _ = write!(s, "{b:02x}");
@@ -86,7 +90,7 @@ pub fn hex_encode(bytes: &[u8]) -> String {
     })
 }
 
-pub fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
     if !s.len().is_multiple_of(2) {
         return Err("odd-length hex string".to_string());
     }

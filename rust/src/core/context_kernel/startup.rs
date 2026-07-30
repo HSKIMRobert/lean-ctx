@@ -6,7 +6,7 @@ static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Snapshot of Context Kernel startup and configuration state.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct StartupStatus {
+pub(crate) struct StartupStatus {
     /// Whether [`initialize`] has completed.
     pub initialized: bool,
     /// Whether the Context Kernel master switch is enabled.
@@ -18,7 +18,7 @@ pub struct StartupStatus {
 }
 
 /// Loads Context Kernel configuration and marks startup initialization complete.
-pub fn initialize() {
+pub(crate) fn initialize() {
     super::config_bridge::apply_config();
     INITIALIZED.store(true, Ordering::Release);
     tracing::info!(
@@ -30,19 +30,19 @@ pub fn initialize() {
 }
 
 /// Reloads Context Kernel configuration without changing startup state.
-pub fn reinitialize() {
+pub(crate) fn reinitialize() {
     super::config_bridge::apply_config();
 }
 
 /// Returns whether startup initialization has completed.
 #[must_use]
-pub fn is_initialized() -> bool {
+pub(crate) fn is_initialized() -> bool {
     INITIALIZED.load(Ordering::Acquire)
 }
 
 /// Returns a snapshot of Context Kernel startup and configuration state.
 #[must_use]
-pub fn status() -> StartupStatus {
+pub(crate) fn status() -> StartupStatus {
     let (features, config_source) = super::config_bridge::effective_config();
     StartupStatus {
         initialized: is_initialized(),
@@ -53,7 +53,7 @@ pub fn status() -> StartupStatus {
 }
 
 /// Clears startup initialization state for tests.
-pub fn reset() {
+pub(crate) fn reset() {
     INITIALIZED.store(false, Ordering::Release);
 }
 

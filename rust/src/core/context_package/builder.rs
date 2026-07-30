@@ -10,7 +10,7 @@ use super::manifest::{
     PackageStats,
 };
 
-pub struct PackageBuilder {
+pub(crate) struct PackageBuilder {
     name: String,
     version: String,
     description: String,
@@ -26,7 +26,7 @@ pub struct PackageBuilder {
 }
 
 impl PackageBuilder {
-    pub fn new(name: &str, version: &str) -> Self {
+    pub(crate) fn new(name: &str, version: &str) -> Self {
         Self {
             name: name.to_string(),
             version: version.to_string(),
@@ -43,53 +43,53 @@ impl PackageBuilder {
         }
     }
 
-    pub fn description(mut self, desc: &str) -> Self {
+    pub(crate) fn description(mut self, desc: &str) -> Self {
         self.description = desc.to_string();
         self
     }
 
-    pub fn author(mut self, author: &str) -> Self {
+    pub(crate) fn author(mut self, author: &str) -> Self {
         self.author = Some(author.to_string());
         self
     }
 
-    pub fn tags(mut self, tags: Vec<String>) -> Self {
+    pub(crate) fn tags(mut self, tags: Vec<String>) -> Self {
         self.tags = tags;
         self
     }
 
-    pub fn compatibility(mut self, spec: CompatibilitySpec) -> Self {
+    pub(crate) fn compatibility(mut self, spec: CompatibilitySpec) -> Self {
         self.compatibility = spec;
         self
     }
 
-    pub fn project_hash(mut self, hash: &str) -> Self {
+    pub(crate) fn project_hash(mut self, hash: &str) -> Self {
         self.project_hash = Some(hash.to_string());
         self
     }
 
-    pub fn session_id(mut self, id: &str) -> Self {
+    pub(crate) fn session_id(mut self, id: &str) -> Self {
         self.session_id = Some(id.to_string());
         self
     }
 
-    pub fn scope(mut self, scope: &str) -> Self {
+    pub(crate) fn scope(mut self, scope: &str) -> Self {
         self.scope = Some(scope.to_string());
         self
     }
 
     /// Mark the package `private` for the hosted registry (GL #524).
-    pub fn private(mut self) -> Self {
+    pub(crate) fn private(mut self) -> Self {
         self.visibility = Some("private".to_string());
         self
     }
 
-    pub fn level(mut self, level: u32) -> Self {
+    pub(crate) fn level(mut self, level: u32) -> Self {
         self.level = level.clamp(1, 3);
         self
     }
 
-    pub fn add_knowledge_from_project(mut self, project_root: &str) -> Self {
+    pub(crate) fn add_knowledge_from_project(mut self, project_root: &str) -> Self {
         // Build the knowledge layer from the shared `KnowledgeSnapshot` so ctxpkg
         // and the OKF exporter render the same source of truth (no parallel
         // extractor). ctxpkg keeps the full fact history for fidelity.
@@ -109,7 +109,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn add_graph_from_project(mut self, project_root: &str) -> Self {
+    pub(crate) fn add_graph_from_project(mut self, project_root: &str) -> Self {
         let Ok(graph) = crate::core::property_graph::CodeGraph::open(project_root) else {
             return self;
         };
@@ -130,7 +130,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn add_session(mut self, session: &crate::core::session::SessionState) -> Self {
+    pub(crate) fn add_session(mut self, session: &crate::core::session::SessionState) -> Self {
         let has_content = session.task.is_some()
             || !session.findings.is_empty()
             || !session.decisions.is_empty()
@@ -173,7 +173,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn add_patterns_from_project(mut self, project_root: &str) -> Self {
+    pub(crate) fn add_patterns_from_project(mut self, project_root: &str) -> Self {
         let knowledge = crate::core::knowledge::ProjectKnowledge::load_or_create(project_root);
 
         if knowledge.patterns.is_empty() {
@@ -188,7 +188,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn build_context_graph(&mut self, project_root: &str) {
+    pub(crate) fn build_context_graph(&mut self, project_root: &str) {
         use super::graph_model::{ContextEdge, ContextGraph, ContextNode};
 
         let mut graph = ContextGraph::new();
@@ -321,7 +321,7 @@ impl PackageBuilder {
         }
     }
 
-    pub fn add_gotchas_from_project(mut self, project_root: &str) -> Self {
+    pub(crate) fn add_gotchas_from_project(mut self, project_root: &str) -> Self {
         let store = crate::core::gotcha_tracker::GotchaStore::load(project_root);
         if store.gotchas.is_empty() {
             return self;
@@ -351,7 +351,7 @@ impl PackageBuilder {
         self
     }
 
-    pub fn build(self) -> Result<(PackageManifest, PackageContent), String> {
+    pub(crate) fn build(self) -> Result<(PackageManifest, PackageContent), String> {
         if self.name.is_empty() {
             return Err("package name is required".into());
         }

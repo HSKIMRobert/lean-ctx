@@ -2,7 +2,7 @@
 
 /// Snapshot of health and activity across Context Kernel subsystems.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct HealthReport {
+pub(crate) struct HealthReport {
     /// Whether kernel startup initialization completed.
     pub initialized: bool,
     /// Whether the kernel master switch is enabled.
@@ -27,7 +27,7 @@ pub struct HealthReport {
 
 /// Returns an aggregated snapshot of Context Kernel health and activity.
 #[must_use]
-pub fn kernel_health() -> HealthReport {
+pub(crate) fn kernel_health() -> HealthReport {
     let startup_status = super::startup::status();
     let initialized = super::startup::is_initialized() && startup_status.initialized;
     let configured_features = super::kernel_config::features();
@@ -55,14 +55,14 @@ pub fn kernel_health() -> HealthReport {
 
 /// Returns whether the initialized Context Kernel is enabled and error-free.
 #[must_use]
-pub fn is_healthy() -> bool {
+pub(crate) fn is_healthy() -> bool {
     let report = kernel_health();
     report.initialized && report.kernel_enabled
 }
 
 /// Formats a one-line human-readable Context Kernel health summary.
 #[must_use]
-pub fn format_health() -> String {
+pub(crate) fn format_health() -> String {
     let report = kernel_health();
     let state = if report.kernel_enabled { "ON" } else { "OFF" };
     format!(
@@ -76,7 +76,7 @@ pub fn format_health() -> String {
 
 /// Returns the names of subsystems represented by [`HealthReport`].
 #[must_use]
-pub fn subsystem_names() -> &'static [&'static str] {
+pub(crate) fn subsystem_names() -> &'static [&'static str] {
     &[
         "startup",
         "kernel_config",

@@ -32,7 +32,7 @@ pub(crate) fn global() -> &'static Mutex<RelevanceTracker> {
 
 /// Entry representing one piece of compressed content.
 #[derive(Debug, Clone)]
-pub struct CompressedContentEntry {
+pub(crate) struct CompressedContentEntry {
     pub handle: String,
     pub keywords: Vec<String>,
     pub source_tool: &'static str,
@@ -44,14 +44,14 @@ pub struct CompressedContentEntry {
 
 /// Match result for proactive expansion.
 #[derive(Debug, Clone)]
-pub struct ExpansionMatch {
+pub(crate) struct ExpansionMatch {
     pub handle: String,
     pub score: f64,
     pub estimated_tokens: usize,
 }
 
 /// The relevance tracker maintains a keyword index of all compressed content.
-pub struct RelevanceTracker {
+pub(crate) struct RelevanceTracker {
     entries: Vec<CompressedContentEntry>,
     seq_counter: u64,
     budget_tokens: usize,
@@ -67,7 +67,7 @@ impl Default for RelevanceTracker {
 }
 
 impl RelevanceTracker {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             entries: Vec::new(),
             seq_counter: 0,
@@ -78,11 +78,15 @@ impl RelevanceTracker {
         }
     }
 
-    pub fn with_config(budget_tokens: usize, threshold: f64) -> Self {
+    pub(crate) fn with_config(budget_tokens: usize, threshold: f64) -> Self {
         Self::with_config_and_age(budget_tokens, threshold, DEFAULT_MAX_AGE_SECS)
     }
 
-    pub fn with_config_and_age(budget_tokens: usize, threshold: f64, max_age_secs: u64) -> Self {
+    pub(crate) fn with_config_and_age(
+        budget_tokens: usize,
+        threshold: f64,
+        max_age_secs: u64,
+    ) -> Self {
         Self {
             entries: Vec::new(),
             seq_counter: 0,
@@ -98,7 +102,7 @@ impl RelevanceTracker {
     }
 
     /// Update runtime settings without discarding already indexed entries.
-    pub fn configure(&mut self, budget_tokens: usize, threshold: f64, max_age_secs: u64) {
+    pub(crate) fn configure(&mut self, budget_tokens: usize, threshold: f64, max_age_secs: u64) {
         self.budget_tokens = budget_tokens;
         self.threshold = if threshold.is_finite() {
             threshold.clamp(0.0, 1.0)
@@ -109,7 +113,7 @@ impl RelevanceTracker {
     }
 
     /// Register a new compressed content entry with extracted keywords.
-    pub fn register(
+    pub(crate) fn register(
         &mut self,
         handle: String,
         original_content: &str,
@@ -129,7 +133,7 @@ impl RelevanceTracker {
 
     /// Register content with an explicit timestamp for deterministic tests and
     /// replayed session state.
-    pub fn register_at(
+    pub(crate) fn register_at(
         &mut self,
         handle: String,
         original_content: &str,
@@ -173,13 +177,13 @@ impl RelevanceTracker {
     }
 
     /// Stop proactive expansion for one archive after a caller reports a bounce.
-    pub fn disable_handle(&mut self, handle: &str) {
+    pub(crate) fn disable_handle(&mut self, handle: &str) {
         self.disabled_handles.insert(handle.to_string());
     }
 
     /// Find entries matching the current query context. Returns matches
     /// sorted by score (highest first), within the token budget.
-    pub fn find_matches(&self, query_context: &str) -> Vec<ExpansionMatch> {
+    pub(crate) fn find_matches(&self, query_context: &str) -> Vec<ExpansionMatch> {
         if self.entries.is_empty() {
             return Vec::new();
         }
@@ -243,7 +247,7 @@ impl RelevanceTracker {
 
     /// Check if proactive expansion should trigger for a given context.
     /// Returns the formatted expansion block if matches found.
-    pub fn expand_if_relevant(&self, query_context: &str) -> Option<String> {
+    pub(crate) fn expand_if_relevant(&self, query_context: &str) -> Option<String> {
         let matches = self.find_matches(query_context);
         if matches.is_empty() {
             return None;
@@ -276,7 +280,7 @@ impl RelevanceTracker {
 
     /// Reset the tracker (for testing).
     #[cfg(test)]
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.entries.clear();
         self.seq_counter = 0;
         self.disabled_handles.clear();

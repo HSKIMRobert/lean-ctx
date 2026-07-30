@@ -15,7 +15,7 @@ static ETPAO_TRACKER: OnceLock<Mutex<EtpaoLive>> = OnceLock::new();
 
 /// Raw data extracted from a proxy request; proxy-side types remain in the proxy.
 #[derive(Debug, Clone, Default)]
-pub struct ProxyRequestData {
+pub(crate) struct ProxyRequestData {
     /// Request headers used for identity and client-profile detection.
     pub headers: Vec<(String, String)>,
     /// Tokens supplied as model input.
@@ -38,7 +38,7 @@ pub struct ProxyRequestData {
 
 /// Result of kernel processing for a single proxy request.
 #[derive(Debug, Clone)]
-pub struct ProxyKernelResult {
+pub(crate) struct ProxyKernelResult {
     /// Caller identity resolved from request headers.
     pub identity: CallerIdentity,
     /// Effective coverage for the inline proxy path.
@@ -79,7 +79,7 @@ fn lock_etpao_tracker() -> MutexGuard<'static, EtpaoLive> {
 
 /// Resolves kernel context and records identity and ETPAO metrics for one request.
 #[must_use]
-pub fn process_proxy_request(data: &ProxyRequestData) -> ProxyKernelResult {
+pub(crate) fn process_proxy_request(data: &ProxyRequestData) -> ProxyKernelResult {
     let context = client_wiring::build_request_context(&data.headers, true, false, false);
     let outcome =
         outcome_signal::infer_outcome(data.request_count, data.is_retry, data.output_tokens);
@@ -129,24 +129,24 @@ pub fn process_proxy_request(data: &ProxyRequestData) -> ProxyKernelResult {
 
 /// Returns aggregate identity attribution recorded by the proxy bridge.
 #[must_use]
-pub fn identity_summary() -> IdentityLedgerSummary {
+pub(crate) fn identity_summary() -> IdentityLedgerSummary {
     lock_identity_ledger().summary()
 }
 
 /// Returns aggregate live ETPAO metrics recorded by the proxy bridge.
 #[must_use]
-pub fn etpao_summary() -> EtpaoSummary {
+pub(crate) fn etpao_summary() -> EtpaoSummary {
     lock_etpao_tracker().summary()
 }
 
 /// Returns current effective tokens per accepted outcome.
 #[must_use]
-pub fn current_etpao() -> f64 {
+pub(crate) fn current_etpao() -> f64 {
     lock_etpao_tracker().current_etpao()
 }
 
 /// Clears all process-wide proxy bridge metrics.
-pub fn reset_state() {
+pub(crate) fn reset_state() {
     *lock_identity_ledger() = IdentityLedger::new();
     *lock_etpao_tracker() = EtpaoLive::new();
 }

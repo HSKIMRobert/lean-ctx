@@ -48,7 +48,7 @@ static STORE: OnceLock<Mutex<EditQualityStore>> = OnceLock::new();
 static RECORD_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PairStats {
+pub(crate) struct PairStats {
     pub fails: u32,
     pub successes: u32,
     pub risky: bool,
@@ -77,7 +77,7 @@ impl PairStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct EditQualityStore {
+pub(crate) struct EditQualityStore {
     /// Key: `"{ext}|{mode}"` (e.g. `"rs|map"`).
     pub pairs: HashMap<String, PairStats>,
     /// Normalized path -> unix time of the compression-correlated edit fail.
@@ -162,7 +162,7 @@ impl EditQualityStore {
         evict_pending_to_cap(&mut self.pending_anchored_escalations, &mut self.dirty);
     }
 
-    pub fn record_failure(&mut self, ext: &str, mode: &str, now: u64) {
+    pub(crate) fn record_failure(&mut self, ext: &str, mode: &str, now: u64) {
         let entry = self.pairs.entry(pair_key(ext, mode)).or_default();
         entry.fails = entry.fails.saturating_add(1);
         entry.last_fail_unix = now;
@@ -171,21 +171,21 @@ impl EditQualityStore {
         self.evict_to_caps();
     }
 
-    pub fn record_success(&mut self, ext: &str, mode: &str) {
+    pub(crate) fn record_success(&mut self, ext: &str, mode: &str) {
         let entry = self.pairs.entry(pair_key(ext, mode)).or_default();
         entry.successes = entry.successes.saturating_add(1);
         entry.update_risky();
         self.dirty = true;
     }
 
-    pub fn set_pending_escalation(&mut self, norm_path: &str, now: u64) {
+    pub(crate) fn set_pending_escalation(&mut self, norm_path: &str, now: u64) {
         self.pending_escalations.insert(norm_path.to_string(), now);
         self.dirty = true;
         self.evict_to_caps();
     }
 
     /// Consumes the escalation for this path if present and not expired.
-    pub fn take_pending_escalation(&mut self, norm_path: &str, now: u64) -> bool {
+    pub(crate) fn take_pending_escalation(&mut self, norm_path: &str, now: u64) -> bool {
         Self::take_from(
             &mut self.pending_escalations,
             norm_path,
@@ -195,7 +195,7 @@ impl EditQualityStore {
         )
     }
 
-    pub fn set_pending_anchored_escalation(&mut self, norm_path: &str, now: u64) {
+    pub(crate) fn set_pending_anchored_escalation(&mut self, norm_path: &str, now: u64) {
         self.pending_anchored_escalations
             .insert(norm_path.to_string(), now);
         self.dirty = true;
@@ -203,7 +203,7 @@ impl EditQualityStore {
     }
 
     /// Consumes the anchored escalation for this path if present and not expired.
-    pub fn take_pending_anchored_escalation(&mut self, norm_path: &str, now: u64) -> bool {
+    pub(crate) fn take_pending_anchored_escalation(&mut self, norm_path: &str, now: u64) -> bool {
         Self::take_from(
             &mut self.pending_anchored_escalations,
             norm_path,
@@ -236,13 +236,13 @@ impl EditQualityStore {
         }
     }
 
-    pub fn is_risky(&self, ext: &str, mode: &str) -> bool {
+    pub(crate) fn is_risky(&self, ext: &str, mode: &str) -> bool {
         self.pairs
             .get(&pair_key(ext, mode))
             .is_some_and(|s| s.risky)
     }
 
-    pub fn save(&self) -> std::io::Result<()> {
+    pub(crate) fn save(&self) -> std::io::Result<()> {
         let path = store_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -283,14 +283,14 @@ fn ext_of(path: &str) -> String {
 /// (empty = file was never read through lean-ctx → no signal, skipped).
 /// Compression-correlated failures additionally arm the one-shot per-path
 /// escalation so the next auto read of `path` resolves to `full`.
-pub fn record_edit_outcome(path: &str, last_mode: &str, success: bool) {
+pub(crate) fn record_edit_outcome(path: &str, last_mode: &str, success: bool) {
     record_outcome_with(path, last_mode, success, Escalation::Full);
 }
 
 /// Like [`record_edit_outcome`], but a failure is a `ctx_patch` anchor-staleness
 /// miss: the recovery is a *fresh anchored read* (the model edits by reference),
 /// so the next auto read escalates to `anchored` instead of `full` (#1008).
-pub fn record_anchored_edit_outcome(path: &str, last_mode: &str, success: bool) {
+pub(crate) fn record_anchored_edit_outcome(path: &str, last_mode: &str, success: bool) {
     record_outcome_with(path, last_mode, success, Escalation::Anchored);
 }
 
@@ -360,13 +360,13 @@ fn record_outcome_with(path: &str, last_mode: &str, success: bool, esc: Escalati
 }
 
 /// Process-global: one-shot check-and-consume of the per-path `full` escalation.
-pub fn take_pending_escalation(path: &str) -> bool {
+pub(crate) fn take_pending_escalation(path: &str) -> bool {
     consume_escalation(path, false)
 }
 
 /// Process-global: one-shot check-and-consume of the per-path `anchored`
 /// escalation (armed by [`record_anchored_edit_outcome`]).
-pub fn take_pending_anchored_escalation(path: &str) -> bool {
+pub(crate) fn take_pending_anchored_escalation(path: &str) -> bool {
     consume_escalation(path, true)
 }
 
@@ -388,13 +388,13 @@ fn consume_escalation(path: &str, anchored: bool) -> bool {
 }
 
 /// Process-global: is `mode` currently risky for files with this extension?
-pub fn is_risky_mode(path: &str, mode: &str) -> bool {
+pub(crate) fn is_risky_mode(path: &str, mode: &str) -> bool {
     let ext = ext_of(path);
     global().lock().is_ok_and(|s| s.is_risky(&ext, mode))
 }
 
 /// Snapshot for `ctx_metrics`: (risky pairs, per-pair stats, escalations served).
-pub fn metrics_snapshot() -> serde_json::Value {
+pub(crate) fn metrics_snapshot() -> serde_json::Value {
     let Ok(store) = global().lock() else {
         return serde_json::json!({});
     };
@@ -424,7 +424,7 @@ pub fn metrics_snapshot() -> serde_json::Value {
     })
 }
 
-pub fn flush() {
+pub(crate) fn flush() {
     if let Ok(store) = global().lock()
         && store.dirty
     {

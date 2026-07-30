@@ -137,7 +137,7 @@ impl TransportEnvelopeV1 {
     }
 }
 
-pub fn serialize_envelope(envelope: &TransportEnvelopeV1) -> Result<String, String> {
+pub(crate) fn serialize_envelope(envelope: &TransportEnvelopeV1) -> Result<String, String> {
     let json = serde_json::to_string_pretty(envelope).map_err(|e| e.to_string())?;
     if json.len() > MAX_ENVELOPE_BYTES {
         return Err(format!(
@@ -149,7 +149,7 @@ pub fn serialize_envelope(envelope: &TransportEnvelopeV1) -> Result<String, Stri
     Ok(json)
 }
 
-pub fn parse_envelope(json: &str) -> Result<TransportEnvelopeV1, String> {
+pub(crate) fn parse_envelope(json: &str) -> Result<TransportEnvelopeV1, String> {
     if json.len() > MAX_ENVELOPE_BYTES {
         return Err(format!(
             "envelope too large ({} bytes, max {})",

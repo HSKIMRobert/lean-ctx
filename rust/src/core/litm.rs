@@ -4,11 +4,11 @@ use crate::core::tokens::count_tokens;
 /// Default hard ceiling (tokens) on the re-injected ACTIVE SESSION block (#962).
 /// Generous: a true safety cap that normal sessions never hit, so default output
 /// is unchanged while a pathological session can no longer crowd out the task.
-pub const DEFAULT_ACTIVE_SESSION_BUDGET: usize = 800;
+pub(crate) const DEFAULT_ACTIVE_SESSION_BUDGET: usize = 800;
 
 /// Effective ACTIVE SESSION token budget (`LEAN_CTX_ACTIVE_SESSION_BUDGET` overrides).
 #[must_use]
-pub fn active_session_budget() -> usize {
+pub(crate) fn active_session_budget() -> usize {
     std::env::var("LEAN_CTX_ACTIVE_SESSION_BUDGET")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -17,7 +17,7 @@ pub fn active_session_budget() -> usize {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct LitmProfile {
+pub(crate) struct LitmProfile {
     pub alpha: f64,
     pub beta: f64,
     pub gamma: f64,
@@ -25,27 +25,27 @@ pub struct LitmProfile {
 }
 
 impl LitmProfile {
-    pub const CLAUDE: Self = Self {
+    pub(crate) const CLAUDE: Self = Self {
         alpha: 0.92,
         beta: 0.50,
         gamma: 0.88,
         name: "claude",
     };
-    pub const GPT: Self = Self {
+    pub(crate) const GPT: Self = Self {
         alpha: 0.90,
         beta: 0.55,
         gamma: 0.85,
         name: "gpt",
     };
-    pub const GEMINI: Self = Self {
+    pub(crate) const GEMINI: Self = Self {
         alpha: 0.88,
         beta: 0.60,
         gamma: 0.82,
         name: "gemini",
     };
-    pub const DEFAULT: Self = Self::GPT;
+    pub(crate) const DEFAULT: Self = Self::GPT;
 
-    pub fn from_client_name(client: &str) -> Self {
+    pub(crate) fn from_client_name(client: &str) -> Self {
         if let Ok(override_val) = std::env::var("LEAN_CTX_LITM_PROFILE") {
             return Self::from_name(&override_val);
         }
@@ -59,7 +59,7 @@ impl LitmProfile {
         }
     }
 
-    pub fn from_name(name: &str) -> Self {
+    pub(crate) fn from_name(name: &str) -> Self {
         match name.to_lowercase().as_str() {
             "claude" | "codebuddy" | "cursor" => Self::CLAUDE,
             "gemini" => Self::GEMINI,
@@ -76,7 +76,7 @@ const _BETA: f64 = 0.55;
 #[cfg(test)]
 const _GAMMA: f64 = 0.85;
 
-pub struct PositionedOutput {
+pub(crate) struct PositionedOutput {
     pub begin_block: String,
     pub end_block: String,
 }
@@ -86,7 +86,7 @@ impl PositionedOutput {
     /// Session memory rides every turn, so an unbounded block crowds out the
     /// user's actual task. The begin block keeps priority over the end block;
     /// within each, the least-critical lines (rendered last) drop first.
-    pub fn enforce_token_budget(&mut self, budget: usize) {
+    pub(crate) fn enforce_token_budget(&mut self, budget: usize) {
         self.begin_block = trim_lines_to_budget(&self.begin_block, budget);
         let remaining = budget.saturating_sub(count_tokens(&self.begin_block));
         self.end_block = trim_lines_to_budget(&self.end_block, remaining);
@@ -115,7 +115,7 @@ fn trim_lines_to_budget(block: &str, budget: usize) -> String {
 ///   P1 (begin): task, decisions, project topology, file refs
 ///   P2 (end): recent findings, test results, next steps
 ///   P3 (dropped): old completed tasks, historical reads beyond limit
-pub fn position_optimize(session: &SessionState) -> PositionedOutput {
+pub(crate) fn position_optimize(session: &SessionState) -> PositionedOutput {
     position_optimize_with_share(session, crate::core::litm_calibration::DEFAULT_BEGIN_SHARE)
 }
 
@@ -124,7 +124,10 @@ pub fn position_optimize(session: &SessionState) -> PositionedOutput {
 /// block and the task line is duplicated there (recency rescue for the most
 /// critical item). At the default share the layout is byte-identical to the
 /// uncalibrated version.
-pub fn position_optimize_with_share(session: &SessionState, begin_share: f64) -> PositionedOutput {
+pub(crate) fn position_optimize_with_share(
+    session: &SessionState,
+    begin_share: f64,
+) -> PositionedOutput {
     let begin_weak = begin_share < 0.6;
     let mut begin_lines = Vec::new();
     let mut end_lines = Vec::new();
@@ -238,7 +241,7 @@ pub fn position_optimize_with_share(session: &SessionState, begin_share: f64) ->
 }
 
 #[cfg(test)]
-pub fn compute_litm_efficiency(
+pub(crate) fn compute_litm_efficiency(
     begin_tokens: usize,
     middle_tokens: usize,
     end_tokens: usize,
@@ -267,7 +270,7 @@ pub fn compute_litm_efficiency(
 }
 
 #[cfg(test)]
-pub fn compute_litm_efficiency_for_profile(
+pub(crate) fn compute_litm_efficiency_for_profile(
     begin_tokens: usize,
     middle_tokens: usize,
     end_tokens: usize,
@@ -299,7 +302,7 @@ pub fn compute_litm_efficiency_for_profile(
 }
 
 #[cfg(test)]
-pub fn content_attention_efficiency(content: &str, profile: &LitmProfile) -> f64 {
+pub(crate) fn content_attention_efficiency(content: &str, profile: &LitmProfile) -> f64 {
     use crate::core::attention_model;
 
     let lines: Vec<&str> = content.lines().collect();

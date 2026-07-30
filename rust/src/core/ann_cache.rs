@@ -21,7 +21,7 @@ use super::hnsw::{AnnIndex, FlatEmbeddings, brute_force_topk};
 /// At 2500, a medium codebase (~7k chunks for lean-ctx itself) enters the
 /// HNSW path and gets sub-linear dense search; brute force remains the default
 /// for smaller projects where it is both simpler and just as fast.
-pub const ANN_MIN_VECTORS: usize = 2_500;
+pub(crate) const ANN_MIN_VECTORS: usize = 2_500;
 
 struct Cached {
     fingerprint: u64,
@@ -38,7 +38,7 @@ fn cache() -> &'static Mutex<Option<Cached>> {
 /// brute force, so correctness is unaffected. Called by the eviction
 /// orchestrator under memory pressure — before this hook the built graph +
 /// its `FlatEmbeddings` corpus stayed resident forever.
-pub fn clear() {
+pub(crate) fn clear() {
     if let Ok(mut guard) = cache().lock() {
         *guard = None;
     }
@@ -48,7 +48,7 @@ pub fn clear() {
 /// matrix + graph adjacency), 0 when empty. Used by the eviction orchestrator
 /// to weigh the ANN cache against the RSS budget.
 #[must_use]
-pub fn memory_usage_bytes() -> usize {
+pub(crate) fn memory_usage_bytes() -> usize {
     let Ok(guard) = cache().lock() else {
         return 0;
     };
@@ -64,7 +64,7 @@ pub fn memory_usage_bytes() -> usize {
 /// The [`FlatEmbeddings`] data is shared via `Arc::clone` (a refcount bump, zero
 /// bytes copied) when building the cached HNSW index.
 #[must_use]
-pub fn topk(embeddings: &FlatEmbeddings, query: &[f32], top_k: usize) -> Vec<(usize, f32)> {
+pub(crate) fn topk(embeddings: &FlatEmbeddings, query: &[f32], top_k: usize) -> Vec<(usize, f32)> {
     topk_gated(embeddings, query, top_k, ANN_MIN_VECTORS)
 }
 

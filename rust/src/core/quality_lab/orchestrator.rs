@@ -8,7 +8,7 @@ use super::fidelity::assess_fidelity;
 
 /// Compression quality and savings measured for one input/output pair.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct InputCompressionMetrics {
+pub(crate) struct InputCompressionMetrics {
     pub modes_tested: usize,
     pub best_mode: String,
     pub best_savings_pct: f64,
@@ -20,7 +20,7 @@ pub struct InputCompressionMetrics {
 
 /// Hit rates and token savings across the three cache layers.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CacheEffectivenessMetrics {
+pub(crate) struct CacheEffectivenessMetrics {
     pub session_cache_hit_rate: f64,
     pub content_cache_hit_rate: f64,
     pub response_cache_hit_rate: f64,
@@ -30,7 +30,7 @@ pub struct CacheEffectivenessMetrics {
 
 /// Cross-family tokenizer calibration summary.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct TokenizerCalibrationMetrics {
+pub(crate) struct TokenizerCalibrationMetrics {
     pub families_tested: usize,
     pub max_cross_family_variance_pct: f64,
     pub dominant_family: String,
@@ -39,7 +39,7 @@ pub struct TokenizerCalibrationMetrics {
 
 /// Runtime effective-tokens-per-accepted-outcome summary.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct EtpaoSummary {
+pub(crate) struct EtpaoSummary {
     pub current_etpao: Option<f64>,
     pub savings_rate_pct: f64,
     pub total_events: u64,
@@ -48,7 +48,7 @@ pub struct EtpaoSummary {
 
 /// Unified quality lab report aggregating all measurement pillars.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct QualityLabReport {
+pub(crate) struct QualityLabReport {
     pub schema_version: String,
     pub input_compression: InputCompressionMetrics,
     pub cache_effectiveness: CacheEffectivenessMetrics,
@@ -58,7 +58,7 @@ pub struct QualityLabReport {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum QualityGrade {
+pub(crate) enum QualityGrade {
     Premium,
     Good,
     Acceptable,
@@ -76,7 +76,7 @@ struct CacheCounts {
     tokens_saved: u64,
 }
 
-pub fn assess_input_compression(
+pub(crate) fn assess_input_compression(
     original: &str,
     compressed: &str,
     ext: &str,
@@ -98,7 +98,7 @@ pub fn assess_input_compression(
     }
 }
 
-pub fn assess_cache_effectiveness() -> CacheEffectivenessMetrics {
+pub(crate) fn assess_cache_effectiveness() -> CacheEffectivenessMetrics {
     let counts = telemetry_counts();
     let session_requests = counts.session_hits.saturating_add(counts.session_misses);
     let content_requests = counts.content_hits.saturating_add(counts.content_misses);
@@ -124,7 +124,7 @@ pub fn assess_cache_effectiveness() -> CacheEffectivenessMetrics {
     }
 }
 
-pub fn assess_tokenizer_calibration(sample_text: &str) -> TokenizerCalibrationMetrics {
+pub(crate) fn assess_tokenizer_calibration(sample_text: &str) -> TokenizerCalibrationMetrics {
     let counts = compare_calibration(sample_text);
     let mut minimum = u64::MAX;
     let mut maximum = 0_u64;
@@ -158,7 +158,7 @@ pub fn assess_tokenizer_calibration(sample_text: &str) -> TokenizerCalibrationMe
     }
 }
 
-pub fn compute_quality_grade(report: &QualityLabReport) -> QualityGrade {
+pub(crate) fn compute_quality_grade(report: &QualityLabReport) -> QualityGrade {
     let input = &report.input_compression;
     let structural = matches!(input.fidelity_class.as_str(), "Exact" | "Structural");
     let savings = input.best_savings_pct;
@@ -176,7 +176,7 @@ pub fn compute_quality_grade(report: &QualityLabReport) -> QualityGrade {
     }
 }
 
-pub fn run_quality_lab(original: &str, compressed: &str, ext: &str) -> QualityLabReport {
+pub(crate) fn run_quality_lab(original: &str, compressed: &str, ext: &str) -> QualityLabReport {
     let input_compression = assess_input_compression(original, compressed, ext);
     let cache_effectiveness = assess_cache_effectiveness();
     let tokenizer_calibration = assess_tokenizer_calibration(original);
@@ -193,7 +193,7 @@ pub fn run_quality_lab(original: &str, compressed: &str, ext: &str) -> QualityLa
     report
 }
 
-pub fn format_quality_report(report: &QualityLabReport) -> String {
+pub(crate) fn format_quality_report(report: &QualityLabReport) -> String {
     format!(
         concat!(
             "Quality Lab ({})\n",

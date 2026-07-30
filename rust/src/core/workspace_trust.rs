@@ -36,7 +36,7 @@ const FILE_NAME: &str = "workspace-trust.toml";
 /// One trusted workspace: its canonical path plus the content hash of the
 /// `.lean-ctx.toml` reviewed at trust time (empty when no local file existed).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TrustedWorkspace {
+pub(crate) struct TrustedWorkspace {
     /// Canonicalized absolute workspace root.
     pub path: String,
     /// blake3 hash of `.lean-ctx.toml` at trust time; empty = none present then.
@@ -47,19 +47,19 @@ pub struct TrustedWorkspace {
 
 /// The pinned trust set, persisted as `workspace-trust.toml`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TrustStore {
+pub(crate) struct TrustStore {
     #[serde(default, rename = "workspace", skip_serializing_if = "Vec::is_empty")]
     pub workspaces: Vec<TrustedWorkspace>,
 }
 
 /// Location of the trust file (`<config_dir>/workspace-trust.toml`).
-pub fn store_path() -> Result<PathBuf, String> {
+pub(crate) fn store_path() -> Result<PathBuf, String> {
     Ok(crate::core::paths::config_dir()?.join(FILE_NAME))
 }
 
 /// Load the pinned set. A missing file is the common case and yields an empty
 /// store, never an error.
-pub fn load() -> Result<TrustStore, String> {
+pub(crate) fn load() -> Result<TrustStore, String> {
     let path = store_path()?;
     if !path.exists() {
         return Ok(TrustStore::default());
@@ -70,7 +70,7 @@ pub fn load() -> Result<TrustStore, String> {
 }
 
 /// Persist the pinned set (creating the config dir if needed), owner-only.
-pub fn save(store: &TrustStore) -> Result<(), String> {
+pub(crate) fn save(store: &TrustStore) -> Result<(), String> {
     let path = store_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir config: {e}"))?;
@@ -102,7 +102,7 @@ fn canonical(root: &Path) -> String {
 /// Content hash of a workspace's `.lean-ctx.toml`, or empty when absent. This is
 /// the value pinned at trust time and re-checked on every load.
 #[must_use]
-pub fn config_hash_for(root: &Path) -> String {
+pub(crate) fn config_hash_for(root: &Path) -> String {
     let local = crate::core::config::Config::local_path(&root.to_string_lossy());
     std::fs::read_to_string(&local)
         .ok()
@@ -143,7 +143,7 @@ fn trust_all_env() -> bool {
 /// longer matches `config_hash` is treated as untrusted — the file changed since
 /// it was reviewed, so re-trust is required.
 #[must_use]
-pub fn is_trusted_for(root: &Path, config_hash: &str) -> bool {
+pub(crate) fn is_trusted_for(root: &Path, config_hash: &str) -> bool {
     if trust_all_env() {
         return true;
     }
@@ -165,13 +165,13 @@ pub fn is_trusted_for(root: &Path, config_hash: &str) -> bool {
 /// file to compute the hash; prefer [`is_trusted_for`] when the caller already
 /// holds it (e.g. config load).
 #[must_use]
-pub fn is_trusted(root: &Path) -> bool {
+pub(crate) fn is_trusted(root: &Path) -> bool {
     is_trusted_for(root, &config_hash_for(root))
 }
 
 /// Trust `root` at its current `.lean-ctx.toml` content. Re-trusting an already
 /// trusted path refreshes its pinned hash (and timestamp). Returns the entry.
-pub fn trust(root: &Path) -> Result<TrustedWorkspace, String> {
+pub(crate) fn trust(root: &Path) -> Result<TrustedWorkspace, String> {
     let canon = canonical(root);
     if canon.is_empty() {
         return Err("cannot resolve workspace path".into());
@@ -196,7 +196,7 @@ pub fn trust(root: &Path) -> Result<TrustedWorkspace, String> {
 }
 
 /// Remove `root` from the trust store. Returns `true` when an entry was removed.
-pub fn untrust(root: &Path) -> Result<bool, String> {
+pub(crate) fn untrust(root: &Path) -> Result<bool, String> {
     let canon = canonical(root);
     let mut store = load()?;
     let before = store.workspaces.len();
@@ -211,7 +211,7 @@ pub fn untrust(root: &Path) -> Result<bool, String> {
 /// All trusted workspaces from the persisted store (env overrides excluded —
 /// those are provenance-free and shown separately by callers when relevant).
 #[must_use]
-pub fn list() -> Vec<TrustedWorkspace> {
+pub(crate) fn list() -> Vec<TrustedWorkspace> {
     load().map(|s| s.workspaces).unwrap_or_default()
 }
 
@@ -227,7 +227,7 @@ pub fn list() -> Vec<TrustedWorkspace> {
 /// command (`shell_allowlist*`) or read (`allow_paths`) otherwise gives the agent
 /// no clue why an edit "did nothing"; this surfaces it inside the error itself.
 #[must_use]
-pub fn untrusted_override_notice() -> Option<String> {
+pub(crate) fn untrusted_override_notice() -> Option<String> {
     let root = crate::core::config::Config::find_project_root()?;
     untrusted_override_notice_for(Path::new(&root))
 }

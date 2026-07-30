@@ -4,7 +4,7 @@ use super::adaptive_bridge::KernelCompressionAdvice;
 
 /// Compression guidance derived from bounce-tracker observations.
 #[derive(Debug, Clone, Copy, serde::Serialize)]
-pub struct CompressionAdvice {
+pub(crate) struct CompressionAdvice {
     /// Whether compression should be reduced.
     pub should_reduce: bool,
     /// Bounce rate used to produce the advice.
@@ -33,7 +33,7 @@ impl CompressionAdvice {
 }
 
 /// Updates the adaptive bridge from the process-wide bounce tracker.
-pub fn update_from_bounce_tracker() {
+pub(crate) fn update_from_bounce_tracker() {
     if !super::kernel_config::is_enabled() {
         return;
     }
@@ -50,7 +50,7 @@ pub fn update_from_bounce_tracker() {
 
 /// Returns adaptive compression guidance for a path's extension.
 #[must_use]
-pub fn advice_for_path(path: &str) -> CompressionAdvice {
+pub(crate) fn advice_for_path(path: &str) -> CompressionAdvice {
     if !super::kernel_config::is_enabled() {
         return CompressionAdvice::maintain();
     }
@@ -64,12 +64,12 @@ pub fn advice_for_path(path: &str) -> CompressionAdvice {
 
 /// Returns adaptive compression guidance for the latest global bounce signal.
 #[must_use]
-pub fn global_advice() -> CompressionAdvice {
+pub(crate) fn global_advice() -> CompressionAdvice {
     CompressionAdvice::from_rate(super::adaptive_bridge::current_bounce_rate())
 }
 
 /// Clears adaptive compression signal state.
-pub fn reset() {
+pub(crate) fn reset() {
     super::adaptive_bridge::reset();
 }
 

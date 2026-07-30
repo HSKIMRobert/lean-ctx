@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 /// Env var name prefixes identifying agent runtime/session state worth forwarding
 /// to `ctx_shell` child processes.
-pub const FORWARD_PREFIXES: &[&str] = &[
+pub(crate) const FORWARD_PREFIXES: &[&str] = &[
     "CODEX_",
     "CLAUDE_",
     "CODEBUDDY_",
@@ -49,7 +49,7 @@ const CREDENTIAL_MARKERS: &[&str] = &[
 /// Whether `key` looks like a secret/credential that must never be forwarded or
 /// persisted, regardless of any matching forwardable prefix.
 #[must_use]
-pub fn is_credential_shaped(key: &str) -> bool {
+pub(crate) fn is_credential_shaped(key: &str) -> bool {
     let upper = key.to_ascii_uppercase();
     CREDENTIAL_MARKERS
         .iter()
@@ -68,7 +68,7 @@ const TTL_SECS: u64 = 7_200;
 /// (2) is not credential-shaped — session/thread identifiers cross the bridge,
 /// secrets never do (GH security audit, finding 2).
 #[must_use]
-pub fn is_forwardable(key: &str) -> bool {
+pub(crate) fn is_forwardable(key: &str) -> bool {
     FORWARD_PREFIXES
         .iter()
         .any(|prefix| key.starts_with(prefix))
@@ -146,7 +146,7 @@ fn now_secs() -> u64 {
 
 /// Forwardable variables present in the current process environment.
 #[must_use]
-pub fn collect_from_process() -> BTreeMap<String, String> {
+pub(crate) fn collect_from_process() -> BTreeMap<String, String> {
     std::env::vars()
         .filter(|(key, _)| is_forwardable(key))
         .collect()
@@ -174,7 +174,7 @@ fn read_store(path: &Path) -> Option<(BTreeMap<String, String>, u64)> {
 /// prevents a process with a stripped environment (e.g. the MCP server itself)
 /// from clobbering a good capture. The file is only rewritten when the variable
 /// set actually changes, keeping the cost of capturing on every shell command low.
-pub fn capture() {
+pub(crate) fn capture() {
     let vars = collect_from_process();
     if vars.is_empty() {
         return;
@@ -205,7 +205,7 @@ pub fn capture() {
 /// spawned by an agent that sets runtime vars only in native shell commands
 /// (e.g. Codex with CODEX_THREAD_ID) without going through `lean-ctx -c` first.
 #[must_use]
-pub fn load() -> BTreeMap<String, String> {
+pub(crate) fn load() -> BTreeMap<String, String> {
     let Some(path) = store_path() else {
         return BTreeMap::new();
     };

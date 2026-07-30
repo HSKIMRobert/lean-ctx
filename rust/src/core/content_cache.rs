@@ -35,7 +35,7 @@ const DEFAULT_BUDGET_MB: usize = 128;
 /// Identity of one file *version*. A changed mtime or size ⇒ stale ⇒ cache miss.
 /// Mirrors the `(mtime, size)` pair the BM25 index already trusts for staleness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FileState {
+pub(crate) struct FileState {
     pub mtime_ms: u64,
     pub size_bytes: u64,
 }
@@ -44,7 +44,7 @@ impl FileState {
     /// Build from an already-`stat`ed [`Metadata`] (no extra syscall) — callers
     /// in the hot path typically have this in hand from their size/regular-file
     /// checks. Returns `None` only when the platform cannot report mtime.
-    pub fn from_metadata(meta: &Metadata) -> Option<Self> {
+    pub(crate) fn from_metadata(meta: &Metadata) -> Option<Self> {
         let mtime_ms = meta
             .modified()
             .ok()
@@ -57,7 +57,7 @@ impl FileState {
     }
 
     /// Convenience: `stat` the path then build the state. Costs one syscall.
-    pub fn from_path(path: &Path) -> Option<Self> {
+    pub(crate) fn from_path(path: &Path) -> Option<Self> {
         Self::from_metadata(&path.metadata().ok()?)
     }
 }
@@ -147,7 +147,7 @@ fn lock() -> std::sync::MutexGuard<'static, Cache> {
 /// `(mtime, size)` matches the stored identity. A mismatch evicts the stale
 /// entry and reports a miss. `state` is passed in (not re-`stat`ed) because hot
 /// callers already hold the metadata.
-pub fn get(path: &Path, current: FileState) -> Option<Arc<str>> {
+pub(crate) fn get(path: &Path, current: FileState) -> Option<Arc<str>> {
     if disabled() {
         return None;
     }
@@ -178,7 +178,7 @@ pub fn get(path: &Path, current: FileState) -> Option<Arc<str>> {
 /// Insert (or replace) the content for `path` at version `state`. Skipped while
 /// the process is under memory pressure or when the cache is disabled, so the
 /// cache never *adds* to a memory problem.
-pub fn insert(path: &Path, state: FileState, content: Arc<str>) {
+pub(crate) fn insert(path: &Path, state: FileState, content: Arc<str>) {
     if disabled() || crate::core::memory_guard::is_under_pressure() {
         return;
     }
@@ -202,7 +202,7 @@ pub fn insert(path: &Path, state: FileState, content: Arc<str>) {
 /// non-UTF-8/unreadable/unstatable file. Convenience for callers without their
 /// own size/special-file gating (the search-index build and `ctx_search` use
 /// the explicit [`get`]/[`insert`] pair so they keep their own skip rules).
-pub fn get_or_read(path: &Path) -> Option<Arc<str>> {
+pub(crate) fn get_or_read(path: &Path) -> Option<Arc<str>> {
     let state = FileState::from_path(path)?;
     if let Some(hit) = get(path, state) {
         return Some(hit);
@@ -215,7 +215,7 @@ pub fn get_or_read(path: &Path) -> Option<Arc<str>> {
 
 /// Drop all entries, freeing the heap. Called by the eviction orchestrator under
 /// memory pressure; the cache simply re-warms on subsequent reads.
-pub fn clear() {
+pub(crate) fn clear() {
     if CACHE.get().is_none() {
         return;
     }
@@ -227,7 +227,7 @@ pub fn clear() {
 /// Evict the oldest `percent` of entries by LRU clock. Used after index builds
 /// to release file contents that were only needed for chunking/tokenization.
 /// `percent` is clamped to `[0, 100]`.
-pub fn trim_oldest_percent(percent: u8) {
+pub(crate) fn trim_oldest_percent(percent: u8) {
     if CACHE.get().is_none() {
         return;
     }
@@ -247,7 +247,7 @@ pub fn trim_oldest_percent(percent: u8) {
 }
 
 /// Approximate resident heap used by cached contents, in bytes.
-pub fn memory_usage_bytes() -> usize {
+pub(crate) fn memory_usage_bytes() -> usize {
     if CACHE.get().is_none() {
         return 0;
     }
@@ -256,7 +256,7 @@ pub fn memory_usage_bytes() -> usize {
 
 /// Observability snapshot: `(hits, misses, entries, bytes, evictions)`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CacheStats {
+pub(crate) struct CacheStats {
     pub hits: u64,
     pub misses: u64,
     pub entries: usize,
@@ -265,7 +265,7 @@ pub struct CacheStats {
     pub evictions: u64,
 }
 
-pub fn stats() -> CacheStats {
+pub(crate) fn stats() -> CacheStats {
     if CACHE.get().is_none() {
         return CacheStats::default();
     }

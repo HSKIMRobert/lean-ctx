@@ -15,14 +15,14 @@ use super::index_paths::normalize_project_root;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallGraph {
+pub(crate) struct CallGraph {
     pub project_root: String,
     pub edges: Vec<CallEdge>,
     pub file_hashes: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CallEdge {
+pub(crate) struct CallEdge {
     pub caller_file: String,
     pub caller_symbol: String,
     pub caller_line: usize,
@@ -32,7 +32,7 @@ pub struct CallEdge {
 /// Minimal symbol span the call-graph builder needs to attribute a call site to
 /// its enclosing symbol — backend-agnostic, decoupled from any graph store.
 #[derive(Debug, Clone)]
-pub struct SymbolSpan {
+pub(crate) struct SymbolSpan {
     pub file: String,
     pub name: String,
     pub start_line: usize,
@@ -45,7 +45,7 @@ pub struct SymbolSpan {
 /// attribution) and the import/reexport adjacency (for scope-aware callee
 /// resolution). Source content itself is still read fresh from disk per file.
 #[derive(Debug, Clone, Default)]
-pub struct CallGraphInputs {
+pub(crate) struct CallGraphInputs {
     pub project_root: String,
     pub file_paths: Vec<String>,
     pub symbols: Vec<SymbolSpan>,
@@ -58,7 +58,7 @@ impl CallGraphInputs {
     /// materialize call-graph inputs. Returns empty inputs (rooted at
     /// `project_root`) when no graph is available yet — matching the old
     /// behaviour of building from an empty index.
-    pub fn open(project_root: &str) -> Self {
+    pub(crate) fn open(project_root: &str) -> Self {
         match crate::core::graph_provider::open_or_build(project_root) {
             Some(open) => Self::from_provider(project_root, &open.provider),
             None => Self {
@@ -73,7 +73,7 @@ impl CallGraphInputs {
     /// (repomap, dashboard coordinator) and want call-graph inputs consistent
     /// with *that* scan rather than a possibly-lagging PropertyGraph. Removed in
     /// #696 Phase D once those callers move to the facade/extractor wholesale.
-    pub fn from_project_index(index: &super::graph_index::ProjectIndex) -> Self {
+    pub(crate) fn from_project_index(index: &super::graph_index::ProjectIndex) -> Self {
         let symbols = index
             .symbols
             .values()
@@ -99,7 +99,7 @@ impl CallGraphInputs {
     }
 
     /// Materialize the builder inputs from a [`GraphProvider`] facade.
-    pub fn from_provider(project_root: &str, provider: &GraphProvider) -> Self {
+    pub(crate) fn from_provider(project_root: &str, provider: &GraphProvider) -> Self {
         let symbols = provider
             .all_symbols()
             .into_iter()
@@ -126,7 +126,7 @@ impl CallGraphInputs {
 }
 
 #[derive(Debug, Clone)]
-pub struct BfsNode {
+pub(crate) struct BfsNode {
     pub symbol: String,
     pub file: String,
     pub line: usize,
@@ -135,7 +135,7 @@ pub struct BfsNode {
 }
 
 #[derive(Debug, Clone)]
-pub struct PathHop {
+pub(crate) struct PathHop {
     pub symbol: String,
     pub file: String,
     pub line: usize,
@@ -148,7 +148,7 @@ enum BfsDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RiskLevel {
+pub(crate) enum RiskLevel {
     Low,
     Medium,
     High,
@@ -156,7 +156,7 @@ pub enum RiskLevel {
 }
 
 impl RiskLevel {
-    pub fn from_caller_count(count: usize) -> Self {
+    pub(crate) fn from_caller_count(count: usize) -> Self {
         match count {
             0..=1 => Self::Low,
             2..=4 => Self::Medium,
@@ -165,7 +165,7 @@ impl RiskLevel {
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Low => "LOW",
             Self::Medium => "MEDIUM",
@@ -180,7 +180,7 @@ impl RiskLevel {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
-pub struct BuildProgress {
+pub(crate) struct BuildProgress {
     pub status: &'static str,
     pub files_total: usize,
     pub files_done: usize,
@@ -205,7 +205,7 @@ fn global_state() -> &'static Mutex<BuildState> {
 }
 
 impl CallGraph {
-    pub fn new(project_root: &str) -> Self {
+    pub(crate) fn new(project_root: &str) -> Self {
         Self {
             project_root: normalize_project_root(project_root),
             edges: Vec::new(),
@@ -217,7 +217,7 @@ impl CallGraph {
     // Parallel build — processes files via rayon thread pool
     // -----------------------------------------------------------------------
 
-    pub fn build_parallel(
+    pub(crate) fn build_parallel(
         inputs: &CallGraphInputs,
         progress: Option<(&AtomicUsize, &AtomicUsize)>,
     ) -> Self {
@@ -280,7 +280,7 @@ impl CallGraph {
     // Incremental parallel build — only re-analyzes changed files
     // -----------------------------------------------------------------------
 
-    pub fn build_incremental_parallel(
+    pub(crate) fn build_incremental_parallel(
         inputs: &CallGraphInputs,
         previous: &CallGraph,
         progress: Option<(&AtomicUsize, &AtomicUsize)>,
@@ -356,7 +356,7 @@ impl CallGraph {
     // -----------------------------------------------------------------------
 
     /// Returns the cached graph immediately, or `None` + starts a background build.
-    pub fn get_or_start_build(
+    pub(crate) fn get_or_start_build(
         project_root: &str,
         inputs: Arc<CallGraphInputs>,
     ) -> Result<Arc<CallGraph>, BuildProgress> {
@@ -451,7 +451,7 @@ impl CallGraph {
     }
 
     /// Returns current build status without starting anything.
-    pub fn build_status() -> BuildProgress {
+    pub(crate) fn build_status() -> BuildProgress {
         let state = global_state();
         let guard = state
             .lock()
@@ -492,7 +492,7 @@ impl CallGraph {
     }
 
     /// Force-invalidate the cached result so next request triggers a rebuild.
-    pub fn invalidate() {
+    pub(crate) fn invalidate() {
         if let Ok(mut g) = global_state().lock() {
             *g = BuildState::Idle;
         }
@@ -502,15 +502,15 @@ impl CallGraph {
     // Legacy synchronous API (kept for non-dashboard callers)
     // -----------------------------------------------------------------------
 
-    pub fn build(inputs: &CallGraphInputs) -> Self {
+    pub(crate) fn build(inputs: &CallGraphInputs) -> Self {
         Self::build_parallel(inputs, None)
     }
 
-    pub fn build_incremental(inputs: &CallGraphInputs, previous: &CallGraph) -> Self {
+    pub(crate) fn build_incremental(inputs: &CallGraphInputs, previous: &CallGraph) -> Self {
         Self::build_incremental_parallel(inputs, previous, None)
     }
 
-    pub fn callers_of(&self, symbol: &str) -> Vec<&CallEdge> {
+    pub(crate) fn callers_of(&self, symbol: &str) -> Vec<&CallEdge> {
         let sym_lower = symbol.to_lowercase();
         self.edges
             .iter()
@@ -518,7 +518,7 @@ impl CallGraph {
             .collect()
     }
 
-    pub fn callees_of(&self, symbol: &str) -> Vec<&CallEdge> {
+    pub(crate) fn callees_of(&self, symbol: &str) -> Vec<&CallEdge> {
         let sym_lower = symbol.to_lowercase();
         self.edges
             .iter()
@@ -531,12 +531,12 @@ impl CallGraph {
     // -----------------------------------------------------------------------
 
     /// BFS callers up to `max_depth` hops. Returns (symbol, file, line, depth) per node.
-    pub fn bfs_callers(&self, symbol: &str, max_depth: usize) -> Vec<BfsNode> {
+    pub(crate) fn bfs_callers(&self, symbol: &str, max_depth: usize) -> Vec<BfsNode> {
         self.bfs_traverse(symbol, max_depth, BfsDirection::Callers)
     }
 
     /// BFS callees up to `max_depth` hops. Returns (symbol, file, line, depth) per node.
-    pub fn bfs_callees(&self, symbol: &str, max_depth: usize) -> Vec<BfsNode> {
+    pub(crate) fn bfs_callees(&self, symbol: &str, max_depth: usize) -> Vec<BfsNode> {
         self.bfs_traverse(symbol, max_depth, BfsDirection::Callees)
     }
 
@@ -603,7 +603,7 @@ impl CallGraph {
     /// Returns None if no path exists (searched up to depth 10).
     /// Find shortest call path from `from` to `to` using BFS.
     /// Returns None if no path exists (searched up to depth 10).
-    pub fn find_call_path(&self, from: &str, to: &str) -> Option<Vec<PathHop>> {
+    pub(crate) fn find_call_path(&self, from: &str, to: &str) -> Option<Vec<PathHop>> {
         use std::collections::{HashMap as BfsMap, VecDeque};
 
         let from_lower = from.to_lowercase();
@@ -707,7 +707,7 @@ impl CallGraph {
     }
 
     /// Count unique transitive callers up to `max_depth`.
-    pub fn transitive_caller_count(&self, symbol: &str, max_depth: usize) -> usize {
+    pub(crate) fn transitive_caller_count(&self, symbol: &str, max_depth: usize) -> usize {
         let nodes = self.bfs_callers(symbol, max_depth);
         let mut unique: std::collections::HashSet<String> = std::collections::HashSet::new();
         for node in &nodes {
@@ -716,7 +716,7 @@ impl CallGraph {
         unique.len()
     }
 
-    pub fn save(&self) -> Result<(), String> {
+    pub(crate) fn save(&self) -> Result<(), String> {
         let dir = call_graph_dir(&self.project_root)
             .ok_or_else(|| "Cannot determine home directory".to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -730,7 +730,7 @@ impl CallGraph {
         Ok(())
     }
 
-    pub fn load(project_root: &str) -> Option<Self> {
+    pub(crate) fn load(project_root: &str) -> Option<Self> {
         let dir = call_graph_dir(project_root)?;
 
         let zst_path = dir.join("call_graph.json.zst");
@@ -760,7 +760,7 @@ impl CallGraph {
         None
     }
 
-    pub fn load_or_build(project_root: &str, inputs: &CallGraphInputs) -> Self {
+    pub(crate) fn load_or_build(project_root: &str, inputs: &CallGraphInputs) -> Self {
         if let Some(previous) = Self::load(project_root) {
             Self::build_incremental(inputs, &previous)
         } else {
@@ -862,7 +862,7 @@ fn simple_hash(content: &str) -> String {
 
 /// Build a `file -> imported files` adjacency from the project index's import
 /// and reexport edges, used to scope callee resolution to a caller's imports.
-pub fn build_import_adjacency(
+pub(crate) fn build_import_adjacency(
     inputs: &CallGraphInputs,
 ) -> HashMap<String, std::collections::HashSet<String>> {
     let mut adj: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
@@ -905,7 +905,7 @@ fn rank_callee_def_file(
 }
 
 /// Resolve a single callee name to its defining file in the scope of `caller_file`.
-pub fn resolve_callee_file(
+pub(crate) fn resolve_callee_file(
     callee_name: &str,
     caller_file: &str,
     inputs: &CallGraphInputs,
@@ -926,7 +926,7 @@ pub fn resolve_callee_file(
 /// unambiguous across all call sites*. Names that resolve to different files
 /// from different scopes are omitted, so callers never attribute a call to the
 /// wrong file. Keyed by callee name to match the call graph's name-keyed nodes.
-pub fn resolve_callee_files(
+pub(crate) fn resolve_callee_files(
     inputs: &CallGraphInputs,
     edges: &[CallEdge],
 ) -> HashMap<String, String> {

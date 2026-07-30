@@ -7,7 +7,7 @@ use std::collections::HashMap;
 /// boilerplate to the LLM multiple times across different file reads.
 
 #[derive(Debug, Clone)]
-pub struct CodebookEntry {
+pub(crate) struct CodebookEntry {
     pub id: String,
     pub pattern: String,
     pub frequency: usize,
@@ -15,14 +15,14 @@ pub struct CodebookEntry {
 }
 
 #[derive(Debug, Default)]
-pub struct Codebook {
+pub(crate) struct Codebook {
     entries: Vec<CodebookEntry>,
     pattern_to_id: HashMap<String, String>,
     next_id: usize,
 }
 
 impl Codebook {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -30,7 +30,7 @@ impl Codebook {
     /// Identifies lines that appear in 3+ files and creates short references.
     /// Skips codebook phase entirely if total line count exceeds 50,000
     /// to prevent memory spikes on large projects.
-    pub fn build_from_files(&mut self, files: &[(&str, &str)]) {
+    pub(crate) fn build_from_files(&mut self, files: &[(&str, &str)]) {
         let total_docs = files.len() as f64;
         if total_docs < 2.0 {
             return;
@@ -91,7 +91,7 @@ impl Codebook {
 
     /// Apply codebook to content: replace known patterns with short references.
     /// Returns (compressed content, references used).
-    pub fn compress(&self, content: &str) -> (String, Vec<String>) {
+    pub(crate) fn compress(&self, content: &str) -> (String, Vec<String>) {
         if self.entries.is_empty() {
             return (content.to_string(), vec![]);
         }
@@ -115,7 +115,7 @@ impl Codebook {
     }
 
     /// Format the codebook legend for lines that were referenced.
-    pub fn format_legend(&self, refs_used: &[String]) -> String {
+    pub(crate) fn format_legend(&self, refs_used: &[String]) -> String {
         if refs_used.is_empty() {
             return String::new();
         }
@@ -137,11 +137,11 @@ impl Codebook {
         lines.join("\n")
     }
 
-    pub fn len(&self) -> usize {
+    pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
@@ -149,12 +149,16 @@ impl Codebook {
 /// Cosine similarity between two documents using TF-IDF vectors.
 /// IDF is computed over the two-document corpus to down-weight common terms
 /// like `fn`, `let`, `return` and up-weight domain-specific identifiers.
-pub fn tfidf_cosine_similarity(doc_a: &str, doc_b: &str) -> f64 {
+pub(crate) fn tfidf_cosine_similarity(doc_a: &str, doc_b: &str) -> f64 {
     tfidf_cosine_similarity_with_corpus(&[doc_a, doc_b], doc_a, doc_b)
 }
 
 /// TF-IDF cosine similarity with IDF computed over a larger corpus.
-pub fn tfidf_cosine_similarity_with_corpus(corpus: &[&str], doc_a: &str, doc_b: &str) -> f64 {
+pub(crate) fn tfidf_cosine_similarity_with_corpus(
+    corpus: &[&str],
+    doc_a: &str,
+    doc_b: &str,
+) -> f64 {
     let idf = compute_idf(corpus);
     let tfidf_a = tfidf_vector(doc_a, &idf);
     let tfidf_b = tfidf_vector(doc_b, &idf);
@@ -187,7 +191,7 @@ pub fn tfidf_cosine_similarity_with_corpus(corpus: &[&str], doc_a: &str, doc_b: 
 
 /// Identify semantically duplicate blocks across files.
 /// IDF is computed over the full file corpus for accurate weighting.
-pub fn find_semantic_duplicates(
+pub(crate) fn find_semantic_duplicates(
     files: &[(String, String)],
     threshold: f64,
 ) -> Vec<(String, String, f64)> {

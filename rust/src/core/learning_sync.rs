@@ -15,10 +15,10 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BUNDLE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const BUNDLE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LearningBundle {
+pub(crate) struct LearningBundle {
     pub schema_version: u32,
     /// RFC3339 export timestamp (informational).
     pub exported_at: String,
@@ -27,13 +27,13 @@ pub struct LearningBundle {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MergeReport {
+pub(crate) struct MergeReport {
     pub threshold_exts: usize,
     pub litm_profiles: usize,
 }
 
 /// Snapshot the current learning state into a bundle.
-pub fn export_bundle() -> LearningBundle {
+pub(crate) fn export_bundle() -> LearningBundle {
     LearningBundle {
         schema_version: BUNDLE_SCHEMA_VERSION,
         exported_at: chrono::Utc::now().to_rfc3339(),
@@ -44,7 +44,7 @@ pub fn export_bundle() -> LearningBundle {
 
 /// Parse and merge a bundle into the local stores. Fails on schema mismatch
 /// rather than guessing — a future schema bump must ship its own migration.
-pub fn import_bundle(json: &str) -> Result<MergeReport, String> {
+pub(crate) fn import_bundle(json: &str) -> Result<MergeReport, String> {
     let bundle: LearningBundle =
         serde_json::from_str(json).map_err(|e| format!("invalid learning bundle: {e}"))?;
     if bundle.schema_version != BUNDLE_SCHEMA_VERSION {

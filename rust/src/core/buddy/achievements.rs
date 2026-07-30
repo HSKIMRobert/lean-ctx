@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum AchievementId {
+pub(crate) enum AchievementId {
     FirstSave,
     Streak7,
     Streak30,
@@ -17,7 +17,7 @@ pub enum AchievementId {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Achievement {
+pub(crate) struct Achievement {
     pub id: AchievementId,
     pub name: &'static str,
     pub icon: &'static str,
@@ -25,7 +25,7 @@ pub struct Achievement {
 }
 
 impl Achievement {
-    pub fn badge(&self) -> String {
+    pub(crate) fn badge(&self) -> String {
         format!("{} {}", self.icon, self.name)
     }
 }
@@ -105,11 +105,11 @@ const ALL: &[Achievement] = &[
     },
 ];
 
-pub fn catalog() -> &'static [Achievement] {
+pub(crate) fn catalog() -> &'static [Achievement] {
     ALL
 }
 
-pub fn check_unlocked(
+pub(crate) fn check_unlocked(
     tokens_saved: u64,
     streak_days: u32,
     bugs_prevented: u64,

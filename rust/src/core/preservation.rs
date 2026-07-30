@@ -2,7 +2,7 @@ use crate::core::deps;
 use crate::core::signatures;
 
 #[derive(Debug, Clone, Default)]
-pub struct PreservationScore {
+pub(crate) struct PreservationScore {
     pub functions_total: usize,
     pub functions_preserved: usize,
     pub exports_total: usize,
@@ -12,28 +12,28 @@ pub struct PreservationScore {
 }
 
 impl PreservationScore {
-    pub fn function_rate(&self) -> f64 {
+    pub(crate) fn function_rate(&self) -> f64 {
         if self.functions_total == 0 {
             return 1.0;
         }
         self.functions_preserved as f64 / self.functions_total as f64
     }
 
-    pub fn export_rate(&self) -> f64 {
+    pub(crate) fn export_rate(&self) -> f64 {
         if self.exports_total == 0 {
             return 1.0;
         }
         self.exports_preserved as f64 / self.exports_total as f64
     }
 
-    pub fn import_rate(&self) -> f64 {
+    pub(crate) fn import_rate(&self) -> f64 {
         if self.imports_total == 0 {
             return 1.0;
         }
         self.imports_preserved as f64 / self.imports_total as f64
     }
 
-    pub fn overall(&self) -> f64 {
+    pub(crate) fn overall(&self) -> f64 {
         let total = self.functions_total + self.exports_total + self.imports_total;
         if total == 0 {
             return 1.0;
@@ -43,7 +43,7 @@ impl PreservationScore {
     }
 }
 
-pub fn measure(raw_content: &str, compressed_output: &str, ext: &str) -> PreservationScore {
+pub(crate) fn measure(raw_content: &str, compressed_output: &str, ext: &str) -> PreservationScore {
     let sigs = signatures::extract_signatures(raw_content, ext);
     let dep_info = deps::extract_deps(raw_content, ext);
 

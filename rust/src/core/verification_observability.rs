@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static SLO_EVALS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
-pub struct VerificationObservabilityV1 {
+pub(crate) struct VerificationObservabilityV1 {
     pub schema_version: u32,
     pub created_at: String,
     pub role: String,
@@ -18,15 +18,15 @@ pub struct VerificationObservabilityV1 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CountersSnapshot {
+pub(crate) struct CountersSnapshot {
     pub slo_evals: u64,
 }
 
-pub fn record_slo_eval() {
+pub(crate) fn record_slo_eval() {
     SLO_EVALS.fetch_add(1, Ordering::Relaxed);
 }
 
-pub fn snapshot_v1() -> VerificationObservabilityV1 {
+pub(crate) fn snapshot_v1() -> VerificationObservabilityV1 {
     let created_at = chrono::Utc::now().to_rfc3339();
     let role = crate::core::roles::active_role_name();
     let profile = crate::core::profiles::active_profile_name();
@@ -53,7 +53,7 @@ pub fn snapshot_v1() -> VerificationObservabilityV1 {
     }
 }
 
-pub fn format_compact(v: &VerificationObservabilityV1) -> String {
+pub(crate) fn format_compact(v: &VerificationObservabilityV1) -> String {
     let proof_last = v
         .proof
         .last_written_at

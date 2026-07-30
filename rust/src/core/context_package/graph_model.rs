@@ -2,14 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextGraph {
+pub(crate) struct ContextGraph {
     pub format: String,
     pub nodes: Vec<ContextNode>,
     pub edges: Vec<ContextEdge>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextNode {
+pub(crate) struct ContextNode {
     pub id: String,
     #[serde(rename = "type")]
     pub node_type: String,
@@ -39,7 +39,7 @@ pub struct ContextNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextEdge {
+pub(crate) struct ContextEdge {
     pub from: String,
     pub to: String,
     #[serde(rename = "type")]
@@ -65,7 +65,7 @@ fn is_zero_u32(v: &u32) -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct GraphSummary {
+pub(crate) struct GraphSummary {
     pub node_count: u32,
     pub edge_count: u32,
     #[serde(default)]
@@ -77,7 +77,7 @@ pub struct GraphSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct MarketplaceMeta {
+pub(crate) struct MarketplaceMeta {
     #[serde(default)]
     pub categories: Vec<String>,
     #[serde(default)]
@@ -86,10 +86,10 @@ pub struct MarketplaceMeta {
     pub license: Option<String>,
 }
 
-pub const GRAPH_FORMAT_V2: &str = "ctxpkg-graph-v2";
+pub(crate) const GRAPH_FORMAT_V2: &str = "ctxpkg-graph-v2";
 
 impl ContextGraph {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             format: GRAPH_FORMAT_V2.into(),
             nodes: Vec::new(),
@@ -97,19 +97,19 @@ impl ContextGraph {
         }
     }
 
-    pub fn add_node(&mut self, node: ContextNode) {
+    pub(crate) fn add_node(&mut self, node: ContextNode) {
         self.nodes.push(node);
     }
 
-    pub fn add_edge(&mut self, edge: ContextEdge) {
+    pub(crate) fn add_edge(&mut self, edge: ContextEdge) {
         self.edges.push(edge);
     }
 
-    pub fn node_by_id(&self, id: &str) -> Option<&ContextNode> {
+    pub(crate) fn node_by_id(&self, id: &str) -> Option<&ContextNode> {
         self.nodes.iter().find(|n| n.id == id)
     }
 
-    pub fn node_types(&self) -> Vec<String> {
+    pub(crate) fn node_types(&self) -> Vec<String> {
         let mut types: Vec<String> = self
             .nodes
             .iter()
@@ -121,7 +121,7 @@ impl ContextGraph {
         types
     }
 
-    pub fn activation_mean(&self) -> f64 {
+    pub(crate) fn activation_mean(&self) -> f64 {
         if self.nodes.is_empty() {
             return 0.0;
         }
@@ -129,7 +129,7 @@ impl ContextGraph {
         sum / self.nodes.len() as f64
     }
 
-    pub fn summary(&self) -> GraphSummary {
+    pub(crate) fn summary(&self) -> GraphSummary {
         GraphSummary {
             node_count: self.nodes.len() as u32,
             edge_count: self.edges.len() as u32,
@@ -139,7 +139,7 @@ impl ContextGraph {
         }
     }
 
-    pub fn apply_temporal_decay(&mut self, now: DateTime<Utc>) {
+    pub(crate) fn apply_temporal_decay(&mut self, now: DateTime<Utc>) {
         for node in &mut self.nodes {
             let Some(half_life) = node.decay_half_life_days else {
                 continue;
@@ -164,7 +164,7 @@ impl Default for ContextGraph {
 }
 
 impl ContextNode {
-    pub fn fact(id: &str, content: &str, category: &str) -> Self {
+    pub(crate) fn fact(id: &str, content: &str, category: &str) -> Self {
         Self {
             id: id.into(),
             node_type: "fact".into(),
@@ -183,7 +183,7 @@ impl ContextNode {
         }
     }
 
-    pub fn gotcha(id: &str, trigger: &str, resolution: &str) -> Self {
+    pub(crate) fn gotcha(id: &str, trigger: &str, resolution: &str) -> Self {
         Self {
             id: id.into(),
             node_type: "gotcha".into(),
@@ -202,7 +202,7 @@ impl ContextNode {
         }
     }
 
-    pub fn code_symbol(id: &str, kind: &str, name: &str, file_path: &str) -> Self {
+    pub(crate) fn code_symbol(id: &str, kind: &str, name: &str, file_path: &str) -> Self {
         Self {
             id: id.into(),
             node_type: format!("code_{kind}"),

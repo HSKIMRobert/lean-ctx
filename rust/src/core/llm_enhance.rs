@@ -72,7 +72,7 @@ impl LlmConfig {
 }
 
 /// Expand a search query using LLM. Falls back to the original query on failure.
-pub fn expand_query(query: &str) -> String {
+pub(crate) fn expand_query(query: &str) -> String {
     let cfg = crate::core::config::Config::load().llm;
     if !cfg.enabled {
         return query.to_string();
@@ -99,7 +99,7 @@ pub fn expand_query(query: &str) -> String {
 
 /// Generate a human-readable explanation for a knowledge contradiction.
 /// Falls back to a simple diff-style description.
-pub fn explain_contradiction(fact_a: &str, fact_b: &str) -> String {
+pub(crate) fn explain_contradiction(fact_a: &str, fact_b: &str) -> String {
     let cfg = crate::core::config::Config::load().llm;
     if !cfg.enabled {
         return deterministic_contradiction(fact_a, fact_b);
@@ -126,7 +126,7 @@ fn deterministic_contradiction(a: &str, b: &str) -> String {
 /// The model is constrained to the supplied notes (no invention). Because the
 /// result is stored once and recalled byte-stably, enabling this does not break
 /// hot-path read determinism (#498) — only the one-time stored value differs.
-pub fn enhance_observation(entity: &str, deterministic: &str) -> String {
+pub(crate) fn enhance_observation(entity: &str, deterministic: &str) -> String {
     let cfg = crate::core::config::Config::load().llm;
     if !cfg.enabled {
         return deterministic.to_string();

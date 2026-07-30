@@ -295,7 +295,7 @@ fn builtin_passthrough() -> Profile {
 }
 
 /// Returns all built-in profile definitions.
-pub fn builtin_profiles() -> HashMap<String, Profile> {
+pub(crate) fn builtin_profiles() -> HashMap<String, Profile> {
     let mut map = HashMap::new();
     for p in [
         builtin_coder(),

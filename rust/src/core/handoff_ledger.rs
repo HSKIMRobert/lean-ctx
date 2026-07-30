@@ -9,7 +9,7 @@ use crate::core::protocol::ToolCallRecord;
 use crate::core::session::SessionState;
 use crate::core::workflow::WorkflowRun;
 
-pub const SCHEMA_VERSION: u32 = crate::core::contracts::HANDOFF_LEDGER_V1_SCHEMA_VERSION;
+pub(crate) const SCHEMA_VERSION: u32 = crate::core::contracts::HANDOFF_LEDGER_V1_SCHEMA_VERSION;
 const MAX_KNOWLEDGE_FACTS: usize = 50;
 const MAX_CURATED_REFS: usize = 20;
 
@@ -72,7 +72,7 @@ pub struct CuratedRef {
 }
 
 #[derive(Debug, Clone)]
-pub struct CreateLedgerInput {
+pub(crate) struct CreateLedgerInput {
     pub agent_id: Option<String>,
     pub client_name: Option<String>,
     pub project_root: Option<String>,
@@ -82,7 +82,9 @@ pub struct CreateLedgerInput {
     pub curated_refs: Vec<(String, String)>, // (abs_path, signatures_text)
 }
 
-pub fn create_ledger(input: CreateLedgerInput) -> Result<(HandoffLedgerV1, PathBuf), String> {
+pub(crate) fn create_ledger(
+    input: CreateLedgerInput,
+) -> Result<(HandoffLedgerV1, PathBuf), String> {
     let manifest_md5 = manifest_md5();
 
     let mut evidence_keys: BTreeSet<String> = BTreeSet::new();
@@ -184,7 +186,7 @@ pub fn create_ledger(input: CreateLedgerInput) -> Result<(HandoffLedgerV1, PathB
     Ok((ledger, path))
 }
 
-pub fn list_ledgers() -> Vec<PathBuf> {
+pub(crate) fn list_ledgers() -> Vec<PathBuf> {
     let dir = handoffs_dir().ok();
     let Some(dir) = dir else {
         return Vec::new();
@@ -202,16 +204,16 @@ pub fn list_ledgers() -> Vec<PathBuf> {
     items
 }
 
-pub fn load_ledger(path: &Path) -> Result<HandoffLedgerV1, String> {
+pub(crate) fn load_ledger(path: &Path) -> Result<HandoffLedgerV1, String> {
     let s = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     serde_json::from_str(&s).map_err(|e| format!("parse {}: {e}", path.display()))
 }
 
-pub fn compute_content_md5_for_ledger(ledger: &HandoffLedgerV1) -> String {
+pub(crate) fn compute_content_md5_for_ledger(ledger: &HandoffLedgerV1) -> String {
     ledger_content_md5(ledger)
 }
 
-pub fn clear_ledgers() -> Result<u32, String> {
+pub(crate) fn clear_ledgers() -> Result<u32, String> {
     let dir = handoffs_dir()?;
     let mut removed = 0u32;
     if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -289,14 +291,14 @@ fn ledger_content_md5(ledger: &HandoffLedgerV1) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HandoffPackage {
+pub(crate) struct HandoffPackage {
     pub ledger: HandoffLedgerV1,
     pub intent: Option<IntentSnapshot>,
     pub context_snapshot: Option<ContextSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IntentSnapshot {
+pub(crate) struct IntentSnapshot {
     pub task_type: String,
     pub scope: String,
     pub targets: Vec<String>,
@@ -306,7 +308,7 @@ pub struct IntentSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContextSnapshot {
+pub(crate) struct ContextSnapshot {
     pub window_size: usize,
     pub tokens_used: usize,
     pub tokens_saved: usize,
@@ -314,14 +316,14 @@ pub struct ContextSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoadedFileInfo {
+pub(crate) struct LoadedFileInfo {
     pub path: String,
     pub mode: String,
     pub tokens: usize,
 }
 
 impl HandoffPackage {
-    pub fn build(
+    pub(crate) fn build(
         ledger: HandoffLedgerV1,
         intent: Option<&super::intent_engine::StructuredIntent>,
         context: Option<&crate::core::context_ledger::ContextLedger>,
@@ -363,7 +365,7 @@ impl HandoffPackage {
         }
     }
 
-    pub fn format_compact(&self) -> String {
+    pub(crate) fn format_compact(&self) -> String {
         let mut out = String::new();
 
         out.push_str("--- HANDOFF ---\n");
