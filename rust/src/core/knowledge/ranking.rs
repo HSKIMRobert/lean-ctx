@@ -1,6 +1,6 @@
 use chrono::Utc;
 
-use super::types::{JudgedPair, KnowledgeFact};
+use super::types::{JudgedPair, KnowledgeFact, KnowledgeIndex};
 
 pub(super) fn confidence_stars(confidence: f32) -> &'static str {
     if confidence >= 0.95 {
@@ -120,28 +120,36 @@ pub(super) fn tokenize_lower(s: &str) -> impl Iterator<Item = String> + '_ {
         .into_iter()
 }
 
-pub(super) fn build_token_index(
-    facts: &[KnowledgeFact],
-    include_session: bool,
-) -> std::collections::HashMap<String, Vec<usize>> {
-    let mut index: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+pub(super) fn build_knowledge_index(facts: &[KnowledgeFact]) -> KnowledgeIndex {
+    let mut index = KnowledgeIndex::default();
     for (i, f) in facts.iter().enumerate() {
         for token in tokenize_lower(&f.category) {
-            index.entry(token).or_default().push(i);
+            index.token_positions.entry(token).or_default().push(i);
         }
         for token in tokenize_lower(&f.key) {
-            index.entry(token).or_default().push(i);
+            index.token_positions.entry(token).or_default().push(i);
         }
         for token in tokenize_lower(&f.value) {
-            index.entry(token).or_default().push(i);
+            index.token_positions.entry(token).or_default().push(i);
         }
-        if include_session {
-            for token in tokenize_lower(&f.source_session) {
-                index.entry(token).or_default().push(i);
-            }
+        for token in tokenize_lower(&f.source_session) {
+            index
+                .session_token_positions
+                .entry(token)
+                .or_default()
+                .push(i);
         }
+        index
+            .category_positions
+            .entry(f.category.clone())
+            .or_default()
+            .push(i);
     }
-    for indices in index.values_mut() {
+    for indices in index.token_positions.values_mut() {
+        indices.sort_unstable();
+        indices.dedup();
+    }
+    for indices in index.session_token_positions.values_mut() {
         indices.sort_unstable();
         indices.dedup();
     }

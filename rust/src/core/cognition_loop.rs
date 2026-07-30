@@ -630,6 +630,7 @@ mod tests {
             history: Vec::new(),
             updated_at: Utc::now(),
             judged_pairs: Vec::new(),
+            index: Default::default(),
         }
     }
 
@@ -638,6 +639,7 @@ mod tests {
             project_hash: "test-hash".to_string(),
             edges,
             updated_at: Utc::now(),
+            edge_positions: Default::default(),
         }
     }
 

@@ -202,6 +202,7 @@ impl ProjectKnowledge {
             if self.facts.len() > policy.knowledge.max_facts {
                 let _ = self.run_memory_lifecycle(policy);
             }
+            self.rebuild_index();
         }
 
         ImportResult {

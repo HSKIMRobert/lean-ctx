@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -84,6 +85,10 @@ pub struct KnowledgeRelationGraph {
     pub project_hash: String,
     pub edges: Vec<KnowledgeEdge>,
     pub updated_at: DateTime<Utc>,
+    /// Ephemeral incident-edge lookup rebuilt after JSON load and mutations.
+    /// Skipping it preserves the existing relations.json format.
+    #[serde(skip)]
+    pub(crate) edge_positions: BTreeMap<String, Vec<usize>>,
 }
 
 impl Default for KnowledgeRelationGraph {
@@ -92,6 +97,7 @@ impl Default for KnowledgeRelationGraph {
             project_hash: String::new(),
             edges: Vec::new(),
             updated_at: Utc::now(),
+            edge_positions: BTreeMap::new(),
         }
     }
 }
@@ -102,6 +108,7 @@ impl KnowledgeRelationGraph {
             project_hash: project_hash.to_string(),
             edges: Vec::new(),
             updated_at: Utc::now(),
+            edge_positions: BTreeMap::new(),
         }
     }
 
@@ -119,6 +126,7 @@ impl KnowledgeRelationGraph {
         if g.project_hash.trim().is_empty() {
             g.project_hash = project_hash.to_string();
         }
+        g.rebuild_index();
         Some(g)
     }
 
@@ -145,6 +153,7 @@ impl KnowledgeRelationGraph {
                 .then_with(|| b.last_seen.cmp(&a.last_seen))
                 .then_with(|| b.created_at.cmp(&a.created_at))
         });
+        self.rebuild_index();
 
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(&path, json).map_err(|e| e.to_string())
@@ -182,6 +191,7 @@ impl KnowledgeRelationGraph {
             strength: default_strength(),
             decay_rate: default_decay_rate(),
         });
+        self.rebuild_index();
         self.updated_at = now;
         true
     }
@@ -203,7 +213,11 @@ impl KnowledgeRelationGraph {
                 false
             }
         });
-        before.saturating_sub(self.edges.len())
+        let removed = before.saturating_sub(self.edges.len());
+        if removed > 0 {
+            self.rebuild_index();
+        }
+        removed
     }
 
     pub fn enforce_cap(&mut self, max_edges: usize) -> bool {
@@ -224,6 +238,7 @@ impl KnowledgeRelationGraph {
         });
 
         self.edges.truncate(max_edges);
+        self.rebuild_index();
         true
     }
 
@@ -269,7 +284,38 @@ impl KnowledgeRelationGraph {
     pub fn prune_weak_edges(&mut self, threshold: f64) -> usize {
         let before = self.edges.len();
         self.edges.retain(|e| e.strength >= threshold);
-        before - self.edges.len()
+        let removed = before - self.edges.len();
+        if removed > 0 {
+            self.rebuild_index();
+        }
+        removed
+    }
+
+    /// Rebuilds the in-memory incident-edge index from persisted edge positions.
+    pub(crate) fn rebuild_index(&mut self) {
+        self.edge_positions.clear();
+        for (position, edge) in self.edges.iter().enumerate() {
+            self.edge_positions
+                .entry(edge.from.id())
+                .or_default()
+                .push(position);
+            if edge.to != edge.from {
+                self.edge_positions
+                    .entry(edge.to.id())
+                    .or_default()
+                    .push(position);
+            }
+        }
+    }
+
+    /// Returns only the edges incident to `node`, using the load-time index.
+    pub fn incident_edges(&self, node: &KnowledgeNodeRef) -> Vec<&KnowledgeEdge> {
+        self.edge_positions
+            .get(&node.id())
+            .into_iter()
+            .flatten()
+            .filter_map(|&position| self.edges.get(position))
+            .collect()
     }
 }
 
@@ -403,6 +449,29 @@ mod tests {
         let edge: KnowledgeEdge = serde_json::from_str(json).unwrap();
         assert!((edge.strength - 0.5).abs() < 0.01);
         assert!((edge.decay_rate - 0.02).abs() < 0.001);
+    }
+
+    #[test]
+    fn load_rebuilds_ephemeral_index_without_changing_json() {
+        let _isolated = crate::core::data_dir::isolated_data_dir();
+        let project_hash = "knowledge-relations-index";
+        let from = KnowledgeNodeRef::new("architecture", "storage");
+        let to = KnowledgeNodeRef::new("dependency", "sqlite");
+        let mut graph = KnowledgeRelationGraph::new(project_hash);
+        graph.upsert_edge(
+            from.clone(),
+            to,
+            KnowledgeEdgeKind::DependsOn,
+            "test-session",
+        );
+        graph.save().unwrap();
+
+        let loaded = KnowledgeRelationGraph::load(project_hash).expect("saved graph should load");
+        assert_eq!(loaded.edge_positions.get(&from.id()).map(Vec::len), Some(1));
+        assert_eq!(loaded.incident_edges(&from).len(), 1);
+
+        let json = serde_json::to_string(&loaded).unwrap();
+        assert!(!json.contains("\"edge_positions\""));
     }
 
     #[test]

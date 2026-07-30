@@ -193,7 +193,8 @@ impl ProjectKnowledge {
                     size as f64 / 1_048_576.0,
                 );
             }
-            if let Ok(k) = serde_json::from_str::<Self>(&content) {
+            if let Ok(mut k) = serde_json::from_str::<Self>(&content) {
+                k.rebuild_index();
                 return Some(k);
             }
         }
@@ -205,6 +206,7 @@ impl ProjectKnowledge {
                 && let Ok(mut k) = serde_json::from_str::<Self>(&content)
             {
                 k.project_hash = hash;
+                k.rebuild_index();
                 let _ = k.save();
                 return Some(k);
             }
@@ -223,6 +225,7 @@ impl ProjectKnowledge {
                 && let Ok(mut k) = serde_json::from_str::<Self>(&content)
             {
                 k.project_hash = hash;
+                k.rebuild_index();
                 let _ = k.save();
                 return Some(k);
             }
@@ -397,5 +400,29 @@ mod tests {
             .filter_map(Result::ok)
             .any(|e| e.file_name().to_string_lossy().contains(".tmp."));
         assert!(!leftover, "no temp file should remain");
+    }
+
+    #[test]
+    fn load_rebuilds_ephemeral_index_without_changing_json() {
+        let _isolated = crate::core::data_dir::isolated_data_dir();
+        let root = "/tmp/knowledge-index-load";
+        let policy = MemoryPolicy::default();
+        let mut knowledge = ProjectKnowledge::new(root);
+        knowledge.remember(
+            "architecture",
+            "database",
+            "PostgreSQL",
+            "test",
+            0.9,
+            &policy,
+        );
+        knowledge.save().unwrap();
+
+        let loaded = ProjectKnowledge::load(root).expect("saved knowledge should load");
+        assert!(loaded.index.token_positions.contains_key("postgresql"));
+        assert_eq!(loaded.recall("postgresql").len(), 1);
+
+        let json = serde_json::to_string(&loaded).unwrap();
+        assert!(!json.contains("\"index\""));
     }
 }

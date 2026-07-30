@@ -239,8 +239,8 @@ pub fn handle_relations(
     let graph = KnowledgeRelationGraph::load_or_create(&knowledge.project_hash);
 
     let mut edges: Vec<&KnowledgeEdge> = graph
-        .edges
-        .iter()
+        .incident_edges(&focus)
+        .into_iter()
         .filter(|e| match dir {
             "in" => e.to == focus,
             "out" => e.from == focus,
@@ -376,8 +376,8 @@ pub fn handle_relations_diagram(
     let graph = KnowledgeRelationGraph::load_or_create(&knowledge.project_hash);
 
     let mut edges: Vec<KnowledgeEdge> = graph
-        .edges
-        .iter()
+        .incident_edges(&focus)
+        .into_iter()
         .filter(|e| match dir {
             "in" => e.to == focus,
             "out" => e.from == focus,
