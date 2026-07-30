@@ -172,7 +172,10 @@ fn cache_hit_stub_is_byte_stable_across_rereads() {
     // #498 determinism: re-reading an unchanged file must yield byte-identical
     // output (no read-count note, no rotating proof line) so provider prompt
     // caching applies to the repeated stub.
+    // High threshold so full-delivery degradation (#E26-P3) doesn't fire.
     let _iso = crate::core::data_dir::isolated_data_dir();
+    let _env_lock = crate::core::data_dir::test_env_lock();
+    crate::test_env::set_var("LCTX_FULL_DEGRADATION_THRESHOLD", "100");
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("stable.rs");
     let p = path.to_string_lossy().to_string();

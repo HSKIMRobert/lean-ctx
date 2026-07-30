@@ -465,18 +465,14 @@ pub fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     }
 }
 
-static TOOL_CALL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-
-const PERIODIC_FLUSH_INTERVAL: u32 = 50;
-
 /// Increment the tool-call counter and flush buffered telemetry every
 /// [`PERIODIC_FLUSH_INTERVAL`] calls. The MCP daemon is long-lived;
 /// without periodic flush, counters like `compressed_cache_hit` only
 /// appear in `auto_mode_sources.json` after the process exits.
 pub fn maybe_periodic_flush() {
-    let count = TOOL_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    let count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if count.is_multiple_of(PERIODIC_FLUSH_INTERVAL) {
-        std::thread::spawn(flush_all);
+        let _ = std::thread::spawn(flush_all);
     }
 }
 
@@ -505,13 +501,6 @@ pub fn flush_all() {
     crate::core::feedback::FeedbackStore::flush();
     crate::core::threshold_learning::flush();
     crate::core::litm_calibration::flush();
-}
-
-pub fn maybe_periodic_flush() {
-    let call_count = TOOL_CALL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-    if call_count.is_multiple_of(PERIODIC_FLUSH_INTERVAL) {
-        let _ = std::thread::spawn(flush_all);
-    }
 }
 
 fn maybe_consolidate(project_root: Option<&str>, calls: u32) {
@@ -805,17 +794,5 @@ mod tests {
         assert_eq!(item.input_tokens, 500);
         assert_eq!(item.output_tokens, 120);
         assert!(item.duration_us > 0, "a real duration must be recorded");
-    }
-
-    #[test]
-    fn periodic_flush_counter_increments() {
-        TOOL_CALL_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
-        for _ in 0..50 {
-            maybe_periodic_flush();
-        }
-        assert_eq!(
-            TOOL_CALL_COUNT.load(std::sync::atomic::Ordering::Relaxed),
-            50
-        );
     }
 }
