@@ -86,9 +86,11 @@ pub async fn start_grpc_server(config: &GrpcConfig) -> OclaResult<()> {
         debug!(%address, "OCLA gRPC listener task started");
         loop {
             match listener.accept().await {
-                Ok((stream, peer)) => {
-                    debug!(%peer, "accepted OCLA gRPC connection");
-                    drop(stream);
+                Ok((_stream, peer)) => {
+                    warn!(
+                        %peer,
+                        "dropped OCLA gRPC connection because no gRPC service is attached"
+                    );
                 }
                 Err(error) => {
                     warn!(%error, "OCLA gRPC listener stopped accepting connections");
@@ -138,9 +140,19 @@ pub async fn stop_grpc_server() {
     GRPC_RUNNING.store(false, Ordering::Release);
 }
 
-/// Returns whether the OCLA gRPC listener task is running.
-pub fn is_grpc_available() -> bool {
+/// Returns whether the OCLA gRPC TCP listener task is running.
+///
+/// This only means the TCP listener is reserved; it does not mean a gRPC service
+/// is attached or responding.
+pub fn is_grpc_listener_running() -> bool {
     GRPC_RUNNING.load(Ordering::Acquire)
+}
+
+/// Returns whether an OCLA gRPC service is attached and ready to respond.
+///
+/// This remains false until the standalone gRPC package is wired to the listener.
+pub fn is_grpc_service_ready() -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -174,9 +186,10 @@ mod tests {
         };
 
         assert!(start_grpc_server(&config).await.is_ok());
-        assert!(is_grpc_available());
+        assert!(is_grpc_listener_running());
+        assert!(!is_grpc_service_ready());
         stop_grpc_server().await;
-        assert!(!is_grpc_available());
+        assert!(!is_grpc_listener_running());
     }
 
     #[tokio::test]
@@ -184,7 +197,8 @@ mod tests {
     async fn disabled_config_does_not_bind() {
         stop_grpc_server().await;
         assert!(start_grpc_server(&GrpcConfig::default()).await.is_ok());
-        assert!(!is_grpc_available());
+        assert!(!is_grpc_listener_running());
+        assert!(!is_grpc_service_ready());
     }
 
     #[tokio::test]
@@ -196,8 +210,9 @@ mod tests {
         };
 
         start_grpc_server(&config).await.unwrap();
-        assert!(is_grpc_available());
+        assert!(is_grpc_listener_running());
+        assert!(!is_grpc_service_ready());
         stop_grpc_server().await;
-        assert!(!is_grpc_available());
+        assert!(!is_grpc_listener_running());
     }
 }
