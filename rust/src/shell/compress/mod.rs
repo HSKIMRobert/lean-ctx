@@ -1,3 +1,4 @@
+mod boundaries;
 mod classification;
 pub(crate) mod engine;
 mod footer;

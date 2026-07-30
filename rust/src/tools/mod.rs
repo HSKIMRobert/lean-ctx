@@ -453,31 +453,15 @@ mod resolve_path_tests {
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
-    async fn startup_prefers_workspace_scoped_session_over_global_latest() {
+    async fn startup_creates_fresh_session_scoped_to_workspace() {
         let _lock = crate::core::data_dir::test_env_lock();
         let _data = tempfile::tempdir().unwrap();
         let _tmp = tempfile::tempdir().unwrap();
 
         crate::test_env::set_var("LEAN_CTX_DATA_DIR", _data.path());
 
-        let repo_a = _tmp.path().join("repo-a");
         let repo_b = _tmp.path().join("repo-b");
-        let root_a = create_git_root(&repo_a);
         let root_b = create_git_root(&repo_b);
-
-        let mut session_b = crate::core::session::SessionState::new();
-        session_b.project_root = Some(root_b.clone());
-        session_b.shell_cwd = Some(root_b.clone());
-        session_b.set_task("repo-b task", None);
-        session_b.save().unwrap();
-
-        std::thread::sleep(std::time::Duration::from_millis(50));
-
-        let mut session_a = crate::core::session::SessionState::new();
-        session_a.project_root = Some(root_a.clone());
-        session_a.shell_cwd = Some(root_a.clone());
-        session_a.set_task("repo-a latest task", None);
-        session_a.save().unwrap();
 
         let server = LeanCtxServer::new_with_startup(
             None,
@@ -489,12 +473,12 @@ mod resolve_path_tests {
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");
 
         let session = server.session.read().await;
+        // #1388: Personal mode creates a fresh PID-qualified session.
+        // The workspace root is detected from startup_cwd, but task
+        // starts empty (no cross-session state inheritance).
         assert_eq!(session.project_root.as_deref(), Some(root_b.as_str()));
         assert_eq!(session.shell_cwd.as_deref(), Some(root_b.as_str()));
-        assert_eq!(
-            session.task.as_ref().map(|t| t.description.as_str()),
-            Some("repo-b task")
-        );
+        assert!(session.task.is_none());
     }
 
     #[tokio::test]
