@@ -10,11 +10,29 @@ macro_rules! static_regex {
 fn compiling_re() -> &'static regex::Regex {
     static_regex!(r"Compiling (\S+) v(\S+)")
 }
+fn checking_re() -> &'static regex::Regex {
+    static_regex!(r"Checking (\S+) v(\S+)")
+}
 fn error_re() -> &'static regex::Regex {
     static_regex!(r"error\[E(\d+)\]: (.+)")
 }
 fn warning_re() -> &'static regex::Regex {
-    static_regex!(r"warning: (.+)")
+    static_regex!(r"warning(?:\[clippy::([^\]]+)\])?: (.+)")
+}
+fn generated_warnings_re() -> &'static regex::Regex {
+    static_regex!(r"generated (\d+) warnings?")
+}
+fn generic_error_re() -> &'static regex::Regex {
+    static_regex!(r"error(?:\[E\d+\])?: (.+)")
+}
+fn clippy_rule_re() -> &'static regex::Regex {
+    static_regex!(r"clippy::([A-Za-z0-9_-]+)")
+}
+fn failed_test_re() -> &'static regex::Regex {
+    static_regex!(r"^test (.+) \.\.\. FAILED$")
+}
+fn failed_test_header_re() -> &'static regex::Regex {
+    static_regex!(r"^---- (.+) stdout ----$")
 }
 fn test_result_re() -> &'static regex::Regex {
     static_regex!(r"test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored")
@@ -23,55 +41,43 @@ fn finished_re() -> &'static regex::Regex {
     static_regex!(r"Finished .+ in (\d+\.?\d*s)")
 }
 
+/// Compress output from a recognized Cargo subcommand.
 pub fn compress(command: &str, output: &str) -> Option<String> {
-    if command.contains("build") || command.contains("check") {
-        return Some(compress_build(output));
+    let args = command.strip_prefix("cargo ").unwrap_or(command);
+    let subcmd = args.split_whitespace().next().unwrap_or("");
+    match subcmd {
+        "build" | "b" | "check" | "c" => Some(compress_build(output)),
+        "test" | "t" | "nextest" => Some(compress_test(output)),
+        "clippy" => Some(compress_clippy(output)),
+        "clean" => Some(compress_clean(output)),
+        "install" => Some(compress_install(output)),
+        "add" => Some(compress_add(output)),
+        "remove" | "rm" => Some(compress_remove(output)),
+        "doc" | "d" => Some(compress_doc(output)),
+        "tree" => Some(compress_tree(output)),
+        "fmt" => Some(compress_fmt(output)),
+        "update" | "up" => Some(compress_update(output)),
+        "metadata" => Some(compress_metadata(output)),
+        "run" | "r" => Some(compress_run(output)),
+        "bench" => Some(compress_bench(output)),
+        _ => None,
     }
-    if command.contains("test") {
-        return Some(compress_test(output));
-    }
-    if command.contains("clippy") {
-        return Some(compress_clippy(output));
-    }
-    if command.contains("doc") {
-        return Some(compress_doc(output));
-    }
-    if command.contains("tree") {
-        return Some(compress_tree(output));
-    }
-    if command.contains("fmt") {
-        return Some(compress_fmt(output));
-    }
-    if command.contains("update") {
-        return Some(compress_update(output));
-    }
-    if command.contains("metadata") {
-        return Some(compress_metadata(output));
-    }
-    if command.contains("run") {
-        return Some(compress_run(output));
-    }
-    if command.contains("bench") {
-        return Some(compress_bench(output));
-    }
-    None
 }
 
 fn compress_build(output: &str) -> String {
-    let mut crate_count = 0u32;
+    let mut compiled = 0u32;
+    let mut checked = 0u32;
     let mut errors = Vec::new();
-    let mut warnings = 0u32;
     let mut time = String::new();
 
     for line in output.lines() {
         if compiling_re().is_match(line) {
-            crate_count += 1;
+            compiled += 1;
+        } else if checking_re().is_match(line) {
+            checked += 1;
         }
         if let Some(caps) = error_re().captures(line) {
             errors.push(format!("E{}: {}", &caps[1], &caps[2]));
-        }
-        if warning_re().is_match(line) && !line.contains("generated") {
-            warnings += 1;
         }
         if let Some(caps) = finished_re().captures(line) {
             time = caps[1].to_string();
@@ -79,8 +85,11 @@ fn compress_build(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    if crate_count > 0 {
-        parts.push(format!("compiled {crate_count} crates"));
+    if compiled > 0 {
+        parts.push(counted_crates("compiled", compiled));
+    }
+    if checked > 0 {
+        parts.push(counted_crates("checked", checked));
     }
     if !errors.is_empty() {
         parts.push(format!("{} errors:", errors.len()));
@@ -88,8 +97,10 @@ fn compress_build(output: &str) -> String {
             parts.push(format!("  {e}"));
         }
     }
-    if warnings > 0 {
-        parts.push(format!("{warnings} warnings"));
+    let warning_groups = group_warnings(output);
+    let warning_total = warning_total(output, &warning_groups);
+    if warning_total > 0 {
+        parts.push(format_warning_groups(&warning_groups, warning_total));
     }
     if !time.is_empty() {
         parts.push(format!("({time})"));
@@ -102,34 +113,30 @@ fn compress_build(output: &str) -> String {
 }
 
 fn compress_test(output: &str) -> String {
-    let mut results = Vec::new();
     let mut failed_tests = Vec::new();
-    let mut passed_tests = Vec::new();
+    let mut passed = 0u32;
+    let mut failed = 0u32;
+    let mut skipped = 0u32;
     let mut time = String::new();
+    let mut compile_lines = Vec::new();
+    let mut in_test_phase = false;
 
     for line in output.lines() {
         if let Some(caps) = test_result_re().captures(line) {
-            results.push(format!(
-                "{}: {} pass, {} fail, {} skip",
-                &caps[1], &caps[2], &caps[3], &caps[4]
-            ));
+            passed += caps[2].parse::<u32>().unwrap_or_default();
+            failed += caps[3].parse::<u32>().unwrap_or_default();
+            skipped += caps[4].parse::<u32>().unwrap_or_default();
+            in_test_phase = true;
+        } else if line.trim_start().starts_with("running ") {
+            in_test_phase = true;
+        } else if !in_test_phase {
+            compile_lines.push(line);
         }
-        if line.contains("FAILED") && line.contains("---") {
-            let name = line.split_whitespace().nth(1).unwrap_or("?");
-            failed_tests.push(name.to_string());
-        }
-        if line.starts_with("test ")
-            && line.ends_with(" ... ok")
-            && let Some(name) = line
-                .strip_prefix("test ")
-                .and_then(|s| s.strip_suffix(" ... ok"))
-        {
-            let short_name = if name.len() > 50 {
-                &name[..name.floor_char_boundary(50)]
-            } else {
-                name
-            };
-            passed_tests.push(short_name.to_string());
+        let trimmed = line.trim();
+        if let Some(caps) = failed_test_re().captures(trimmed) {
+            failed_tests.push(caps[1].to_string());
+        } else if let Some(caps) = failed_test_header_re().captures(trimmed) {
+            failed_tests.push(caps[1].to_string());
         }
         if let Some(caps) = finished_re().captures(line) {
             time = caps[1].to_string();
@@ -137,21 +144,27 @@ fn compress_test(output: &str) -> String {
     }
 
     let mut parts = Vec::new();
-    if !results.is_empty() {
-        parts.extend(results);
+    let compile_summary = compile_phase_summary(&compile_lines.join("\n"));
+    if !compile_summary.is_empty() {
+        parts.push(format!("[{compile_summary}]"));
     }
-    if !failed_tests.is_empty() {
-        parts.push(format!("failed: {}", failed_tests.join(", ")));
-    }
-    if !passed_tests.is_empty() {
-        let total = passed_tests.len();
-        let shown: Vec<_> = passed_tests.into_iter().take(5).collect();
-        let suffix = if total > 5 {
-            format!(" ...+{} more", total - 5)
-        } else {
-            String::new()
-        };
-        parts.push(format!("ran: {}{suffix}", shown.join(", ")));
+    if passed > 0 || failed > 0 || skipped > 0 {
+        let mut result = format!("cargo test: {passed} passed, {failed} failed");
+        if skipped > 0 {
+            result.push_str(&format!(", {skipped} skipped"));
+        }
+        failed_tests.sort_unstable();
+        failed_tests.dedup();
+        if !failed_tests.is_empty() {
+            let shown = failed_tests.iter().take(5).cloned().collect::<Vec<_>>();
+            let suffix = if failed_tests.len() > shown.len() {
+                format!(", ... +{} more", failed_tests.len() - shown.len())
+            } else {
+                String::new()
+            };
+            result.push_str(&format!(" ({}){suffix}", shown.join(", ")));
+        }
+        parts.push(result);
     }
     if !time.is_empty() {
         parts.push(format!("({time})"));
@@ -164,32 +177,211 @@ fn compress_test(output: &str) -> String {
 }
 
 fn compress_clippy(output: &str) -> String {
-    let mut warnings = Vec::new();
-    let mut errors = Vec::new();
-
-    for line in output.lines() {
-        if let Some(caps) = error_re().captures(line) {
-            errors.push(caps[2].to_string());
-        } else if let Some(caps) = warning_re().captures(line) {
-            let msg = &caps[1];
-            if !msg.contains("generated") && !msg.starts_with('`') {
-                warnings.push(msg.to_string());
-            }
-        }
-    }
+    let errors = group_clippy_errors(output);
+    let warnings = group_warnings(output);
+    let warning_total = warning_total(output, &warnings);
 
     let mut parts = Vec::new();
     if !errors.is_empty() {
-        parts.push(format!("{} errors: {}", errors.len(), errors.join("; ")));
+        let error_total = errors.iter().map(|(_, count)| count).sum();
+        parts.push(format_rule_groups(
+            &errors,
+            error_total,
+            "error",
+            "errors",
+            "rules",
+        ));
     }
-    if !warnings.is_empty() {
-        parts.push(format!("{} warnings", warnings.len()));
+    if warning_total > 0 {
+        parts.push(format_rule_groups(
+            &warnings,
+            warning_total,
+            "warning",
+            "warnings",
+            "rules",
+        ));
     }
 
     if parts.is_empty() {
         return "clean".to_string();
     }
     parts.join("\n")
+}
+
+fn group_warnings(output: &str) -> Vec<(String, u32)> {
+    let mut counts = std::collections::BTreeMap::new();
+    for line in output.lines() {
+        let Some(caps) = warning_re().captures(line.trim()) else {
+            continue;
+        };
+        let message = caps.get(2).map_or("", |capture| capture.as_str());
+        if message.contains("generated ") {
+            continue;
+        }
+        let rule = caps
+            .get(1)
+            .map(|capture| normalize_rule(capture.as_str()))
+            .unwrap_or_else(|| message_prefix(message));
+        *counts.entry(rule).or_insert(0) += 1;
+    }
+    let mut groups: Vec<_> = counts.into_iter().collect();
+    groups.sort_unstable_by_key(|(name, count)| (std::cmp::Reverse(*count), name.clone()));
+    groups
+}
+
+fn group_clippy_errors(output: &str) -> Vec<(String, u32)> {
+    let mut rules = Vec::new();
+    let mut last_error = None;
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if let Some(caps) = generic_error_re().captures(trimmed) {
+            let message = caps.get(1).map_or("", |capture| capture.as_str());
+            let rule = clippy_rule_re()
+                .captures(trimmed)
+                .and_then(|rule_caps| rule_caps.get(1))
+                .map_or_else(
+                    || message_prefix(message),
+                    |capture| normalize_rule(capture.as_str()),
+                );
+            rules.push(rule);
+            last_error = Some(rules.len() - 1);
+        } else if let Some(index) = last_error
+            && let Some(caps) = clippy_rule_re().captures(trimmed)
+            && let Some(rule) = caps.get(1)
+        {
+            rules[index] = normalize_rule(rule.as_str());
+        }
+    }
+    group_named_rules(rules)
+}
+
+fn group_named_rules(rules: Vec<String>) -> Vec<(String, u32)> {
+    let mut counts = std::collections::BTreeMap::new();
+    for rule in rules {
+        *counts.entry(rule).or_insert(0) += 1;
+    }
+    let mut groups: Vec<_> = counts.into_iter().collect();
+    groups.sort_unstable_by_key(|(name, count)| (std::cmp::Reverse(*count), name.clone()));
+    groups
+}
+
+fn format_warning_groups(groups: &[(String, u32)], total: u32) -> String {
+    format_rule_groups(groups, total, "warning", "warnings", "others")
+}
+
+fn format_rule_groups(
+    groups: &[(String, u32)],
+    total: u32,
+    singular: &str,
+    plural: &str,
+    remainder_label: &str,
+) -> String {
+    let noun = if total == 1 { singular } else { plural };
+    let shown = groups
+        .iter()
+        .take(5)
+        .map(|(rule, count)| format!("{rule} ×{count}"))
+        .collect::<Vec<_>>();
+    let remainder = groups.len().saturating_sub(shown.len());
+    let suffix = if remainder > 0 {
+        format!(", +{remainder} {remainder_label}")
+    } else {
+        String::new()
+    };
+    format!("{total} {noun} ({}){suffix}", shown.join(", "))
+}
+
+fn warning_total(output: &str, groups: &[(String, u32)]) -> u32 {
+    let generated = output
+        .lines()
+        .filter_map(|line| generated_warnings_re().captures(line))
+        .filter_map(|caps| caps[1].parse::<u32>().ok())
+        .sum();
+    if generated == 0 {
+        groups.iter().map(|(_, count)| count).sum()
+    } else {
+        generated
+    }
+}
+
+fn compile_phase_summary(output: &str) -> String {
+    let compiled = output
+        .lines()
+        .filter(|line| compiling_re().is_match(line))
+        .count() as u32;
+    let checked = output
+        .lines()
+        .filter(|line| checking_re().is_match(line))
+        .count() as u32;
+    let groups = group_warnings(output);
+    let warnings = warning_total(output, &groups);
+    let mut parts = Vec::new();
+    if compiled > 0 {
+        parts.push(counted_crates("compiled", compiled));
+    }
+    if checked > 0 {
+        parts.push(counted_crates("checked", checked));
+    }
+    if warnings > 0 {
+        let noun = if warnings == 1 { "warning" } else { "warnings" };
+        parts.push(format!("{warnings} {noun}"));
+    }
+    parts.join(", ")
+}
+
+fn counted_crates(action: &str, count: u32) -> String {
+    let noun = if count == 1 { "crate" } else { "crates" };
+    format!("{action} {count} {noun}")
+}
+
+fn message_prefix(message: &str) -> String {
+    message
+        .split_whitespace()
+        .next()
+        .map(normalize_rule)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn normalize_rule(rule: &str) -> String {
+    rule.trim_matches('`').replace('-', "_")
+}
+
+fn compress_clean(output: &str) -> String {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Removed "))
+        .map_or_else(
+            || "cleaned".to_string(),
+            |removed| {
+                format!(
+                    "removed {}",
+                    removed.split_once(',').map_or(removed, |(files, _)| files)
+                )
+            },
+        )
+}
+
+fn compress_install(output: &str) -> String {
+    summarize_dependency_action(output, "Installed ", "installed")
+}
+
+fn compress_add(output: &str) -> String {
+    summarize_dependency_action(output, "Adding ", "added")
+}
+
+fn compress_remove(output: &str) -> String {
+    summarize_dependency_action(output, "Removing ", "removed")
+}
+
+fn summarize_dependency_action(output: &str, prefix: &str, action: &str) -> String {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(prefix))
+        .and_then(|dependency| dependency.split_whitespace().next())
+        .map_or_else(
+            || action.to_string(),
+            |dependency| format!("{action} {dependency}"),
+        )
 }
 
 fn compress_doc(output: &str) -> String {
@@ -555,7 +747,7 @@ fn compress_metadata(output: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::compress;
 
     #[test]
     fn cargo_build_success() {
@@ -583,7 +775,60 @@ mod tests {
     fn cargo_test_failure() {
         let output = "running 3 tests\ntest test_ok ... ok\ntest test_fail ... FAILED\ntest test_ok2 ... ok\n\ntest result: FAILED. 2 passed; 1 failed; 0 ignored";
         let result = compress("cargo test", output).unwrap();
-        assert!(result.contains("FAIL"), "should indicate failure");
+        assert!(result.contains("1 failed"), "should indicate failure");
+        assert!(result.contains("test_fail"), "should name failed test");
+    }
+
+    #[test]
+    fn test_build_with_checking() {
+        let output = "Compiling app v0.1.0\nChecking dep v1.0.0\nChecking dep-two v2.0.0\nFinished dev profile in 1.2s";
+        let result = compress("cargo check", output).unwrap();
+        assert!(result.contains("compiled 1 crate"));
+        assert!(result.contains("checked 2 crates"));
+    }
+
+    #[test]
+    fn test_build_with_warnings() {
+        let warnings = vec!["warning: unused value"; 10].join("\n");
+        let output =
+            format!("Compiling app v0.1.0\n{warnings}\nwarning: app generated 10 warnings");
+        let result = compress("cargo build", &output).unwrap();
+        assert!(result.contains("10 warnings (unused ×10)"));
+    }
+
+    #[test]
+    fn test_clippy_grouped() {
+        let output = "warning[clippy::needless-borrow]: needless borrow\nwarning[clippy::unused-imports]: unused import\nwarning[clippy::dead-code]: dead code\nwarning[clippy::manual-map]: manual map\nwarning[clippy::map-clone]: map clone\nwarning[clippy::redundant-closure]: redundant closure";
+        let result = compress("cargo clippy", output).unwrap();
+        assert!(result.contains("6 warnings"));
+        assert!(result.contains("needless_borrow ×1"));
+        assert!(result.contains("+1 rules"));
+    }
+
+    #[test]
+    fn test_test_with_compile_warnings() {
+        let output = "Compiling app v0.1.0\nwarning: unused value\nrunning 2 tests\ntest one ... ok\ntest two ... ok\ntest result: ok. 2 passed; 0 failed; 0 ignored\nFinished test profile in 1.4s";
+        let result = compress("cargo test", output).unwrap();
+        assert!(result.contains("[compiled 1 crate, 1 warning]"));
+        assert!(result.contains("cargo test: 2 passed, 0 failed"));
+    }
+
+    #[test]
+    fn test_dispatch_precision() {
+        assert!(
+            compress(
+                "cargo test",
+                "test result: ok. 0 passed; 0 failed; 0 ignored"
+            )
+            .is_some()
+        );
+        assert!(compress("cargo latest", "latest version").is_none());
+    }
+
+    #[test]
+    fn test_clean_handler() {
+        let result = compress("cargo clean", "Removed 42 files, 12.3MiB total").unwrap();
+        assert_eq!(result, "removed 42 files");
     }
 
     #[test]
