@@ -14,10 +14,35 @@ use std::sync::OnceLock;
 
 use regex::{Captures, Regex};
 
+/// Supported PII categories. Their stable lowercase names are used in redaction
+/// markers and privacy-preserving audit records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PiiKind {
+    ChAhv,
+    Iban,
+    Card,
+    Email,
+    Phone,
+    Ssn,
+}
+
+impl PiiKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::ChAhv => "ch_ahv",
+            Self::Iban => "iban",
+            Self::Card => "card",
+            Self::Email => "email",
+            Self::Phone => "phone",
+            Self::Ssn => "ssn",
+        }
+    }
+}
+
 /// One PII detector: a labelled regex plus a checksum/shape validator. A match
 /// is only counted/redacted when `validate` accepts the exact matched text.
 struct PiiRule {
-    class: &'static str,
+    kind: PiiKind,
     re: Regex,
     validate: fn(&str) -> bool,
 }
@@ -28,26 +53,39 @@ fn rules() -> &'static [PiiRule] {
         vec![
             // Swiss AHV/AVS social-security number (EAN-13, prefixed 756).
             PiiRule {
-                class: "ch_ahv",
+                kind: PiiKind::ChAhv,
                 re: Regex::new(r"\b756[.\s]?\d{4}[.\s]?\d{4}[.\s]?\d{2}\b").unwrap(),
                 validate: ahv_valid,
             },
             // IBAN — run before the card rule so its digits aren't re-matched.
             PiiRule {
-                class: "iban",
+                kind: PiiKind::Iban,
                 re: Regex::new(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b").unwrap(),
                 validate: iban_valid,
             },
             // Payment card (13–19 digits, optional space/hyphen groups), Luhn.
             PiiRule {
-                class: "card",
+                kind: PiiKind::Card,
                 re: Regex::new(r"\b\d(?:[ -]?\d){12,18}\b").unwrap(),
                 validate: luhn_valid,
             },
             // Email — specific enough that no extra validation is needed.
             PiiRule {
-                class: "email",
-                re: Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b").unwrap(),
+                kind: PiiKind::Email,
+                re: Regex::new(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b").unwrap(),
+                validate: |_| true,
+            },
+            // US Social Security number.
+            PiiRule {
+                kind: PiiKind::Ssn,
+                re: Regex::new(r"\d{3}-\d{2}-\d{4}").unwrap(),
+                validate: |_| true,
+            },
+            // E.164 phone number (up to 15 digits, with an optional plus sign).
+            // This runs after structured identifiers to avoid overlapping matches.
+            PiiRule {
+                kind: PiiKind::Phone,
+                re: Regex::new(r"\+?[1-9]\d{1,14}").unwrap(),
                 validate: |_| true,
             },
         ]
@@ -62,41 +100,48 @@ pub fn redact(text: &str) -> (String, Vec<(&'static str, usize)>) {
     let mut counts = Vec::new();
     for rule in rules() {
         let mut n = 0usize;
+        let source = out.clone();
         out = rule
             .re
-            .replace_all(&out, |caps: &Captures| {
+            .replace_all(&source, |caps: &Captures| {
                 let m = caps.get(0).map_or("", |g| g.as_str());
-                if (rule.validate)(m) {
+                let is_phone_substring = rule.kind == PiiKind::Phone
+                    && caps
+                        .get(0)
+                        .is_some_and(|matched| !phone_match_is_delimited(&source, matched));
+                if (rule.validate)(m) && !is_phone_substring {
                     n += 1;
-                    format!("[REDACTED:{}]", rule.class)
+                    format!("[REDACTED:{}]", rule.kind.as_str())
                 } else {
                     m.to_string()
                 }
             })
             .to_string();
         if n > 0 {
-            counts.push((rule.class, n));
+            counts.push((rule.kind.as_str(), n));
         }
     }
     (out, counts)
+}
+
+/// An E.164 candidate must not be a substring of another structured identifier.
+/// This preserves the checksum guardrails for invalid cards, IBANs, and AHV IDs.
+fn phone_match_is_delimited(text: &str, matched: regex::Match<'_>) -> bool {
+    let before = text.as_bytes().get(matched.start().wrapping_sub(1));
+    let after = text.as_bytes().get(matched.end());
+    [before, after]
+        .into_iter()
+        .flatten()
+        .all(|byte| !byte.is_ascii_alphanumeric() && !matches!(byte, b'.' | b'-'))
 }
 
 /// Count validated PII matches per class without rewriting (for block
 /// decisions). Empty = no PII detected.
 #[must_use]
 pub fn detect(text: &str) -> Vec<(&'static str, usize)> {
-    let mut counts = Vec::new();
-    for rule in rules() {
-        let n = rule
-            .re
-            .find_iter(text)
-            .filter(|m| (rule.validate)(m.as_str()))
-            .count();
-        if n > 0 {
-            counts.push((rule.class, n));
-        }
-    }
-    counts
+    // Apply the same priority as redaction so a card, AHV, or SSN is not also
+    // reported as a phone number.
+    redact(text).1
 }
 
 fn digits(s: &str) -> Vec<u32> {
@@ -225,10 +270,26 @@ mod tests {
     }
 
     #[test]
+    fn redacts_e164_phone() {
+        let (out, counts) = redact("call +14155552671");
+        assert_eq!(out, "call [REDACTED:phone]");
+        assert_eq!(counts, vec![("phone", 1)]);
+    }
+
+    #[test]
+    fn redacts_us_ssn() {
+        let (out, counts) = redact("SSN 123-45-6789");
+        assert_eq!(out, "SSN [REDACTED:ssn]");
+        assert_eq!(counts, vec![("ssn", 1)]);
+    }
+
+    #[test]
     fn detect_counts_match_redact() {
-        let text = "jane@example.com and 4111 1111 1111 1111";
+        let text = "jane@example.com, +14155552671, 123-45-6789, and 4111 1111 1111 1111";
         let counts = detect(text);
         assert!(counts.iter().any(|(c, _)| *c == "email"));
+        assert!(counts.iter().any(|(c, _)| *c == "phone"));
+        assert!(counts.iter().any(|(c, _)| *c == "ssn"));
         assert!(counts.iter().any(|(c, _)| *c == "card"));
     }
 
