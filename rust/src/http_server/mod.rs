@@ -628,6 +628,86 @@ async fn v1_audit_events(Query(q): Query<AuditEventsQuery>) -> impl IntoResponse
     }))
 }
 
+#[derive(Deserialize)]
+struct ContextSummaryQuery {
+    #[serde(default)]
+    workspace_id: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn v1_context_summary(
+    State(state): State<AppState>,
+    Query(q): Query<ContextSummaryQuery>,
+) -> impl IntoResponse {
+    let ws = sanitize_id(&q.workspace_id.unwrap_or_else(|| "default".to_string()));
+    let limit = q.limit.unwrap_or(100).min(1000);
+    let rt = crate::core::context_os::runtime();
+    let events = rt.bus.read(&ws, "default", 0, limit);
+    Json(serde_json::json!({
+        "workspaceId": ws,
+        "channelId": "default",
+        "projectRoot": state.project_root,
+        "eventCount": events.len(),
+        "limit": limit,
+    }))
+}
+
+#[derive(Deserialize)]
+struct EventsSearchQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+async fn v1_events_search(Query(q): Query<EventsSearchQuery>) -> impl IntoResponse {
+    let query = q.q.unwrap_or_default();
+    let limit = q.limit.unwrap_or(50).min(500);
+    let rt = crate::core::context_os::runtime();
+    let all_events = rt.bus.read("default", "default", 0, limit * 10);
+    let results: Vec<serde_json::Value> = all_events
+        .into_iter()
+        .filter(|ev| {
+            let payload = serde_json::to_string(ev).unwrap_or_default();
+            query.is_empty() || payload.contains(&query)
+        })
+        .take(limit)
+        .map(|ev| serde_json::to_value(&ev).unwrap_or_default())
+        .collect();
+    Json(serde_json::json!({
+        "query": query,
+        "results": results,
+        "total": results.len(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct EventLineageQuery {
+    #[serde(default)]
+    id: Option<i64>,
+    #[serde(default)]
+    depth: Option<usize>,
+}
+
+async fn v1_events_lineage(Query(q): Query<EventLineageQuery>) -> impl IntoResponse {
+    let event_id = q.id.unwrap_or(0);
+    let depth = q.depth.unwrap_or(10).min(100);
+    let rt = crate::core::context_os::runtime();
+    let events = rt.bus.read("default", "default", 0, depth);
+    let chain: Vec<serde_json::Value> = events
+        .into_iter()
+        .filter(|ev| ev.id >= event_id)
+        .take(depth)
+        .map(|ev| serde_json::to_value(&ev).unwrap_or_default())
+        .collect();
+    Json(serde_json::json!({
+        "eventId": event_id,
+        "depth": depth,
+        "chain": chain,
+    }))
+}
+
 async fn v1_metrics(State(_state): State<AppState>) -> impl IntoResponse {
     let rt = crate::core::context_os::runtime();
     let snap = rt.metrics.snapshot();
@@ -835,6 +915,9 @@ fn build_app_router_with_auth(cfg: &HttpServerConfig, require_auth: bool) -> Rou
         .route("/v1/tools/call", axum::routing::post(v1_tool_call))
         .route("/v1/events", get(v1_events))
         .route("/v1/metrics", get(v1_metrics))
+        .route("/v1/context/summary", get(v1_context_summary))
+        .route("/v1/events/search", get(v1_events_search))
+        .route("/v1/events/lineage", get(v1_events_lineage))
         .route("/v1/audit/events", get(v1_audit_events))
         .route("/v1/a2a/handoff", axum::routing::post(v1_a2a_handoff))
         .route("/v1/a2a/agent-card", get(v1_a2a_agent_card))

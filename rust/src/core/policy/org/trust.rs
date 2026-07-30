@@ -1,8 +1,9 @@
-//! Org key trust store — OSS stub (ADR-023).
+//! Org key trust store — file-backed pinning (ADR-023, GL #674).
 //!
-//! The full trust-pinning implementation lives in
-//! `lean-ctx-enterprise/commercial-core`. This stub preserves the public
-//! API. Without Enterprise, no org keys are pinned.
+//! Keys are pinned to `<data_dir>/org-trust.toml`. A pinned key means the
+//! endpoint trusts artifacts signed by that org. Without any pinned keys,
+//! [`active_resolved`](super::active_resolved) returns `None` and no org
+//! policy is enforced (fail-open by default).
 
 use std::path::PathBuf;
 
@@ -26,29 +27,60 @@ pub fn trust_path() -> Result<PathBuf, String> {
 }
 
 pub fn load() -> Result<TrustStore, String> {
-    Ok(TrustStore::default())
+    let path = trust_path()?;
+    if !path.exists() {
+        return Ok(TrustStore::default());
+    }
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    toml::from_str(&text).map_err(|e| format!("parse {}: {e}", path.display()))
 }
 
-pub fn save(_store: &TrustStore) -> Result<(), String> {
-    Ok(())
+pub fn save(store: &TrustStore) -> Result<(), String> {
+    let path = trust_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let text = toml::to_string_pretty(store).map_err(|e| format!("serialize trust store: {e}"))?;
+    std::fs::write(&path, text).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
-pub fn pin(_org: &str, _public_key: &str) -> Result<bool, String> {
-    Ok(false)
+pub fn pin(org: &str, public_key: &str) -> Result<bool, String> {
+    let mut store = load()?;
+    if store.keys.iter().any(|k| k.public_key == public_key) {
+        return Ok(false);
+    }
+    store.keys.push(TrustedKey {
+        org: org.to_string(),
+        public_key: public_key.to_string(),
+        added_at: chrono::Utc::now().to_rfc3339(),
+    });
+    save(&store)?;
+    Ok(true)
 }
 
-pub fn remove(_public_key: &str) -> Result<bool, String> {
-    Ok(false)
+pub fn remove(public_key: &str) -> Result<bool, String> {
+    let mut store = load()?;
+    let before = store.keys.len();
+    store.keys.retain(|k| k.public_key != public_key);
+    if store.keys.len() < before {
+        save(&store)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
 }
 
 pub fn trusted_keys() -> Vec<TrustedKey> {
-    Vec::new()
+    load().unwrap_or_default().keys
 }
 
-pub fn is_trusted(_public_key: &str) -> bool {
-    false
+pub fn is_trusted(public_key: &str) -> bool {
+    load()
+        .map(|s| s.keys.iter().any(|k| k.public_key == public_key))
+        .unwrap_or(false)
 }
 
 pub fn any_pinned() -> bool {
-    false
+    load().map(|s| !s.keys.is_empty()).unwrap_or(false)
 }
