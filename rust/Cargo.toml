@@ -346,7 +346,6 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
 pedantic = { level = "warn", priority = -1 }
 
 # --- Style preferences (not quality issues) ---
-too_many_lines = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
 return_self_not_must_use = "allow"
@@ -445,5 +444,4 @@ harness = false
 [patch.crates-io]
 rmcp = { path = "crates/vendor/rmcp" }
 rmcp-macros = { path = "crates/vendor/rmcp-macros" }
-
 
