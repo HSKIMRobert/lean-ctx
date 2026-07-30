@@ -337,9 +337,6 @@ dashmap = "6.2.1"
 async-trait = "0.1.91"
 
 [lints.rust]
-# Temporarily allow dead_code: ~800 items made pub(crate) by M14 audit
-# but not yet used. Track cleanup in issue #1393.
-dead_code = "allow"
 unreachable_pub = "warn"
 # CI coverage (cargo-tarpaulin) injects `--cfg tarpaulin`; declare it to avoid
 # `-D unexpected_cfgs` failures when using `cfg_attr(tarpaulin, ...)`.

@@ -43,6 +43,7 @@ pub mod tools;
 pub mod tui;
 
 #[cfg(feature = "http-server")]
+#[allow(dead_code)]
 pub mod proxy;
 pub mod proxy_autostart;
 pub mod proxy_setup;

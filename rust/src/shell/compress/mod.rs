@@ -1,5 +1,6 @@
 mod boundaries;
 mod classification;
+#[allow(dead_code)]
 pub(crate) mod engine;
 mod footer;
 mod passthrough;

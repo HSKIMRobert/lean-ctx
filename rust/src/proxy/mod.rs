@@ -40,6 +40,7 @@ mod connector;
 pub(crate) mod conversation;
 pub mod cost;
 pub mod counterfactual;
+#[allow(dead_code)]
 pub mod dedup;
 pub mod effort;
 pub mod effort_routing;
@@ -70,17 +71,20 @@ pub mod prose_ranker;
 pub mod providers;
 pub mod quality_lab_api;
 pub mod response_optimizer;
+#[allow(dead_code)]
 pub(crate) mod response_shaper;
 pub mod routing;
 pub mod routing_feedback;
 #[cfg(feature = "shape-xlat")]
 pub mod shape_xlat;
+#[allow(dead_code)]
 pub(crate) mod shaping_hook;
 pub mod sse_keepalive;
 #[cfg(test)]
 mod stats_tests;
 pub mod sticky_tools;
 pub mod tool_kind;
+#[allow(dead_code)]
 pub mod tool_output;
 #[cfg(test)]
 mod upstream_tests;
@@ -92,6 +96,7 @@ pub mod usage_parity;
 pub mod usage_sink;
 pub mod verbosity;
 pub mod web_app;
+#[allow(dead_code)]
 pub(crate) mod web_app_middleware;
 
 use std::net::SocketAddr;
