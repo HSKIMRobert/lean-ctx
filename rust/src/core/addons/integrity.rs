@@ -87,6 +87,47 @@ pub fn verify(
     out
 }
 
+/// Return the reason an installed addon must not execute, if any. Drifted and
+/// missing addons fail closed when capability enforcement is enabled; legacy
+/// unpinned addons remain runnable so users can re-install them incrementally.
+#[must_use]
+pub fn execution_block(
+    addons: &super::policy::AddonsConfig,
+    installed: &[&super::store::InstalledAddon],
+    servers: &[GatewayServer],
+    gateway_server: &str,
+) -> Option<String> {
+    if !addons.enforce_capabilities {
+        return None;
+    }
+    let addon = installed
+        .iter()
+        .find(|addon| addon.gateway_server == gateway_server)?;
+    let status = verify(std::slice::from_ref(addon), servers).pop()?.status;
+    match status {
+        IntegrityStatus::Drift | IntegrityStatus::Missing => Some(format!(
+            "addon `{}` integrity check is {}",
+            addon.name,
+            status.label()
+        )),
+        IntegrityStatus::Ok | IntegrityStatus::Unpinned => None,
+    }
+}
+
+/// Runtime integrity gate for a gateway server. Loads the global-only addon
+/// policy together with live gateway wiring, just before catalog use or proxy.
+#[must_use]
+pub fn execution_block_for_server(gateway_server: &str) -> Option<String> {
+    let store = super::store::InstalledStore::load();
+    let cfg = crate::core::config::Config::load();
+    execution_block(
+        &cfg.addons,
+        &store.list(),
+        &cfg.gateway.servers,
+        gateway_server,
+    )
+}
+
 /// Re-verify against the on-disk store + global config.
 #[must_use]
 pub fn verify_all() -> Vec<IntegrityFinding> {
@@ -156,6 +197,49 @@ mod tests {
         assert_eq!(
             verify(&[&legacy], &[server("old", "x")])[0].status,
             IntegrityStatus::Unpinned
+        );
+    }
+
+    #[test]
+    fn drifted_addon_is_blocked_when_capabilities_are_enforced() {
+        let addon = installed("demo", Some(wiring_hash(&server("demo", "safe-mcp"))));
+        let block = execution_block(
+            &super::super::policy::AddonsConfig::default(),
+            &[&addon],
+            &[server("demo", "tampered-mcp")],
+            "demo",
+        );
+        assert!(block.is_some_and(|reason| reason.contains("DRIFT")));
+    }
+
+    #[test]
+    fn missing_addon_is_blocked_when_capabilities_are_enforced() {
+        let addon = installed("gone", Some(wiring_hash(&server("gone", "gone-mcp"))));
+        let block = execution_block(
+            &super::super::policy::AddonsConfig::default(),
+            &[&addon],
+            &[],
+            "gone",
+        );
+        assert!(block.is_some_and(|reason| reason.contains("missing")));
+    }
+
+    #[test]
+    fn unpinned_addon_is_warned_but_allowed() {
+        let addon = installed("legacy", None);
+        let servers = [server("legacy", "legacy-mcp")];
+        assert_eq!(
+            verify(&[&addon], &servers)[0].status,
+            IntegrityStatus::Unpinned
+        );
+        assert_eq!(
+            execution_block(
+                &super::super::policy::AddonsConfig::default(),
+                &[&addon],
+                &servers,
+                "legacy",
+            ),
+            None
         );
     }
 
