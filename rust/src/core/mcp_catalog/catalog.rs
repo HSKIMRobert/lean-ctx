@@ -96,6 +96,15 @@ pub async fn build(cfg: &GatewayConfig) -> Catalog {
             errors.push(format!("{}: revoked — {reason}", server.name));
             continue;
         }
+        if let Some(reason) =
+            crate::core::addons::integrity::execution_block_for_server(&server.name)
+        {
+            errors.push(format!(
+                "{}: blocked by integrity gate — {reason}",
+                server.name
+            ));
+            continue;
+        }
         let resolved = match server.resolve() {
             Ok(r) => r,
             Err(e) => {

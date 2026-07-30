@@ -74,6 +74,11 @@ pub async fn proxy(
             "gateway server `{server_name}` is revoked and will not run: {reason}"
         ));
     }
+    if let Some(reason) = crate::core::addons::integrity::execution_block_for_server(server_name) {
+        return Err(format!(
+            "gateway server `{server_name}` failed integrity verification and will not run: {reason}"
+        ));
+    }
     let resolved = server.resolve()?;
     let timeout = std::time::Duration::from_secs(cfg.call_timeout_secs.max(1));
     let call = client::proxy_call(&resolved, tool, arguments, timeout).await;
