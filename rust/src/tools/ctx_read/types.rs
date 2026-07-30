@@ -57,16 +57,28 @@ pub(crate) fn compressed_cache_key(
     } else {
         versioned_mode.to_string()
     };
-    // map/signatures output now embeds a task-relevant body, so task-aware and
-    // task-free variants must cache under distinct keys.
-    let keyed = match task.map(str::trim).filter(|t| !t.is_empty()) {
-        Some(t) => {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            t.hash(&mut h);
-            format!("{base}:t{:x}", h.finish())
+    // Structure-preserving modes (map, signatures) produce deterministic
+    // structural summaries of the file content. Their output is a pure function
+    // of (file_content, crp_mode) — NOT the task parameter. Excluding the task
+    // hash from their cache key improves hit rate across task changes and
+    // stabilizes output for provider-side prompt caching (#E26).
+    //
+    // Task-dependent modes (density, aggressive, entropy, task) DO embed
+    // task-relevant filtering and MUST keep the task hash to avoid serving
+    // stale task-specific content.
+    let task_independent = matches!(mode, "map" | "signatures");
+    let keyed = if task_independent {
+        base
+    } else {
+        match task.map(str::trim).filter(|t| !t.is_empty()) {
+            Some(t) => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                t.hash(&mut h);
+                format!("{base}:t{:x}", h.finish())
+            }
+            None => base,
         }
-        None => base,
     };
     // Aggressiveness and the explicit protect list both change lossy output, so
     // both must change the key (#498). Empty fragments keep pre-feature keys
@@ -92,5 +104,43 @@ pub(super) fn append_compressed_hint(output: &str, file_path: &str) -> String {
     match crate::core::recovery::read_footer(file_path) {
         Some(footer) => format!("{output}\n{footer}"),
         None => output.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CrpMode, compressed_cache_key};
+
+    #[test]
+    fn map_key_is_task_independent() {
+        let k1 = compressed_cache_key("map", CrpMode::Off, Some("fix bug"), None, &[]);
+        let k2 = compressed_cache_key("map", CrpMode::Off, Some("add feature"), None, &[]);
+        let k3 = compressed_cache_key("map", CrpMode::Off, None, None, &[]);
+        assert_eq!(k1, k2, "map key must be task-independent");
+        assert_eq!(k1, k3, "map key must be same with or without task");
+        assert_eq!(k1, "map:v2");
+    }
+
+    #[test]
+    fn signatures_key_is_task_independent() {
+        let k1 = compressed_cache_key("signatures", CrpMode::Off, Some("task A"), None, &[]);
+        let k2 = compressed_cache_key("signatures", CrpMode::Off, Some("task B"), None, &[]);
+        assert_eq!(k1, k2, "signatures key must be task-independent");
+        assert_eq!(k1, "signatures:v2");
+    }
+
+    #[test]
+    fn density_key_is_task_dependent() {
+        let k1 = compressed_cache_key("density:0.3", CrpMode::Off, Some("fix bug"), None, &[]);
+        let k2 = compressed_cache_key("density:0.3", CrpMode::Off, Some("add feature"), None, &[]);
+        assert_ne!(k1, k2, "density key MUST vary with task");
+    }
+
+    #[test]
+    fn map_key_still_includes_crp_mode() {
+        let k1 = compressed_cache_key("map", CrpMode::Off, Some("task"), None, &[]);
+        let k2 = compressed_cache_key("map", CrpMode::Tdd, Some("task"), None, &[]);
+        assert_ne!(k1, k2, "CRP mode must still differentiate keys");
+        assert_eq!(k2, "map:v2:tdd");
     }
 }
