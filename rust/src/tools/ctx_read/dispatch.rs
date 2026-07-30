@@ -600,7 +600,9 @@ fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
     let (hash, mtime) = file_blake3_prefix(path)?;
     let current_agent = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
-        .unwrap_or_else(|_| format!("proc:{}", std::process::id()));
+    let current_agent = std::env::var("CURSOR_TASK_ID")
+        .or_else(|_| std::env::var("CLAUDECODE"))
+        .unwrap_or_else(|_| "local-agent".to_string());
     let current_conversation = current_agent.clone();
     let reg = crate::core::ocla::OclaRegistry::global();
     let record = crate::daemon_client::try_delivery_check_blocking(
@@ -647,7 +649,7 @@ fn record_cross_agent_delivery(path: &str, tokens: usize) {
     let line_count = std::fs::read_to_string(path).map_or(0, |c| c.lines().count() as u32);
     let agent_id = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
-        .unwrap_or_else(|_| format!("proc:{}", std::process::id()));
+        .unwrap_or_else(|_| "local-agent".to_string());
     let conversation_id = agent_id.clone();
     let entry = crate::core::ocla::types::DeliveryEntry {
         blake3: hash,
@@ -665,13 +667,30 @@ fn record_cross_agent_delivery(path: &str, tokens: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{SessionCache, try_cross_agent_stub, try_stub_hit_readonly_scoped};
     use std::sync::atomic::Ordering;
 
     #[test]
     fn cross_agent_stub_miss_returns_none() {
         let stub = try_cross_agent_stub("/nonexistent/file.rs", "auto");
         assert!(stub.is_none());
+    }
+
+    #[test]
+    fn cross_agent_fallback_is_deterministic() {
+        // When no CURSOR_TASK_ID or CLAUDECODE env var is set, the fallback
+        // must be deterministic (not PID-based) for provider cache stability.
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("CURSOR_TASK_ID");
+        crate::test_env::remove_var("CLAUDECODE");
+        let id1 = std::env::var("CURSOR_TASK_ID")
+            .or_else(|_| std::env::var("CLAUDECODE"))
+            .unwrap_or_else(|_| "local-agent".to_string());
+        let id2 = std::env::var("CURSOR_TASK_ID")
+            .or_else(|_| std::env::var("CLAUDECODE"))
+            .unwrap_or_else(|_| "local-agent".to_string());
+        assert_eq!(id1, id2, "fallback agent ID must be deterministic");
+        assert!(!id1.contains("proc:"), "must not contain PID");
     }
 
     #[test]

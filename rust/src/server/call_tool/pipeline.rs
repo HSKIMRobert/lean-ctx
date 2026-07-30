@@ -286,6 +286,26 @@ pub(in crate::server) async fn dispatch_and_post_process(
         result_text = format!("{result_text}\n{hint}");
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Provider-Cache Zones (#E26)
+    //
+    // Tool output = STABLE ZONE + DYNAMIC ZONE
+    //
+    // STABLE ZONE: The core tool result from dispatch (result_text at this
+    //   point). Deterministic for same input — verified by #498 tests.
+    //
+    // DYNAMIC ZONE: Session-dependent decorations appended/prepended below.
+    //
+    // KNOWN ISSUE: auto_context is PREPENDED (line below), which places
+    // session-specific content at the START of the tool result. This breaks
+    // provider prefix caching for the first tool call of each session. Since
+    // auto_context fires only once per session (gated), this is acceptable:
+    // the first call is always a cache miss anyway. All subsequent calls have
+    // a stable prefix.
+    //
+    // Future optimization: move auto_context to MCP _meta or a separate
+    // notification channel to preserve the stable prefix even on first call.
+    // ═══════════════════════════════════════════════════════════════════════
     if !is_raw_shell && let Some(ctx) = auto_context {
         let ctx_tokens = crate::core::tokens::count_tokens(&ctx);
         if ctx_tokens <= 400 {
