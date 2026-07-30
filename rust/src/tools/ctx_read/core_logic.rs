@@ -150,7 +150,7 @@ pub(super) fn handle_with_options_inner(
             };
         }
 
-        if is_cacheable_mode(&resolved_mode) {
+        let compressed_hit = if is_cacheable_mode(&resolved_mode) {
             let cache_key = compressed_cache_key(
                 &resolved_mode,
                 crp_mode,
@@ -158,11 +158,13 @@ pub(super) fn handle_with_options_inner(
                 tuning.aggressiveness,
                 tuning.protect,
             );
-            let compressed_hit = cache.get_compressed(path, &cache_key).cloned();
-            if let Some(cached_output) = compressed_hit {
+            let hit = cache.get_compressed(path, &cache_key).cloned();
+            if let Some(cached_output) = &hit {
                 // get_compressed() already recorded the cache hit (stats + event)
-                let out = crate::core::redaction::redact_text_if_enabled(&cached_output);
+                crate::core::auto_mode_resolver::count_source("compressed_cache_hit");
+                let out = crate::core::redaction::redact_text_if_enabled(cached_output);
                 let sent = count_tokens(&out);
+                crate::core::stats::record_reread(original_tokens.saturating_sub(sent));
                 return ReadOutput {
                     content: out,
                     resolved_mode,
@@ -170,6 +172,13 @@ pub(super) fn handle_with_options_inner(
                     is_cache_hit: true,
                 };
             }
+            hit
+        } else {
+            None
+        };
+
+        if compressed_hit.is_none() && is_cacheable_mode(&resolved_mode) {
+            crate::core::auto_mode_resolver::count_source("compressed_cache_miss");
         }
 
         if let Some(content) = content_opt {
@@ -586,7 +595,8 @@ fn handle_diff(cache: &mut SessionCache, path: &str, file_ref: &str) -> (String,
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::handle_full_with_auto_delta;
+    use crate::core::cache::SessionCache;
     use std::sync::atomic::Ordering;
 
     #[test]
@@ -606,6 +616,17 @@ mod tests {
         assert!(
             after > before,
             "fresh cache store must increment central miss telemetry"
+        );
+    }
+
+    #[test]
+    fn count_source_is_accessible() {
+        crate::core::auto_mode_resolver::count_source("test_compressed_cache_hit");
+        let counts = crate::core::auto_mode_resolver::source_counts();
+        assert!(
+            counts
+                .iter()
+                .any(|(key, _)| *key == "test_compressed_cache_hit")
         );
     }
 }
