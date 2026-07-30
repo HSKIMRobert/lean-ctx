@@ -149,13 +149,9 @@ impl McpTool for CtxShellTool {
 
             let explicit_cwd = get_str(args, "cwd");
             let had_explicit_cwd = explicit_cwd.is_some();
-            let (effective_cwd, cwd_jail_reason) = {
-                let guard = crate::server::bounded_lock::read(session_lock, "ctx_shell_cwd");
-                match guard {
-                    Some(session) => session.effective_cwd_checked(explicit_cwd.as_deref()),
-                    None => (explicit_cwd.unwrap_or_else(|| ".".to_string()), None),
-                }
-            };
+            let guard = crate::server::bounded_lock::read(session_lock, "ctx_shell_cwd");
+            let (effective_cwd, cwd_jail_reason) =
+                resolve_effective_cwd(guard, explicit_cwd.as_deref())?;
             // A `cwd` rejected by the project-root jail is silently replaced with
             // the root (deliberate sandboxing). Surface that swap as a one-line
             // hint so the caller does not mistake the run dir for the requested
@@ -430,6 +426,19 @@ impl McpTool for CtxShellTool {
                 content_blocks: None,
             })
         })
+    }
+}
+
+fn resolve_effective_cwd(
+    session: Option<tokio::sync::OwnedRwLockReadGuard<crate::core::session::SessionState>>,
+    explicit_cwd: Option<&str>,
+) -> Result<(String, Option<String>), ErrorData> {
+    match session {
+        Some(session) => Ok(session.effective_cwd_checked(explicit_cwd)),
+        None => Err(ErrorData::internal_error(
+            "session lock timeout — cannot validate working directory",
+            None,
+        )),
     }
 }
 
@@ -741,7 +750,10 @@ fn detect_bare_cat_file(command: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_background_state, is_timeout_notice_only, should_auto_background};
+    use super::{
+        format_background_state, is_timeout_notice_only, resolve_effective_cwd,
+        should_auto_background,
+    };
     use crate::server::background_shell::JobState;
 
     /// #1246: a cancel must never come back as a tool error, and must not read
@@ -831,5 +843,15 @@ mod tests {
         ));
         // Exit 124 from something that is not our watchdog carries no marker.
         assert!(!is_timeout_notice_only("some tool output", 124));
+    }
+
+    #[test]
+    fn unavailable_session_lock_rejects_explicit_cwd() {
+        let error = resolve_effective_cwd(None, Some("/tmp/unvalidated"))
+            .expect_err("an unavailable session lock must reject an unvalidated cwd");
+        assert!(
+            error.message.contains("cannot validate working directory"),
+            "{error:?}"
+        );
     }
 }
