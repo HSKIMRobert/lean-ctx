@@ -20,6 +20,7 @@
 
 pub(crate) mod builder;
 pub(crate) mod digest;
+#[allow(dead_code)]
 pub(crate) mod publish;
 pub(crate) mod restore;
 pub(crate) mod signing;

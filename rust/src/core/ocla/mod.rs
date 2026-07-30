@@ -22,6 +22,7 @@ pub mod routing_quality;
 pub mod runtime;
 pub mod sidecar;
 pub mod tracing;
+#[allow(dead_code)]
 pub mod unified_ledger;
 pub mod wire;
 #[cfg(feature = "http-server")]
