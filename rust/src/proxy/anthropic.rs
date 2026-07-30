@@ -7,6 +7,7 @@ use axum::{
 use serde_json::Value;
 
 use super::ProxyState;
+use super::compress_shared::{self, ToolKind};
 use super::forward;
 use super::tool_kind::{self, ToolResultKind};
 use super::{cache_safety, prefix_cache_stats, prefix_replay, prose, sticky_tools};
@@ -247,7 +248,7 @@ pub(super) fn compress_request_body(
 
             if let Some(content) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
                 for block in content.iter_mut() {
-                    if block.get("type").and_then(|t| t.as_str()) != Some("tool_result") {
+                    if compress_shared::classify_tool_kind(block) != ToolKind::ToolResult {
                         continue;
                     }
 
@@ -256,7 +257,7 @@ pub(super) fn compress_request_body(
                         .and_then(|v| v.as_str())
                         .and_then(|id| tool_names.get(id))
                         .map(String::as_str);
-                    let kind = name.map_or(ToolResultKind::Other, tool_kind::classify_tool_name);
+                    let kind = compress_shared::tool_result_kind(name);
 
                     // #481: skip live compression when globally off or when the
                     // originating tool is on the exclusion list (Serena default).
@@ -411,8 +412,9 @@ fn compress_content_field(
         Value::Array(arr) => {
             let mut modified = false;
             for item in arr.iter_mut() {
-                if item.get("type").and_then(|t| t.as_str()) == Some("text")
-                    && let Some(Value::String(text)) = item.get_mut("text")
+                if compress_shared::should_compress_content(compress_shared::classify_tool_kind(
+                    item,
+                )) && let Some(Value::String(text)) = item.get_mut("text")
                 {
                     modified |= super::tool_output::compress_text(text, tool_name, kind);
                 }

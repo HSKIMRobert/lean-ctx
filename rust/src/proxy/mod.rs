@@ -28,6 +28,7 @@ mod codec;
 pub mod cold_prefix;
 pub mod compress;
 pub mod compress_api;
+pub mod compress_shared;
 mod connector;
 pub(crate) mod conversation;
 pub mod cost;

@@ -7,6 +7,7 @@ use axum::{
 use serde_json::Value;
 
 use super::ProxyState;
+use super::compress_shared::{self, ToolKind};
 use super::forward;
 use super::tool_kind::{self, ToolResultKind};
 use super::{cache_safety, prose};
@@ -180,14 +181,15 @@ pub(super) fn prune_responses_input(doc: &mut Value) -> bool {
     let tool_names = tool_kind::responses_tool_names(input);
     let mut modified = false;
     for item in input.iter_mut().take(boundary) {
-        if item.get("type").and_then(|t| t.as_str()) != Some("function_call_output") {
+        if compress_shared::classify_tool_kind(item) != ToolKind::ToolResult {
             continue;
         }
-        let kind = item
+        let tool_name = item
             .get("call_id")
             .and_then(|v| v.as_str())
             .and_then(|id| tool_names.get(id))
-            .map_or(ToolResultKind::Other, |n| tool_kind::classify_tool_name(n));
+            .map(String::as_str);
+        let kind = compress_shared::tool_result_kind(tool_name);
         if let Some(output) = item.get_mut("output") {
             modified |= prune_output_field(output, kind);
         }
@@ -224,7 +226,7 @@ pub(super) fn compress_responses_input(doc: &mut Value) -> bool {
     if let Some(input) = doc.get_mut("input").and_then(|i| i.as_array_mut()) {
         let tool_names = tool_kind::responses_tool_names(input);
         for item in input.iter_mut() {
-            if item.get("type").and_then(|t| t.as_str()) != Some("function_call_output") {
+            if compress_shared::classify_tool_kind(item) != ToolKind::ToolResult {
                 continue;
             }
             let name = item
@@ -237,7 +239,7 @@ pub(super) fn compress_responses_input(doc: &mut Value) -> bool {
             if name.is_some_and(|n| cfg.proxy.is_tool_live_compress_excluded(n)) {
                 continue;
             }
-            let kind = name.map_or(ToolResultKind::Other, tool_kind::classify_tool_name);
+            let kind = compress_shared::tool_result_kind(name);
             if let Some(output) = item.get_mut("output") {
                 modified |= compress_output_field(output, name, kind);
             }
