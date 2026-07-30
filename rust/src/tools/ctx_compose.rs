@@ -370,13 +370,10 @@ fn deferred_ranking_note(project_root: &str) -> String {
                  Inspect with `ctx_index status` / `lean-ctx doctor`, then `lean-ctx reindex`)"
             )
         }
-        "building" => {
-            let secs = s.elapsed_ms.map_or(0, |ms| ms / 1000);
-            format!(
-                "(deferred — semantic index is building ({secs}s elapsed); {exact}, \
-                 and ranking becomes available once the build finishes)"
-            )
-        }
+        "building" => format!(
+            "(deferred — semantic index is building; {exact}, \
+             and ranking becomes available once the build finishes)"
+        ),
         // ready/idle: this call's cold build just overran the budget. If the
         // index could not be persisted (too large), surface that — otherwise it
         // silently rebuilds on every cold start and never gets faster.
@@ -632,6 +629,21 @@ mod tests {
         // but handle() must not panic.
         assert!(tokens > 0);
         assert!(output.contains("TASK:"));
+    }
+
+    #[test]
+    fn deferred_ranking_note_is_deterministic_and_has_no_timing() {
+        // Issue #498 / #1366: elapsed_ms must never appear in the note — it
+        // varies between calls and defeats provider prompt caching.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_string_lossy();
+        let a = deferred_ranking_note(root.as_ref());
+        let b = deferred_ranking_note(root.as_ref());
+        assert_eq!(a, b, "deferred note must be byte-stable across calls");
+        assert!(
+            !a.contains("elapsed"),
+            "deferred note must not embed timing data: {a}"
+        );
     }
 
     #[test]
