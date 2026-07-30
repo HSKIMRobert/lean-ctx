@@ -31,10 +31,12 @@ fn sanitize_schema(schema: Value) -> Value {
 /// Tools that never mutate their environment (files, indexes, session state).
 /// MCP clients (Cursor, Claude Desktop) may use `readOnlyHint` to allow these
 /// tools in restricted/readonly subagent contexts.
+///
+/// Excluded from this list (despite mostly-read paths):
+/// - `ctx_compose` — calls `record_access()` (co-access / session state mutation)
+/// - `ctx_search` — `action=reindex` rebuilds persistent BM25 indexes
 pub const READONLY_TOOL_NAMES: &[&str] = &[
     "ctx_read",
-    "ctx_compose",
-    "ctx_search",
     "ctx_tree",
     "ctx_glob",
     "ctx_callgraph",
