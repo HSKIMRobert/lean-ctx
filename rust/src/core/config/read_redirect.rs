@@ -52,6 +52,9 @@ impl ReadRedirect {
     /// `ctx_read` copy for the current process/host. `Auto` disables it on hosts
     /// with a read-before-write guard so native Write/Edit keeps working (#637).
     pub fn read_redirect_enabled(config: &Config) -> bool {
+        if config.prefer_native_editor_effective() {
+            return false;
+        }
         match Self::effective(config) {
             Self::On => true,
             Self::Off => false,
@@ -202,6 +205,16 @@ mod tests {
             ..Config::default()
         };
         assert!(!ReadRedirect::read_redirect_enabled(&cfg_off));
+    }
+
+    #[test]
+    fn prefer_native_editor_disables_redirect() {
+        let _lock = crate::core::data_dir::test_env_lock();
+        crate::test_env::remove_var("LEAN_CTX_PREFER_NATIVE_EDITOR");
+
+        let mut config = Config::default();
+        config.prefer_native_editor = true;
+        assert!(!ReadRedirect::read_redirect_enabled(&config));
     }
 
     #[test]

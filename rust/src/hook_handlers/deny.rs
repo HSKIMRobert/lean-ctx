@@ -168,7 +168,10 @@ fn has_compression_markers(content: &str) -> bool {
     static HEADER_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"(?m)^\S+\.\w+ \d+L\n (?:deps|exports) ").unwrap()
     });
-    HEADER_RE.is_match(content)
+    static MAP_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?m)(?:@L\d+-\d+|^\s+API:\s*$|^\S+\.\w+ \d+L\n\s+deps:)").unwrap()
+    });
+    HEADER_RE.is_match(content) || MAP_RE.is_match(content)
 }
 
 fn extract_write_content(payload: &str) -> Option<String> {
@@ -435,6 +438,24 @@ mod tests {
         // Must NOT trigger on normal Rust content
         assert!(!has_compression_markers("let x = 1225;\n deps: vec![]\n"));
         assert!(!has_compression_markers("// mod.rs has 1225 lines\n"));
+    }
+
+    #[test]
+    fn detects_map_outline_patterns() {
+        assert!(has_compression_markers("class pub Foo @L12-34"));
+        assert!(has_compression_markers(
+            "fn pub run(id:usize) → bool @L372-383"
+        ));
+        assert!(has_compression_markers("  API:\n    class pub Bar"));
+        assert!(has_compression_markers("events.py 1045L\n  deps: foo, bar"));
+    }
+
+    #[test]
+    fn allows_normal_code() {
+        assert!(!has_compression_markers(
+            "fn main() { println!(\"hello\"); }"
+        ));
+        assert!(!has_compression_markers("let x = @L12;"));
     }
 
     #[test]
