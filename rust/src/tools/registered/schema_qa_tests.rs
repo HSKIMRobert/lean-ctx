@@ -120,6 +120,17 @@ fn every_required_param_is_a_declared_property() {
     );
 }
 
+#[test]
+fn no_published_schema_has_root_anyof_or_oneof() {
+    let registry = crate::server::registry::build_registry();
+
+    for def in registry.tool_defs() {
+        let schema = Value::Object((*def.input_schema).clone());
+        assert!(schema.get("oneOf").is_none(), "{} has root oneOf", def.name);
+        assert!(schema.get("anyOf").is_none(), "{} has root anyOf", def.name);
+    }
+}
+
 /// The sharp ctx_patch schema (#1020) encodes per-op required params, so a
 /// client knows before calling that `replace_lines` needs `new_text` — not the
 /// retired `new_body`. Exercise the conditionals directly.

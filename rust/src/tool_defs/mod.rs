@@ -15,16 +15,30 @@ pub fn tool_def(name: &'static str, description: &'static str, schema_value: Val
     Tool::new(name, description, Arc::new(schema))
 }
 
-/// Strip top-level `oneOf` which Anthropic's API rejects in tool schemas.
+/// Strip root union forms rejected by strict MCP schema validators.
 ///
 /// The combinator is removed but no required fields are added — the published
 /// schema becomes more permissive and the handler does runtime validation.
-/// `allOf` and `anyOf` are preserved (carry `if`/`then` conditionals).
+/// `allOf` and conditional `anyOf` forms are preserved.
 fn sanitize_schema(schema: Value) -> Value {
     let Value::Object(mut schema) = schema else {
         return schema;
     };
     schema.remove("oneOf");
+    // Grok and Gemini reject root union branches that are bare `required`
+    // subschemas, as emitted by the former ctx_shell schema (#1397).
+    if let Some(any_of) = schema.get("anyOf") {
+        let dominated_by_required = any_of.as_array().is_some_and(|arr| {
+            arr.iter().all(|branch| {
+                branch.is_object()
+                    && branch.get("type").is_none()
+                    && branch.get("required").is_some()
+            })
+        });
+        if dominated_by_required {
+            schema.remove("anyOf");
+        }
+    }
     Value::Object(schema)
 }
 
@@ -264,5 +278,36 @@ mod tests {
         });
 
         assert_eq!(sanitize_schema(schema.clone()), schema);
+    }
+
+    #[test]
+    fn sanitize_strips_root_anyof_with_required_only_branches() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "a": { "type": "string" } },
+            "anyOf": [
+                { "required": ["a"] },
+                { "required": ["b", "c"] }
+            ]
+        });
+
+        let result = sanitize_schema(schema);
+
+        assert!(result.get("anyOf").is_none());
+        assert!(result.get("properties").is_some());
+    }
+
+    #[test]
+    fn sanitize_preserves_anyof_with_typed_branches() {
+        let schema = json!({
+            "type": "object",
+            "anyOf": [
+                { "type": "object", "properties": { "a": { "type": "string" } } }
+            ]
+        });
+
+        let result = sanitize_schema(schema);
+
+        assert!(result.get("anyOf").is_some());
     }
 }

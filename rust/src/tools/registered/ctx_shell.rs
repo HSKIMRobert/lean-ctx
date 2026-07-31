@@ -37,11 +37,7 @@ impl McpTool for CtxShellTool {
                     "run_in_background": { "type": "boolean", "description": "Detach immediately and return a job id. The command keeps timeout_ms; poll or cancel with background_action and job_id." },
                     "background_action": { "type": "string", "enum": ["status", "cancel"], "description": "Inspect or cancel a background ctx_shell job." },
                     "job_id": { "type": "string", "description": "Job id returned by run_in_background." }
-                },
-                "anyOf": [
-                    { "required": ["command"] },
-                    { "required": ["background_action", "job_id"] }
-                ]
+                }
             }),
         )
     }

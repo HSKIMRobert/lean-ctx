@@ -93,27 +93,18 @@ impl McpTool for CtxSearchTool {
                         "items": { "type": "object" }
                     }
                 },
-                "oneOf": [
+                "allOf": [
                     {
-                        "properties": { "action": { "enum": ["regex"] } },
-                        "anyOf": [{ "required": ["pattern"] }, { "required": ["queries"] }]
+                        "if": { "properties": { "action": { "const": "regex" } }, "required": ["action"] },
+                        "then": { "anyOf": [{ "required": ["pattern"] }, { "required": ["queries"] }] }
                     },
                     {
-                        "properties": { "action": { "const": "semantic" } },
-                        "required": ["action", "query"]
+                        "if": { "properties": { "action": { "const": "semantic" } }, "required": ["action"] },
+                        "then": { "required": ["query"] }
                     },
                     {
-                        "properties": { "action": { "const": "symbol" } },
-                        "required": ["action"],
-                        "anyOf": [{ "required": ["name"] }, { "required": ["handle"] }]
-                    },
-                    {
-                        "properties": { "action": { "const": "reindex" } },
-                        "required": ["action"]
-                    },
-                    {
-                        "properties": { "action": { "const": "find_related" } },
-                        "required": ["action", "file_path", "line"]
+                        "if": { "properties": { "action": { "const": "symbol" } }, "required": ["action"] },
+                        "then": { "anyOf": [{ "required": ["name"] }, { "required": ["handle"] }] }
                     }
                 ]
             }),
