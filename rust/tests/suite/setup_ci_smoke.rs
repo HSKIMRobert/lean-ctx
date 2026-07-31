@@ -427,8 +427,8 @@ fn init_claude_installs_dedicated_rules_file_without_claude_md() {
     // v7 (#1091): Replace-mode write guidance corrected; shared tag bumped.
     // v8 (#1228): auto memory + edit gate keep native Read; file:// MCP resources guided away.
     assert!(
-        claude_md.contains("lean-ctx-claude-v8"),
-        "CLAUDE.md must carry the v8 block version"
+        claude_md.contains("lean-ctx-claude-v9"),
+        "CLAUDE.md must carry the v9 block version"
     );
     assert!(
         claude_md.contains("ctx_patch"),
