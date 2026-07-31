@@ -2,10 +2,10 @@ use async_trait::async_trait;
 
 use crate::types::{
     AgentEnvelope, CompressionRequest, CompressionResult, ConfigProposal, ConfigTuningRequest,
-    ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryStats, EfficiencyAnalysis,
-    EfficiencySample, ExperimentRequest, ExperimentResult, IntentDecision, IntentRequest,
-    MessagePriority, MetricPoint, ModelRouteRequest, Observation, OclaCapability, OclaResult,
-    Outcome, PrivacyLevel, ResponseOptimizationRequest, ResponseOptimizationResult,
+    ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryRecordResult, DeliveryStats,
+    EfficiencyAnalysis, EfficiencySample, ExperimentRequest, ExperimentResult, IntentDecision,
+    IntentRequest, MessagePriority, MetricPoint, ModelRouteRequest, Observation, OclaCapability,
+    OclaResult, Outcome, PrivacyLevel, ResponseOptimizationRequest, ResponseOptimizationResult,
     RoutingDecision, SavingsEvidence, ScheduledJob, UsageRecord,
 };
 
@@ -98,7 +98,7 @@ pub trait DeliveryRegistry: OclaService {
         requester_conversation_id: Option<&str>,
     ) -> Option<DeliveryRecord>;
     fn record_stub_served(&self, record: &DeliveryRecord, stub_tokens: u64);
-    fn record_delivery(&self, entry: DeliveryEntry);
+    fn record_delivery(&self, entry: DeliveryEntry) -> DeliveryRecordResult;
     fn delivery_stats(&self) -> DeliveryStats;
 }
 

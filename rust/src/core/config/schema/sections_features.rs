@@ -755,14 +755,6 @@ pub(super) fn build(sections: &mut BTreeMap<String, SectionSchema>) {
 
     let mut cloud = BTreeMap::new();
     cloud.insert(
-        "contribute_enabled".into(),
-        key(
-            "bool",
-            serde_json::json!(cfg.cloud.contribute_enabled),
-            "Enable contributing anonymized stats to lean-ctx cloud",
-        ),
-    );
-    cloud.insert(
         "auto_sync".into(),
         key(
             "bool",

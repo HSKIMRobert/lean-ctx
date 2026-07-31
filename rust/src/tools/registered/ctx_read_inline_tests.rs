@@ -97,6 +97,126 @@ fn per_file_lock_allows_parallel_different_paths() {
     assert!(max_concurrent.load(Ordering::SeqCst) > 1);
 }
 
+/// The primary MCP handler must consult cross-agent delivery only after its
+/// session-local stub miss and before it starts the disk/compression pipeline.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mcp_ctx_read_serves_cross_agent_delivery_stub_before_disk_read() {
+    use crate::core::cache::SessionCache;
+    use crate::core::ocla::OclaRegistry;
+    use crate::core::ocla::types::DeliveryEntry;
+    use crate::core::session::SessionState;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("cross-agent-mcp.rs");
+    std::fs::write(&file, "fn only_the_remote_agent_read_this() {}\n").unwrap();
+    let path = file.to_string_lossy().to_string();
+    let bytes = std::fs::read(&file).unwrap();
+    let hash = blake3::hash(&bytes);
+    let mut blake3_prefix = [0u8; 12];
+    blake3_prefix.copy_from_slice(&hash.as_bytes()[..12]);
+    let mtime = std::fs::metadata(&file)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let requester = std::env::var("CURSOR_TASK_ID")
+        .or_else(|_| std::env::var("CLAUDECODE"))
+        .unwrap_or_else(|_| "local-agent".to_string());
+    let remote_agent = format!("{requester}-remote");
+    OclaRegistry::global()
+        .delivery_registry
+        .record_delivery(DeliveryEntry {
+            blake3: blake3_prefix,
+            path: path.clone(),
+            line_count: 1,
+            token_count: 12,
+            agent_id: remote_agent.clone(),
+            conversation_id: remote_agent,
+            mtime,
+        });
+
+    let ctx = ToolContext {
+        project_root: dir.path().to_string_lossy().to_string(),
+        resolved_paths: std::collections::HashMap::from([("path".to_string(), path.clone())]),
+        cache: Some(Arc::new(RwLock::new(SessionCache::new()))),
+        session: Some(Arc::new(RwLock::new(SessionState::new()))),
+        ..ToolContext::default()
+    };
+    let args = json!({ "path": path, "mode": "auto" })
+        .as_object()
+        .unwrap()
+        .clone();
+
+    let output = tokio::task::block_in_place(|| CtxReadTool.handle(&args, &ctx))
+        .expect("ctx_read must serve the cross-agent delivery stub");
+    assert!(output.text.contains("[cross-agent"), "got: {}", output.text);
+    assert!(
+        !output.text.contains("only_the_remote_agent_read_this"),
+        "cross-agent hit must return before disk content is read: {}",
+        output.text
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mcp_ctx_read_records_new_cross_agent_delivery() {
+    use crate::core::cache::SessionCache;
+    use crate::core::ocla::OclaRegistry;
+    use crate::core::session::SessionState;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("record-delivery-mcp.rs");
+    std::fs::write(&file, "fn mcp_records_delivery() {}\n").unwrap();
+    let path = file.to_string_lossy().to_string();
+    let ctx = ToolContext {
+        project_root: dir.path().to_string_lossy().to_string(),
+        resolved_paths: std::collections::HashMap::from([("path".to_string(), path.clone())]),
+        cache: Some(Arc::new(RwLock::new(SessionCache::new()))),
+        session: Some(Arc::new(RwLock::new(SessionState::new()))),
+        ..ToolContext::default()
+    };
+    let args = json!({ "path": path, "mode": "auto" })
+        .as_object()
+        .unwrap()
+        .clone();
+
+    let output = tokio::task::block_in_place(|| CtxReadTool.handle(&args, &ctx))
+        .expect("ctx_read must complete the initial delivery");
+    assert!(
+        output.text.contains("mcp_records_delivery"),
+        "got: {}",
+        output.text
+    );
+
+    let bytes = std::fs::read(&file).unwrap();
+    let hash = blake3::hash(&bytes);
+    let mut blake3_prefix = [0u8; 12];
+    blake3_prefix.copy_from_slice(&hash.as_bytes()[..12]);
+    let mtime = std::fs::metadata(&file)
+        .unwrap()
+        .modified()
+        .unwrap()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let delivery = OclaRegistry::global().delivery_registry.check_delivery(
+        &blake3_prefix,
+        mtime,
+        &path,
+        Some("mcp-delivery-probe"),
+        Some("mcp-delivery-probe"),
+    );
+    assert!(
+        delivery.is_some(),
+        "MCP read must record its fresh delivery"
+    );
+}
+
 /// Regression test for Issue #229: a zombie thread holding the cache write-lock
 /// must not block subsequent reads indefinitely. The try_write() loop inside
 /// the spawned thread should respect its 25s deadline and the cancellation flag.

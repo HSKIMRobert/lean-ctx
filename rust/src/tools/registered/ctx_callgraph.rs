@@ -1,3 +1,4 @@
+use crate::core::ocla::cache_types::{CacheKeyBuilder, SearchQueryKey};
 use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
@@ -63,6 +64,37 @@ impl McpTool for CtxCallgraphTool {
         let from = get_str(args, "from");
         let to = get_str(args, "to");
 
+        let cache_input = format!(
+            "callgraph:{action_normalized}:{}:{}:{depth}",
+            symbol.as_deref().unwrap_or(""),
+            file.as_deref().unwrap_or("")
+        );
+        let builder = SearchQueryKey {
+            path: ctx.project_root.clone(),
+            index_rev: String::new(),
+            pattern: cache_input,
+            include: String::new(),
+            exclude: String::new(),
+        };
+        let key = builder.cache_key();
+        let validator = builder.validator();
+
+        if let Some(entry) =
+            crate::core::ocla::cache_delivery::check(&key, &validator, "ctx_callgraph")
+        {
+            let stub = crate::core::ocla::cache_delivery::stub(&entry, "callgraph");
+            return Ok(ToolOutput {
+                text: stub,
+                original_tokens: entry.token_count as usize,
+                saved_tokens: entry.token_count as usize,
+                mode: Some(action_normalized),
+                path: None,
+                changed: false,
+                shell_outcome: None,
+                content_blocks: None,
+            });
+        }
+
         let result = crate::tools::ctx_callgraph::handle(
             &action_normalized,
             symbol.as_deref(),
@@ -71,6 +103,15 @@ impl McpTool for CtxCallgraphTool {
             depth,
             from.as_deref(),
             to.as_deref(),
+        );
+
+        crate::core::ocla::cache_delivery::record(
+            key,
+            crate::core::ocla::cache_types::DeliveryKind::SearchQuery,
+            validator,
+            None,
+            &result,
+            "ctx_callgraph",
         );
 
         Ok(ToolOutput {

@@ -1,3 +1,4 @@
+use crate::core::ocla::cache_types::{CacheKeyBuilder, ComposedContextKey};
 use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
@@ -52,9 +53,46 @@ impl McpTool for CtxComposeTool {
             crate::tools::ctx_semantic_search::set_thread_cache(cache.clone());
         }
 
-        let (text, sent) = tokio::task::block_in_place(|| {
-            crate::tools::ctx_compose::handle(&task, &path, ctx.crp_mode)
-        });
+        let cache_enabled = crate::core::config::Config::load()
+            .cache
+            .compose_cache_enabled;
+        let cached = cache_enabled
+            .then(|| crate::core::ocla::compose_cache::global().check(&task, &path))
+            .flatten();
+        let (text, sent) = if let Some(text) = cached {
+            let sent = crate::core::tokens::count_tokens(&text);
+            (text, sent)
+        } else {
+            // Cross-process delivery check before expensive computation
+            let compose_builder = ComposedContextKey {
+                task: task.clone(),
+                path: path.clone(),
+                source_digests: Vec::new(),
+            };
+            let ck = compose_builder.cache_key();
+            let cv = compose_builder.validator();
+            if let Some(entry) = crate::core::ocla::cache_delivery::check(&ck, &cv, "ctx_compose") {
+                let stub = crate::core::ocla::cache_delivery::stub(&entry, "compose");
+                let sent = crate::core::tokens::count_tokens(&stub);
+                (stub, sent)
+            } else {
+                let (text, sent) = tokio::task::block_in_place(|| {
+                    crate::tools::ctx_compose::handle(&task, &path, ctx.crp_mode)
+                });
+                if cache_enabled && !text.starts_with("ERROR") {
+                    crate::core::ocla::compose_cache::global().record(&task, &path, text.clone());
+                    crate::core::ocla::cache_delivery::record(
+                        ck,
+                        crate::core::ocla::cache_types::DeliveryKind::ComposedContext,
+                        cv,
+                        Some(path.clone()),
+                        &text,
+                        "ctx_compose",
+                    );
+                }
+                (text, sent)
+            }
+        };
 
         if text.starts_with("ERROR") {
             return Err(ErrorData::invalid_params(text, None));

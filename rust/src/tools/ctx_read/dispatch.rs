@@ -199,6 +199,32 @@ pub(crate) fn is_subagent_context() -> bool {
     })
 }
 
+/// Keeps subagent cache isolation while independently deciding whether a
+/// cross-agent delivery lookup may return a stub.
+#[allow(clippy::fn_params_excessive_bools)]
+pub(crate) fn effective_fresh_flags(
+    fresh: bool,
+    force_fresh: bool,
+    subagent_context: bool,
+    delivery_for_subagents: bool,
+) -> (bool, bool) {
+    let effective_fresh_for_cache = fresh || force_fresh || subagent_context;
+    let effective_fresh_for_delivery =
+        fresh || force_fresh || (subagent_context && !delivery_for_subagents);
+    (effective_fresh_for_cache, effective_fresh_for_delivery)
+}
+
+pub(crate) fn effective_fresh_for_delivery(fresh: bool) -> bool {
+    let config = crate::core::config::Config::load();
+    effective_fresh_flags(
+        fresh,
+        force_fresh_env(),
+        is_subagent_context(),
+        config.ocla.delivery.delivery_for_subagents,
+    )
+    .1
+}
+
 fn handle_with_options_resolved(
     cache: &mut SessionCache,
     path: &str,
@@ -221,10 +247,15 @@ fn handle_with_options_resolved_preread(
     tuning: ReadTuning<'_>,
     preread: Option<String>,
 ) -> ReadOutput {
-    // #1292: Sub-agents have separate context windows and never received
-    // the parent's reads. Always force fresh regardless of scope state —
-    // correctness over cache savings for short-lived sub-agent contexts.
-    let effective_fresh = fresh || force_fresh_env() || is_subagent_context();
+    // Subagents retain isolated session caches, but can use delivery stubs when
+    // configured because those stubs explicitly identify another agent's read.
+    let config = crate::core::config::Config::load();
+    let (effective_fresh_for_cache, effective_fresh_for_delivery) = effective_fresh_flags(
+        fresh,
+        force_fresh_env(),
+        is_subagent_context(),
+        config.ocla.delivery.delivery_for_subagents,
+    );
 
     let compress_protected = mode != "raw"
         && !mode.starts_with("lines:")
@@ -232,10 +263,21 @@ fn handle_with_options_resolved_preread(
             .proxy
             .is_path_compress_protected(path);
 
-    if !effective_fresh
+    // Hash once for cross-agent delivery. The same snapshot is used for both
+    // the pre-read lookup and the post-read record, avoiding a second disk read.
+    let delivery_metadata = config
+        .ocla
+        .delivery_enabled()
+        .then(|| file_blake3_prefix(path))
+        .flatten();
+
+    if !effective_fresh_for_delivery
         && !compress_protected
-        && let Some(stub) = try_cross_agent_stub(path, mode)
+        && let Some((hash, mtime)) = delivery_metadata
+        && let Some(stub) = try_cross_agent_stub(path, mode, hash, mtime)
     {
+        cache.store(path, &stub.content);
+        cache.mark_full_delivered(path);
         return stub;
     }
 
@@ -252,7 +294,7 @@ fn handle_with_options_resolved_preread(
         cache,
         path,
         mode,
-        effective_fresh,
+        effective_fresh_for_cache,
         crp_mode,
         task,
         tuning,
@@ -281,8 +323,11 @@ fn handle_with_options_resolved_preread(
         }
     }
 
-    if !result.is_cache_hit {
-        record_cross_agent_delivery(path, result.output_tokens);
+    if !result.is_cache_hit
+        && let Some((hash, mtime)) = delivery_metadata
+    {
+        let line_count = cache.get(path).map_or(0, |entry| entry.line_count as u32);
+        record_cross_agent_delivery(path, hash, mtime, line_count, result.output_tokens);
     }
 
     // SSOT via [`ReadMode`] (#528): lossy summaries may elide shared blocks.
@@ -584,7 +629,7 @@ pub fn resolve_explicit_delta_mode(
     unchanged
 }
 
-fn file_blake3_prefix(path: &str) -> Option<([u8; 12], u64)> {
+pub(crate) fn file_blake3_prefix(path: &str) -> Option<([u8; 12], u64)> {
     let meta = std::fs::metadata(path).ok()?;
     let mtime = meta
         .modified()
@@ -600,18 +645,23 @@ fn file_blake3_prefix(path: &str) -> Option<([u8; 12], u64)> {
     Some((prefix, mtime))
 }
 
-fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
+pub(crate) fn try_cross_agent_stub(
+    path: &str,
+    mode: &str,
+    hash: [u8; 12],
+    mtime: u64,
+) -> Option<ReadOutput> {
     if !crate::core::config::Config::load().ocla.delivery_enabled() {
         return None;
     }
     if matches!(mode, "full" | "raw" | "diff") {
         return None;
     }
-    let (hash, mtime) = file_blake3_prefix(path)?;
     let current_agent = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
         .unwrap_or_else(|_| "local-agent".to_string());
-    let current_conversation = current_agent.clone();
+    let current_conversation = crate::core::conversation::current_conversation_id()
+        .unwrap_or_else(|| current_agent.clone());
     let reg = crate::core::ocla::OclaRegistry::global();
     let record = crate::daemon_client::try_delivery_check_blocking(
         &hash,
@@ -647,18 +697,21 @@ fn try_cross_agent_stub(path: &str, mode: &str) -> Option<ReadOutput> {
     })
 }
 
-fn record_cross_agent_delivery(path: &str, tokens: usize) {
+pub(crate) fn record_cross_agent_delivery(
+    path: &str,
+    hash: [u8; 12],
+    mtime: u64,
+    line_count: u32,
+    tokens: usize,
+) {
     if !crate::core::config::Config::load().ocla.delivery_enabled() {
         return;
     }
-    let Some((hash, mtime)) = file_blake3_prefix(path) else {
-        return;
-    };
-    let line_count = std::fs::read_to_string(path).map_or(0, |c| c.lines().count() as u32);
     let agent_id = std::env::var("CURSOR_TASK_ID")
         .or_else(|_| std::env::var("CLAUDECODE"))
         .unwrap_or_else(|_| "local-agent".to_string());
-    let conversation_id = agent_id.clone();
+    let conversation_id =
+        crate::core::conversation::current_conversation_id().unwrap_or_else(|| agent_id.clone());
     let entry = crate::core::ocla::types::DeliveryEntry {
         blake3: hash,
         path: path.into(),
@@ -675,13 +728,39 @@ fn record_cross_agent_delivery(path: &str, tokens: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{SessionCache, try_cross_agent_stub, try_stub_hit_readonly_scoped};
+    use super::{
+        SessionCache, effective_fresh_flags, try_cross_agent_stub, try_stub_hit_readonly_scoped,
+    };
     use std::sync::atomic::Ordering;
 
     #[test]
     fn cross_agent_stub_miss_returns_none() {
-        let stub = try_cross_agent_stub("/nonexistent/file.rs", "auto");
+        let stub = try_cross_agent_stub("/nonexistent/file.rs", "auto", [0; 12], 0);
         assert!(stub.is_none());
+    }
+
+    #[test]
+    fn subagent_delivery_policy_keeps_cache_fresh_but_allows_delivery_by_default() {
+        let delivery_for_subagents =
+            crate::core::config::DeliveryConfig::default().delivery_for_subagents;
+        assert!(
+            delivery_for_subagents,
+            "delivery must default to enabled for subagents"
+        );
+        let (cache_fresh, delivery_fresh) =
+            effective_fresh_flags(false, false, true, delivery_for_subagents);
+        assert!(cache_fresh, "subagent cache must remain isolated");
+        assert!(
+            !delivery_fresh,
+            "default policy must allow a cross-agent delivery lookup"
+        );
+    }
+
+    #[test]
+    fn subagent_delivery_policy_can_force_fresh_delivery() {
+        let (cache_fresh, delivery_fresh) = effective_fresh_flags(false, false, true, false);
+        assert!(cache_fresh);
+        assert!(delivery_fresh, "disabled policy must bypass delivery stubs");
     }
 
     #[test]

@@ -7,9 +7,10 @@
 //! Storage: in-process DashMap keyed by blake3[..12]. The daemon wire_api
 //! endpoints expose this store for cross-process coordination via IPC.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
 
@@ -25,8 +26,37 @@ struct DeliveryKey {
     path: String,
 }
 
+#[derive(Default)]
+struct EvictionIndex {
+    by_time: BTreeMap<Instant, DeliveryKey>,
+    by_key: HashMap<DeliveryKey, Instant>,
+}
+
+impl EvictionIndex {
+    fn insert(&mut self, key: DeliveryKey) {
+        let mut timestamp = Instant::now();
+        while self.by_time.contains_key(&timestamp) {
+            timestamp = timestamp
+                .checked_add(Duration::from_nanos(1))
+                .expect("delivery eviction timestamp overflow");
+        }
+        self.by_time.insert(timestamp, key.clone());
+        self.by_key.insert(key, timestamp);
+    }
+
+    fn remove(&mut self, key: &DeliveryKey) {
+        if let Some(timestamp) = self.by_key.remove(key) {
+            self.by_time.remove(&timestamp);
+        }
+    }
+}
+
 pub struct BuiltinDeliveryRegistry {
     store: DashMap<DeliveryKey, DeliveryRecord>,
+    eviction_index: Mutex<EvictionIndex>,
+    /// Fast-rejection index: path → [(mtime, blake3_prefix)].
+    /// Allows `stat()`-only rejection (no file read+hash) on ~99% of misses.
+    mtime_index: DashMap<String, Vec<(u64, [u8; 12])>>,
     stubs_served: AtomicU64,
     tokens_saved: AtomicU64,
     max_entries: usize,
@@ -47,7 +77,9 @@ impl BuiltinDeliveryRegistry {
 
     pub fn with_config(max_entries: usize, ttl_minutes: u64) -> Self {
         Self {
-            store: DashMap::with_capacity(max_entries.clamp(1, 256)),
+            store: DashMap::with_capacity(max_entries),
+            mtime_index: DashMap::new(),
+            eviction_index: Mutex::new(EvictionIndex::default()),
             stubs_served: AtomicU64::new(0),
             tokens_saved: AtomicU64::new(0),
             max_entries: max_entries.max(1),
@@ -59,6 +91,8 @@ impl BuiltinDeliveryRegistry {
     fn with_limits(max_entries: usize, ttl_secs: u64) -> Self {
         Self {
             store: DashMap::with_capacity(256),
+            mtime_index: DashMap::new(),
+            eviction_index: Mutex::new(EvictionIndex::default()),
             stubs_served: AtomicU64::new(0),
             tokens_saved: AtomicU64::new(0),
             max_entries,
@@ -80,27 +114,63 @@ impl BuiltinDeliveryRegistry {
         now.saturating_sub(record.read_at) > self.ttl_secs
     }
 
+    #[cfg(test)]
     fn purge_expired(&self) {
-        let now = Self::now_epoch();
-        self.store
-            .retain(|_, record| !self.is_expired_at(record, now));
+        let mut index = self.eviction_index.lock().expect("delivery index poisoned");
+        self.purge_expired_locked(&mut index);
     }
 
-    fn evict_oldest_if_full(&self) {
-        self.purge_expired();
-        if self.store.len() < self.max_entries {
-            return;
+    fn purge_expired_locked(&self, index: &mut EvictionIndex) {
+        let now = Self::now_epoch();
+        let expired: Vec<_> = self
+            .store
+            .iter()
+            .filter(|entry| self.is_expired_at(entry.value(), now))
+            .map(|entry| entry.key().clone())
+            .collect();
+        for key in expired {
+            if let Some((_, record)) = self.store.remove(&key) {
+                self.mtime_index_remove(&key.path, record.mtime, key.blake3);
+            }
+            index.remove(&key);
         }
+    }
+
+    fn evict_oldest_if_full_locked(&self, index: &mut EvictionIndex) {
+        self.purge_expired_locked(index);
         while self.store.len() >= self.max_entries {
-            let oldest = self
-                .store
-                .iter()
-                .min_by_key(|entry| entry.value().read_at)
-                .map(|entry| entry.key().clone());
-            let Some(key) = oldest else {
+            let Some((_, key)) = index.by_time.pop_first() else {
                 break;
             };
-            self.store.remove(&key);
+            index.by_key.remove(&key);
+            if let Some((_, record)) = self.store.remove(&key) {
+                self.mtime_index_remove(&key.path, record.mtime, key.blake3);
+            }
+        }
+    }
+
+    /// O(1) fast-rejection: does ANY delivery record exist for this path+mtime?
+    /// Avoids full blake3 file-read+hash when no record can possibly match.
+    pub fn has_candidate(&self, path: &str, mtime: u64) -> bool {
+        self.mtime_index
+            .get(path)
+            .is_some_and(|entries| entries.iter().any(|(m, _)| *m == mtime))
+    }
+
+    fn mtime_index_insert(&self, path: &str, mtime: u64, blake3: [u8; 12]) {
+        let mut entries = self.mtime_index.entry(path.to_string()).or_default();
+        if !entries.iter().any(|(m, h)| *m == mtime && *h == blake3) {
+            entries.push((mtime, blake3));
+        }
+    }
+
+    fn mtime_index_remove(&self, path: &str, mtime: u64, blake3: [u8; 12]) {
+        if let Some(mut entries) = self.mtime_index.get_mut(path) {
+            entries.retain(|(m, h)| !(*m == mtime && *h == blake3));
+            if entries.is_empty() {
+                drop(entries);
+                self.mtime_index.remove(path);
+            }
         }
     }
 
@@ -155,7 +225,10 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
                 continue;
             }
             if self.is_expired_at(&record, now) {
+                let mut index = self.eviction_index.lock().expect("delivery index poisoned");
+                self.mtime_index_remove(&key.path, record.mtime, key.blake3);
                 self.store.remove(&key);
+                index.remove(&key);
                 continue;
             }
             if requester_agent_id.is_some_and(|agent| agent == record.agent_id) {
@@ -182,20 +255,22 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
             path: record.path.clone(),
             tokens_saved: estimated_tokens,
             serving_agent: record.agent_id.clone(),
-            original_agent: record.conversation_id.clone(),
+            original_agent: record.agent_id.clone(),
         });
     }
 
-    fn record_delivery(&self, entry: DeliveryEntry) {
+    fn record_delivery(&self, entry: DeliveryEntry) -> lean_ctx_ocla::DeliveryRecordResult {
         if !Self::is_valid_entry(&entry) {
-            return;
+            return lean_ctx_ocla::DeliveryRecordResult {
+                already_recorded: false,
+                updated: false,
+            };
         }
-        self.purge_expired();
-        self.evict_oldest_if_full();
         let key = DeliveryKey {
             blake3: entry.blake3,
             path: entry.path.clone(),
         };
+        let record_mtime = entry.mtime;
         let record = DeliveryRecord {
             blake3: entry.blake3,
             path: entry.path,
@@ -204,10 +279,30 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
             agent_id: entry.agent_id,
             conversation_id: entry.conversation_id,
             read_at: Self::now_epoch(),
-            mtime: entry.mtime,
+            mtime: record_mtime,
             fresh: true,
         };
-        self.store.insert(key, record);
+        let mut index = self.eviction_index.lock().expect("delivery index poisoned");
+        let (already_existed, mtime_changed) = {
+            let existing = self.store.get(&key).map(|e| e.mtime);
+            match existing {
+                Some(old_mtime) => (true, old_mtime != record.mtime),
+                None => (false, false),
+            }
+        };
+        if already_existed {
+            self.store.insert(key.clone(), record);
+            index.remove(&key);
+        } else {
+            self.evict_oldest_if_full_locked(&mut index);
+            self.store.insert(key.clone(), record);
+        }
+        index.insert(key.clone());
+        self.mtime_index_insert(&key.path, record_mtime, key.blake3);
+        lean_ctx_ocla::DeliveryRecordResult {
+            already_recorded: already_existed && !mtime_changed,
+            updated: mtime_changed,
+        }
     }
 
     fn delivery_stats(&self) -> DeliveryStats {
@@ -370,6 +465,33 @@ mod tests {
     }
 
     #[test]
+    fn eviction_index_removes_the_oldest_entry() {
+        let reg = BuiltinDeliveryRegistry::with_limits(2, 3600);
+        let oldest = [30u8; 12];
+        let middle = [31u8; 12];
+        let newest = [32u8; 12];
+
+        reg.record_delivery(test_entry("oldest.rs", "agent-a", oldest, 100));
+        reg.record_delivery(test_entry("middle.rs", "agent-a", middle, 100));
+        reg.record_delivery(test_entry("newest.rs", "agent-a", newest, 100));
+
+        assert_eq!(reg.store.len(), 2);
+        assert_eq!(reg.eviction_index.lock().unwrap().by_time.len(), 2);
+        assert!(
+            reg.check_delivery(&oldest, 100, "oldest.rs", Some("agent-b"), None)
+                .is_none()
+        );
+        assert!(
+            reg.check_delivery(&middle, 100, "middle.rs", Some("agent-b"), None)
+                .is_some()
+        );
+        assert!(
+            reg.check_delivery(&newest, 100, "newest.rs", Some("agent-b"), None)
+                .is_some()
+        );
+    }
+
+    #[test]
     fn expired_entry_returns_miss() {
         let reg = BuiltinDeliveryRegistry::with_config(8, 1);
         let hash = [8u8; 12];
@@ -449,5 +571,6 @@ mod tests {
 
         reg.purge_expired();
         assert_eq!(reg.store.len(), 0);
+        assert!(reg.eviction_index.lock().unwrap().by_time.is_empty());
     }
 }

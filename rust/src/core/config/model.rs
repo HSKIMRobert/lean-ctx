@@ -66,6 +66,9 @@ pub struct Config {
     pub response_shaping: ResponseShapingConfig,
     #[serde(default)]
     pub ocla: OclaConfig,
+    /// Generalized L1/L2/L3 cache settings (`[cache]`).
+    #[serde(default)]
+    pub cache: CacheConfig,
     #[serde(default)]
     pub agents: sections::AgentsConfig,
     /// Whether the API proxy is enabled. Tri-state:

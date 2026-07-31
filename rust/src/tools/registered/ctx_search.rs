@@ -2,6 +2,7 @@ use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
+use crate::core::ocla::cache_types::{CacheKeyBuilder, SearchQueryKey};
 use crate::server::tool_trait::{
     McpTool, ToolContext, ToolOutput, get_bool, get_int, get_str, get_str_array, get_usize,
 };
@@ -234,7 +235,7 @@ fn handle_regex(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutp
     for root in &resolved.roots {
         let search_result = tokio::task::block_in_place(|| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::tools::ctx_search::handle_filtered(
+                cached_or_search(
                     &pattern,
                     root,
                     include.as_deref(),
@@ -500,6 +501,159 @@ fn semantic_output(text: String) -> ToolOutput {
 }
 
 #[allow(clippy::too_many_arguments)]
+fn cached_or_search(
+    pattern: &str,
+    path: &str,
+    include: Option<&str>,
+    max: usize,
+    crp: crate::tools::CrpMode,
+    respect_gitignore: bool,
+    allow_secret_paths: bool,
+    anchored: bool,
+    exclude: Option<&str>,
+    exclude_pattern: Option<&str>,
+) -> crate::tools::ctx_search::SearchOutcome {
+    let builder = regex_cache_builder(
+        pattern,
+        path,
+        include,
+        exclude,
+        exclude_pattern,
+        max,
+        respect_gitignore,
+        allow_secret_paths,
+        anchored,
+    );
+    let key = builder.cache_key();
+    if let Some(entry) =
+        crate::core::ocla::cache_delivery::check(&key, &builder.validator(), "ctx_search")
+    {
+        let text = crate::core::ocla::cache_delivery::stub(&entry, "regex search");
+        return crate::tools::ctx_search::SearchOutcome {
+            text,
+            modeled_baseline: entry.token_count as usize,
+            observed_tokens: entry.token_count as usize,
+        };
+    }
+
+    let outcome = crate::tools::ctx_search::handle_filtered(
+        pattern,
+        path,
+        include,
+        max,
+        crp,
+        respect_gitignore,
+        allow_secret_paths,
+        anchored,
+        exclude,
+        exclude_pattern,
+    );
+    if !outcome.text.starts_with("ERROR:") {
+        crate::core::ocla::cache_delivery::record(
+            key,
+            crate::core::ocla::cache_types::DeliveryKind::SearchQuery,
+            builder.validator(),
+            Some(builder.path),
+            &outcome.text,
+            "ctx_search",
+        );
+    }
+    outcome
+}
+
+#[allow(clippy::too_many_arguments)]
+fn regex_cache_builder(
+    pattern: &str,
+    path: &str,
+    include: Option<&str>,
+    exclude: Option<&str>,
+    exclude_pattern: Option<&str>,
+    max: usize,
+    respect_gitignore: bool,
+    allow_secret_paths: bool,
+    anchored: bool,
+) -> SearchQueryKey {
+    let canonical = crate::core::pathutil::safe_canonicalize_or_self(std::path::Path::new(path));
+    SearchQueryKey {
+        pattern: pattern.into(),
+        include: format!(
+            "{}\\x1fmax:{max}\\x1fgitignore:{respect_gitignore}\\x1fsecret:{allow_secret_paths}\\x1fanchored:{anchored}",
+            include.unwrap_or_default()
+        ),
+        exclude: format!(
+            "{}\\x1fline:{}",
+            exclude.unwrap_or_default(),
+            exclude_pattern.unwrap_or_default()
+        ),
+        path: canonical.to_string_lossy().into_owned(),
+        // Regex searches do not rely on embedding state. The root mtime gives
+        // their immutable query key a cheap revision when the file universe changes.
+        index_rev: directory_mtime_ns(&canonical)
+            .unwrap_or_default()
+            .to_string(),
+    }
+}
+
+fn directory_mtime_ns(path: &std::path::Path) -> Option<u128> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_nanos())
+}
+
+#[cfg(test)]
+mod cache_delivery_tests {
+    use super::*;
+
+    #[test]
+    fn regex_adapter_records_then_serves_a_cross_agent_reference() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("cached.rs"),
+            "fn cache_delivery_probe() {}\n",
+        )
+        .unwrap();
+        let path = directory.path().to_string_lossy();
+
+        let first = search_single(
+            "cache_delivery_probe",
+            &path,
+            Some("*.rs"),
+            20,
+            crate::tools::CrpMode::Off,
+            true,
+            true,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(first.text.contains("cache_delivery_probe"));
+        let second = search_single(
+            "cache_delivery_probe",
+            &path,
+            Some("*.rs"),
+            20,
+            crate::tools::CrpMode::Off,
+            true,
+            true,
+            false,
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(
+            second.text.contains("[cross-agent cache"),
+            "{}",
+            second.text
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn search_single(
     pattern: &str,
     path: &str,
@@ -516,7 +670,7 @@ fn search_single(
 
     let search_result = tokio::task::block_in_place(|| {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::tools::ctx_search::handle_filtered(
+            cached_or_search(
                 pattern,
                 path,
                 include,
@@ -639,7 +793,7 @@ fn handle_batch_queries(
 
         let search_result = tokio::task::block_in_place(|| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::tools::ctx_search::handle_filtered(
+                cached_or_search(
                     &pattern,
                     root,
                     include.as_deref(),

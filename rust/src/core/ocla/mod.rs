@@ -6,7 +6,12 @@
 
 pub mod budget;
 pub mod builtin;
+pub mod cache_coordinator;
+pub mod cache_delivery;
+pub mod cache_tiers;
+pub mod cache_types;
 pub mod capsule;
+pub mod compose_cache;
 pub mod content_port;
 pub mod grpc_bridge;
 pub mod health;
@@ -20,6 +25,7 @@ pub mod routing_experiment;
 pub mod routing_quality;
 #[cfg(feature = "http-server")]
 pub mod runtime;
+pub mod shell_cache_allowlist;
 pub mod sidecar;
 pub mod tracing;
 #[allow(dead_code)]

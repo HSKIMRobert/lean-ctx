@@ -1,13 +1,24 @@
 use anyhow::{Context, Result};
+use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::runtime::Runtime;
 
 use crate::daemon;
 use crate::ipc;
 
+static DELIVERY_RUNTIME: OnceLock<Result<Runtime, String>> = OnceLock::new();
+
+fn delivery_runtime() -> Result<&'static Runtime> {
+    match DELIVERY_RUNTIME.get_or_init(|| Runtime::new().map_err(|error| error.to_string())) {
+        Ok(runtime) => Ok(runtime),
+        Err(error) => Err(anyhow::anyhow!("initialize delivery IPC runtime: {error}")),
+    }
+}
+
 /// Send an HTTP request to the daemon over the IPC channel.
 /// Returns the response body as a string.
 pub async fn daemon_request(method: &str, path: &str, body: &str) -> Result<String> {
-    use std::time::Duration;
     use tokio::time::timeout;
 
     const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -184,7 +195,7 @@ pub fn try_daemon_tool_call_blocking(
 ) -> Option<String> {
     use std::time::Duration;
 
-    let rt = tokio::runtime::Runtime::new().ok()?;
+    let rt = Runtime::new().ok()?;
 
     let addr = daemon::daemon_addr();
     let mut ready = addr.is_listening() && rt.block_on(async { daemon_health_check().await });
@@ -312,7 +323,7 @@ pub fn try_delivery_check_blocking(
     if !daemon::is_daemon_running() {
         return None;
     }
-    let rt = tokio::runtime::Runtime::new().ok()?;
+    let rt = delivery_runtime().ok()?;
     let body = serde_json::json!({
         "blake3": blake3,
         "mtime": mtime,
@@ -347,7 +358,7 @@ pub fn try_delivery_check_blocking(
 }
 
 /// Record a delivery in the daemon's cross-agent registry.
-/// Fire-and-forget: silently drops errors (daemon down, serialization).
+/// Fire-and-forget: errors and slow daemon responses are intentionally dropped.
 pub fn try_delivery_record_blocking(entry: &crate::core::ocla::types::DeliveryEntry) {
     if !daemon::is_daemon_running() {
         return;
@@ -355,10 +366,81 @@ pub fn try_delivery_record_blocking(entry: &crate::core::ocla::types::DeliveryEn
     let Ok(body) = serde_json::to_string(entry) else {
         return;
     };
-    let Ok(rt) = tokio::runtime::Runtime::new() else {
+    let Ok(rt) = delivery_runtime() else {
         return;
     };
-    rt.block_on(async {
-        let _ = try_daemon_request("POST", "/ocla/v1/delivery/record", &body).await;
+    drop(rt.spawn(async move {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(3),
+            try_daemon_request("POST", "/ocla/v1/delivery/record", &body),
+        )
+        .await;
+    }));
+}
+
+/// Check the daemon's generalized cross-agent cache (all DeliveryKinds).
+/// Returns the cached entry on hit, None on miss or daemon unreachable.
+pub fn try_cache_check_blocking(
+    key: &crate::core::ocla::cache_types::CacheKey,
+    validator: &crate::core::ocla::cache_types::CacheValidator,
+    requester_agent_id: Option<&str>,
+    requester_conversation_id: Option<&str>,
+) -> Option<crate::core::ocla::cache_types::DeliveryEntryV2> {
+    if !daemon::is_daemon_running() {
+        return None;
+    }
+    let rt = delivery_runtime().ok()?;
+    let validator_str = match validator {
+        crate::core::ocla::cache_types::CacheValidator::Immutable => "immutable".into(),
+        crate::core::ocla::cache_types::CacheValidator::File { mtime_ns } => {
+            format!("file:{mtime_ns}")
+        }
+        crate::core::ocla::cache_types::CacheValidator::Directory { mtime_ns } => {
+            format!("directory:{mtime_ns}")
+        }
+    };
+    let body = serde_json::json!({
+        "key": key.0,
+        "validator": validator_str,
+        "requester_agent_id": requester_agent_id,
+        "requester_conversation_id": requester_conversation_id,
     });
+    let resp = rt.block_on(async {
+        try_daemon_request("POST", "/ocla/v1/cache/check", &body.to_string()).await
+    })?;
+    let v: serde_json::Value = serde_json::from_str(&resp).ok()?;
+    if !v.get("hit")?.as_bool()? {
+        return None;
+    }
+    serde_json::from_value(v.get("entry")?.clone()).ok()
+}
+
+/// Record a generalized cache entry via daemon IPC. Fire-and-forget.
+pub fn try_cache_record_blocking(entry: &crate::core::ocla::cache_types::DeliveryEntryV2) {
+    if !daemon::is_daemon_running() {
+        return;
+    }
+    let Ok(body) = serde_json::to_string(entry) else {
+        return;
+    };
+    let Ok(rt) = delivery_runtime() else { return };
+    drop(rt.spawn(async move {
+        let _ = tokio::time::timeout(
+            Duration::from_secs(3),
+            try_daemon_request("POST", "/ocla/v1/cache/record", &body),
+        )
+        .await;
+    }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::delivery_runtime;
+
+    #[test]
+    fn delivery_runtime_is_shared() {
+        let first = delivery_runtime().expect("shared delivery runtime initializes");
+        let second = delivery_runtime().expect("shared delivery runtime remains available");
+        assert!(std::ptr::eq(first, second));
+    }
 }

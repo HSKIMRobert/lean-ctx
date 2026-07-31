@@ -55,9 +55,12 @@ fn show_status() {
 fn set_enabled(enabled: bool) {
     match config::setter::set_by_key("telemetry.enabled", if enabled { "true" } else { "false" }) {
         Ok(_) => {
+            // Clear legacy contribute_enabled — telemetry.enabled is now the single flag.
+            let _ = config::setter::set_by_key("cloud.contribute_enabled", "false");
             if enabled {
                 println!("Telemetry enabled — thank you for helping improve lean-ctx!");
-                println!("Sent daily: version, OS, arch, random install ID. No code, no PII.");
+                println!("Sent daily: version, OS, arch, compression patterns, random install ID.");
+                println!("No code, no file names, no personal data — ever.");
                 println!("\x1b[2mDisable anytime: lean-ctx telemetry off\x1b[0m");
             } else {
                 println!("Telemetry disabled. No data will be sent.");
@@ -89,11 +92,13 @@ fn reset_id() {
 
 fn show_payload() {
     let id = installation_id::get_or_create().unwrap_or_else(|_| "<error>".to_string());
+    let contribute = crate::cloud_sync::collect_contribute_entries();
     let payload = serde_json::json!({
         "installation_id": id,
         "version": env!("CARGO_PKG_VERSION"),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        "contribute_entries": contribute,
     });
 
     println!("This is the exact JSON that would be sent to api.leanctx.com:");
@@ -154,6 +159,6 @@ fn print_help() {
     println!("  reset-id   Regenerate the anonymous installation ID");
     println!("  history    Show log of all sent heartbeats");
     println!();
-    println!("The heartbeat sends only: version, OS, architecture, and a random");
-    println!("installation UUID. No code, filenames, or personal data — ever.");
+    println!("The heartbeat sends: version, OS, architecture, compression patterns,");
+    println!("and a random install UUID. No code, filenames, or personal data — ever.");
 }

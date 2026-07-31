@@ -2,6 +2,7 @@ use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
+use crate::core::ocla::cache_types::{CacheKey, CacheKeyBuilder, DirectoryWalkKey};
 use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_bool, get_int, get_str};
 use crate::tool_defs::tool_def;
 
@@ -75,13 +76,7 @@ impl McpTool for CtxGlobTool {
             // `block_in_place` here would needlessly consume blocking-pool
             // threads (the lesson from the ctx_multi_read crash, #271).
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::tools::ctx_glob::handle(
-                    &pattern,
-                    root,
-                    respect,
-                    allow_secret_paths,
-                    per_root_max,
-                )
+                cached_or_walk(&pattern, root, respect, allow_secret_paths, per_root_max)
             }));
 
             let Ok((result, original)) = result else {
@@ -121,7 +116,7 @@ fn handle_single(
     max_results: usize,
 ) -> Result<ToolOutput, ErrorData> {
     let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::tools::ctx_glob::handle(
+        cached_or_walk(
             pattern,
             path,
             respect_gitignore,
@@ -155,4 +150,106 @@ fn handle_single(
         shell_outcome: None,
         content_blocks: None,
     })
+}
+
+/// Builds the versioned directory-walk cache key for a glob request.
+fn glob_cache_key(pattern: &str, path: &str, depth: usize) -> CacheKey {
+    glob_cache_builder(pattern, path, depth, true, false).cache_key()
+}
+
+fn glob_cache_builder(
+    _pattern: &str,
+    path: &str,
+    depth: usize,
+    respect_gitignore: bool,
+    _allow_secret_paths: bool,
+) -> DirectoryWalkKey {
+    let canonical = crate::core::pathutil::safe_canonicalize_or_self(std::path::Path::new(path));
+    let dir_mtime_ns = directory_mtime_ns(&canonical).unwrap_or_default();
+    DirectoryWalkKey {
+        path: canonical.to_string_lossy().into_owned(),
+        depth,
+        gitignore: respect_gitignore,
+        dir_mtime_ns,
+    }
+}
+
+fn directory_mtime_ns(path: &std::path::Path) -> Option<u128> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_nanos())
+}
+
+fn cached_or_walk(
+    pattern: &str,
+    path: &str,
+    respect_gitignore: bool,
+    allow_secret_paths: bool,
+    max_results: usize,
+) -> (String, usize) {
+    // Glob has no explicit depth limit; preserve that in the key instead of
+    // accidentally sharing a limited tree result.
+    let selector = format!("{pattern}\\x1fmax:{max_results}");
+    let builder = glob_cache_builder(
+        &selector,
+        path,
+        usize::MAX,
+        respect_gitignore,
+        allow_secret_paths,
+    );
+    let key = if respect_gitignore && allow_secret_paths {
+        glob_cache_key(&selector, path, usize::MAX)
+    } else {
+        builder.cache_key()
+    };
+    if let Some(entry) =
+        crate::core::ocla::cache_delivery::check(&key, &builder.validator(), "ctx_glob")
+    {
+        let stub = crate::core::ocla::cache_delivery::stub(&entry, "directory walk");
+        return (stub, entry.token_count as usize);
+    }
+
+    let (result, original) = crate::tools::ctx_glob::handle(
+        pattern,
+        path,
+        respect_gitignore,
+        allow_secret_paths,
+        max_results,
+    );
+    if !result.starts_with("ERROR:") {
+        crate::core::ocla::cache_delivery::record(
+            key,
+            crate::core::ocla::cache_types::DeliveryKind::DirectoryWalk,
+            builder.validator(),
+            Some(builder.path),
+            &result,
+            "ctx_glob",
+        );
+    }
+    (result, original)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glob_adapter_records_then_serves_a_cross_agent_reference() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("cached.rs"), "fn cached() {}\n").unwrap();
+        let path = directory.path().to_string_lossy();
+
+        let first = handle_single("*.rs", &path, true, true, 20).unwrap();
+        assert!(first.text.contains("cached.rs"));
+        let second = handle_single("*.rs", &path, true, true, 20).unwrap();
+        assert!(
+            second.text.contains("[cross-agent cache"),
+            "{}",
+            second.text
+        );
+    }
 }

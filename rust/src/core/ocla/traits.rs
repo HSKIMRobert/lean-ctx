@@ -2,7 +2,8 @@ use crate::core::a2a::message::{MessagePriority, PrivacyLevel};
 
 use super::types::{
     AgentEnvelope, CompressionRequest, CompressionResult, ConfigProposal, ConfigTuningRequest,
-    ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryStats, EfficiencyAnalysis,
+    ConnectorJob, DeliveryEntry, DeliveryRecord, DeliveryRecordResult, DeliveryStats,
+    EfficiencyAnalysis,
     EfficiencySample, ExperimentRequest, ExperimentResult, IntentDecision, IntentRequest,
     MetricPoint, ModelRouteRequest, Observation, OclaCapability, OclaResult, Outcome,
     ResponseOptimizationRequest, ResponseOptimizationResult, RoutingDecision, SavingsEvidence,
@@ -93,7 +94,7 @@ pub trait DeliveryRegistry: OclaService {
         requester_conversation_id: Option<&str>,
     ) -> Option<DeliveryRecord>;
     fn record_stub_served(&self, record: &DeliveryRecord, stub_tokens: u64);
-    fn record_delivery(&self, entry: DeliveryEntry);
+    fn record_delivery(&self, entry: DeliveryEntry) -> DeliveryRecordResult;
     fn delivery_stats(&self) -> DeliveryStats;
 }
 

@@ -2,6 +2,7 @@ use rmcp::ErrorData;
 use rmcp::model::Tool;
 use serde_json::{Map, Value, json};
 
+use crate::core::ocla::cache_types::{CacheKeyBuilder, DirectoryWalkKey};
 use crate::server::tool_trait::{McpTool, ToolContext, ToolOutput, get_bool, get_int};
 use crate::tool_defs::tool_def;
 
@@ -47,10 +48,6 @@ impl McpTool for CtxTreeTool {
         let show_hidden = get_bool(args, "show_hidden").unwrap_or(false);
         let respect_gitignore = get_bool(args, "respect_gitignore").unwrap_or(true);
 
-        if !resolved.is_multi {
-            return handle_single(&resolved.roots[0], depth, show_hidden, respect_gitignore);
-        }
-
         let mut combined = String::new();
         let mut total_original: usize = 0;
         let mut total_sent: usize = 0;
@@ -59,12 +56,7 @@ impl McpTool for CtxTreeTool {
             let root_clone = root.clone();
             let Ok((result, original)) =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    crate::tools::ctx_tree::handle(
-                        &root_clone,
-                        depth,
-                        show_hidden,
-                        respect_gitignore,
-                    )
+                    cached_or_walk(&root_clone, depth, show_hidden, respect_gitignore)
                 }))
             else {
                 combined.push_str(&format!("── {root} ──\nERROR: internal panic\n\n"));
@@ -98,40 +90,68 @@ impl McpTool for CtxTreeTool {
     }
 }
 
-fn handle_single(
+fn directory_mtime_ns(path: &std::path::Path) -> Option<u128> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_nanos())
+}
+
+fn cached_or_walk(
     path: &str,
     depth: usize,
     show_hidden: bool,
     respect_gitignore: bool,
-) -> Result<ToolOutput, ErrorData> {
-    let path_clone = path.to_string();
-    let Ok((result, original)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::tools::ctx_tree::handle(&path_clone, depth, show_hidden, respect_gitignore)
-    })) else {
-        return Err(ErrorData::internal_error(
-            format!(
-                "ctx_tree panicked while processing '{path}'. This is a bug — please report it."
-            ),
-            None,
-        ));
+) -> (String, usize) {
+    let builder = DirectoryWalkKey {
+        path: crate::core::pathutil::safe_canonicalize_or_self(std::path::Path::new(path))
+            .to_string_lossy()
+            .into_owned(),
+        depth,
+        gitignore: respect_gitignore,
+        dir_mtime_ns: directory_mtime_ns(&crate::core::pathutil::safe_canonicalize_or_self(
+            std::path::Path::new(path),
+        ))
+        .unwrap_or_default(),
     };
-
-    if result.starts_with("ERROR:") {
-        return Err(ErrorData::invalid_params(result, None));
+    let key = builder.cache_key();
+    if let Some(entry) =
+        crate::core::ocla::cache_delivery::check(&key, &builder.validator(), "ctx_tree")
+    {
+        let stub = crate::core::ocla::cache_delivery::stub(&entry, "directory tree");
+        return (stub, entry.token_count as usize);
     }
+    let (result, original) =
+        crate::tools::ctx_tree::handle(path, depth, show_hidden, respect_gitignore);
+    if !result.starts_with("ERROR:") {
+        crate::core::ocla::cache_delivery::record(
+            key,
+            crate::core::ocla::cache_types::DeliveryKind::DirectoryWalk,
+            builder.validator(),
+            Some(builder.path),
+            &result,
+            "ctx_tree",
+        );
+    }
+    (result, original)
+}
 
-    let sent = crate::core::tokens::count_tokens(&result);
-    let saved = original.saturating_sub(sent);
-    let final_out = crate::core::protocol::append_savings(&result, original, sent);
+#[cfg(test)]
+mod tests {
+    use super::cached_or_walk;
 
-    Ok(ToolOutput {
-        text: final_out,
-        original_tokens: original,
-        saved_tokens: saved,
-        mode: None,
-        path: Some(path.to_string()),
-        changed: false,
-        shell_outcome: None,
-        content_blocks: None,
-    })
+    #[test]
+    fn tree_adapter_records_then_serves_a_cross_agent_reference() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("cached.rs"), "fn cached() {}\n").unwrap();
+        let path = directory.path().to_string_lossy();
+
+        let (first_result, _first_orig) = cached_or_walk(&path, 3, false, true);
+        assert!(first_result.contains("cached.rs"));
+        let (second_result, _second_orig) = cached_or_walk(&path, 3, false, true);
+        assert!(second_result.contains("[cross-agent"), "{}", second_result);
+    }
 }

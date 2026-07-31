@@ -160,7 +160,6 @@ Cross-project boundary and access control policies
 Cloud feature settings
 
 - `auto_sync` (bool, default `false`) — Push the Personal Cloud (knowledge, commands, CEP, gotchas, buddy, feedback) silently once per day at session end (Pro; toggle: `lean-ctx cloud autosync on|off`)
-- `contribute_enabled` (bool, default `false`) — Enable contributing anonymized stats to lean-ctx cloud
 
 ## `[context]`
 

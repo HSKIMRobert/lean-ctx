@@ -571,6 +571,15 @@ pub struct DeliveryEntry {
     pub mtime: u64,
 }
 
+/// Result of an idempotent delivery-record attempt.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DeliveryRecordResult {
+    /// The existing record already represented the same source version.
+    pub already_recorded: bool,
+    /// An existing record was refreshed because its source version changed.
+    pub updated: bool,
+}
+
 /// Statistics for the delivery registry.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DeliveryStats {

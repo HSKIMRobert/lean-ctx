@@ -50,6 +50,12 @@ pub fn endpoints() -> Vec<EndpointDoc> {
         },
         EndpointDoc {
             method: "GET",
+            path: "/v1/cache/stats",
+            auth: "bearer",
+            summary: "Cross-agent cache and delivery statistics",
+        },
+        EndpointDoc {
+            method: "GET",
             path: "/v1/tools",
             auth: "bearer",
             summary: "Paginated tool list",

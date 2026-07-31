@@ -387,6 +387,8 @@ impl Config {
             cfg.merge_local(local, trusted);
         }
 
+        cfg.migrate_contribute_to_telemetry();
+
         let cfg = Arc::new(cfg);
         if let Ok(mut guard) = CACHE.lock() {
             *guard = Some((Arc::clone(&cfg), global_hash, local_hash, selected_profile));
@@ -396,6 +398,42 @@ impl Config {
     }
 
     // `merge_local` is in `merge.rs` (extracted for #660 LOC gate).
+
+    /// Migrate legacy `[cloud] contribute_enabled` → `[telemetry] enabled`.
+    ///
+    /// If the user opted into the old anonymous contribute system but has not
+    /// yet enabled the new unified telemetry flag, flip `telemetry.enabled`
+    /// on and clear `contribute_enabled` so the migration is one-way.
+    /// Persists the change to disk so subsequent loads see the new state.
+    pub(crate) fn migrate_contribute_to_telemetry(&mut self) {
+        if self.cloud.contribute_enabled && !self.telemetry.enabled {
+            self.telemetry.enabled = true;
+            self.cloud.contribute_enabled = false;
+
+            if let Some(path) = Self::path() {
+                if let Ok(raw) = std::fs::read_to_string(&path) {
+                    let mut updated =
+                        raw.replace("contribute_enabled = true", "contribute_enabled = false");
+                    if !updated.contains("[telemetry]") {
+                        if !updated.ends_with('\n') {
+                            updated.push('\n');
+                        }
+                        updated.push_str("\n[telemetry]\nenabled = true\n");
+                    } else if let Some(tpos) = updated.find("[telemetry]") {
+                        let after = &updated[tpos..];
+                        if let Some(epos) = after.find("enabled = false") {
+                            let abs_pos = tpos + epos;
+                            updated.replace_range(
+                                abs_pos..abs_pos + "enabled = false".len(),
+                                "enabled = true",
+                            );
+                        }
+                    }
+                    let _ = crate::config_io::write_atomic_with_backup(&path, &updated);
+                }
+            }
+        }
+    }
 
     /// Loads ONLY the global config file — never merging project-local
     /// `.lean-ctx.toml` overrides, and bypassing the in-memory cache. Every

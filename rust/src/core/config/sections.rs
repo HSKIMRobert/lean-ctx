@@ -26,16 +26,23 @@ pub struct OclaConfig {
 #[serde(default)]
 pub struct DeliveryConfig {
     pub enabled: bool,
+    /// Allow subagents to receive a cross-agent delivery stub instead of
+    /// forcing a fresh disk read.
+    pub delivery_for_subagents: bool,
     pub max_entries: usize,
     pub ttl_minutes: u64,
+    /// Generalized cache tier settings.
+    pub cache: CacheConfig,
 }
 
 impl Default for DeliveryConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            delivery_for_subagents: true,
             max_entries: 4096,
             ttl_minutes: 30,
+            cache: CacheConfig::default(),
         }
     }
 }
@@ -43,6 +50,56 @@ impl Default for DeliveryConfig {
 impl OclaConfig {
     pub fn delivery_enabled(&self) -> bool {
         self.delivery.enabled
+    }
+}
+
+/// Bounds and feature switches for the generalized cross-agent cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CacheConfig {
+    pub l1_max_entries: usize,
+    pub l1_ttl_secs: u64,
+    pub l2_max_entries: usize,
+    pub l2_ttl_secs: u64,
+    pub l3_max_bytes: u64,
+    pub l3_gc_threshold: f64,
+    pub shell_cache_enabled: bool,
+    pub compose_cache_enabled: bool,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            l1_max_entries: 1_000,
+            l1_ttl_secs: 300,
+            l2_max_entries: 10_000,
+            l2_ttl_secs: 3_600,
+            l3_max_bytes: 500_000_000,
+            l3_gc_threshold: 0.9,
+            shell_cache_enabled: false,
+            compose_cache_enabled: true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod cache_config_tests {
+    use super::CacheConfig;
+
+    #[test]
+    fn cache_defaults_match_delivery_budget() {
+        assert_eq!(CacheConfig::default().l3_max_bytes, 500_000_000);
+        assert!(!CacheConfig::default().shell_cache_enabled);
+        assert!(CacheConfig::default().compose_cache_enabled);
+    }
+
+    #[test]
+    fn cache_config_deserializes_partial_overrides() {
+        let parsed: CacheConfig =
+            serde_json::from_str(r#"{"l1_max_entries": 12, "shell_cache_enabled": true}"#).unwrap();
+        assert_eq!(parsed.l1_max_entries, 12);
+        assert!(parsed.shell_cache_enabled);
+        assert_eq!(parsed.l2_ttl_secs, 3_600);
     }
 }
 

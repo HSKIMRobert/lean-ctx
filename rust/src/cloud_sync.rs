@@ -66,11 +66,6 @@ pub fn cloud_background_tasks() {
         .last_heartbeat
         .as_deref()
         .is_some_and(|d| d == today);
-    let already_contributed = config
-        .cloud
-        .last_contribute
-        .as_deref()
-        .is_some_and(|d| d == today);
     let already_synced = config
         .cloud
         .last_sync
@@ -87,14 +82,16 @@ pub fn cloud_background_tasks() {
         .as_deref()
         .is_some_and(|d| d == today);
 
-    // Anonymous telemetry heartbeat (opt-in, no auth required).
+    // Unified anonymous telemetry: heartbeat + contribute entries in one request.
     if config.telemetry.enabled && !already_heartbeated {
         if let Ok(id) = crate::core::installation_id::get_or_create() {
+            let contribute = collect_contribute_entries();
             let payload = serde_json::json!({
                 "installation_id": id,
                 "version": env!("CARGO_PKG_VERSION"),
                 "os": std::env::consts::OS,
                 "arch": std::env::consts::ARCH,
+                "contribute_entries": contribute,
             });
             if crate::cloud_client::heartbeat(&payload).is_ok() {
                 config.telemetry.last_heartbeat = Some(today.clone());
@@ -107,13 +104,6 @@ pub fn cloud_background_tasks() {
                 };
                 let _ = crate::core::telemetry_ledger::append(&record);
             }
-        }
-    }
-
-    if config.cloud.contribute_enabled && !already_contributed {
-        let entries = collect_contribute_entries();
-        if !entries.is_empty() && crate::cloud_client::contribute(&entries).is_ok() {
-            config.cloud.last_contribute = Some(today.clone());
         }
     }
 

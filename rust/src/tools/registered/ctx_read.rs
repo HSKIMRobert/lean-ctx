@@ -346,6 +346,12 @@ impl CtxReadTool {
         // channel overhead for the ~90% of calls that are cache hits.
         let read_timeout = std::time::Duration::from_secs(30);
         let cancelled = Arc::new(AtomicBool::new(false));
+        // Hash once for cross-agent delivery (avoids re-reading on record).
+        let delivery_metadata = crate::core::config::Config::load()
+            .ocla
+            .delivery_enabled()
+            .then(|| crate::tools::ctx_read::file_blake3_prefix(path))
+            .flatten();
         let (output, resolved_mode, original, is_cache_hit, file_ref, cache_stats) = {
             let crp_mode = ctx.crp_mode;
             let fast_result = 'fast: {
@@ -447,6 +453,29 @@ impl CtxReadTool {
                         let stats = cache.get_stats();
                         let stats_snapshot = (stats.total_reads(), stats.cache_hits());
                         let _ = tx.send((content, rmode, orig, hit, fref, stats_snapshot));
+                        return;
+                    }
+
+                    // The session-local stub is checked first so the current
+                    // agent's own delivery always wins. On a miss, a verified
+                    // cross-agent delivery can avoid the disk read below.
+                    if !crate::tools::ctx_read::effective_fresh_for_delivery(fresh)
+                        && let Some((hash, mtime)) = delivery_metadata
+                        && let Some(read_output) = crate::tools::ctx_read::try_cross_agent_stub(
+                            &path_owned,
+                            &mode,
+                            hash,
+                            mtime,
+                        )
+                    {
+                        let _ = tx.send((
+                            read_output.content,
+                            read_output.resolved_mode,
+                            0,
+                            read_output.is_cache_hit,
+                            None,
+                            (0, 0),
+                        ));
                         return;
                     }
 
@@ -859,6 +888,18 @@ impl CtxReadTool {
 
         let output_tokens = crate::core::tokens::count_tokens(&output);
         let saved = original.saturating_sub(output_tokens);
+
+        if !is_cache_hit {
+            if let Some((hash, mtime)) = delivery_metadata {
+                crate::tools::ctx_read::record_cross_agent_delivery(
+                    path,
+                    hash,
+                    mtime,
+                    0,
+                    output_tokens,
+                );
+            }
+        }
 
         // Session updates (bounded lock — 10s timeout, read already succeeded)
         let mut ensured_root: Option<String> = None;

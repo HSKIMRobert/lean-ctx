@@ -1,0 +1,155 @@
+//! Shared adapter helpers for generalized cross-agent delivery caching.
+
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use super::cache_coordinator::{BuiltinCacheCoordinator, CacheCoordinator};
+use super::cache_tiers::{L1ProcessCache, L2DaemonCache, L3DiskCache};
+use super::cache_types::{
+    AgentHost, CacheIdentity, CacheKey, CacheValidator, ContentHandleRef, DeliveryEntryV2,
+    DeliveryKind,
+};
+
+static COORDINATOR: OnceLock<Option<BuiltinCacheCoordinator>> = OnceLock::new();
+
+/// Returns the process-wide generalized delivery coordinator when caching is enabled.
+pub fn coordinator() -> Option<&'static BuiltinCacheCoordinator> {
+    COORDINATOR
+        .get_or_init(|| {
+            let config = crate::core::config::Config::load();
+            if !config.ocla.delivery_enabled() {
+                return None;
+            }
+            let root = crate::core::paths::cache_dir().ok()?.join("delivery-v2");
+            let ttl = Duration::from_secs(config.ocla.delivery.ttl_minutes.saturating_mul(60));
+            let l3 = L3DiskCache::open(root).ok()?;
+            Some(BuiltinCacheCoordinator::new(
+                L1ProcessCache::new(ttl),
+                L2DaemonCache::new(config.ocla.delivery.max_entries, ttl),
+                l3,
+            ))
+        })
+        .as_ref()
+}
+
+/// Looks up an adapter result across all tiers including cross-process daemon.
+pub fn check(key: &CacheKey, validator: &CacheValidator, adapter: &str) -> Option<DeliveryEntryV2> {
+    let coordinator = coordinator()?;
+    // L1 + local L2 + L3 (in-process)
+    if let Some(entry) = coordinator.check(key, validator) {
+        emit_stats(coordinator, adapter);
+        return Some(entry);
+    }
+    // Cross-process: ask daemon (other processes may have recorded this)
+    let agent = agent_id();
+    let conv_id =
+        crate::core::conversation::current_conversation_id().unwrap_or_else(|| agent.clone());
+    if let Some(entry) =
+        crate::daemon_client::try_cache_check_blocking(key, validator, Some(&agent), Some(&conv_id))
+    {
+        // Promote to L1 so subsequent calls skip IPC
+        coordinator.record(entry.clone());
+        emit_stats(coordinator, adapter);
+        return Some(entry);
+    }
+    emit_stats(coordinator, adapter);
+    None
+}
+
+/// Records an adapter result and emits the coordinator snapshot for observability.
+pub fn record(
+    key: CacheKey,
+    kind: DeliveryKind,
+    validator: CacheValidator,
+    display_path: Option<String>,
+    content: &str,
+    adapter: &str,
+) {
+    let Some(coordinator) = coordinator() else {
+        return;
+    };
+    let now = epoch_ms();
+    let ttl_ms = crate::core::config::Config::load()
+        .ocla
+        .delivery
+        .ttl_minutes
+        .saturating_mul(60_000);
+    let digest = blake3::hash(content.as_bytes()).to_hex().to_string();
+    let agent_id = agent_id();
+    let entry = DeliveryEntryV2 {
+        schema_version: 2,
+        key,
+        kind,
+        validator,
+        handle: ContentHandleRef {
+            algorithm: "blake3".into(),
+            digest,
+            byte_len: content.len() as u64,
+            media_type: "text/plain".into(),
+        },
+        display_path,
+        line_count: Some(content.lines().count() as u32),
+        token_count: crate::core::tokens::count_tokens(content) as u64,
+        producer: CacheIdentity {
+            conversation_id: agent_id.clone(),
+            agent_id,
+            host: agent_host(),
+        },
+        created_at_epoch_ms: now,
+        expires_at_epoch_ms: now.saturating_add(ttl_ms),
+    };
+    coordinator.record(entry.clone());
+    crate::daemon_client::try_cache_record_blocking(&entry);
+    emit_stats(coordinator, adapter);
+}
+
+/// Renders a deterministic reference in place of an already materialized result.
+pub fn stub(entry: &DeliveryEntryV2, label: &str) -> String {
+    let path = entry.display_path.as_deref().unwrap_or("result");
+    format!(
+        "{path} [cross-agent cache · {label} · produced by {} · {} tokens avoided]",
+        entry.producer.agent_id, entry.token_count
+    )
+}
+
+fn emit_stats(coordinator: &BuiltinCacheCoordinator, adapter: &str) {
+    let stats = coordinator.stats();
+    tracing::debug!(
+        target: "lean_ctx::cache_delivery",
+        adapter,
+        l1_hits = stats.l1_hits,
+        l2_hits = stats.l2_hits,
+        l3_hits = stats.l3_hits,
+        misses = stats.misses,
+        materializations = stats.materializations,
+        references_served = stats.references_served,
+        tokens_saved = stats.tokens_saved,
+        "cache coordinator stats"
+    );
+}
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn agent_id() -> String {
+    std::env::var("CURSOR_TASK_ID")
+        .or_else(|_| std::env::var("CLAUDECODE"))
+        .or_else(|_| std::env::var("CODEX_THREAD_ID"))
+        .unwrap_or_else(|_| "local-agent".into())
+}
+
+fn agent_host() -> AgentHost {
+    if std::env::var_os("CURSOR_TASK_ID").is_some() {
+        AgentHost::Cursor
+    } else if std::env::var_os("CLAUDECODE").is_some() {
+        AgentHost::ClaudeCode
+    } else if std::env::var_os("CODEX_THREAD_ID").is_some() {
+        AgentHost::Codex
+    } else {
+        AgentHost::Cli
+    }
+}

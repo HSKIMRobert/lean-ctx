@@ -151,7 +151,7 @@ fn handle_inner(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutp
             None,
         ));
     };
-    let output = crate::tools::ctx_multi_read::handle_with_task_fresh(
+    let output = crate::tools::ctx_multi_read::handle_with_task_fresh_result(
         &mut cache,
         &paths,
         &mode,
@@ -159,16 +159,12 @@ fn handle_inner(args: &Map<String, Value>, ctx: &ToolContext) -> Result<ToolOutp
         ctx.crp_mode,
         current_task.as_deref(),
     );
-    let mut total_original: usize = 0;
-    for path in &paths {
-        total_original =
-            total_original.saturating_add(cache.get(path).map_or(0, |e| e.original_tokens));
-    }
-    let tokens = crate::core::tokens::count_tokens(&output);
+    let total_original = output.original_tokens;
+    let tokens = crate::core::tokens::count_tokens(&output.text);
     drop(cache);
 
     Ok(ToolOutput {
-        text: output,
+        text: output.text,
         original_tokens: total_original,
         saved_tokens: total_original.saturating_sub(tokens),
         mode: Some(mode),

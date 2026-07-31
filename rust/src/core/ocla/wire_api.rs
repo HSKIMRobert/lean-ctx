@@ -44,8 +44,13 @@ pub fn ocla_router() -> Router {
         .route("/ocla/v1/capsule/{ref}", get(capsule_resolve))
         .route("/ocla/v1/capsule/{ref}/fork", post(capsule_fork))
         .route("/ocla/v1/delivery/check", post(delivery_check))
+        .route("/ocla/v1/delivery/batch-check", post(delivery_batch_check))
+        .route("/v1/delivery/batch-check", post(delivery_batch_check))
         .route("/ocla/v1/delivery/record", post(delivery_record))
         .route("/ocla/v1/delivery/stats", get(delivery_stats))
+        .route("/ocla/v1/cache/check", post(cache_check))
+        .route("/ocla/v1/cache/record", post(cache_record))
+        .route("/ocla/v1/cache/batch-check", post(cache_batch_check))
 }
 
 #[derive(Default)]
@@ -405,6 +410,22 @@ struct DeliveryCheckRequest {
     requester_conversation_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct DeliveryBatchCheckRequest {
+    checks: Vec<DeliveryCheckRequest>,
+}
+
+#[derive(Serialize)]
+struct DeliveryBatchCheckResult {
+    hit: bool,
+    record: Option<crate::core::ocla::types::DeliveryRecord>,
+}
+
+#[derive(Serialize)]
+struct DeliveryBatchCheckResponse {
+    results: Vec<DeliveryBatchCheckResult>,
+}
+
 async fn delivery_check(Json(req): Json<DeliveryCheckRequest>) -> (StatusCode, Json<Value>) {
     let reg = OclaRegistry::global();
     match reg.delivery_registry.check_delivery(
@@ -414,30 +435,59 @@ async fn delivery_check(Json(req): Json<DeliveryCheckRequest>) -> (StatusCode, J
         req.requester_agent_id.as_deref(),
         req.requester_conversation_id.as_deref(),
     ) {
-        Some(record) => {
-            reg.delivery_registry.record_stub_served(&record, 0);
-            (
-                StatusCode::OK,
-                Json(json!({
-                    "hit": true,
-                    "path": record.path,
-                    "line_count": record.line_count,
-                    "token_count": record.token_count,
-                    "agent_id": record.agent_id,
-                    "conversation_id": record.conversation_id,
-                    "read_at": record.read_at,
-                    "fresh": record.fresh,
-                })),
-            )
-        }
+        Some(record) => (
+            StatusCode::OK,
+            Json(json!({
+                "hit": true,
+                "path": record.path,
+                "line_count": record.line_count,
+                "token_count": record.token_count,
+                "agent_id": record.agent_id,
+                "conversation_id": record.conversation_id,
+                "read_at": record.read_at,
+                "fresh": record.fresh,
+            })),
+        ),
         None => (StatusCode::OK, Json(json!({"hit": false}))),
     }
 }
 
-async fn delivery_record(Json(entry): Json<crate::core::ocla::types::DeliveryEntry>) -> StatusCode {
+async fn delivery_batch_check(
+    Json(request): Json<DeliveryBatchCheckRequest>,
+) -> Json<DeliveryBatchCheckResponse> {
     let reg = OclaRegistry::global();
-    reg.delivery_registry.record_delivery(entry);
-    StatusCode::NO_CONTENT
+    let results = request
+        .checks
+        .into_iter()
+        .map(|check| {
+            let record = reg.delivery_registry.check_delivery(
+                &check.blake3,
+                check.mtime,
+                &check.path,
+                check.requester_agent_id.as_deref(),
+                check.requester_conversation_id.as_deref(),
+            );
+            if let Some(record) = record {
+                DeliveryBatchCheckResult {
+                    hit: true,
+                    record: Some(record),
+                }
+            } else {
+                DeliveryBatchCheckResult {
+                    hit: false,
+                    record: None,
+                }
+            }
+        })
+        .collect();
+    Json(DeliveryBatchCheckResponse { results })
+}
+
+async fn delivery_record(
+    Json(entry): Json<crate::core::ocla::types::DeliveryEntry>,
+) -> Json<crate::core::ocla::types::DeliveryRecordResult> {
+    let reg = OclaRegistry::global();
+    Json(reg.delivery_registry.record_delivery(entry))
 }
 
 async fn delivery_stats() -> Json<Value> {
@@ -450,6 +500,132 @@ async fn delivery_stats() -> Json<Value> {
         "unique_paths": stats.unique_paths,
         "unique_agents": stats.unique_agents,
     }))
+}
+
+// ── Generalized cross-agent cache endpoints ──────────────────────────
+
+fn parse_validator(s: &str) -> crate::core::ocla::cache_types::CacheValidator {
+    use crate::core::ocla::cache_types::CacheValidator;
+    if s == "immutable" {
+        return CacheValidator::Immutable;
+    }
+    if let Some(ns) = s.strip_prefix("file:") {
+        if let Ok(mtime_ns) = ns.parse::<u128>() {
+            return CacheValidator::File { mtime_ns };
+        }
+    }
+    if let Some(ns) = s.strip_prefix("directory:") {
+        if let Ok(mtime_ns) = ns.parse::<u128>() {
+            return CacheValidator::Directory { mtime_ns };
+        }
+    }
+    CacheValidator::Immutable
+}
+
+#[allow(dead_code)]
+fn serialize_validator(v: &crate::core::ocla::cache_types::CacheValidator) -> String {
+    use crate::core::ocla::cache_types::CacheValidator;
+    match v {
+        CacheValidator::Immutable => "immutable".into(),
+        CacheValidator::File { mtime_ns } => format!("file:{mtime_ns}"),
+        CacheValidator::Directory { mtime_ns } => format!("directory:{mtime_ns}"),
+    }
+}
+
+#[derive(Deserialize)]
+struct CacheCheckRequest {
+    key: String,
+    validator: String,
+    requester_agent_id: Option<String>,
+    requester_conversation_id: Option<String>,
+}
+
+async fn cache_check(Json(req): Json<CacheCheckRequest>) -> Json<Value> {
+    let coordinator = crate::core::ocla::cache_coordinator::materialized_cache();
+    use crate::core::ocla::cache_coordinator::CacheCoordinator;
+    let key = crate::core::ocla::cache_types::CacheKey(req.key);
+    let validator = parse_validator(&req.validator);
+    match coordinator.check(&key, &validator) {
+        Some(entry) => {
+            let same_agent = req
+                .requester_agent_id
+                .as_deref()
+                .is_some_and(|a| a == entry.producer.agent_id);
+            let same_conv = req
+                .requester_conversation_id
+                .as_deref()
+                .is_some_and(|c| c == entry.producer.conversation_id);
+            if same_agent && same_conv {
+                Json(json!({"hit": false}))
+            } else {
+                Json(json!({"hit": true, "entry": entry}))
+            }
+        }
+        None => Json(json!({"hit": false})),
+    }
+}
+
+async fn cache_record(
+    Json(entry): Json<crate::core::ocla::cache_types::DeliveryEntryV2>,
+) -> StatusCode {
+    let coordinator = crate::core::ocla::cache_coordinator::materialized_cache();
+    use crate::core::ocla::cache_coordinator::CacheCoordinator;
+    coordinator.record(entry);
+    StatusCode::NO_CONTENT
+}
+
+#[derive(Deserialize)]
+struct CacheBatchCheckRequest {
+    checks: Vec<CacheCheckRequest>,
+}
+
+#[derive(Serialize)]
+struct CacheBatchCheckResult {
+    hit: bool,
+    entry: Option<crate::core::ocla::cache_types::DeliveryEntryV2>,
+}
+
+async fn cache_batch_check(
+    Json(request): Json<CacheBatchCheckRequest>,
+) -> Json<Vec<CacheBatchCheckResult>> {
+    let coordinator = crate::core::ocla::cache_coordinator::materialized_cache();
+    use crate::core::ocla::cache_coordinator::CacheCoordinator;
+    let results = request
+        .checks
+        .into_iter()
+        .map(|check| {
+            let key = crate::core::ocla::cache_types::CacheKey(check.key);
+            let validator = parse_validator(&check.validator);
+            match coordinator.check(&key, &validator) {
+                Some(entry) => {
+                    let same = check
+                        .requester_agent_id
+                        .as_deref()
+                        .is_some_and(|a| a == entry.producer.agent_id)
+                        && check
+                            .requester_conversation_id
+                            .as_deref()
+                            .is_some_and(|c| c == entry.producer.conversation_id);
+                    if same {
+                        CacheBatchCheckResult {
+                            hit: false,
+                            entry: None,
+                        }
+                    } else {
+                        CacheBatchCheckResult {
+                            hit: true,
+                            entry: Some(entry),
+                        }
+                    }
+                }
+                None => CacheBatchCheckResult {
+                    hit: false,
+                    entry: None,
+                },
+            }
+        })
+        .collect();
+    Json(results)
 }
 
 #[cfg(test)]
@@ -841,7 +1017,14 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(record_resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(record_resp.status(), StatusCode::OK);
+        assert_eq!(
+            json_response(record_resp).await,
+            json!({
+                "already_recorded": false,
+                "updated": false,
+            })
+        );
 
         let check_body =
             json!({"blake3": [1,2,3,4,5,6,7,8,9,10,11,12], "mtime": 2000, "path": "src/test.rs"});
@@ -862,6 +1045,95 @@ mod tests {
         assert_eq!(val["hit"], true);
         assert_eq!(val["path"], "src/test.rs");
         assert_eq!(val["agent_id"], "agent-x");
+    }
+
+    #[tokio::test]
+    async fn delivery_batch_check_returns_hits_and_misses_in_order() {
+        let app = ocla_router();
+        let entry = json!({
+            "blake3": [91,2,3,4,5,6,7,8,9,10,11,12],
+            "path": "src/batch.rs",
+            "line_count": 42,
+            "token_count": 168,
+            "agent_id": "batch-agent",
+            "conversation_id": "batch-conversation",
+            "mtime": 2000
+        });
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/delivery/record")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(entry.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let checks = json!({"checks": [
+            {"blake3": [91,2,3,4,5,6,7,8,9,10,11,12], "mtime": 2000, "path": "src/batch.rs"},
+            {"blake3": [92,2,3,4,5,6,7,8,9,10,11,12], "mtime": 2000, "path": "src/missing.rs"}
+        ]});
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/delivery/batch-check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(checks.to_string()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_response(response).await;
+        assert_eq!(body["results"][0]["hit"], true);
+        assert_eq!(body["results"][0]["record"]["path"], "src/batch.rs");
+        assert_eq!(body["results"][1], json!({"hit": false, "record": null}));
+    }
+
+    #[tokio::test]
+    async fn delivery_record_reports_idempotent_and_updated_results() {
+        let app = ocla_router();
+        let entry = json!({
+            "blake3": [93,2,3,4,5,6,7,8,9,10,11,12],
+            "path": "src/idempotent-wire.rs",
+            "line_count": 42,
+            "token_count": 168,
+            "agent_id": "wire-agent",
+            "conversation_id": "wire-conversation",
+            "mtime": 2000
+        });
+        let request = |body: Value| {
+            Request::builder()
+                .method("POST")
+                .uri("/ocla/v1/delivery/record")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("request")
+        };
+
+        let first = app.clone().oneshot(request(entry.clone())).await.unwrap();
+        assert_eq!(
+            json_response(first).await,
+            json!({"already_recorded": false, "updated": false})
+        );
+        let duplicate = app.clone().oneshot(request(entry.clone())).await.unwrap();
+        assert_eq!(
+            json_response(duplicate).await,
+            json!({"already_recorded": true, "updated": false})
+        );
+        let mut updated = entry;
+        updated["mtime"] = json!(3000);
+        let changed = app.oneshot(request(updated)).await.unwrap();
+        assert_eq!(
+            json_response(changed).await,
+            json!({"already_recorded": false, "updated": true})
+        );
     }
 
     #[tokio::test]
