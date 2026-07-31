@@ -68,12 +68,8 @@ fn emit_dedicated_session_context(input: &str) {
         // Full Bare rules for dedicated-mode hosts (Claude Code, Codex, CodeBuddy)
         // where the static rules file is skipped.
         let profile = crate::core::tool_profiles::ToolProfile::from_config(&cfg);
-        let summary = crate::core::rules_canonical::render(
-            cfg.shadow_mode,
-            crate::core::rules_canonical::Wrapper::Bare,
-            crate::core::config::CompressionLevel::Off,
-            &profile,
-        );
+        let client_name = session_start_client_name(&v);
+        let summary = build_dedicated_session_context(client_name, cfg.shadow_mode, &profile);
         emit_session_start_additional_context(&summary);
     } else {
         // Short reinforcement nudge for shared-mode hosts (Cursor) that already
@@ -89,6 +85,36 @@ fn emit_dedicated_session_context(input: &str) {
              Native Read passes through for StrReplace internals only — never use it for exploration.\n\
              Exclusive tools: ctx_compose, ctx_callgraph, ctx_knowledge, ctx_session.",
         );
+    }
+}
+
+/// Builds dedicated SessionStart rules, using shadow-minimal only when hooks cover native tools.
+fn build_dedicated_session_context(
+    client_name: &str,
+    shadow: bool,
+    profile: &crate::core::tool_profiles::ToolProfile,
+) -> String {
+    let effective_shadow = shadow && client_is_hook_covered(client_name);
+    crate::core::rules_canonical::render(
+        effective_shadow,
+        crate::core::rules_canonical::Wrapper::Bare,
+        crate::core::config::CompressionLevel::Off,
+        profile,
+    )
+}
+
+/// Identifies hook coverage from the installed rules-channel configuration.
+fn client_is_hook_covered(client_name: &str) -> bool {
+    crate::core::home::resolve_home_dir()
+        .is_some_and(|home| crate::core::rules_channel::client_hook_covered(client_name, &home))
+}
+
+/// Maps SessionStart payload shape to the only potentially hook-covered client, Cursor.
+fn session_start_client_name(payload: &serde_json::Value) -> &'static str {
+    if payload.get("conversation_id").is_some() {
+        "cursor"
+    } else {
+        "claude"
     }
 }
 
@@ -776,6 +802,21 @@ mod tests {
             "model": "claude-opus"
         });
         assert!(session_start_honours_additional_context(&v));
+    }
+
+    #[test]
+    fn claude_code_gets_full_mapping_not_shadow_minimal() {
+        let profile = crate::core::tool_profiles::ToolProfile::Standard;
+        let content = build_dedicated_session_context("claude", true, &profile);
+
+        assert!(
+            content.contains("ctx_read"),
+            "Claude must get ctx_read mapping"
+        );
+        assert!(
+            !content.contains("shadow mode"),
+            "Claude must not get shadow-minimal rules"
+        );
     }
 
     #[test]

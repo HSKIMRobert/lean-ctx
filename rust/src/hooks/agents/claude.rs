@@ -174,7 +174,7 @@ pub(crate) fn install_claude_permissions_deny_replace(home: &std::path::Path) {
 /// appended a duplicate (GH #549).
 pub(crate) const CLAUDE_MD_BLOCK_START: &str = crate::core::rules_canonical::AGENTS_BLOCK_START;
 const CLAUDE_MD_BLOCK_END: &str = crate::core::rules_canonical::AGENTS_BLOCK_END;
-const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v8";
+const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v9";
 
 // v3 (GL #555): self-contained, no `@rules/lean-ctx.md` import. Claude Code
 // expands `@` imports inline at launch ("imports do not reduce context usage"
@@ -204,9 +204,12 @@ const CLAUDE_MD_BLOCK_VERSION: &str = "lean-ctx-claude-v8";
 // `~/.claude/projects/<slug>/memory/` and the edit gate both need native Read;
 // a bare permissions.deny Read cannot carve out exceptions (deny wins). Grep/
 // Glob stay denied. Agents must not use MCP resources/read with file:// URIs.
+//
+// v9 (#1399): native Read must remain a narrow edit-gate carve-out, not imply
+// that it is suitable for exploration. Existing blocks must be rewritten.
 const CLAUDE_MD_BLOCK_CONTENT_MCP: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v8 -->
+<!-- lean-ctx-claude-v9 -->
 ## lean-ctx — Context Runtime
 
 When the `ctx_*` MCP tools are listed in this session, prefer them over native equivalents:
@@ -228,7 +231,7 @@ Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
 
 const CLAUDE_MD_BLOCK_CONTENT_REPLACE: &str = "\
 <!-- lean-ctx -->
-<!-- lean-ctx-claude-v8 -->
+<!-- lean-ctx-claude-v9 -->
 ## lean-ctx — Replace Mode (native Grep/Glob denied by policy)
 
 Native Grep/Glob are denied by policy. Prefer `ctx_*` MCP tools for project work:
@@ -239,10 +242,11 @@ Native Grep/Glob are denied by policy. Prefer `ctx_*` MCP tools for project work
 - `ctx_glob` instead of Glob (file pattern matching)
 - Project edits: `ctx_read(mode=\"anchored\")` → `ctx_patch` (line+hash anchors; `op=create` for new files).
 
-Native `Read` stays available for the edit gate and for Claude auto memory
-(`~/.claude/projects/<slug>/memory/` — MEMORY.md and topic files). Use native
-Read/Edit there; do NOT call MCP `resources/read` with file:// URIs (lean-ctx
-resources are `lean-ctx://context/*` only). Native Delete is fine.
+Native `Read` is reserved for the edit gate (read-before-write) only.
+For exploration, orientation, and code understanding: ALWAYS use `ctx_read`.
+Claude auto memory (`~/.claude/projects/<slug>/memory/` — MEMORY.md and topic
+files) uses native Read/Edit internally; do NOT call MCP `resources/read` with
+file:// URIs (lean-ctx resources are `lean-ctx://context/*` only). Native Delete is fine.
 
 Read modes: anchored (edit), full (verbatim), map (overview), signatures (API), diff (post-edit), lines:N-M (range), auto.
 Details live in the `lean-ctx` skill (loads on demand — keep this file lean).
