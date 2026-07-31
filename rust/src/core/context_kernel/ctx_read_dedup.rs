@@ -29,17 +29,23 @@ pub(crate) fn should_dedup(mode: &str) -> bool {
 /// disabled, when the `content_dedup` feature is off, or when the content
 /// has not been seen before.
 #[must_use]
-pub(crate) fn try_dedup(path: &str, content: &str) -> Option<String> {
+pub(crate) fn try_dedup(path: &str, content: &str, fresh: bool) -> Option<String> {
+    if fresh {
+        // When fresh=true, invalidate the dedup fingerprint so the re-read is delivered.
+        on_file_write(path);
+        return None;
+    }
     if !super::kernel_config::is_enabled() {
         return None;
     }
-    match dedup_wiring::check_content(path, content) {
+    match dedup_wiring::check_content(path, content, false) {
         DedupAction::DeliverStub { stub } => Some(stub),
         DedupAction::DeliverFull | DedupAction::DeliverModified => None,
     }
 }
 /// Invalidates deduplication state after a file write.
 pub(crate) fn on_file_write(path: &str) {
+    // TODO(#1400): wire on_file_write from ctx_edit/ctx_patch handlers.
     dedup_wiring::invalidate(path);
 }
 
@@ -100,14 +106,14 @@ mod tests {
     #[test]
     fn try_dedup_new_file_none() {
         let _guard = isolated();
-        assert_eq!(try_dedup("new.rs", "content"), None);
+        assert_eq!(try_dedup("new.rs", "content", false), None);
     }
 
     #[test]
     fn try_dedup_repeated_file_some() {
         let _guard = isolated();
-        assert_eq!(try_dedup("repeat.rs", "content"), None);
-        let stub = try_dedup("repeat.rs", "content");
+        assert_eq!(try_dedup("repeat.rs", "content", false), None);
+        let stub = try_dedup("repeat.rs", "content", false);
         assert!(stub.is_some());
         assert!(stub.is_some_and(|value| value.contains("repeat.rs unchanged")));
     }
@@ -115,24 +121,32 @@ mod tests {
     #[test]
     fn on_write_invalidates() {
         let _guard = isolated();
-        assert_eq!(try_dedup("written.rs", "content"), None);
-        assert!(try_dedup("written.rs", "content").is_some());
+        assert_eq!(try_dedup("written.rs", "content", false), None);
+        assert!(try_dedup("written.rs", "content", false).is_some());
         on_file_write("written.rs");
-        assert_eq!(try_dedup("written.rs", "content"), None);
+        assert_eq!(try_dedup("written.rs", "content", false), None);
     }
 
     #[test]
     fn summary_tracks_reads() {
         let _guard = isolated();
-        assert_eq!(try_dedup("a.rs", "one"), None);
-        assert!(try_dedup("a.rs", "one").is_some());
-        assert!(try_dedup("a.rs", "one").is_some());
-        assert_eq!(try_dedup("b.rs", "two"), None);
-        assert!(try_dedup("b.rs", "two").is_some());
+        assert_eq!(try_dedup("a.rs", "one", false), None);
+        assert!(try_dedup("a.rs", "one", false).is_some());
+        assert!(try_dedup("a.rs", "one", false).is_some());
+        assert_eq!(try_dedup("b.rs", "two", false), None);
+        assert!(try_dedup("b.rs", "two", false).is_some());
 
         let summary = dedup_summary();
         assert_eq!(summary.total_reads, 5);
         assert_eq!(summary.dedup_hits, 3);
         assert!((summary.hit_rate - 0.6).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn fresh_bypasses_dedup() {
+        let _guard = isolated();
+        assert_eq!(try_dedup("src/lib.rs", "fn main() {}", false), None);
+        assert!(try_dedup("src/lib.rs", "fn main() {}", false).is_some());
+        assert_eq!(try_dedup("src/lib.rs", "fn main() {}", true), None);
     }
 }

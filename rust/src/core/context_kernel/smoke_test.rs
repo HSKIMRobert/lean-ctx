@@ -80,8 +80,8 @@ mod tests {
         let _guard = isolated();
         let content = long_content();
 
-        assert_eq!(ctx_read_dedup::try_dedup("a.rs", &content), None);
-        let stub = ctx_read_dedup::try_dedup("a.rs", &content)
+        assert_eq!(ctx_read_dedup::try_dedup("a.rs", &content, false), None);
+        let stub = ctx_read_dedup::try_dedup("a.rs", &content, false)
             .expect("repeated content should produce a deduplication stub");
 
         assert!(stub.len() < content.len());
@@ -114,8 +114,14 @@ mod tests {
         kernel_config::update_features(features);
         let content = long_content();
 
-        assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", &content), None);
-        assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", &content), None);
+        assert_eq!(
+            ctx_read_dedup::try_dedup("disabled.rs", &content, false),
+            None
+        );
+        assert_eq!(
+            ctx_read_dedup::try_dedup("disabled.rs", &content, false),
+            None
+        );
         assert!(!list_tools_opt::should_optimize_for_client("cursor"));
         process_proxy();
         process_mcp(1);
@@ -149,8 +155,11 @@ mod tests {
         startup::initialize();
         let content = long_content();
 
-        assert_eq!(ctx_read_dedup::try_dedup("lifecycle.rs", &content), None);
-        assert!(ctx_read_dedup::try_dedup("lifecycle.rs", &content).is_some());
+        assert_eq!(
+            ctx_read_dedup::try_dedup("lifecycle.rs", &content, false),
+            None
+        );
+        assert!(ctx_read_dedup::try_dedup("lifecycle.rs", &content, false).is_some());
         let optimized = list_tools_opt::optimize_descriptions(tools(), "cursor");
         process_proxy();
         process_mcp(1);

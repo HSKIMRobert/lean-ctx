@@ -47,7 +47,7 @@ mod tests {
         let started = Instant::now();
         for index in 0..1_000 {
             let content = format!("unique content {index}");
-            assert!(ctx_read_dedup::try_dedup("bench.rs", &content).is_none());
+            assert!(ctx_read_dedup::try_dedup("bench.rs", &content, false).is_none());
         }
         assert!(!timing_enforced() || started.elapsed() < Duration::from_millis(500));
     }

@@ -116,8 +116,8 @@ mod tests {
     #[test]
     fn health_shows_dedup_stats() {
         let _guard = isolated();
-        let _ = dedup_wiring::check_content("health.rs", "same");
-        let _ = dedup_wiring::check_content("health.rs", "same");
+        let _ = dedup_wiring::check_content("health.rs", "same", false);
+        let _ = dedup_wiring::check_content("health.rs", "same", false);
         let report = kernel_health();
         assert!(report.dedup_hit_rate > 0.0);
         assert_eq!(report.dedup_total_checks, 2);

@@ -94,8 +94,11 @@ mod tests {
     fn dedup_bridge_reduces_repeated_reads() {
         let _guard = isolated();
 
-        assert_eq!(ctx_read_dedup::try_dedup("file.rs", LONG_CONTENT), None);
-        let stub = ctx_read_dedup::try_dedup("file.rs", LONG_CONTENT)
+        assert_eq!(
+            ctx_read_dedup::try_dedup("file.rs", LONG_CONTENT, false),
+            None
+        );
+        let stub = ctx_read_dedup::try_dedup("file.rs", LONG_CONTENT, false)
             .expect("repeated content should produce a dedup stub");
         assert!(
             stub.len() < LONG_CONTENT.len(),
@@ -179,10 +182,10 @@ mod tests {
         ];
 
         for (path, content) in files {
-            assert_eq!(ctx_read_dedup::try_dedup(path, content), None);
+            assert_eq!(ctx_read_dedup::try_dedup(path, content, false), None);
         }
         for (path, content) in files {
-            assert!(ctx_read_dedup::try_dedup(path, content).is_some());
+            assert!(ctx_read_dedup::try_dedup(path, content, false).is_some());
         }
 
         let original = tools(10);
@@ -206,8 +209,14 @@ mod tests {
         };
         kernel_config::update_features(features);
 
-        assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", LONG_CONTENT), None);
-        assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", LONG_CONTENT), None);
+        assert_eq!(
+            ctx_read_dedup::try_dedup("disabled.rs", LONG_CONTENT, false),
+            None
+        );
+        assert_eq!(
+            ctx_read_dedup::try_dedup("disabled.rs", LONG_CONTENT, false),
+            None
+        );
         assert!(!list_tools_opt::should_optimize_for_client("cursor"));
 
         process_proxy(0);

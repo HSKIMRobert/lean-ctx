@@ -133,15 +133,15 @@ mod tests {
         let _guard = reset_all();
 
         assert_eq!(
-            dedup_wiring::check_content("file.rs", "fn main() {}"),
+            dedup_wiring::check_content("file.rs", "fn main() {}", false),
             DedupAction::DeliverFull
         );
         assert!(matches!(
-            dedup_wiring::check_content("file.rs", "fn main() {}"),
+            dedup_wiring::check_content("file.rs", "fn main() {}", false),
             DedupAction::DeliverStub { .. }
         ));
         assert!(matches!(
-            dedup_wiring::check_content("file.rs", "fn main() { work(); }"),
+            dedup_wiring::check_content("file.rs", "fn main() { work(); }", false),
             DedupAction::DeliverModified | DedupAction::DeliverFull
         ));
         assert!(dedup_wiring::dedup_stats().hit_rate > 0.0);
@@ -195,7 +195,7 @@ mod tests {
 
         for _ in 0..10 {
             assert_eq!(
-                dedup_wiring::check_content("file.rs", "fn main() {}"),
+                dedup_wiring::check_content("file.rs", "fn main() {}", false),
                 DedupAction::DeliverFull
             );
         }
