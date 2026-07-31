@@ -200,8 +200,20 @@ pub(super) fn redirect_read(tool_input: Option<&serde_json::Value>) -> String {
                         "re-read re-compress (Cursor, no guard)",
                     );
                     // Fall through to lean-ctx redirect below.
+                } else if crate::core::config::ReadRedirect::read_redirect_enabled(
+                    &crate::core::config::Config::load(),
+                ) {
+                    // Guard host but user explicitly set read_redirect=on (#1401):
+                    // honour the override and re-compress.
+                    debug_log::log_hook_decision(
+                        "redirect",
+                        "Read",
+                        Route::LeanCtx,
+                        &path,
+                        "re-read re-compress (guard host, read_redirect=on override)",
+                    );
                 } else {
-                    // Guard host: native passthrough (read_dedup owns dedup).
+                    // Guard host + auto/off: native passthrough (read_dedup owns dedup).
                     debug_log::log_hook_decision(
                         "redirect",
                         "Read",
@@ -669,3 +681,4 @@ pub(super) fn warm_daemon_cache(path: &str) {
         .stderr(Stdio::null())
         .spawn();
 }
+
