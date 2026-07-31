@@ -344,7 +344,7 @@ fn handle_with_options_resolved_preread(
     }
 
     // R28: Kernel content dedup — detect re-reads of unchanged content.
-    if let Some(stub) = dedup_hook::maybe_dedup(path, &result.content, mode) {
+    if let Some(stub) = dedup_hook::maybe_dedup(path, &result.content, mode, fresh) {
         let stub_tokens = count_tokens(&stub);
         if stub_tokens < result.output_tokens {
             result.content = stub;

@@ -39,7 +39,11 @@ pub(crate) struct DedupStats {
 
 /// Checks whether `content` changed since its last delivery at `path`.
 #[must_use]
-pub(crate) fn check_content(path: &str, content: &str) -> DedupAction {
+pub(crate) fn check_content(path: &str, content: &str, fresh: bool) -> DedupAction {
+    if fresh {
+        invalidate(path);
+        return DedupAction::DeliverFull;
+    }
     check_content_enabled(
         super::kernel_config::features().content_dedup,
         path,

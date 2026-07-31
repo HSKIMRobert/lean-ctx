@@ -40,10 +40,10 @@ mod tests {
         let _guard = isolated();
         startup::initialize();
 
-        assert_eq!(ctx_read_dedup::try_dedup("a.rs", "alpha"), None);
-        assert_eq!(ctx_read_dedup::try_dedup("b.rs", "beta"), None);
-        assert!(ctx_read_dedup::try_dedup("a.rs", "alpha").is_some());
-        assert!(ctx_read_dedup::try_dedup("b.rs", "beta").is_some());
+        assert_eq!(ctx_read_dedup::try_dedup("a.rs", "alpha", false), None);
+        assert_eq!(ctx_read_dedup::try_dedup("b.rs", "beta", false), None);
+        assert!(ctx_read_dedup::try_dedup("a.rs", "alpha", false).is_some());
+        assert!(ctx_read_dedup::try_dedup("b.rs", "beta", false).is_some());
         let _ = list_tools_opt::optimize_descriptions(tools(10), "cursor");
         for index in 0..3 {
             evidence_wiring::record_from_tool_dispatch(&format!("tool_{index}"), 100, 40, 60);
@@ -101,8 +101,11 @@ mod tests {
     fn health_report_comprehensive() {
         let _guard = isolated();
         startup::initialize();
-        assert_eq!(ctx_read_dedup::try_dedup("health.rs", "content"), None);
-        assert!(ctx_read_dedup::try_dedup("health.rs", "content").is_some());
+        assert_eq!(
+            ctx_read_dedup::try_dedup("health.rs", "content", false),
+            None
+        );
+        assert!(ctx_read_dedup::try_dedup("health.rs", "content", false).is_some());
         let _ = list_tools_opt::optimize_descriptions(tools(10), "cursor");
         evidence_wiring::record_from_tool_dispatch("ctx_read", 100, 40, 60);
 
@@ -132,7 +135,10 @@ mod tests {
         let original = tools(10);
 
         // Initialize first (loads config), then disable kernel.
-        assert_eq!(ctx_read_dedup::try_dedup("disabled.rs", "content"), None);
+        assert_eq!(
+            ctx_read_dedup::try_dedup("disabled.rs", "content", false),
+            None
+        );
         assert_eq!(
             list_tools_opt::optimize_descriptions(original.clone(), "cursor"),
             original

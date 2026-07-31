@@ -38,8 +38,8 @@ mod tests {
     #[test]
     fn dedup_works_offline() {
         let _guard = isolated();
-        assert!(ctx_read_dedup::try_dedup("offline.rs", "local content").is_none());
-        assert!(ctx_read_dedup::try_dedup("offline.rs", "local content").is_some());
+        assert!(ctx_read_dedup::try_dedup("offline.rs", "local content", false).is_none());
+        assert!(ctx_read_dedup::try_dedup("offline.rs", "local content", false).is_some());
     }
 
     #[test]

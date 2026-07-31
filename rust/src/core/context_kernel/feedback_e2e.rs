@@ -76,8 +76,8 @@ mod tests {
     fn health_dashboard_comprehensive() {
         let _guard = isolated();
         startup::initialize();
-        let _ = ctx_read_dedup::try_dedup("a.rs", "content");
-        let _ = ctx_read_dedup::try_dedup("a.rs", "content");
+        let _ = ctx_read_dedup::try_dedup("a.rs", "content", false);
+        let _ = ctx_read_dedup::try_dedup("a.rs", "content", false);
         search_hook::on_search("test", "regex", 5, 200);
         evidence_wiring::record_from_tool_dispatch("ctx_read", 100, 50, 50);
         response_evidence::record_response("ctx_read", 200, true);

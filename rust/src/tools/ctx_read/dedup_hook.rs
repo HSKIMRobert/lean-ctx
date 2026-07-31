@@ -4,11 +4,11 @@ use crate::core::context_kernel::ctx_read_dedup::{self, ReadDedupSummary};
 
 /// Returns an unchanged-content stub when deduplication applies and finds a match.
 #[must_use]
-pub fn maybe_dedup(path: &str, content: &str, mode: &str) -> Option<String> {
+pub fn maybe_dedup(path: &str, content: &str, mode: &str, fresh: bool) -> Option<String> {
     if !ctx_read_dedup::should_dedup(mode) {
         return None;
     }
-    let stub = ctx_read_dedup::try_dedup(path, content)?;
+    let stub = ctx_read_dedup::try_dedup(path, content, fresh)?;
     let original_tokens = crate::core::tokens::count_tokens(content);
     let stub_tokens = crate::core::tokens::count_tokens(&stub);
     crate::core::stats::record_reread(original_tokens.saturating_sub(stub_tokens));
@@ -44,29 +44,29 @@ mod tests {
     #[test]
     fn dedup_returns_none_for_new_content() {
         let _guard = isolated();
-        assert_eq!(maybe_dedup("new.rs", "content", "full"), None);
+        assert_eq!(maybe_dedup("new.rs", "content", "full", false), None);
     }
 
     #[test]
     fn dedup_returns_stub_for_repeated() {
         let _guard = isolated();
-        assert_eq!(maybe_dedup("repeat.rs", "content", "full"), None);
-        assert!(maybe_dedup("repeat.rs", "content", "full").is_some());
+        assert_eq!(maybe_dedup("repeat.rs", "content", "full", false), None);
+        assert!(maybe_dedup("repeat.rs", "content", "full", false).is_some());
     }
 
     #[test]
     fn raw_mode_skips_dedup() {
         let _guard = isolated();
-        assert_eq!(maybe_dedup("raw.rs", "content", "full"), None);
-        assert_eq!(maybe_dedup("raw.rs", "content", "raw"), None);
+        assert_eq!(maybe_dedup("raw.rs", "content", "full", false), None);
+        assert_eq!(maybe_dedup("raw.rs", "content", "raw", false), None);
     }
 
     #[test]
     fn write_invalidates_cache() {
         let _guard = isolated();
-        assert_eq!(maybe_dedup("written.rs", "content", "full"), None);
-        assert!(maybe_dedup("written.rs", "content", "full").is_some());
+        assert_eq!(maybe_dedup("written.rs", "content", "full", false), None);
+        assert!(maybe_dedup("written.rs", "content", "full", false).is_some());
         on_write("written.rs");
-        assert_eq!(maybe_dedup("written.rs", "content", "full"), None);
+        assert_eq!(maybe_dedup("written.rs", "content", "full", false), None);
     }
 }
