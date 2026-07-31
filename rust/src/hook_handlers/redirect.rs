@@ -681,4 +681,3 @@ pub(super) fn warm_daemon_cache(path: &str) {
         .stderr(Stdio::null())
         .spawn();
 }
-
