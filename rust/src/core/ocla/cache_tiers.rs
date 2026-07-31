@@ -411,4 +411,55 @@ mod tests {
             persisted
         );
     }
+
+    #[test]
+    fn l3_startup_validate_removes_expired_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = L3DiskCache::open(dir.path()).unwrap();
+        let mut old_entry = entry("old");
+        old_entry.created_at_epoch_ms = 1000;
+        // persisted_at_epoch_ms set by insert = now, so we need entries
+        // that were persisted long ago — override via direct manifest access
+        cache.insert(old_entry).unwrap();
+        std::thread::sleep(Duration::from_millis(5));
+        // With max_age=0, everything should be expired
+        cache.startup_validate(Duration::ZERO, u64::MAX);
+        assert_eq!(cache.len(), 0, "expired entries must be removed");
+    }
+
+    #[test]
+    fn l3_startup_validate_trims_to_max_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = L3DiskCache::open(dir.path()).unwrap();
+        for i in 0..10 {
+            let mut e = entry(&format!("item{i}"));
+            e.token_count = 100;
+            cache.insert(e).unwrap();
+        }
+        assert_eq!(cache.len(), 10);
+        // max_bytes=500 means only 5 entries of 100 tokens each should survive
+        cache.startup_validate(Duration::from_secs(999999), 500);
+        assert!(
+            cache.len() <= 5,
+            "GC must trim to max_bytes budget, got {}",
+            cache.len()
+        );
+    }
+
+    #[test]
+    fn l3_manifest_survives_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let cache = L3DiskCache::open(dir.path()).unwrap();
+            cache.insert(entry("persistent")).unwrap();
+            assert_eq!(cache.len(), 1);
+        }
+        let cache = L3DiskCache::open(dir.path()).unwrap();
+        assert_eq!(cache.len(), 1, "manifest must persist across reopen");
+        assert!(
+            cache
+                .get(&CacheKey("cache:v1:file_read:persistent".into()))
+                .is_some()
+        );
+    }
 }

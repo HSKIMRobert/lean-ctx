@@ -22,6 +22,7 @@ var coveredRoutes = map[string]string{
 	"GET /v1/events/search":   "SearchEvents",
 	"GET /v1/events/lineage":  "EventLineage",
 	"GET /v1/metrics":         "ServerMetrics",
+	"GET /v1/cache/stats":     "CacheStats",
 }
 
 func TestConformanceLive(t *testing.T) {

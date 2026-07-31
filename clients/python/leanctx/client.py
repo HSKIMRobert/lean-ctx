@@ -169,6 +169,10 @@ class LeanCtxClient:
         """JSON metrics snapshot (``GET /v1/metrics``)."""
         return self._get_json("/v1/metrics")
 
+    def cache_stats(self) -> Dict[str, Any]:
+        """Cache and delivery metrics (``GET /v1/cache/stats``)."""
+        return self._get_json("/v1/cache/stats")
+
     # -- events (SSE) ------------------------------------------------------
 
     def subscribe_events(

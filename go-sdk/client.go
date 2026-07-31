@@ -221,6 +221,12 @@ func (c *OclaClient) ServerMetrics() (map[string]any, error) {
 	return response, err
 }
 
+func (c *OclaClient) CacheStats() (map[string]any, error) {
+tvar response map[string]any
+terr := c.request(http.MethodGet, "/v1/cache/stats", nil, &response)
+treturn response, err
+}
+
 func (c *OclaClient) EventsProbe(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/events", nil)
 	if err != nil {

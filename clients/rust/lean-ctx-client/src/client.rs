@@ -314,6 +314,14 @@ impl LeanCtxClient {
         self.get_json("/v1/metrics")
     }
 
+    /// `GET /v1/cache/stats` — cache and delivery metrics.
+    ///
+    /// # Errors
+    /// [`LeanCtxError`] on transport failure, non-2xx status, or decode failure.
+    pub fn cache_stats(&self) -> Result<Value> {
+        self.get_json("/v1/cache/stats")
+    }
+
     /// Open `GET /v1/events` and return its `Content-Type` header.
     ///
     /// Returns as soon as response headers arrive (the body is never read),

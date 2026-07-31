@@ -32,6 +32,7 @@ export const COVERED_ROUTES: Readonly<Record<string, string>> = {
   "GET /v1/events/search": "searchEvents",
   "GET /v1/events/lineage": "eventLineage",
   "GET /v1/metrics": "metrics",
+  "GET /v1/cache/stats": "cacheStats",
 };
 
 /** `http_mcp` contract versions this SDK release speaks (SDK major follows engine contract major). */

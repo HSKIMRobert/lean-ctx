@@ -212,6 +212,14 @@ export class LeanCtxClient {
     return v;
   }
 
+  async cacheStats(): Promise<JsonObject> {
+    const v = await this.getJson("/v1/cache/stats");
+    if (!isJsonObject(v)) {
+      throw new Error("LeanCtxClient.cacheStats: unexpected response shape");
+    }
+    return v;
+  }
+
   /**
    * Open `GET /v1/events` and return its `Content-Type` header.
    *

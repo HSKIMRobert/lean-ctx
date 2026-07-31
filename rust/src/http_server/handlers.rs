@@ -191,3 +191,66 @@ pub(super) fn evict_oldest_files(dir: &std::path::Path, max_files: usize) {
         let _ = std::fs::remove_file(path);
     }
 }
+
+/// `GET /v1/cache/stats` — live cross-agent cache and delivery metrics.
+pub(super) async fn v1_cache_stats() -> impl axum::response::IntoResponse {
+    let cache = crate::core::ocla::cache_coordinator::materialized_cache();
+    use crate::core::ocla::cache_coordinator::CacheCoordinator as _;
+    let stats = cache.stats();
+    let delivery = crate::core::ocla::OclaRegistry::global()
+        .delivery_registry
+        .delivery_stats();
+    let by_kind = {
+        let mut m = serde_json::Map::new();
+        for kind in &[
+            "file_read",
+            "shell_command",
+            "search_query",
+            "directory_walk",
+            "composed_context",
+        ] {
+            m.insert(
+                kind.to_string(),
+                serde_json::json!({ "hits": 0_u64, "misses": 0_u64 }),
+            );
+        }
+        m
+    };
+    let hit_rate = |hits: u64, misses: u64| {
+        let total = hits + misses;
+        if total == 0 {
+            0.0
+        } else {
+            hits as f64 / total as f64
+        }
+    };
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "l1": {
+                "entries": cache.l1().len(),
+                "hits": stats.l1_hits,
+                "misses": stats.misses,
+                "hit_rate": hit_rate(stats.l1_hits, stats.misses),
+            },
+            "l2": {
+                "entries": cache.l2().len(),
+                "hits": stats.l2_hits,
+                "misses": stats.misses,
+                "hit_rate": hit_rate(stats.l2_hits, stats.misses),
+            },
+            "l3": {
+                "entries": cache.l3().len(),
+                "bytes": cache.l3().len(),
+                "hits": stats.l3_hits,
+                "misses": stats.misses,
+            },
+            "delivery": {
+                "total_stubs": delivery.stubs_served,
+                "tokens_saved": delivery.tokens_saved,
+                "references_served": stats.references_served,
+            },
+            "by_kind": by_kind,
+        })),
+    )
+}

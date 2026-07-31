@@ -573,4 +573,61 @@ mod tests {
         assert_eq!(reg.store.len(), 0);
         assert!(reg.eviction_index.lock().unwrap().by_time.is_empty());
     }
+
+    #[test]
+    fn mtime_index_tracks_insertions() {
+        let reg = BuiltinDeliveryRegistry::with_limits(100, 3600);
+        let entry = test_entry("src/lib.rs", "agent-a", [1; 12], 1000);
+        reg.record_delivery(entry);
+        assert!(
+            reg.has_candidate("src/lib.rs", 1000),
+            "mtime_index must contain (path, mtime) after record"
+        );
+        assert!(
+            !reg.has_candidate("src/lib.rs", 9999),
+            "different mtime must not match"
+        );
+        assert!(
+            !reg.has_candidate("other.rs", 1000),
+            "different path must not match"
+        );
+    }
+
+    #[test]
+    fn mtime_index_cleaned_on_eviction() {
+        let reg = BuiltinDeliveryRegistry::with_limits(2, 3600);
+        reg.record_delivery(test_entry("a.rs", "x", [1; 12], 100));
+        reg.record_delivery(test_entry("b.rs", "x", [2; 12], 200));
+        assert!(reg.has_candidate("a.rs", 100));
+        assert!(reg.has_candidate("b.rs", 200));
+        // Third insert evicts oldest
+        reg.record_delivery(test_entry("c.rs", "x", [3; 12], 300));
+        assert!(reg.has_candidate("c.rs", 300));
+        // a.rs should be evicted
+        assert!(
+            !reg.has_candidate("a.rs", 100),
+            "evicted entry must be removed from mtime_index"
+        );
+    }
+
+    #[test]
+    fn mtime_index_cleaned_on_ttl_expiry() {
+        let reg = BuiltinDeliveryRegistry::with_limits(100, 1);
+        reg.record_delivery(test_entry("expired.rs", "x", [1; 12], 100));
+        // Wait for TTL (1 second) to pass
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        reg.purge_expired();
+        assert!(
+            !reg.has_candidate("expired.rs", 100),
+            "expired entry must be removed from mtime_index"
+        );
+    }
+    #[test]
+    fn capacity_clamp_allows_large_max_entries() {
+        let reg = BuiltinDeliveryRegistry::with_config(8192, 30);
+        assert_eq!(
+            reg.max_entries, 8192,
+            "max_entries must not be clamped to 256"
+        );
+    }
 }

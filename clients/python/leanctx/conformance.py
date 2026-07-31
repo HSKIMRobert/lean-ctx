@@ -36,6 +36,7 @@ COVERED_ROUTES: Dict[str, str] = {
     "GET /v1/events/search": "search_events",
     "GET /v1/events/lineage": "event_lineage",
     "GET /v1/metrics": "metrics",
+    "GET /v1/cache/stats": "cache_stats",
 }
 
 #: ``http_mcp`` contract versions this SDK release speaks (SemVer coupling:

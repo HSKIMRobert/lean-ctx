@@ -1154,4 +1154,181 @@ mod tests {
         assert!(val["total_entries"].is_number());
         assert!(val["stubs_served"].is_number());
     }
+
+    // ── Generalized cross-agent cache endpoint tests ──────────────────
+
+    fn cache_entry_fixture(key_str: &str) -> Value {
+        json!({
+            "schema_version": 2,
+            "key": key_str,
+            "kind": "shell_command",
+            "validator": "immutable",
+            "handle": {
+                "algorithm": "blake3",
+                "digest": "d".repeat(64),
+                "byte_len": 100,
+                "media_type": "text/plain"
+            },
+            "display_path": "cargo test",
+            "line_count": 50,
+            "token_count": 2000,
+            "producer": {
+                "agent_id": "agent-A",
+                "conversation_id": "conv-A",
+                "host": "cursor"
+            },
+            "created_at_epoch_ms": 1000000,
+            "expires_at_epoch_ms": 9_999_999_999_999_u64
+        })
+    }
+
+    #[tokio::test]
+    async fn cache_check_miss_returns_no_hit() {
+        let app = ocla_router();
+        let body = json!({"key": "cache:v1:test:unknown", "validator": "immutable"});
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&body).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let val = json_response(resp).await;
+        assert_eq!(val["hit"], false);
+    }
+
+    #[tokio::test]
+    async fn cache_record_then_check_returns_hit() {
+        let key_str = "cache:v1:shell_command:test_record_check";
+        let entry = cache_entry_fixture(key_str);
+
+        let record_resp = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/record")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&entry).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(record_resp.status(), StatusCode::NO_CONTENT);
+
+        let check_body = json!({
+            "key": key_str,
+            "validator": "immutable",
+            "requester_agent_id": "agent-B",
+            "requester_conversation_id": "conv-B"
+        });
+        let check_resp = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&check_body).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(check_resp.status(), StatusCode::OK);
+        let val = json_response(check_resp).await;
+        assert_eq!(val["hit"], true);
+        assert_eq!(val["entry"]["token_count"], 2000);
+        assert_eq!(val["entry"]["producer"]["agent_id"], "agent-A");
+    }
+
+    #[tokio::test]
+    async fn cache_check_excludes_same_agent_same_conversation() {
+        let key_str = "cache:v1:shell_command:test_self_exclude";
+        let entry = cache_entry_fixture(key_str);
+
+        ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/record")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&entry).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+
+        let self_check = json!({
+            "key": key_str,
+            "validator": "immutable",
+            "requester_agent_id": "agent-A",
+            "requester_conversation_id": "conv-A"
+        });
+        let resp = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&self_check).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        let val = json_response(resp).await;
+        assert_eq!(
+            val["hit"], false,
+            "same agent+conversation must be excluded"
+        );
+    }
+
+    #[tokio::test]
+    async fn cache_batch_check_returns_mixed_results() {
+        let key_a = "cache:v1:shell_command:batch_a";
+        let key_b = "cache:v1:shell_command:batch_b";
+
+        for key in [key_a, key_b] {
+            let entry = cache_entry_fixture(key);
+            ocla_router()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/ocla/v1/cache/record")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(serde_json::to_string(&entry).unwrap()))
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+        }
+
+        let batch = json!({
+            "checks": [
+                {"key": key_a, "validator": "immutable", "requester_agent_id": "agent-B", "requester_conversation_id": "conv-B"},
+                {"key": "cache:v1:shell_command:nonexistent", "validator": "immutable"},
+                {"key": key_b, "validator": "immutable", "requester_agent_id": "agent-B", "requester_conversation_id": "conv-B"}
+            ]
+        });
+        let resp = ocla_router()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/ocla/v1/cache/batch-check")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_string(&batch).unwrap()))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let results: Vec<Value> =
+            serde_json::from_slice(&to_bytes(resp.into_body(), usize::MAX).await.unwrap()).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["hit"], true, "key_a should hit");
+        assert_eq!(results[1]["hit"], false, "nonexistent should miss");
+        assert_eq!(results[2]["hit"], true, "key_b should hit");
+    }
 }
