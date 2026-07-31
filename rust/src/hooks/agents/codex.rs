@@ -116,6 +116,10 @@ fn ensure_codex_observe_hooks(root: &mut serde_json::Value, observe_cmd: &str) -
         return false;
     };
 
+    let observe_hook = serde_json::json!({
+        "type": "command", "command": observe_cmd, "timeout": 5
+    });
+
     let observe_events = ["PostToolUse", "SessionStart", "SessionEnd"];
     for event in observe_events {
         let arr = hooks_obj
@@ -124,7 +128,8 @@ fn ensure_codex_observe_hooks(root: &mut serde_json::Value, observe_cmd: &str) -
         let Some(entries) = arr.as_array_mut() else {
             continue;
         };
-        let already = entries.iter().any(|e| {
+
+        let already_has_observe = entries.iter().any(|e| {
             e.get("hooks")
                 .and_then(|h| h.as_array())
                 .is_some_and(|hooks| {
@@ -135,10 +140,41 @@ fn ensure_codex_observe_hooks(root: &mut serde_json::Value, observe_cmd: &str) -
                     })
                 })
         });
-        if !already {
+        if already_has_observe {
+            continue;
+        }
+
+        // Merge into existing lean-ctx entry instead of creating a duplicate
+        // that fires a separate `hook: <Event>` log line (GL #1398).
+        let merged = entries.iter_mut().any(|entry| {
+            let dominated = entry
+                .get("hooks")
+                .and_then(|h| h.as_array())
+                .is_some_and(|hooks| {
+                    hooks.iter().any(|hook| {
+                        hook.get("command")
+                            .and_then(|c| c.as_str())
+                            .is_some_and(|c| c.contains("lean-ctx"))
+                    })
+                });
+            if !dominated {
+                return false;
+            }
+            if let Some(hooks_arr) = entry
+                .as_object_mut()
+                .and_then(|e| e.get_mut("hooks"))
+                .and_then(|h| h.as_array_mut())
+            {
+                hooks_arr.push(observe_hook.clone());
+                return true;
+            }
+            false
+        });
+
+        if !merged {
             entries.push(serde_json::json!({
                 "matcher": ".*",
-                "hooks": [{ "type": "command", "command": observe_cmd, "timeout": 5 }]
+                "hooks": [observe_hook.clone()]
             }));
         }
     }
@@ -212,7 +248,8 @@ fn ensure_codex_hooks_enabled(config_content: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_codex_hooks_enabled, ensure_codex_mcp_server, upsert_lean_ctx_codex_hook_entries,
+        ensure_codex_hooks_enabled, ensure_codex_mcp_server, ensure_codex_observe_hooks,
+        upsert_lean_ctx_codex_hook_entries,
     };
     use serde_json::json;
 
@@ -678,5 +715,38 @@ command = \"other\"
             ensure_codex_mcp_server(&result, "lean-ctx", &pairs).is_none(),
             "upsert must be idempotent"
         );
+    }
+
+    #[test]
+    fn observe_merges_into_existing_session_start_entry() {
+        let mut root = serde_json::json!({
+            "hooks": {
+                "SessionStart": [{
+                    "matcher": "startup|resume|clear",
+                    "hooks": [{
+                        "type": "command",
+                        "command": "/bin/lean-ctx hook codex-session-start",
+                        "timeout": 15
+                    }]
+                }]
+            }
+        });
+        let changed = ensure_codex_observe_hooks(&mut root, "/bin/lean-ctx hook observe");
+        assert!(changed);
+        let entries = root["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(entries.len(), 1, "must be single entry, not two");
+        let hooks = entries[0]["hooks"].as_array().unwrap();
+        assert_eq!(hooks.len(), 2, "session-start + observe in one entry");
+        assert!(hooks[1]["command"].as_str().unwrap().contains("observe"));
+    }
+
+    #[test]
+    fn observe_creates_new_entry_when_no_lean_ctx_exists() {
+        let mut root = serde_json::json!({ "hooks": {} });
+        let changed = ensure_codex_observe_hooks(&mut root, "/bin/lean-ctx hook observe");
+        assert!(changed);
+        let entries = root["hooks"]["PostToolUse"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["matcher"].as_str().unwrap(), ".*");
     }
 }

@@ -45,3 +45,7 @@ pub(crate) const ARCHITECTURE_MODULE_FILES_LIMIT: usize = 200;
 
 // Knowledge embeddings index (bounded growth)
 pub(crate) const KNOWLEDGE_EMBEDDINGS_MAX_FACTS: usize = 2000;
+
+// Knowledge AAAK token budget (delta injection)
+pub(crate) const KNOWLEDGE_AAAK_TOKEN_BUDGET: usize = 800;
+pub(crate) const KNOWLEDGE_RECALL_TOKEN_BUDGET: usize = 2000;

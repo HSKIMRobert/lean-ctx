@@ -285,6 +285,7 @@ pub(crate) fn import_bundle_v1_into_session(
         terse_mode: imported.terse_mode,
         compression_level: imported.compression_level.clone(),
         last_consolidate_ts: None,
+        last_aaak_hash: None,
         extra_roots: Vec::new(),
         wakeup_manifest: Vec::new(),
         playbook: crate::core::session::Playbook::default(),

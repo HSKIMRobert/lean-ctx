@@ -281,6 +281,29 @@ fn handle_with_options_resolved_preread(
         return stub;
     }
 
+    if mode == "auto" {
+        let touched: Vec<String> = cache
+            .get_all_entries()
+            .iter()
+            .map(|(p, _)| (*p).clone())
+            .collect();
+        if crate::core::relevance_gate::should_gate(path, mode, task, &touched) {
+            let meta = std::fs::metadata(path);
+            let byte_count = meta.as_ref().map_or(0, std::fs::Metadata::len);
+            let line_count = preread
+                .as_ref()
+                .map_or(0, |c| bytecount::count(c.as_bytes(), b'\n'));
+            let stub = crate::core::relevance_gate::irrelevant_stub(path, line_count, byte_count);
+            let stub_tokens = count_tokens(&stub);
+            return ReadOutput {
+                content: stub,
+                resolved_mode: "auto".into(),
+                output_tokens: stub_tokens,
+                is_cache_hit: false,
+            };
+        }
+    }
+
     if PluginManager::has_listener("pre_read") {
         PluginManager::fire_hook_background(HookPoint::PreRead {
             path: path.to_string(),
@@ -421,6 +444,8 @@ fn handle_with_options_resolved_preread(
             );
         });
     }
+
+    crate::core::context_gc::maybe_gc(cache);
 
     result
 }

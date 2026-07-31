@@ -176,6 +176,7 @@ mod tests {
             terse_mode: false,
             compression_level: String::new(),
             last_consolidate_ts: None,
+            last_aaak_hash: None,
             extra_roots: Vec::new(),
             wakeup_manifest: Vec::new(),
             playbook: crate::core::session::Playbook::default(),

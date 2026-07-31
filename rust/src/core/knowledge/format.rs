@@ -2,6 +2,14 @@ use super::ranking::{confidence_stars, sort_fact_for_output};
 use super::types::{ConsolidatedInsight, KnowledgeFact, ProjectKnowledge};
 use crate::core::memory_policy::MemoryPolicy;
 
+/// Result of a delta-aware AAAK generation.
+pub struct AaakDelta {
+    pub content: String,
+    pub hash: String,
+    pub is_full: bool,
+    pub fact_count: usize,
+}
+
 impl ProjectKnowledge {
     /// Record one consolidated insight, then losslessly reclaim history to its
     /// capacity headroom. Returns the number of older insights archived (0 when
@@ -195,6 +203,101 @@ impl ProjectKnowledge {
             out.push_str(&format!("PAT:{}\n", pat_items.join("|")));
         }
 
+        if out.is_empty() {
+            out
+        } else {
+            crate::core::sanitize::fence_content("project_memory_aaak", out.trim_end())
+        }
+    }
+
+    pub fn format_aaak_delta(&self, last_hash: Option<&str>) -> AaakDelta {
+        let full = self.format_aaak();
+        let fact_count = self.facts.iter().filter(|f| f.is_current()).count();
+        if full.is_empty() {
+            return AaakDelta {
+                content: String::new(),
+                hash: String::new(),
+                is_full: false,
+                fact_count,
+            };
+        }
+        let hash = blake3::hash(full.as_bytes()).to_hex().to_string();
+        let is_full = last_hash.is_none_or(|prev| prev != hash);
+        let content = if is_full {
+            full
+        } else {
+            format!(
+                "[AAAK unchanged — {fact_count} facts, hash {}]",
+                &hash[..12]
+            )
+        };
+        AaakDelta {
+            content,
+            hash,
+            is_full,
+            fact_count,
+        }
+    }
+
+    pub fn format_aaak_budgeted(&self, token_budget: usize) -> String {
+        let sens = crate::core::config::Config::load().sensitivity_effective();
+        let current_facts: Vec<&KnowledgeFact> = self
+            .facts
+            .iter()
+            .filter(|f| f.is_current())
+            .filter(|f| {
+                !sens.enabled_effective()
+                    || !crate::core::sensitivity::floor_blocks(
+                        f.sensitivity
+                            .max(crate::core::sensitivity::classify_content(&f.value)),
+                        &sens,
+                    )
+            })
+            .collect();
+        if current_facts.is_empty() && self.patterns.is_empty() {
+            return String::new();
+        }
+        let mut out = String::new();
+        let mut tokens_used: usize = 0;
+        let mut rooms_omitted: usize = 0;
+        let mut facts_omitted: usize = 0;
+        let mut rooms: Vec<(String, usize)> = self.list_rooms();
+        rooms.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        for (cat, _count) in &rooms {
+            let mut facts_in_cat: Vec<&KnowledgeFact> = current_facts
+                .iter()
+                .copied()
+                .filter(|f| &f.category == cat)
+                .collect();
+            facts_in_cat.sort_by(|a, b| sort_fact_for_output(a, b));
+            let items: Vec<String> = facts_in_cat
+                .iter()
+                .map(|f| {
+                    let stars = confidence_stars(f.confidence);
+                    let key = crate::core::sanitize::neutralize_metadata(&f.key);
+                    let val = crate::core::sanitize::neutralize_metadata(&f.value);
+                    format!("{key}={val}{stars}")
+                })
+                .collect();
+            let line = format!(
+                "{}:{}\n",
+                crate::core::sanitize::neutralize_metadata(&cat.to_uppercase()),
+                items.join("|")
+            );
+            let line_tokens = crate::core::tokens::count_tokens(&line);
+            if tokens_used + line_tokens > token_budget {
+                rooms_omitted += 1;
+                facts_omitted += facts_in_cat.len();
+                continue;
+            }
+            out.push_str(&line);
+            tokens_used += line_tokens;
+        }
+        if rooms_omitted > 0 {
+            out.push_str(&format!(
+                "[+{facts_omitted} facts in {rooms_omitted} rooms omitted — budget {token_budget} tokens]\n"
+            ));
+        }
         if out.is_empty() {
             out
         } else {

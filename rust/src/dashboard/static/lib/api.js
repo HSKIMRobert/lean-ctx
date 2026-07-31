@@ -11,6 +11,13 @@ function getAuthToken() {
       return st;
     }
   } catch (_) {}
+  try {
+    const lt = localStorage.getItem('lctx_token');
+    if (lt) {
+      window.__LEAN_CTX_TOKEN__ = lt;
+      return lt;
+    }
+  } catch (_) {}
   return '';
 }
 

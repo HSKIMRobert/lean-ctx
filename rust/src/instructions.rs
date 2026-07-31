@@ -286,11 +286,17 @@ fn build_full_instructions(
             let knowledge = crate::core::knowledge::ProjectKnowledge::load(root);
             match knowledge {
                 Some(k) if !k.facts.is_empty() || !k.patterns.is_empty() => {
-                    let aaak = k.format_aaak();
-                    if aaak.is_empty() {
+                    let last_hash = loaded_session
+                        .as_ref()
+                        .and_then(|s| s.last_aaak_hash.as_deref());
+                    let delta = k.format_aaak_delta(last_hash);
+                    if delta.content.is_empty() {
                         String::new()
                     } else {
-                        format!("\n--- PROJECT MEMORY (AAAK) ---\n{}\n---\n", aaak.trim())
+                        format!(
+                            "\n--- PROJECT MEMORY (AAAK) ---\n{}\n---\n",
+                            delta.content.trim()
+                        )
                     }
                 }
                 _ => String::new(),

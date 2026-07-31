@@ -212,8 +212,10 @@ mod tests {
         let _lock = crate::core::data_dir::test_env_lock();
         crate::test_env::remove_var("LEAN_CTX_PREFER_NATIVE_EDITOR");
 
-        let mut config = Config::default();
-        config.prefer_native_editor = true;
+        let config = Config {
+            prefer_native_editor: true,
+            ..Default::default()
+        };
         assert!(!ReadRedirect::read_redirect_enabled(&config));
     }
 

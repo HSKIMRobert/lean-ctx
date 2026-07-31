@@ -593,11 +593,14 @@ pub(crate) mod ast_walk;
 pub(crate) mod buddy;
 #[cfg(feature = "tree-sitter")]
 pub(crate) mod chunks_ts;
+pub(crate) mod context_gc;
 pub(crate) mod deep_queries;
 pub(crate) mod deps;
 pub mod editor_registry;
 pub(crate) mod firewall;
+pub(crate) mod memory_branch;
 pub mod pathjail;
+pub(crate) mod relevance_gate;
 pub mod signatures;
 #[cfg(feature = "tree-sitter")]
 pub(crate) mod signatures_ts;

@@ -186,7 +186,7 @@
 <script>
 (function(){
   if (window.__LEAN_CTX_TOKEN__) {
-    try { sessionStorage.setItem('lctx_token', window.__LEAN_CTX_TOKEN__); } catch(e) {}
+    try { sessionStorage.setItem('lctx_token', window.__LEAN_CTX_TOKEN__); localStorage.setItem('lctx_token', window.__LEAN_CTX_TOKEN__); } catch(e) {}
   } else {
     try { var st = sessionStorage.getItem('lctx_token'); if (st) window.__LEAN_CTX_TOKEN__ = st; } catch(e) {}
   }
@@ -238,7 +238,7 @@
             document.getElementById('lctxTokenErr').style.display = 'block';
             return;
           }
-          try { sessionStorage.setItem('lctx_token', tok); } catch (e) {}
+          try { sessionStorage.setItem('lctx_token', tok); localStorage.setItem('lctx_token', tok); } catch (e) {}
           location.reload();
         })
         .catch(function () {

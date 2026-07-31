@@ -37,6 +37,8 @@ pub struct SessionState {
     /// Watermark: timestamp of last auto-consolidation to prevent duplicate knowledge entries.
     #[serde(default)]
     pub last_consolidate_ts: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_aaak_hash: Option<String>,
     /// Extra project roots for multi-root workspaces.
     /// Populated from config `extra_roots` and/or MCP `roots/list`.
     #[serde(default)]

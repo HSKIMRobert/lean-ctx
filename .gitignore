@@ -85,3 +85,4 @@ ts-sdk/node_modules/
 .worktrees/
 *.kt
 .worktrees/
+.worktrees/
