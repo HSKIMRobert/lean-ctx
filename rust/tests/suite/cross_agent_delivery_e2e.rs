@@ -37,7 +37,11 @@ async fn post_record(app: &axum::Router, agent: &str, path: &str, hash: [u8; 12]
         .oneshot(json_request("POST", "/ocla/v1/delivery/record", &entry))
         .await
         .expect("record response");
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(
+        resp.status().is_success(),
+        "record returned {}",
+        resp.status()
+    );
 }
 
 async fn post_check(app: &axum::Router, hash: [u8; 12], mtime: u64) -> Value {

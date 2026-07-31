@@ -36,6 +36,7 @@ served by the same `axum` server that handles MCP protocol messages via fallback
 | GET | `/v1/events/search` | bearer | Full-text search over event payloads (FTS5) |
 | GET | `/v1/events/lineage` | bearer | Causal lineage chain for an event |
 | GET | `/v1/metrics` | bearer + `Audit` scope | JSON metrics snapshot |
+| GET | `/v1/cache/stats` | bearer | Cache and delivery metrics |
 | POST (fallback) | `/*` | bearer | Streamable HTTP MCP transport |
 
 ---
