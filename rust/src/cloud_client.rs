@@ -1117,9 +1117,9 @@ pub fn push_index_bundle(project_root: &std::path::Path) -> Result<(String, u64)
         .header("X-Device-Label", &device_label())
         .send(blob.as_slice())
         .map_err(|e| match e {
-            ureq::Error::StatusCode(402) => {
-                "Hosted index requires lean-ctx Pro. Run: lean-ctx upgrade".to_string()
-            }
+            ureq::Error::StatusCode(402) => "Hosted index requires lean-ctx Pro. \
+                 Run: lean-ctx cloud upgrade --plan pro"
+                .to_string(),
             ureq::Error::StatusCode(413) => {
                 "Quota exceeded — the push was blocked (nothing is billed). \
                  Free space with `lean-ctx sync index status` / delete, then retry."
@@ -1154,9 +1154,9 @@ pub fn pull_index_bundle(
                 "No hosted index for this project yet ({project_hash}). \
                  Push one from a device with a built index: lean-ctx sync index push"
             ),
-            ureq::Error::StatusCode(402) => {
-                "Hosted index requires lean-ctx Pro. Run: lean-ctx upgrade".to_string()
-            }
+            ureq::Error::StatusCode(402) => "Hosted index requires lean-ctx Pro. \
+                 Run: lean-ctx cloud upgrade --plan pro"
+                .to_string(),
             other => format!("Pull failed: {other}"),
         })?;
 

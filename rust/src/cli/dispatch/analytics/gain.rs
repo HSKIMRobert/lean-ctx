@@ -240,11 +240,59 @@ pub(in crate::cli::dispatch) fn cmd_gain(rest: &[String]) {
             println!("\n{banner}");
         }
         print_support_hint();
+        print_cloud_sync_hint();
         print_bridge_warning();
         print_split_hint();
         crate::cli::wrapped_publish::maybe_auto_publish(&period);
         print_community_hint();
     }
+}
+
+/// Nudge free/unauthenticated users toward Personal Cloud sync when they
+/// have meaningful local context worth backing up.
+fn print_cloud_sync_hint() {
+    if crate::cloud_client::is_logged_in() {
+        let plan = crate::cloud_client::resolve_effective_plan_cached();
+        if plan.plan == crate::core::billing::Plan::Free {
+            let facts = count_local_knowledge_facts();
+            if facts > 0 {
+                eprintln!(
+                    "\n  \x1b[2m\u{1f517} {facts} knowledge facts \u{2014} local only.\n     Back them up + sync across devices: lean-ctx cloud upgrade --plan pro\x1b[0m"
+                );
+            }
+        }
+    } else {
+        let facts = count_local_knowledge_facts();
+        let store = core::stats::load();
+        if store.total_input_tokens > 100_000 || facts > 10 {
+            eprintln!(
+                "\n  \x1b[2m\u{1f517} Your context runs on this machine only.\n     Sync it everywhere: lean-ctx cloud upgrade --plan pro ($9/mo)\x1b[0m"
+            );
+        }
+    }
+}
+
+fn count_local_knowledge_facts() -> usize {
+    let Ok(data_dir) = crate::core::paths::data_dir() else {
+        return 0;
+    };
+    let knowledge_dir = data_dir.join("knowledge");
+    if !knowledge_dir.is_dir() {
+        return 0;
+    }
+    std::fs::read_dir(&knowledge_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .flat_map(|project| {
+            std::fs::read_dir(project.path())
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|f| f.path().extension().is_some_and(|ext| ext == "json"))
+        })
+        .count()
 }
 
 /// `gain --cost` values savings with a *resolved* model (estimated). When the

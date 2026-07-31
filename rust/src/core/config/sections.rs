@@ -744,7 +744,7 @@ pub struct CloudConfig {
 #[serde(default)]
 pub struct GainConfig {
     /// When true, `lean-ctx gain` automatically (re)publishes the recap, throttled to
-    /// `auto_publish_interval_hours`. Off by default.
+    /// `auto_publish_interval_hours`. On by default for new installations.
     pub auto_publish: bool,
     /// When auto-publishing, also opt into the public leaderboard.
     pub leaderboard: bool,
@@ -760,7 +760,7 @@ pub struct GainConfig {
 impl Default for GainConfig {
     fn default() -> Self {
         Self {
-            auto_publish: false,
+            auto_publish: true,
             leaderboard: true,
             display_name: None,
             auto_publish_interval_hours: 24,

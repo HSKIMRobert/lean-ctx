@@ -256,6 +256,18 @@ fn auto_sync_personal_cloud() -> AutoSyncOutcome {
         surfaces = results.len(),
         "personal-cloud auto-sync done"
     );
+
+    static GATE_WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if outcome == AutoSyncOutcome::Gated
+        && !GATE_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed)
+    {
+        eprintln!(
+            "\n  \x1b[33m⚠\x1b[0m  Personal Cloud sync requires Pro. \
+             Your local data is safe.\n  \
+             Unlock: lean-ctx cloud upgrade --plan pro ($9/mo)\n"
+        );
+    }
+
     outcome
 }
 
