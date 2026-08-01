@@ -132,6 +132,7 @@ impl McpTool for CtxEditTool {
 
             // Apply the deferred cache mutation under a brief exclusive lock.
             if !matches!(effect, crate::tools::ctx_edit::CacheEffect::None) {
+                crate::tools::ctx_read::dedup_hook::on_write(&path);
                 match rt.block_on(tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     cache_lock.write(),
