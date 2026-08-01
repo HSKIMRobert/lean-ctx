@@ -1425,3 +1425,22 @@ fn redirect_block_contains_no_hook_guard() {
         "redirect_block must check LEAN_CTX_NO_HOOK: {block}"
     );
 }
+
+/// `export PATH=…` is a shell builtin, not a bare inline `PATH=… cmd` hijack.
+/// Compound commands (newline/semicolon separated) must validate the real
+/// commands while still blocking `PATH=/evil cmd`.
+#[test]
+fn export_path_allowed_bare_inline_path_still_blocked() {
+    let list = allow(&["python3"]);
+    assert!(check_all_segments("export PATH=/usr/bin:$PATH", &list).is_ok());
+    assert!(check_all_segments("export PATH=/usr/bin:$PATH ; python3 script.py", &list).is_ok());
+    assert!(check_all_segments("export PATH=/usr/bin:$PATH\npython3 script.py", &list).is_ok());
+
+    let bare = check_all_segments("PATH=/evil python3 script.py", &list);
+    assert!(bare.is_err(), "bare PATH= prefix must stay blocked");
+    let bare_err = bare.unwrap_err();
+    assert!(
+        bare_err.contains("PATH="),
+        "must be inline-env block, not allowlist: {bare_err}"
+    );
+}

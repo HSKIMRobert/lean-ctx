@@ -24,7 +24,7 @@ pub(crate) use crate::core::rules_canonical::{COMPRESSION_BLOCK_END, COMPRESSION
 /// The agents that auto-load the shared project `AGENTS.md`. Kept in sync with
 /// `core::rules_overhead::collect_rules_files`, which attributes `AGENTS.md` to
 /// the same set.
-pub(crate) const AGENTS_MD_READERS: &[&str] = &["cursor", "codex"];
+pub(crate) const AGENTS_MD_READERS: &[&str] = &["cursor", "codex", "opencode"];
 
 /// True when `content` carries a *full* lean-ctx payload — the canonical rule
 /// set (the `RULES_MARKER` header) or the compression/output-style block —
@@ -146,6 +146,12 @@ pub(crate) fn client_autoloads_compression(client_name: &str, home: &Path) -> bo
     if lower.contains("codex") {
         return codex_present(home) && codex_compression_covered(home);
     }
+    if lower.contains("opencode") {
+        let opencode_dir = home.join(".config/opencode");
+        let dedicated = opencode_dir.join("rules/lean-ctx.md");
+        let shared = opencode_dir.join("AGENTS.md");
+        return file_has_compression(&dedicated) || file_has_compression(&shared);
+    }
     false
 }
 
@@ -163,6 +169,8 @@ fn file_has_canonical_rules(path: &Path) -> bool {
 /// Carrier per client (kept in sync with `rules_inject::targets`):
 ///   * Cursor → `~/.cursor/rules/lean-ctx.mdc` (canonical rules block)
 ///   * Codex → `$CODEX_HOME/instructions.md` (canonical rules block)
+///   * OpenCode → `~/.config/opencode/rules/lean-ctx.md` (dedicated) or
+///     `~/.config/opencode/AGENTS.md` (shared)
 ///
 /// Claude Code deliberately does NOT count: its `CLAUDE.md` block is the
 /// custom tool-mapping summary (`hooks/agents/claude.rs`), not the canonical
@@ -182,6 +190,15 @@ pub(crate) fn client_autoloads_rules(client_name: &str, home: &Path) -> bool {
     if lower.contains("codex") {
         return codex_present(home)
             && file_has_canonical_rules(&codex_dir(home).join("instructions.md"));
+    }
+    if lower.contains("opencode") {
+        // OpenCode loads rules from either:
+        // - ~/.config/opencode/AGENTS.md (shared mode)
+        // - ~/.config/opencode/rules/lean-ctx.md (dedicated mode)
+        let opencode_dir = home.join(".config/opencode");
+        let dedicated = opencode_dir.join("rules/lean-ctx.md");
+        let shared = opencode_dir.join("AGENTS.md");
+        return file_has_canonical_rules(&dedicated) || file_has_canonical_rules(&shared);
     }
     false
 }
@@ -366,6 +383,35 @@ mod tests {
         // Invalid JSON → fail closed (full guidance).
         std::fs::write(&hooks, "{ not json").unwrap();
         assert!(!cursor_hooks_cover_native_tools(home));
+    }
+
+    #[test]
+    fn opencode_autoloads_rules_from_shared_agents_md() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        assert!(!client_autoloads_rules("opencode", home));
+
+        std::fs::create_dir_all(home.join(".config/opencode")).unwrap();
+        std::fs::write(
+            home.join(".config/opencode/AGENTS.md"),
+            format!("{FULL_HEADER}\nbody\n"),
+        )
+        .unwrap();
+        assert!(client_autoloads_rules("opencode", home));
+    }
+
+    #[test]
+    fn opencode_autoloads_rules_from_dedicated_rules_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+
+        std::fs::create_dir_all(home.join(".config/opencode/rules")).unwrap();
+        std::fs::write(
+            home.join(".config/opencode/rules/lean-ctx.md"),
+            format!("{FULL_HEADER}\nbody\n"),
+        )
+        .unwrap();
+        assert!(client_autoloads_rules("opencode", home));
     }
 
     #[test]
