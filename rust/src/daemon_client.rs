@@ -195,6 +195,10 @@ pub fn try_daemon_tool_call_blocking(
 ) -> Option<String> {
     use std::time::Duration;
 
+    if std::env::var_os("__LEAN_CTX_NO_DAEMON").is_some() {
+        return None;
+    }
+
     let rt = Runtime::new().ok()?;
 
     let addr = daemon::daemon_addr();
