@@ -317,4 +317,3 @@ mod tests {
         assert_eq!(proactive_injected_tokens(), 0);
     }
 }
-

@@ -361,4 +361,3 @@ mod tests {
         assert_eq!(autocheckpoint, 1000);
     }
 }
-

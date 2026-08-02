@@ -633,4 +633,3 @@ mod tests {
         assert!(!has_stdout_file_redirect("echo \"a > b\""));
     }
 }
-

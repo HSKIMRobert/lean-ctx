@@ -390,4 +390,3 @@ fn anchor_prefix_matches_lib_constant() {
         "SKELETON_ANCHOR in instructions.rs no longer starts with the prefix this smoke asserts on — update both together"
     );
 }
-
