@@ -16,7 +16,26 @@ const BINARY_EXTENSIONS: &[&str] = &[
 /// Output format matches both Claude Code and Cursor hook protocols.
 pub fn handle_deny() {
     let stdin_payload = read_stdin_with_timeout();
+
+    // #1407: Empty/unparseable payload → fail-open. This happens when the hook
+    // is invoked with no stdin (e.g. Windsurf pre_mcp_tool_use with broken pipe)
+    // or the payload format is completely unrecognized. Blocking in this case
+    // would deny ALL tools including lean-ctx's own ctx_* MCP tools.
+    if stdin_payload.trim().is_empty() {
+        print_allow();
+        return;
+    }
+
     let tool_name = extract_tool_name(&stdin_payload);
+
+    // #1407: If tool_name could not be extracted from a non-empty payload,
+    // this is likely an MCP event we don't understand. Fail-open rather than
+    // blocking unknown payloads — the deny hook's scope is native tools only.
+    if tool_name.is_empty() {
+        print_allow();
+        return;
+    }
+
     let file_path = extract_file_path(&stdin_payload);
 
     // #805: deny Write/Edit payloads that contain compression markers.
@@ -108,9 +127,11 @@ fn is_binary_file(path: &str) -> bool {
 
 fn extract_tool_name(payload: &str) -> String {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) {
+        // Claude Code / generic: top-level `tool_name`
         if let Some(name) = json.get("tool_name").and_then(serde_json::Value::as_str) {
             return name.to_string();
         }
+        // Cursor: `hookSpecificInput.toolName`
         if let Some(name) = json
             .get("hookSpecificInput")
             .and_then(|h| h.get("toolName"))
@@ -118,8 +139,22 @@ fn extract_tool_name(payload: &str) -> String {
         {
             return name.to_string();
         }
+        // #1407: Windsurf/Devin MCP hook format: `tool_info.mcp_tool_name`
+        // (fires on pre_mcp_tool_use events, which carry the MCP tool name
+        // in a nested object rather than the top-level tool_name field)
+        if let Some(name) = json
+            .get("tool_info")
+            .and_then(|ti| ti.get("mcp_tool_name"))
+            .and_then(serde_json::Value::as_str)
+        {
+            return name.to_string();
+        }
+        // Devin variant: `toolName` at top level (no nesting)
+        if let Some(name) = json.get("toolName").and_then(serde_json::Value::as_str) {
+            return name.to_string();
+        }
     }
-    "unknown".to_string()
+    String::new()
 }
 
 fn extract_file_path(payload: &str) -> Option<String> {
@@ -545,5 +580,26 @@ mod tests {
             !should_allow("Read", Some("/home/jules/project/src/main.rs")),
             "ordinary project files stay denied under replace deny hooks"
         );
+    }
+
+    #[test]
+    fn extract_tool_name_windsurf_mcp_format() {
+        // #1407: Windsurf/Devin sends MCP tool name in tool_info.mcp_tool_name
+        let payload = r#"{"tool_info":{"mcp_tool_name":"ctx_tree","server":"lean-ctx"}}"#;
+        assert_eq!(extract_tool_name(payload), "ctx_tree");
+    }
+
+    #[test]
+    fn extract_tool_name_empty_payload_returns_empty() {
+        // #1407: Empty or unparseable payloads must not return a fake tool name
+        assert_eq!(extract_tool_name(""), "");
+        assert_eq!(extract_tool_name("not json"), "");
+        assert_eq!(extract_tool_name("{}"), "");
+    }
+
+    #[test]
+    fn extract_tool_name_top_level_tool_name_variant() {
+        let payload = r#"{"toolName":"ctx_read"}"#;
+        assert_eq!(extract_tool_name(payload), "ctx_read");
     }
 }
