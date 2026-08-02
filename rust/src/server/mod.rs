@@ -22,6 +22,7 @@ pub mod roots;
 pub mod schema_hook;
 pub mod slim_surface;
 pub mod summary_pool;
+pub mod tool_promoter;
 use roots::has_project_marker;
 pub mod tool_trait;
 pub mod tool_visibility;

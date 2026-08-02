@@ -64,6 +64,7 @@ impl ServerHandler for LeanCtxServer {
         tracing::info!("MCP client connected: {:?}", name);
         *self.client_name.write().await = name.clone();
         *self.peer.write().await = Some(context.peer.clone());
+        crate::server::tool_promoter::reset();
 
         if self.session_mode != crate::tools::SessionMode::Shared {
             crate::core::budget_tracker::BudgetTracker::global().reset();
@@ -409,6 +410,33 @@ impl ServerHandler for LeanCtxServer {
                 }
             };
 
+            // After lazy/profile/category filtering, re-add tools promoted by
+            // successful activity in this session.
+            let tools = {
+                let promoted = crate::server::tool_promoter::promoted_tools();
+                if promoted.is_empty() {
+                    tools
+                } else if let Some(ref reg) = self.registry {
+                    let mut tools = tools;
+                    let registry_tools = reg.tool_defs();
+                    for name in &promoted {
+                        let allowed = !disabled.iter().any(|disabled| disabled == name)
+                            && active_role.is_tool_allowed(name);
+                        if allowed
+                            && !tools.iter().any(|tool| tool.name.as_ref() == name.as_str())
+                            && let Some(definition) = registry_tools
+                                .iter()
+                                .find(|tool| tool.name.as_ref() == name.as_str())
+                        {
+                            tools.push(definition.clone());
+                        }
+                    }
+                    tools
+                } else {
+                    tools
+                }
+            };
+
             let tools = {
                 let active = self.workflow.read().await.clone();
                 if let Some(run) = active {
@@ -464,6 +492,7 @@ impl ServerHandler for LeanCtxServer {
 
             // R28: Kernel schema optimization — budget-aware description compression.
             let tools = crate::server::schema_hook::optimize_tools(tools, &client);
+            let tools = crate::server::schema_diet::apply_schema_diet(tools);
             // #1008: When ctx_patch is hidden for this client, scrub references
             // from other tools' descriptions so the LLM never sees the name and
             // won't attempt to call it. Replace with ctx_edit (visible alternative).
@@ -591,6 +620,8 @@ impl ServerHandler for LeanCtxServer {
         let loop_detector = self.loop_detector.clone();
         let ct = context.ct.clone();
 
+        let promotion_name = request.name.as_ref().to_string();
+        let promotion_args = request.arguments.clone();
         match AssertUnwindSafe(self.call_tool_guarded(request))
             .catch_unwind()
             .await
@@ -606,6 +637,14 @@ impl ServerHandler for LeanCtxServer {
                         "request was cancelled by client",
                         None,
                     ));
+                }
+                if result.is_ok()
+                    && crate::server::tool_promoter::record_call(
+                        &promotion_name,
+                        promotion_args.as_ref(),
+                    )
+                {
+                    crate::server::notifications::send_tools_list_changed(&context.peer).await;
                 }
                 result
             }
