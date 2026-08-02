@@ -39,9 +39,11 @@ impl ToolPromoter {
             candidates.extend_from_slice(SESSION_TOOLS);
         }
 
-        candidates.into_iter().fold(false, |changed, name| {
-            self.promoted.insert(name.to_string()) || changed
-        })
+        let before = self.promoted.len();
+        for name in candidates {
+            self.promoted.insert(name.to_string());
+        }
+        self.promoted.len() > before
     }
 }
 
