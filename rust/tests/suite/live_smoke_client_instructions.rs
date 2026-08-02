@@ -60,7 +60,10 @@ fn base_cmd(bin: &str, env: &TestEnv) -> Command {
         .env("CODEX_HOME", env.home.join(".codex"))
         // Skip background maintenance (rules re-inject, version check) so the
         // server can't mutate coverage state mid-handshake.
-        .env("LEAN_CTX_HEADLESS", "1");
+        .env("LEAN_CTX_HEADLESS", "1")
+        // Disable slim surface so the test validates the full core tool set;
+        // slim filtering is covered by slim_surface::tests unit tests.
+        .env("LEAN_CTX_SLIM_CORE", "0");
     cmd
 }
 
@@ -183,7 +186,14 @@ fn assert_lazy_core_surface(tools: &[String], client: &str) {
         client,
         lean_ctx::server::tool_visibility::CandidateSet::LazyCore,
     );
-    for expected in lean_ctx::tool_defs::CORE_TOOL_NAMES {
+    // When slim-core is enabled (default), only SLIM_CORE_NAMES are advertised;
+    // the full CORE_TOOL_NAMES are reachable via ctx_call but not listed.
+    let expected_names: &[&str] = if lean_ctx::server::slim_surface::slim_core_enabled() {
+        lean_ctx::server::slim_surface::SLIM_CORE_NAMES
+    } else {
+        lean_ctx::tool_defs::CORE_TOOL_NAMES
+    };
+    for expected in expected_names {
         if *expected == "ctx_patch" && quirks.hide_ctx_patch {
             assert!(
                 !tools.iter().any(|t| t == expected),
@@ -380,3 +390,4 @@ fn anchor_prefix_matches_lib_constant() {
         "SKELETON_ANCHOR in instructions.rs no longer starts with the prefix this smoke asserts on — update both together"
     );
 }
+
