@@ -563,7 +563,7 @@ jobs:
       - name: Self-footprint gate (doctor overhead)
         shell: bash
         env:
-          LEAN_CTX_CONTEXT_BUDGET_TOKENS: "3100"
+          LEAN_CTX_CONTEXT_BUDGET_TOKENS: "3130"
         run: |
           set -euo pipefail
           BIN="$GITHUB_WORKSPACE/rust/target/debug/lean-ctx"

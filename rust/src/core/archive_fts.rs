@@ -126,13 +126,7 @@ fn is_transient_sqlite_error(e: &rusqlite::Error) -> bool {
         e,
         rusqlite::Error::SqliteFailure(
             ffi::Error {
-                code: ffi::ErrorCode::DatabaseBusy,
-                ..
-            },
-            _
-        ) | rusqlite::Error::SqliteFailure(
-            ffi::Error {
-                code: ffi::ErrorCode::DatabaseLocked,
+                code: ffi::ErrorCode::DatabaseBusy | ffi::ErrorCode::DatabaseLocked,
                 ..
             },
             _
@@ -367,3 +361,4 @@ mod tests {
         assert_eq!(autocheckpoint, 1000);
     }
 }
+

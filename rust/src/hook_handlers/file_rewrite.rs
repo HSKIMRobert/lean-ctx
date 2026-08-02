@@ -497,9 +497,7 @@ pub(super) fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> 
     // when security is active and the compound violates the allowlist (#1408:
     // enforcement). The #589 "no new block" concern only applies when the user
     // has shell_security = off — in that case lean-ctx -c won't enforce anyway.
-    if crate::core::shell_allowlist::passes_enforced(cmd) {
-        Some(wrap_single_command(cmd, binary))
-    } else if needs_enforcement_wrap(cmd) {
+    if crate::core::shell_allowlist::passes_enforced(cmd) || needs_enforcement_wrap(cmd) {
         Some(wrap_single_command(cmd, binary))
     } else {
         None
@@ -635,3 +633,4 @@ mod tests {
         assert!(!has_stdout_file_redirect("echo \"a > b\""));
     }
 }
+
