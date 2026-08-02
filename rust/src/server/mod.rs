@@ -19,6 +19,7 @@ pub mod registry;
 pub mod resources;
 pub mod role_guard;
 pub mod roots;
+pub mod schema_diet;
 pub mod schema_hook;
 pub mod slim_surface;
 pub mod summary_pool;
