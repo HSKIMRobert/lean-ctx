@@ -4,6 +4,7 @@ use rmcp::model::{Tool, ToolAnnotations};
 use serde_json::{Map, Value};
 
 mod granular;
+pub mod schema_compiler;
 pub use granular::{granular_tool_defs, unified_tool_defs};
 
 pub fn tool_def(name: &'static str, description: &'static str, schema_value: Value) -> Tool {
