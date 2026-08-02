@@ -79,10 +79,9 @@ fn key_args(name: &str) -> &'static str {
         "ctx_plan" => "task",
         "ctx_provider" => "action, provider?",
         "ctx_refactor" => "path, symbol?",
-        "ctx_review" => "path?",
+        "ctx_review" | "ctx_verify" => "path?",
         "ctx_share" => "action, target?",
         "ctx_task" => "action, task?",
-        "ctx_verify" => "path?",
         "ctx_workflow" => "action, name?",
         _ => "",
     }
