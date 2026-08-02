@@ -317,11 +317,17 @@ impl ServerHandler for LeanCtxServer {
                 CandidateSet::Unified => crate::tool_defs::unified_tool_defs(),
                 CandidateSet::LazyCore => {
                     if let Some(ref reg) = self.registry {
-                        let core_names = crate::tool_defs::core_tool_names();
-                        reg.tool_defs()
-                            .into_iter()
-                            .filter(|t| core_names.contains(&t.name.as_ref()))
-                            .collect()
+                        let tools: Vec<_> =
+                            if crate::server::slim_surface::slim_core_enabled() {
+                                crate::server::slim_surface::filter_to_slim_core(reg.tool_defs())
+                            } else {
+                                let core_names = crate::tool_defs::core_tool_names();
+                                reg.tool_defs()
+                                    .into_iter()
+                                    .filter(|t| core_names.contains(&t.name.as_ref()))
+                                    .collect()
+                            };
+                        tools
                     } else {
                         // Unreachable in production (see above); loud if it ever fires.
                         tracing::error!(
