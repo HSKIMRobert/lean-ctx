@@ -813,6 +813,12 @@ fn bare_interpreter_detection() {
     assert!(is_bare_interpreter_stdin("python3 -u"));
     assert!(!is_bare_interpreter_stdin("python3 script.py"));
     assert!(!is_bare_interpreter_stdin("python3 -u script.py"));
+    // -m (module) flag means the interpreter has a target, not bare stdin
+    assert!(!is_bare_interpreter_stdin(
+        "python3 -m harness.run_lifecycle"
+    ));
+    assert!(!is_bare_interpreter_stdin("python3 -m pytest tests/"));
+    assert!(!is_bare_interpreter_stdin("node -m module_name"));
 }
 
 // --- Phase 1 V2: WARN-FIRST checks (default = command passes through) ---
