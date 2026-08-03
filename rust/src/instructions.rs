@@ -387,24 +387,12 @@ fn build_full_instructions(
         format!("\n{persona_block}")
     };
 
-    // Summary pool: compact catalog of hidden tools.
-    // Only inject when in lazy-core mode (not full-tools mode) and not
-    // when the client already has the full registry via tools/list.
-    let summary_pool = if crate::tool_defs::is_full_mode() {
-        String::new()
-    } else {
-        crate::server::summary_pool::generate_hidden_tool_catalog(
-            crate::tool_defs::core_tool_names(),
-        )
-    };
-
     let base = format!(
         "{skeleton}\n\
         {persona_section}\
         {shell_hint}\n\
         {decoder_block}\n\
         Full instructions at {config_dir}/CLAUDE.md\n\
-        {summary_pool}\n\
         {session_block}\n\
         {knowledge_block}\n\
         {gotcha_block}\n\
