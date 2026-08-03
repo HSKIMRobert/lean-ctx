@@ -4,6 +4,49 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.14] — 2026-08-03
+
+### Added
+- **Shadow-only tool surface** — hook-covered clients (Cursor, Codex, Windsurf) now
+  advertise only `ctx_call` (~73 tok/turn) instead of the full MCP surface (~2400 tok).
+  Native Read/Shell/Grep/Glob are compressed transparently by installed hooks, reducing
+  per-turn tool schema overhead by ~97%. Configure with `tool_surface` config key
+  (`auto` | `shadow` | `mcp`).
+- **Multi-client hook coverage detection** — `client_hook_covered` now verifies hooks
+  for Codex (`hooks.json` PreToolUse deny + codex-pretooluse) and Windsurf
+  (`hooks.json` pre_mcp_tool_use rewrite + redirect) in addition to Cursor.
+- **Lifecycle benchmark harness** (`bench/lifecycle/`) — reproduces OpenCode-style
+  tasks with Codex CLI agents for both lean-ctx and bare arms, enabling automated
+  efficiency measurement.
+- **IDE integration rules** — `.clinerules`, `.cursorrules`, `.windsurfrules`,
+  `.github/copilot-instructions.md` for multi-IDE support.
+
+### Changed
+- **Business plan merged into Team** — the `business` billing plan is consolidated
+  into `team` (unlimited seats, 20 GB index, OIDC SSO, 365-day audit). The `business`
+  wire ID maps to `team` for backward compatibility.
+- **Auto-mode resolver compression improvements** — edit quality fallback now uses
+  `signatures` instead of `full`; `.astro` and 14 template extensions recognized as
+  code; large config files (>1000 tok) get `map` mode; large prose files (>2000 tok)
+  get `aggressive` compression. Projected session compression improves from 31.8% to 73.2%.
+
+### Fixed
+- **SDK Conformance Matrix** — unknown tool calls now return `METHOD_NOT_FOUND` (-32601)
+  instead of `INVALID_PARAMS` (-32602), preventing the INVALID_PARAMS soft-error
+  conversion (PR #1410) from making unknown tools appear successful via the HTTP API.
+- **Shell allowlist** — `python3 -m <module>` no longer flagged as bare interpreter
+  stdin, fixing benchmark harness execution.
+- **Clippy `unwrap_used`** — replaced all `unwrap()` calls across 26 production files
+  with `.expect()`, `?` propagation, or `.unwrap_or_else()`. Removed the blanket
+  `-A clippy::unwrap_used` CI allowance.
+- **Trailing-comma clippy warnings** in `policy_gate` tests.
+- **INVALID_PARAMS soft error** — Devin/Windsurf clients no longer crash on `-32602`
+  JSON-RPC errors; converted to tool-level errors with descriptive messages.
+- **Codex hooks consolidation** — standalone observe hooks migrated, MCP timeouts added.
+- **Schema diet revert** — R15/R15b experiment removed after benchmarks showed +42%
+  token overhead instead of savings.
+- **Policy gate test flakiness** — unified serial group for budget + rate tests.
+
 ## [3.9.13] — 2026-07-29
 
 ### Fixed

@@ -234,7 +234,13 @@ fn cursor_covered_client_gets_anchor_and_lazy_core() {
         !has_skeleton(&instructions),
         "cursor instructions must NOT repeat the full skeleton.\n{instructions}"
     );
-    assert_lazy_core_surface(&tools, "cursor");
+    // Shadow-only surface: hook-covered clients (Cursor) only get ctx_call.
+    // The full tool surface is reached transparently through installed hooks.
+    assert_eq!(
+        tools,
+        vec!["ctx_call".to_string()],
+        "cursor with shadow-only surface must advertise only ctx_call: {tools:?}"
+    );
 }
 
 #[test]
