@@ -70,6 +70,12 @@ fn should_allow(tool_name: &str, file_path: Option<&str>) -> bool {
         return true;
     }
 
+    // Shadow-only surface: hooks compress native tools transparently,
+    // so the deny guard must not block them.
+    if is_shadow_only_surface() {
+        return true;
+    }
+
     if !is_mcp_server_reachable() {
         return true;
     }
@@ -109,6 +115,19 @@ fn is_mcp_server_reachable() -> bool {
         return false;
     }
     true
+}
+
+/// Whether the shadow-only tool surface is explicitly configured. The deny guard
+/// runs in hook context (no MCP client name available), so only an explicit
+/// `tool_surface = "shadow"` disables it. `"auto"` keeps the guard active
+/// because the hook cannot determine whether THIS client is hook-covered —
+/// the MCP server's `list_tools` handler makes that decision per-client.
+fn is_shadow_only_surface() -> bool {
+    if let Ok(v) = std::env::var("LEAN_CTX_TOOL_SURFACE") {
+        return v.eq_ignore_ascii_case("shadow");
+    }
+    let cfg = crate::core::config::Config::load();
+    matches!(cfg.tool_surface.as_deref(), Some("shadow"))
 }
 
 fn is_replace_mode_disabled() -> bool {
@@ -201,10 +220,12 @@ fn has_compression_markers(content: &str) -> bool {
     // Detect ctx_read build_header corruption (#1323): "filename.ext NNL"
     // followed by " deps " or " exports " on the next line.
     static HEADER_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?m)^\S+\.\w+ \d+L\n (?:deps|exports) ").unwrap()
+        regex::Regex::new(r"(?m)^\S+\.\w+ \d+L\n (?:deps|exports) ")
+            .expect("HEADER_RE is a valid regex pattern")
     });
     static MAP_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?m)(?:@L\d+-\d+|^\s+API:\s*$|^\S+\.\w+ \d+L\n\s+deps:)").unwrap()
+        regex::Regex::new(r"(?m)(?:@L\d+-\d+|^\s+API:\s*$|^\S+\.\w+ \d+L\n\s+deps:)")
+            .expect("MAP_RE is a valid regex pattern")
     });
     HEADER_RE.is_match(content) || MAP_RE.is_match(content)
 }

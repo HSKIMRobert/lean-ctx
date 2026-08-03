@@ -21,6 +21,10 @@ pub(super) fn compute_rewrite() -> String {
     if is_disabled() {
         return build_dual_allow_output();
     }
+    // Shadow-only surface: native Shell passes through without rewrite
+    if super::is_shadow_surface_active() {
+        return build_dual_allow_output();
+    }
     let binary = resolve_binary();
     let Some(input) = read_stdin_with_timeout(HOOK_STDIN_TIMEOUT) else {
         return build_dual_allow_output();

@@ -626,7 +626,7 @@ mod tests {
                 assert!(spent_usd >= 51.0 - 1e-9);
             }
             Err(other) => panic!("expected PersonBudgetExceeded, got {other:?}"),
-            Ok(()) => panic!("enforce returned Ok but ledger shows {spent:.1} for mara (cap=50)",),
+            Ok(()) => panic!("enforce returned Ok but ledger shows {spent:.1} for mara (cap=50)"),
         }
         test_reset_ledger();
     }
@@ -651,7 +651,7 @@ mod tests {
             Err(Refusal::ProjectBudgetExceeded { .. }) => {}
             Err(other) => panic!("expected ProjectBudgetExceeded, got {other:?}"),
             Ok(()) => {
-                panic!("enforce returned Ok but ledger shows {spent:.1} for ml-pipeline (cap=1000)",)
+                panic!("enforce returned Ok but ledger shows {spent:.1} for ml-pipeline (cap=1000)")
             }
         }
         assert!(enforce(&rules(), Some("claude-x"), &tags("c", "other")).is_ok());
