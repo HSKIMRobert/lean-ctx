@@ -29,15 +29,9 @@ pub(in crate::server) async fn dispatch_and_post_process(
                 }
                 crate::core::debug_log::log_mcp_error(name, args, &format!("{e:?}"));
 
-                // Fix: Devin Failed to connect to MCP server on tool call
-                // Convert INVALID_PARAMS (-32602) to a soft tool error
-                // (CallToolResult with isError=true) instead of a hard JSON-RPC
-                // error response. Some MCP clients (Devin/Windsurf) treat hard
-                // -32602 errors as transport failures, disconnect, respawn the
-                // server, and report "Failed to connect to MCP server" — hiding
-                // the actual parameter validation message from the agent.
-                // By returning a soft error, the agent sees the validation
-                // message and can fix the parameter names.
+                // Devin/Windsurf treat hard -32602 as transport failure and
+                // respawn the server. Return a soft tool error so the agent
+                // sees the validation message and can fix parameter names.
                 if e.code == rmcp::model::ErrorCode::INVALID_PARAMS {
                     tracing::debug!(
                         "converting INVALID_PARAMS to soft tool error for '{name}': {}",
