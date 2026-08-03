@@ -168,7 +168,7 @@ tree-sitter = [
 wasm = ["dep:wasmi"]
 
 [dependencies]
-lean-ctx-ocla = { path = "crates/lean-ctx-ocla" }
+lean-ctx-ocla = { path = "crates/lean-ctx-ocla", version = "1.0.0" }
 rmcp = { version = "2", features = [
   "server",
   "client",
