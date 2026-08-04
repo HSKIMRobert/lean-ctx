@@ -90,14 +90,16 @@ async fn two_agents_share_reads_via_delivery_endpoints() {
 }
 
 #[tokio::test]
-async fn stale_mtime_returns_miss() {
+async fn stale_mtime_still_hits_same_hash() {
     let app = ocla_app();
     let hash: [u8; 12] = [11, 21, 31, 41, 51, 61, 71, 81, 91, 101, 111, 121];
 
     post_record(&app, "agent-a", "src/lib.rs", hash, 1000).await;
 
+    // blake3 is the content identity; mtime changes (checkout/rebase) don't
+    // invalidate the cache entry.
     let stale = post_check(&app, hash, 2000).await;
-    assert_eq!(stale["hit"], false, "different mtime → file was modified");
+    assert_eq!(stale["hit"], true, "same blake3 → hit regardless of mtime");
 }
 
 #[tokio::test]
@@ -160,6 +162,7 @@ async fn multiple_agents_multiple_files_isolation() {
     assert_eq!(check_2["hit"], true);
     assert_eq!(check_2["agent_id"], "tab-B");
 
-    let check_wrong_mtime = post_check(&app, hash_1, 9999).await;
-    assert_eq!(check_wrong_mtime["hit"], false);
+    // mtime is no longer a cache discriminator — same hash = hit
+    let check_different_mtime = post_check(&app, hash_1, 9999).await;
+    assert_eq!(check_different_mtime["hit"], true);
 }
