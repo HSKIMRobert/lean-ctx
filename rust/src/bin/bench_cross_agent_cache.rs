@@ -98,6 +98,8 @@ fn main() {
                     agent_id: agent_id.clone(),
                     conversation_id: conversation_id.clone(),
                     mtime: file.mtime,
+                    relay_content: None,
+                    relay_mode: None,
                 });
                 agent_tokens += file.tokens;
             }
