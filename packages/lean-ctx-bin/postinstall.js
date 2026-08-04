@@ -16,6 +16,10 @@ const BINARY_PATH = path.join(BIN_DIR, BINARY_NAME);
 const DOWNLOAD_TIMEOUT_MS = 60000;
 const API_TIMEOUT_MS = 15000;
 
+// ---------------------------------------------------------------------------
+// Platform helpers
+// ---------------------------------------------------------------------------
+
 function getGlibcVersion() {
   try {
     const out = execSync("ldd --version 2>&1 || true", { encoding: "utf8" });
@@ -60,6 +64,10 @@ function getTarget() {
   return target;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP with timeout (Node.js native)
+// ---------------------------------------------------------------------------
+
 function httpsGet(url, timeoutMs = API_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const get = (u, redirects = 0) => {
@@ -83,8 +91,7 @@ function httpsGet(url, timeoutMs = API_TIMEOUT_MS) {
         req.destroy();
         reject(new Error(
           `Request timed out after ${timeoutMs / 1000}s for ${u}\n` +
-          `  This usually means a firewall, proxy, or antivirus is blocking the connection.\n` +
-          `  Workaround: download manually from https://github.com/${REPO}/releases/latest`
+          `  This usually means a firewall, proxy, or antivirus is blocking the connection.`
         ));
       });
     };
@@ -105,8 +112,7 @@ function httpsGetJson(url) {
   });
 }
 
-async function downloadToFile(url, dest) {
-  console.log("lean-ctx: downloading binary...");
+async function downloadToFileNode(url, dest) {
   const res = await httpsGet(url, DOWNLOAD_TIMEOUT_MS);
   const total = parseInt(res.headers["content-length"] || "0", 10);
   let received = 0;
@@ -133,6 +139,115 @@ async function downloadToFile(url, dest) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Windows PowerShell fallback — uses the OS TLS stack which handles
+// enterprise proxies, custom root CAs, and Defender exceptions that
+// Node.js's bundled OpenSSL does not.
+// ---------------------------------------------------------------------------
+
+function powershellGetJson(url) {
+  const ps = `
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+    (Invoke-RestMethod -Uri '${url}' -Headers @{'User-Agent'='lean-ctx-bin-npm'} -TimeoutSec 15) | ConvertTo-Json -Depth 10 -Compress
+  `;
+  const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
+    encoding: "utf8",
+    timeout: 20000,
+    windowsHide: true,
+  });
+  return JSON.parse(out);
+}
+
+function powershellDownload(url, dest) {
+  const ps = `
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri '${url}' -OutFile '${dest.replace(/'/g, "''")}' -Headers @{'User-Agent'='lean-ctx-bin-npm'} -TimeoutSec 120
+  `;
+  execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
+    stdio: "inherit",
+    timeout: 180000,
+    windowsHide: true,
+  });
+}
+
+function powershellDownloadDirect(releaseUrl, assetName, dest) {
+  const url = `${releaseUrl}/download/${assetName}`;
+  console.log(`lean-ctx: downloading via PowerShell from ${url}...`);
+  powershellDownload(url, dest);
+  if (!fs.existsSync(dest) || fs.statSync(dest).size < 1000) {
+    throw new Error(`PowerShell download produced empty or missing file: ${dest}`);
+  }
+  console.log(`lean-ctx: downloaded ${(fs.statSync(dest).size / 1024 / 1024).toFixed(1)} MB`);
+}
+
+// ---------------------------------------------------------------------------
+// curl fallback — available on macOS and most Linux, also on Windows 10+
+// ---------------------------------------------------------------------------
+
+function curlAvailable() {
+  try {
+    execSync("curl --version", { stdio: "ignore", timeout: 3000 });
+    return true;
+  } catch { return false; }
+}
+
+function curlDownload(url, dest) {
+  console.log(`lean-ctx: downloading via curl...`);
+  execSync(`curl -fSL --connect-timeout 15 --max-time 120 -o "${dest}" "${url}"`, {
+    stdio: "inherit",
+    timeout: 180000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Unified download with automatic fallback chain:
+// Node.js HTTPS → PowerShell (Windows) / curl (Unix) → error with manual URL
+// ---------------------------------------------------------------------------
+
+async function downloadToFile(url, dest) {
+  console.log("lean-ctx: downloading binary...");
+
+  // Attempt 1: Node.js native HTTPS
+  try {
+    await downloadToFileNode(url, dest);
+    return;
+  } catch (nodeErr) {
+    console.error(`\nlean-ctx: Node.js download failed: ${nodeErr.message}`);
+  }
+
+  // Attempt 2: platform-native fallback
+  if (IS_WIN) {
+    console.log("lean-ctx: retrying with PowerShell (uses Windows TLS stack)...");
+    try {
+      powershellDownload(url, dest);
+      if (fs.existsSync(dest) && fs.statSync(dest).size > 1000) {
+        console.log(`lean-ctx: downloaded ${(fs.statSync(dest).size / 1024 / 1024).toFixed(1)} MB via PowerShell`);
+        return;
+      }
+    } catch (psErr) {
+      console.error(`lean-ctx: PowerShell download failed: ${psErr.message}`);
+    }
+  } else if (curlAvailable()) {
+    console.log("lean-ctx: retrying with curl...");
+    try {
+      curlDownload(url, dest);
+      if (fs.existsSync(dest) && fs.statSync(dest).size > 1000) return;
+    } catch (curlErr) {
+      console.error(`lean-ctx: curl download failed: ${curlErr.message}`);
+    }
+  }
+
+  throw new Error(
+    `All download methods failed.\n` +
+    `  Download manually: https://github.com/${REPO}/releases/latest`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Archive extraction
+// ---------------------------------------------------------------------------
+
 function extractTarGz(archive, destDir, binaryName) {
   const gunzip = createGunzip();
   const input = fs.createReadStream(archive);
@@ -155,10 +270,10 @@ function extractTarGz(archive, destDir, binaryName) {
 
           const baseName = path.basename(name);
           if (baseName === binaryName && size > 0) {
-            const dest = path.join(destDir, binaryName);
-            fs.writeFileSync(dest, buf.subarray(offset, offset + size));
-            if (!IS_WIN) fs.chmodSync(dest, 0o755);
-            resolve(dest);
+            const out = path.join(destDir, binaryName);
+            fs.writeFileSync(out, buf.subarray(offset, offset + size));
+            if (!IS_WIN) fs.chmodSync(out, 0o755);
+            resolve(out);
             return;
           }
           offset += Math.ceil(size / 512) * 512;
@@ -168,6 +283,10 @@ function extractTarGz(archive, destDir, binaryName) {
       .on("error", reject);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Post-install lifecycle
+// ---------------------------------------------------------------------------
 
 function runOnboard(binaryPath) {
   if (process.env.CI || process.env.LEAN_CTX_NO_ONBOARD === "1") return;
@@ -195,6 +314,54 @@ function printSuccess() {
   console.log("\x1b[1m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\x1b[0m");
 }
 
+// ---------------------------------------------------------------------------
+// GitHub release discovery with fallback
+// ---------------------------------------------------------------------------
+
+async function fetchRelease() {
+  const apiUrl = `https://api.github.com/repos/${REPO}/releases/latest`;
+
+  // Attempt 1: Node.js
+  try {
+    return await httpsGetJson(apiUrl);
+  } catch (nodeErr) {
+    console.error(`lean-ctx: GitHub API via Node.js failed: ${nodeErr.message}`);
+  }
+
+  // Attempt 2: PowerShell (Windows) — uses OS certificate store
+  if (IS_WIN) {
+    console.log("lean-ctx: retrying GitHub API via PowerShell...");
+    try {
+      return powershellGetJson(apiUrl);
+    } catch (psErr) {
+      console.error(`lean-ctx: PowerShell API call failed: ${psErr.message}`);
+    }
+  }
+
+  // Attempt 3: curl
+  if (curlAvailable()) {
+    console.log("lean-ctx: retrying GitHub API via curl...");
+    try {
+      const out = execSync(
+        `curl -fsSL --connect-timeout 10 --max-time 15 -H "User-Agent: lean-ctx-bin-npm" "${apiUrl}"`,
+        { encoding: "utf8", timeout: 20000 }
+      );
+      return JSON.parse(out);
+    } catch (curlErr) {
+      console.error(`lean-ctx: curl API call failed: ${curlErr.message}`);
+    }
+  }
+
+  throw new Error(
+    `Cannot reach GitHub API. All methods failed (Node.js, ${IS_WIN ? "PowerShell" : "curl"}).\n` +
+    `  Download manually: https://github.com/${REPO}/releases/latest`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 async function main() {
   if (fs.existsSync(BINARY_PATH)) {
     console.log("lean-ctx binary already exists, skipping download");
@@ -207,7 +374,7 @@ async function main() {
   console.log(`lean-ctx: installing for ${target}...`);
 
   console.log("lean-ctx: fetching release info from GitHub...");
-  const release = await httpsGetJson(`https://api.github.com/repos/${REPO}/releases/latest`);
+  const release = await fetchRelease();
   const tag = release.tag_name;
   console.log(`lean-ctx: latest release ${tag}`);
 
@@ -225,23 +392,29 @@ async function main() {
   try {
     await downloadToFile(asset.browser_download_url, archivePath);
 
+    // SHA256 verification
     const sumsAsset = (release.assets || []).find((a) => a.name === "SHA256SUMS");
     if (sumsAsset) {
-      const sumsText = await new Promise((resolve, reject) => {
-        httpsGet(sumsAsset.browser_download_url).then((res) => {
-          let data = "";
-          res.on("data", (c) => (data += c));
-          res.on("end", () => resolve(data));
-        }).catch(reject);
-      });
-      const expectedLine = sumsText.split("\n").find((l) => l.includes(assetName));
-      if (expectedLine) {
-        const expectedHash = expectedLine.trim().split(/\s+/)[0].toLowerCase();
-        const fileHash = crypto.createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
-        if (fileHash !== expectedHash) {
-          throw new Error(`SHA256 mismatch: expected ${expectedHash}, got ${fileHash}. Binary may be compromised.`);
+      try {
+        const sumsText = await new Promise((resolve, reject) => {
+          httpsGet(sumsAsset.browser_download_url).then((res) => {
+            let data = "";
+            res.on("data", (c) => (data += c));
+            res.on("end", () => resolve(data));
+          }).catch(reject);
+        });
+        const expectedLine = sumsText.split("\n").find((l) => l.includes(assetName));
+        if (expectedLine) {
+          const expectedHash = expectedLine.trim().split(/\s+/)[0].toLowerCase();
+          const fileHash = crypto.createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+          if (fileHash !== expectedHash) {
+            throw new Error(`SHA256 mismatch: expected ${expectedHash}, got ${fileHash}. Binary may be compromised.`);
+          }
+          console.log("lean-ctx: SHA256 verified \u2713");
         }
-        console.log("lean-ctx: SHA256 verified");
+      } catch (hashErr) {
+        if (hashErr.message.includes("mismatch")) throw hashErr;
+        console.log("lean-ctx: SHA256 check skipped (checksum fetch failed)");
       }
     }
 
@@ -272,7 +445,13 @@ main().catch((err) => {
   console.error("");
   console.error("Manual install options:");
   console.error("  1. Download from https://github.com/yvgude/lean-ctx/releases/latest");
-  console.error("  2. cargo install lean-ctx");
-  console.error("  3. brew install yvgude/tap/lean-ctx (macOS/Linux)");
+  if (IS_WIN) {
+    console.error("  2. PowerShell one-liner:");
+    console.error("     irm https://leanctx.com/install.ps1 | iex");
+  } else {
+    console.error("  2. curl -fsSL https://leanctx.com/install.sh | sh");
+  }
+  console.error("  3. cargo install lean-ctx");
+  console.error("  4. brew install yvgude/tap/lean-ctx  (macOS/Linux)");
   process.exit(1);
 });
