@@ -13,6 +13,8 @@ const BIN_DIR = path.join(__dirname, "bin");
 const IS_WIN = process.platform === "win32";
 const BINARY_NAME = IS_WIN ? "lean-ctx.exe" : "lean-ctx";
 const BINARY_PATH = path.join(BIN_DIR, BINARY_NAME);
+const DOWNLOAD_TIMEOUT_MS = 60000;
+const API_TIMEOUT_MS = 15000;
 
 function getGlibcVersion() {
   try {
@@ -58,12 +60,16 @@ function getTarget() {
   return target;
 }
 
-function httpsGet(url) {
+function httpsGet(url, timeoutMs = API_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
-    const get = (u) => {
-      https.get(u, { headers: { "User-Agent": "lean-ctx-bin-npm" } }, (res) => {
+    const get = (u, redirects = 0) => {
+      if (redirects > 5) {
+        reject(new Error(`Too many redirects for ${url}`));
+        return;
+      }
+      const req = https.get(u, { headers: { "User-Agent": "lean-ctx-bin-npm" } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          get(res.headers.location);
+          get(res.headers.location, redirects + 1);
           return;
         }
         if (res.statusCode !== 200) {
@@ -71,7 +77,16 @@ function httpsGet(url) {
           return;
         }
         resolve(res);
-      }).on("error", reject);
+      });
+      req.on("error", reject);
+      req.setTimeout(timeoutMs, () => {
+        req.destroy();
+        reject(new Error(
+          `Request timed out after ${timeoutMs / 1000}s for ${u}\n` +
+          `  This usually means a firewall, proxy, or antivirus is blocking the connection.\n` +
+          `  Workaround: download manually from https://github.com/${REPO}/releases/latest`
+        ));
+      });
     };
     get(url);
   });
@@ -79,7 +94,7 @@ function httpsGet(url) {
 
 function httpsGetJson(url) {
   return new Promise((resolve, reject) => {
-    httpsGet(url).then((res) => {
+    httpsGet(url, API_TIMEOUT_MS).then((res) => {
       let data = "";
       res.on("data", (c) => (data += c));
       res.on("end", () => {
@@ -91,11 +106,29 @@ function httpsGetJson(url) {
 }
 
 async function downloadToFile(url, dest) {
-  const res = await httpsGet(url);
+  console.log("lean-ctx: downloading binary...");
+  const res = await httpsGet(url, DOWNLOAD_TIMEOUT_MS);
+  const total = parseInt(res.headers["content-length"] || "0", 10);
+  let received = 0;
+  let lastPct = -1;
+
   return new Promise((resolve, reject) => {
     const ws = fs.createWriteStream(dest);
+    res.on("data", (chunk) => {
+      received += chunk.length;
+      if (total > 0) {
+        const pct = Math.floor((received / total) * 100);
+        if (pct >= lastPct + 10) {
+          lastPct = pct;
+          process.stdout.write(`\r  ${pct}% (${(received / 1024 / 1024).toFixed(1)} MB)`);
+        }
+      }
+    });
     res.pipe(ws);
-    ws.on("finish", resolve);
+    ws.on("finish", () => {
+      if (total > 0) process.stdout.write(`\r  100% (${(received / 1024 / 1024).toFixed(1)} MB)\n`);
+      resolve();
+    });
     ws.on("error", reject);
   });
 }
@@ -173,6 +206,7 @@ async function main() {
   const target = getTarget();
   console.log(`lean-ctx: installing for ${target}...`);
 
+  console.log("lean-ctx: fetching release info from GitHub...");
   const release = await httpsGetJson(`https://api.github.com/repos/${REPO}/releases/latest`);
   const tag = release.tag_name;
   console.log(`lean-ctx: latest release ${tag}`);
@@ -211,7 +245,7 @@ async function main() {
       }
     }
 
-    console.log("lean-ctx: downloaded, extracting...");
+    console.log("lean-ctx: extracting...");
 
     fs.mkdirSync(BIN_DIR, { recursive: true });
 
@@ -234,7 +268,11 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`lean-ctx: installation failed: ${err.message}`);
-  console.error("Install from source instead: cargo install lean-ctx");
+  console.error(`\nlean-ctx: installation failed: ${err.message}`);
+  console.error("");
+  console.error("Manual install options:");
+  console.error("  1. Download from https://github.com/yvgude/lean-ctx/releases/latest");
+  console.error("  2. cargo install lean-ctx");
+  console.error("  3. brew install yvgude/tap/lean-ctx (macOS/Linux)");
   process.exit(1);
 });
