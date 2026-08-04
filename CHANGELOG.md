@@ -4,6 +4,21 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.15] — 2026-08-04
+
+### Fixed
+- **CRITICAL: ctx_read panic on code files (.rs, .c)** — the v3.9.14 auto-mode
+  resolver routed all code files >500 tokens through `signatures` mode, which
+  requires tree-sitter parsing. If tree-sitter panicked on any file, the Mutex
+  in the signature query cache became poisoned, causing **all** subsequent
+  code-file reads to fail with "lean-ctx internal error". Two fixes:
+  1. **Reverted aggressive heuristic** — medium code files (500–6000 tok) stay
+     `full` by default again, matching v3.9.13 behavior. `signatures` is still
+     used by progressive disclosure and the edit-quality fallback.
+  2. **Mutex poison recovery** — `get_cached_sig_query` now uses
+     `PoisonError::into_inner()` instead of `.expect()`, preventing cascade
+     failures when a single tree-sitter call panics.
+
 ## [3.9.14] — 2026-08-03
 
 ### Added
