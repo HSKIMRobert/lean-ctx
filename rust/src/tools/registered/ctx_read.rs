@@ -966,7 +966,6 @@ impl CtxReadTool {
                 project_root_snapshot = ctx.project_root.clone();
             }
         }
-
         if let Some(root) = ensured_root.as_deref() {
             crate::core::index_orchestrator::ensure_all_background(root);
         }
@@ -1029,7 +1028,6 @@ impl CtxReadTool {
                             &traversal_working_set,
                         );
                     }
-
                     let sig =
                         crate::core::mode_predictor::FileSignature::from_path(&path_bg, original);
                     let density = if output_tokens > 0 {
@@ -1085,7 +1083,6 @@ impl CtxReadTool {
                 }));
             });
         }
-
         if let Some(aid) = resolved_agent_id.as_deref() {
             crate::core::agent_budget::record_consumption(aid, output_tokens);
         }
@@ -1155,7 +1152,6 @@ impl CtxReadTool {
                 .unwrap_or_default();
             crate::core::rule_discovery::rules_suffix_for_read(path, &ctx.project_root, &client_id)
         };
-
         let mut warnings = Vec::new();
         if let Some(ref w) = budget_warning {
             warnings.push(w.as_str());
@@ -1267,7 +1263,6 @@ fn anchored_lines_mode(start: i64, limit: Option<i64>) -> String {
         None => format!("anchored:{start}-999999"),
     }
 }
-
 fn resolve_instruction_file_mode(path: &str, mode: &str) -> (String, Option<String>) {
     if !crate::tools::ctx_read::is_instruction_file(path)
         || matches!(mode, "full" | "raw" | "anchored")
