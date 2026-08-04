@@ -130,10 +130,13 @@ pub fn route_request(
             maximum_cost_micros: None,
             maximum_latency_ms: None,
         };
-        let decision = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current()
-                .block_on(OclaRegistry::global().model_router.route_model(request))
-        })
+        let decision = {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .ok()?;
+            rt.block_on(OclaRegistry::global().model_router.route_model(request))
+        }
         .ok()?;
         if decision.model == requested {
             None

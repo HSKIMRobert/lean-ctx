@@ -358,6 +358,14 @@ pub fn try_delivery_check_blocking(
             .get("fresh")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true),
+        relay_content: v
+            .get("relay_content")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from),
+        relay_mode: v
+            .get("relay_mode")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from),
     })
 }
 
