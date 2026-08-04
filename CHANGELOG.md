@@ -7,14 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 ## [3.9.17] — 2026-08-04
 
 ### Fixed
-- **Critical: eliminate all "Cannot start a runtime from within a runtime" panics** —
-  Tool handlers run inside `spawn_blocking` where `Handle::block_on()` is illegal.
-  Replaced with `bounded_lock` spin-loops (ctx_read, ctx_delta, ctx_edit, ctx_fill,
-  ctx_knowledge, ctx_patch, ctx_smart_read) and isolated `current_thread` runtimes
-  (ctx_tools gateway, proxy model routing). Fixes the "lean-ctx internal error"
-  affecting code file reads (.rs, .c, .py) on cache-miss paths.
-- **Proxy routing panic** — model router called `block_in_place` + `Handle::block_on`
-  on tokio worker threads; replaced with isolated runtime.
+- **Critical: eliminate "Cannot start a runtime from within a runtime" panic** —
+  Root cause (repro: [vena/ctx_read_repro](https://github.com/vena/ctx_read_repro)):
+  the post-read autonomy prefetch re-enters the read dispatch from inside the async
+  tool pipeline; nested reads hit `try_delivery_check_blocking` /
+  `try_cache_check_blocking` which called `DELIVERY_RUNTIME.block_on()` on a
+  tokio-rt-worker thread — panic. Fix: `delivery_block_on()` helper detects ambient
+  runtime via `Handle::try_current()` and spawns a scoped thread for the block_on.
+  Affects all projects with cross-file imports where prefetch selects map/signatures mode.
+- **Tool handler session locks** — replaced `Handle::block_on()` in spawn_blocking
+  contexts with `bounded_lock` spin-loops (ctx_read, ctx_delta, ctx_edit, ctx_fill,
+  ctx_knowledge, ctx_patch, ctx_smart_read) and isolated runtimes (ctx_tools gateway).
 
 ### Changed
 - `multi_path.rs` session read: replaced `block_in_place` with `try_read_owned` spin-loop.
