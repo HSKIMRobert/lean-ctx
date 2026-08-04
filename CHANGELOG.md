@@ -4,6 +4,39 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.16] — 2026-08-04
+
+### Added
+- **Cross-agent cache benchmark** — new `bench_cross_agent_cache` example for
+  measuring OCLA delivery registry performance across concurrent agents.
+- **npm postinstall: multi-method download fallback** — Windows installs now
+  try PowerShell `Invoke-WebRequest`, `curl.exe`, and `node-fetch` sequentially,
+  fixing installs behind corporate proxies and restrictive PATH configs.
+- **npm postinstall: progress + timeouts** — download progress is shown inline
+  with configurable timeouts (60s connect, 300s total), preventing silent hangs.
+- **npm postinstall: re-onboard on reinstall** — `npx lean-ctx-bin` now runs
+  `onboard` and shows the quick-start guide on reinstall, not just first install.
+
+### Fixed
+- **CRITICAL: “Cannot start a runtime from within a runtime” panic** — tool
+  handlers run inside `spawn_blocking` since #1018, where
+  `Handle::current().block_on()` panics. All occurrences replaced with safe
+  alternatives:
+  - `ctx_read`, `ctx_delta`, `ctx_fill`, `ctx_knowledge`, `ctx_smart_read`:
+    `bounded_lock::{read,write}()` spin-loops
+  - `ctx_patch`, `ctx_edit`: `spin_read!`/`spin_write!` macros
+  - `ctx_tools`: isolated `current_thread` runtime
+  - `multi_path`: `try_read_owned` spin-loop
+  This fixes the “lean-ctx internal error” affecting `.rs`/`.c` file reads when
+  cache misses triggered the post-processing write-lock path.
+- **OCLA delivery registry: mtime no longer a cache discriminator** — `blake3`
+  content hash is the sole identity for cross-agent cache hits. Previously,
+  `git checkout`/`rebase` changed mtime causing false cache misses despite
+  identical content.
+- **Flaky CI: index build SIGTERM** — integration tests now skip gracefully on
+  both SIGKILL (OOM) and SIGTERM (CI timeout) instead of panicking.
+- **npm security** — resolved Dependabot alerts for npm package dependencies.
+
 ## [3.9.15] — 2026-08-04
 
 ### Added
