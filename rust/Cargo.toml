@@ -89,6 +89,11 @@ name = "seed_observatory"
 path = "src/bin/seed_observatory.rs"
 required-features = ["dev-tools"]
 
+[[example]]
+name = "bench_cross_agent_cache"
+path = "src/bin/bench_cross_agent_cache.rs"
+required-features = ["dev-tools"]
+
 [features]
 default = [
   "tree-sitter",

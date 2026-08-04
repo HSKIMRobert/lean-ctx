@@ -196,7 +196,7 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
     fn check_delivery(
         &self,
         blake3: &[u8; 12],
-        mtime: u64,
+        _mtime: u64,
         path: &str,
         requester_agent_id: Option<&str>,
         requester_conversation_id: Option<&str>,
@@ -221,9 +221,6 @@ impl DeliveryRegistry for BuiltinDeliveryRegistry {
 
         let now = Self::now_epoch();
         for (key, record) in candidates {
-            if record.mtime != mtime {
-                continue;
-            }
             if self.is_expired_at(&record, now) {
                 let mut index = self.eviction_index.lock().expect("delivery index poisoned");
                 self.mtime_index_remove(&key.path, record.mtime, key.blake3);
@@ -406,15 +403,15 @@ mod tests {
     }
 
     #[test]
-    fn different_mtime_returns_miss() {
+    fn different_mtime_same_hash_still_hits() {
+        // blake3 is the content identity; mtime changes on checkout/rebase
+        // should not invalidate entries with identical content (#1415).
         let reg = BuiltinDeliveryRegistry::new();
         let hash = [2u8; 12];
         reg.record_delivery(test_entry("src/lib.rs", "agent-b", hash, 1000));
 
-        assert!(
-            reg.check_delivery(&hash, 2000, "src/lib.rs", Some("agent-c"), None)
-                .is_none()
-        );
+        let result = reg.check_delivery(&hash, 2000, "src/lib.rs", Some("agent-c"), None);
+        assert!(result.is_some(), "same blake3 must hit regardless of mtime");
     }
 
     #[test]
