@@ -4,6 +4,21 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.17] — 2026-08-04
+
+### Fixed
+- **Critical: eliminate all "Cannot start a runtime from within a runtime" panics** —
+  Tool handlers run inside `spawn_blocking` where `Handle::block_on()` is illegal.
+  Replaced with `bounded_lock` spin-loops (ctx_read, ctx_delta, ctx_edit, ctx_fill,
+  ctx_knowledge, ctx_patch, ctx_smart_read) and isolated `current_thread` runtimes
+  (ctx_tools gateway, proxy model routing). Fixes the "lean-ctx internal error"
+  affecting code file reads (.rs, .c, .py) on cache-miss paths.
+- **Proxy routing panic** — model router called `block_in_place` + `Handle::block_on`
+  on tokio worker threads; replaced with isolated runtime.
+
+### Changed
+- `multi_path.rs` session read: replaced `block_in_place` with `try_read_owned` spin-loop.
+
 ## [3.9.16] — 2026-08-04
 
 ### Added
