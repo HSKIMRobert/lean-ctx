@@ -6,18 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [3.9.15] — 2026-08-04
 
+### Added
+- **Panic-safe tree-sitter with per-language blocklist** — `extract_signatures`
+  now wraps tree-sitter in `catch_unwind`. If a grammar panics, the language is
+  blocklisted for the session and subsequent calls use the regex fallback
+  instantly. Medium code files (500–6000 tok) safely get `signatures` mode
+  (~85% compression) instead of `full` (0% compression).
+
 ### Fixed
 - **CRITICAL: ctx_read panic on code files (.rs, .c)** — the v3.9.14 auto-mode
   resolver routed all code files >500 tokens through `signatures` mode, which
   requires tree-sitter parsing. If tree-sitter panicked on any file, the Mutex
   in the signature query cache became poisoned, causing **all** subsequent
-  code-file reads to fail with "lean-ctx internal error". Two fixes:
-  1. **Reverted aggressive heuristic** — medium code files (500–6000 tok) stay
-     `full` by default again, matching v3.9.13 behavior. `signatures` is still
-     used by progressive disclosure and the edit-quality fallback.
-  2. **Mutex poison recovery** — `get_cached_sig_query` now uses
-     `PoisonError::into_inner()` instead of `.expect()`, preventing cascade
-     failures when a single tree-sitter call panics.
+  code-file reads to fail with "lean-ctx internal error". Three fixes:
+  1. **`catch_unwind` around tree-sitter** — panics in grammars degrade
+     gracefully to regex signatures, never crash the session.
+  2. **Per-language blocklist** — panicked languages skip tree-sitter for the
+     rest of the session, avoiding repeated catch_unwind overhead.
+  3. **Mutex poison recovery** — `get_cached_sig_query` now uses
+     `PoisonError::into_inner()` instead of `.expect()`.
 
 ## [3.9.14] — 2026-08-03
 
