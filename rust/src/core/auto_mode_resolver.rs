@@ -476,6 +476,13 @@ fn heuristic_mode(ext: &str, token_count: usize, structure_first: bool) -> Strin
     if structure_first && token_count > 500 && is_code(ext) {
         return "map".to_string();
     }
+    // Medium code files (500–6000 tok): use `signatures` for compression.
+    // Safe because tree-sitter is wrapped in catch_unwind with per-language
+    // blocklist fallback to regex — a panic degrades to regex signatures,
+    // never crashes the session.
+    if token_count > 500 && is_code(ext) {
+        return "signatures".to_string();
+    }
     "full".to_string()
 }
 
@@ -859,9 +866,9 @@ mod tests {
     }
 
     #[test]
-    fn heuristic_medium_code_stays_full_by_default() {
-        assert_eq!(heuristic_mode("rs", 1500, false), "full");
-        assert_eq!(heuristic_mode("ts", 1000, false), "full");
+    fn heuristic_medium_code_uses_signatures_by_default() {
+        assert_eq!(heuristic_mode("rs", 1500, false), "signatures");
+        assert_eq!(heuristic_mode("ts", 1000, false), "signatures");
     }
 
     #[test]
@@ -946,7 +953,7 @@ mod tests {
     }
 
     #[test]
-    fn structure_first_off_keeps_medium_code_full() {
+    fn structure_first_off_uses_signatures_for_medium_code() {
         let _lock = crate::core::data_dir::test_env_lock();
         let dir = std::env::temp_dir().join(format!("lctx-amr-sfoff-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
@@ -962,7 +969,7 @@ mod tests {
             cache: None,
         };
         let result = resolve(&ctx);
-        assert_eq!(result.mode, "full");
+        assert_eq!(result.mode, "signatures");
         assert_eq!(result.source, "heuristic");
 
         crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
@@ -1098,8 +1105,8 @@ mod tests {
         };
         let result = resolve(&ctx);
         assert_eq!(
-            result.mode, "full",
-            "progressive off → heuristic keeps medium code full"
+            result.mode, "signatures",
+            "progressive off → heuristic uses signatures for medium code"
         );
 
         crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
