@@ -136,9 +136,37 @@ function extractTarGz(archive, destDir, binaryName) {
   });
 }
 
+function runOnboard(binaryPath) {
+  if (process.env.CI || process.env.LEAN_CTX_NO_ONBOARD === "1") return;
+  try {
+    console.log("");
+    console.log("Running onboard (connecting your AI tools)...");
+    execSync(`"${binaryPath}" onboard`, { stdio: "inherit", timeout: 30000 });
+  } catch {
+    // Non-fatal: onboard may fail in restricted envs
+  }
+}
+
+function printSuccess() {
+  console.log("");
+  console.log("\x1b[1m\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m  \x1b[32m\x1b[1m\u2713 lean-ctx installed successfully\x1b[0m                  \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m                                                     \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m  Quick start:                                       \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m    \x1b[1mlean-ctx wrap cursor\x1b[0m  (one-command setup)        \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m    \x1b[1mlean-ctx wrap claude\x1b[0m  (Claude Code)              \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m    \x1b[1mlean-ctx wrap codex\x1b[0m   (Codex CLI)                \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m                                                     \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m  Full control: \x1b[2mlean-ctx setup\x1b[0m                        \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2502\x1b[0m  \x1b[2mDocs: https://leanctx.com/docs\x1b[0m                     \x1b[1m\u2502\x1b[0m");
+  console.log("\x1b[1m\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\x1b[0m");
+}
+
 async function main() {
   if (fs.existsSync(BINARY_PATH)) {
     console.log("lean-ctx binary already exists, skipping download");
+    runOnboard(BINARY_PATH);
+    printSuccess();
     return;
   }
 
@@ -188,8 +216,6 @@ async function main() {
     fs.mkdirSync(BIN_DIR, { recursive: true });
 
     if (IS_WIN) {
-      // Windows locks running executables — rename-before-extract (#1039).
-      // Renaming a running .exe IS allowed on Windows; overwriting is not.
       const oldBin = BINARY_PATH + ".old";
       try { fs.unlinkSync(oldBin); } catch {}
       try { fs.renameSync(BINARY_PATH, oldBin); } catch {}
@@ -200,31 +226,8 @@ async function main() {
     }
 
     console.log(`lean-ctx: installed to ${BINARY_PATH}`);
-
-    // Auto-onboard unless in CI or opted out
-    if (!process.env.CI && process.env.LEAN_CTX_NO_ONBOARD !== "1") {
-      try {
-        const { execSync: exec } = require("child_process");
-        console.log("");
-        console.log("Running onboard (connecting your AI tools)...");
-        exec(`"${BINARY_PATH}" onboard`, { stdio: "inherit", timeout: 30000 });
-      } catch {
-        // Non-fatal: onboard may fail in restricted envs
-      }
-    }
-
-    console.log("");
-    console.log("\x1b[1m┌─────────────────────────────────────────────────────┐\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  \x1b[32m\x1b[1m✓ lean-ctx installed successfully\x1b[0m                  \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m                                                     \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  Quick start:                                       \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap cursor\x1b[0m  (one-command setup)        \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap claude\x1b[0m  (Claude Code)              \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m    \x1b[1mlean-ctx wrap codex\x1b[0m   (Codex CLI)                \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m                                                     \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  Full control: \x1b[2mlean-ctx setup\x1b[0m                        \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m│\x1b[0m  \x1b[2mDocs: https://leanctx.com/docs\x1b[0m                     \x1b[1m│\x1b[0m");
-    console.log("\x1b[1m└─────────────────────────────────────────────────────┘\x1b[0m");
+    runOnboard(BINARY_PATH);
+    printSuccess();
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
