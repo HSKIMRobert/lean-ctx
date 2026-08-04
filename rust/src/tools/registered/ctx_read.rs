@@ -897,6 +897,8 @@ impl CtxReadTool {
                     mtime,
                     0,
                     output_tokens,
+                    None,
+                    None,
                 );
             }
         }
@@ -906,12 +908,17 @@ impl CtxReadTool {
         let mut traversal_working_set: Vec<String> = Vec::new();
         let project_root_snapshot;
         {
-            let rt = tokio::runtime::Handle::current();
-            let session_guard = rt.block_on(tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                session_lock.write(),
-            ));
-            if let Ok(mut session) = session_guard {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let session_guard = loop {
+                if let Ok(g) = session_lock.clone().try_write_owned() {
+                    break Some(g);
+                }
+                if std::time::Instant::now() >= deadline {
+                    break None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            };
+            if let Some(mut session) = session_guard {
                 session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
                 // Capture the recent working set (under the lock) so the
                 // background thread can record a traversal/co-access edge (#289).
