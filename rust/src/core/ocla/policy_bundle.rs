@@ -7,6 +7,31 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+/// Policy criticality classification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PolicyCriticality {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+/// What happens when a policy expires without renewal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExpiryBehavior {
+    FailClosed,
+    FailOpen,
+    GracePeriod,
+}
+
+/// Resolved fail mode for runtime decisions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolvedFailMode {
+    Allow,
+    Deny,
+    DenyAfterGrace { remaining_seconds: u64 },
+}
+
 /// A signed policy bundle containing rules and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyBundle {
@@ -27,6 +52,39 @@ pub struct PolicyBundleRule {
     pub effect: String,
     pub conditions: Value,
     pub priority: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub criticality: Option<PolicyCriticality>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expiry_behavior: Option<ExpiryBehavior>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grace_period_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_policy_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_known_good_allowed: Option<bool>,
+}
+
+/// Determines the effective fail mode for an expired policy rule.
+/// `seconds_since_expiry` is how long ago the policy's signature/TTL expired.
+pub fn effective_fail_mode(rule: &PolicyBundleRule, seconds_since_expiry: u64) -> ResolvedFailMode {
+    let behavior = rule
+        .expiry_behavior
+        .as_ref()
+        .unwrap_or(&ExpiryBehavior::FailOpen);
+    match behavior {
+        ExpiryBehavior::FailClosed => ResolvedFailMode::Deny,
+        ExpiryBehavior::FailOpen => ResolvedFailMode::Allow,
+        ExpiryBehavior::GracePeriod => {
+            let grace = rule.grace_period_seconds.unwrap_or(300);
+            if seconds_since_expiry < grace {
+                ResolvedFailMode::DenyAfterGrace {
+                    remaining_seconds: grace - seconds_since_expiry,
+                }
+            } else {
+                ResolvedFailMode::Deny
+            }
+        }
+    }
 }
 
 /// Result of verifying a bundle's integrity.
@@ -53,6 +111,38 @@ pub fn compute_content_hash(rules: &[PolicyBundleRule]) -> String {
                     canonicalize_json(&rule.conditions),
                 );
                 value.insert("priority".to_string(), Value::from(rule.priority));
+                if let Some(criticality) = &rule.criticality {
+                    value.insert(
+                        "criticality".to_string(),
+                        serde_json::to_value(criticality)
+                            .expect("policy criticality always serializes to JSON"),
+                    );
+                }
+                if let Some(expiry_behavior) = &rule.expiry_behavior {
+                    value.insert(
+                        "expiry_behavior".to_string(),
+                        serde_json::to_value(expiry_behavior)
+                            .expect("expiry behavior always serializes to JSON"),
+                    );
+                }
+                if let Some(grace_period_seconds) = rule.grace_period_seconds {
+                    value.insert(
+                        "grace_period_seconds".to_string(),
+                        Value::from(grace_period_seconds),
+                    );
+                }
+                if let Some(fallback_policy_ref) = &rule.fallback_policy_ref {
+                    value.insert(
+                        "fallback_policy_ref".to_string(),
+                        Value::String(fallback_policy_ref.clone()),
+                    );
+                }
+                if let Some(last_known_good_allowed) = rule.last_known_good_allowed {
+                    value.insert(
+                        "last_known_good_allowed".to_string(),
+                        Value::Bool(last_known_good_allowed),
+                    );
+                }
                 canonicalize_json(&Value::Object(value))
             })
             .collect(),
@@ -171,11 +261,12 @@ fn canonicalize_json(value: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{from_value, json, to_value};
 
     use super::{
-        BundleVerification, PolicyBundleRule, compute_content_hash, create_bundle, load_bundle,
-        merge_bundles, save_bundle, verify_bundle,
+        BundleVerification, ExpiryBehavior, PolicyBundleRule, PolicyCriticality, ResolvedFailMode,
+        compute_content_hash, create_bundle, effective_fail_mode, load_bundle, merge_bundles,
+        save_bundle, verify_bundle,
     };
 
     fn rule(rule_id: &str, effect: &str) -> PolicyBundleRule {
@@ -185,7 +276,88 @@ mod tests {
             effect: effect.to_string(),
             conditions: json!({"source": "local"}),
             priority: 10,
+            criticality: None,
+            expiry_behavior: None,
+            grace_period_seconds: None,
+            fallback_policy_ref: None,
+            last_known_good_allowed: None,
         }
+    }
+
+    #[test]
+    fn test_fail_mode_closed() {
+        let mut rule = rule("critical", "deny");
+        rule.criticality = Some(PolicyCriticality::Critical);
+        rule.expiry_behavior = Some(ExpiryBehavior::FailClosed);
+
+        assert_eq!(effective_fail_mode(&rule, 0), ResolvedFailMode::Deny);
+    }
+
+    #[test]
+    fn test_fail_mode_open() {
+        let mut rule = rule("low", "allow");
+        rule.criticality = Some(PolicyCriticality::Low);
+        rule.expiry_behavior = Some(ExpiryBehavior::FailOpen);
+
+        assert_eq!(effective_fail_mode(&rule, 60), ResolvedFailMode::Allow);
+    }
+
+    #[test]
+    fn test_fail_mode_grace_period() {
+        let mut rule = rule("grace", "deny");
+        rule.expiry_behavior = Some(ExpiryBehavior::GracePeriod);
+        rule.grace_period_seconds = Some(120);
+
+        assert_eq!(
+            effective_fail_mode(&rule, 30),
+            ResolvedFailMode::DenyAfterGrace {
+                remaining_seconds: 90,
+            }
+        );
+        assert_eq!(effective_fail_mode(&rule, 120), ResolvedFailMode::Deny);
+    }
+
+    #[test]
+    fn test_backward_compat_no_classification() {
+        let value = json!({
+            "rule_id": "legacy",
+            "level": "standard",
+            "effect": "allow",
+            "conditions": {},
+            "priority": 10
+        });
+        let rule: PolicyBundleRule = from_value(value).unwrap();
+
+        assert_eq!(effective_fail_mode(&rule, 1), ResolvedFailMode::Allow);
+    }
+
+    #[test]
+    fn test_serde_roundtrip_with_classification() {
+        let mut original = rule("classified", "deny");
+        original.criticality = Some(PolicyCriticality::High);
+        original.expiry_behavior = Some(ExpiryBehavior::GracePeriod);
+        original.grace_period_seconds = Some(600);
+        original.fallback_policy_ref = Some("policy://fallback".to_string());
+        original.last_known_good_allowed = Some(true);
+
+        let serialized = to_value(&original).unwrap();
+        let round_tripped: PolicyBundleRule = from_value(serialized).unwrap();
+
+        assert_eq!(round_tripped.rule_id, original.rule_id);
+        assert_eq!(round_tripped.criticality, original.criticality);
+        assert_eq!(round_tripped.expiry_behavior, original.expiry_behavior);
+        assert_eq!(
+            round_tripped.grace_period_seconds,
+            original.grace_period_seconds
+        );
+        assert_eq!(
+            round_tripped.fallback_policy_ref,
+            original.fallback_policy_ref
+        );
+        assert_eq!(
+            round_tripped.last_known_good_allowed,
+            original.last_known_good_allowed
+        );
     }
 
     #[test]
