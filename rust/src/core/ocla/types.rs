@@ -13,6 +13,7 @@ pub type OclaResult<T> = Result<T, OclaError>;
 /// Stable identifiers required to join decisions across interception surfaces.
 /// Payload bytes intentionally never belong in this contract.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct OclaRequestContext {
     pub request_id: String,
     pub session_id: String,
@@ -58,6 +59,7 @@ fn generate_trace_id() -> String {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 enum RequiredNullableString {
     Value(String),
     Null(()),
@@ -74,6 +76,7 @@ impl RequiredNullableString {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 struct WireContext {
     request_id: String,
     session_id: String,
@@ -103,6 +106,7 @@ impl<'de> Deserialize<'de> for OclaRequestContext {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum TokenEnvelopeSurface {
     Mcp,
     Proxy,
@@ -112,6 +116,7 @@ pub enum TokenEnvelopeSurface {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum TokenFlowDirection {
     Input,
     Output,
@@ -121,6 +126,7 @@ pub enum TokenFlowDirection {
 /// stage and prevents a cache or delivery mechanism from being double-counted.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct TokenBalanceV1 {
     pub original_tokens: u64,
     pub materialized_tokens: u64,
@@ -149,6 +155,7 @@ impl TokenBalanceV1 {
 /// external SDK code observes the request.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct CanonicalTokenEnvelopeV1 {
     pub schema_version: u16,
     pub context: OclaRequestContext,
@@ -258,6 +265,7 @@ impl OclaRequestContext {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum OclaCapabilityKind {
     ObservationHook,
     UsageSink,
@@ -299,6 +307,7 @@ impl OclaCapabilityKind {
 /// Fail behavior when a subsystem cannot evaluate policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum FailMode {
     Open,
     Closed,
@@ -306,6 +315,7 @@ pub enum FailMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum OclaCapabilityStatus {
     Available,
     Degraded,
@@ -313,6 +323,7 @@ pub enum OclaCapabilityStatus {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct OclaCapability {
     pub kind: OclaCapabilityKind,
     pub api_version: String,
@@ -334,6 +345,7 @@ impl OclaCapability {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct Observation {
     pub context: OclaRequestContext,
     pub name: String,
@@ -341,6 +353,7 @@ pub struct Observation {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct UsageRecord {
     pub context: OclaRequestContext,
     pub model: String,
@@ -350,6 +363,7 @@ pub struct UsageRecord {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct MetricPoint {
     pub context: OclaRequestContext,
     pub name: String,
@@ -358,6 +372,7 @@ pub struct MetricPoint {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct SavingsEvidence {
     pub context: OclaRequestContext,
     pub original_tokens: u64,
@@ -367,12 +382,14 @@ pub struct SavingsEvidence {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct IntentRequest {
     pub context: OclaRequestContext,
     pub candidate_intents: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct IntentDecision {
     pub intent: String,
     pub confidence_milli: u16,
@@ -380,6 +397,7 @@ pub struct IntentDecision {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct Outcome {
     pub context: OclaRequestContext,
     pub accepted: Option<bool>,
@@ -388,6 +406,7 @@ pub struct Outcome {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct CompressionRequest {
     pub context: OclaRequestContext,
     pub source_ref: String,
@@ -397,6 +416,7 @@ pub struct CompressionRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct CompressionResult {
     pub delivered_ref: String,
     pub delivered_tokens: u64,
@@ -404,6 +424,7 @@ pub struct CompressionResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ResponseOptimizationRequest {
     pub context: OclaRequestContext,
     pub response_ref: String,
@@ -412,6 +433,7 @@ pub struct ResponseOptimizationRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ResponseOptimizationResult {
     pub response_ref: String,
     pub delivered_tokens: u64,
@@ -419,6 +441,7 @@ pub struct ResponseOptimizationResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ModelRouteRequest {
     pub context: OclaRequestContext,
     pub candidate_models: Vec<String>,
@@ -427,6 +450,7 @@ pub struct ModelRouteRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct RoutingDecision {
     pub model: String,
     pub provider: String,
@@ -435,6 +459,7 @@ pub struct RoutingDecision {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct EfficiencySample {
     pub context: OclaRequestContext,
     pub original_tokens: u64,
@@ -447,6 +472,7 @@ pub struct EfficiencySample {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct EfficiencyAnalysis {
     pub etpao_milli: Option<u64>,
     pub duplicate_ratio_milli: u16,
@@ -458,6 +484,7 @@ pub struct EfficiencyAnalysis {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ConfigTuningRequest {
     pub context: OclaRequestContext,
     pub config_ref: String,
@@ -465,6 +492,7 @@ pub struct ConfigTuningRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ConfigProposal {
     pub proposal_ref: String,
     pub rollback_ref: String,
@@ -473,6 +501,7 @@ pub struct ConfigProposal {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 /// Holdout configuration for experiments.
+/// PROTOCOL: Will move to `lean-ctx-protocol` crate.
 pub struct HoldoutConfig {
     /// Percentage of traffic to hold out (0-100).
     pub holdout_pct: u8,
@@ -485,6 +514,7 @@ pub struct HoldoutConfig {
 
 /// Stop conditions that can terminate an experiment early.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// PROTOCOL: Will move to `lean-ctx-protocol` crate.
 pub struct ExperimentStopConditions {
     /// Stop if this many samples are collected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -499,6 +529,7 @@ pub struct ExperimentStopConditions {
 
 /// Extended experiment result with holdout data.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// PROTOCOL: Will move to `lean-ctx-protocol` crate.
 pub struct ExperimentOutcome {
     pub experiment_ref: String,
     pub treatment_samples: u64,
@@ -511,6 +542,9 @@ pub struct ExperimentOutcome {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// PROTOCOL: Will move to `lean-ctx-protocol` as `ExperimentAssignmentV1`.
+/// The new model separates assignment (from sidecar) from execution (runtime).
+#[deprecated(note = "Use ExperimentAssignmentV1 from lean-ctx-protocol in future rounds")]
 pub struct ExperimentRequest {
     pub context: OclaRequestContext,
     pub experiment_ref: String,
@@ -522,6 +556,7 @@ pub struct ExperimentRequest {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// PROTOCOL: Will move to `lean-ctx-protocol` crate.
 pub struct ExperimentResult {
     pub experiment_ref: String,
     pub outcome_ref: String,
@@ -529,6 +564,7 @@ pub struct ExperimentResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ConnectorJob {
     pub context: OclaRequestContext,
     pub connector_id: String,
@@ -537,6 +573,7 @@ pub struct ConnectorJob {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct ScheduledJob {
     pub job_ref: String,
     pub queue_ref: String,
@@ -544,6 +581,7 @@ pub struct ScheduledJob {
 
 /// Cross-agent delivery record: tracks that file content was read by an agent.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct DeliveryRecord {
     pub blake3: [u8; 12],
     pub path: String,
@@ -567,6 +605,7 @@ pub struct DeliveryRecord {
 /// Entry for recording a new delivery.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct DeliveryEntry {
     pub blake3: [u8; 12],
     pub path: String,
@@ -587,6 +626,7 @@ pub struct DeliveryEntry {
 
 /// Result of an idempotent delivery-record attempt.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct DeliveryRecordResult {
     /// The existing record already represented the same source version.
     pub already_recorded: bool,
@@ -596,6 +636,7 @@ pub struct DeliveryRecordResult {
 
 /// Statistics for the delivery registry.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct DeliveryStats {
     pub total_entries: usize,
     pub stubs_served: u64,
@@ -615,6 +656,7 @@ pub struct DeliveryStats {
 /// only after it actually materializes and delivers the handoff.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub struct AgentEnvelope {
     pub schema_version: u16,
     /// Content-derived relay identity for idempotent admission and event joins.
@@ -695,7 +737,25 @@ fn valid_digest_ref(label: &str, prefix: &str, value: &str) -> OclaResult<()> {
     .ok_or_else(|| OclaError::InvalidRequest(format!("invalid {label}_ref")))
 }
 
+/// Local savings observation — the OSS-side precursor to platform's VerifiedSavingsV1.
+/// Maps to `lean_ctx_protocol::SavingsObservationV1` when the protocol crate is wired.
+///
+/// PROTOCOL: Will move to `lean-ctx-protocol`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavingsObservationLocal {
+    pub observation_id: String,
+    pub provider_id: String,
+    pub model_id: String,
+    pub original_input_tokens: u64,
+    pub original_output_tokens: u64,
+    pub actual_input_tokens: u64,
+    pub actual_output_tokens: u64,
+    pub observed_at: String,
+    pub sequence_number: u64,
+}
+
 #[derive(Debug, Error)]
+/// RUNTIME: Stays in lean-ctx-ocla (internal).
 pub enum OclaError {
     #[error("invalid OCLA request: {0}")]
     InvalidRequest(String),
