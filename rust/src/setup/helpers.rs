@@ -1,5 +1,6 @@
 //! Setup helper routines (skill install, TOML key upserts, profile + premium
 //! feature configuration). Split out of `setup/mod.rs` for focus.
+#![allow(clippy::items_after_test_module)]
 
 #[allow(clippy::wildcard_imports)]
 use super::*;

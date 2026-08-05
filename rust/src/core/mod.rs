@@ -67,6 +67,7 @@ pub(crate) mod rules_overhead;
 pub(crate) mod rules_sections;
 pub(crate) mod rules_validation;
 pub(crate) mod runtime_flags;
+pub mod sidecar_transport;
 #[allow(dead_code)]
 pub(crate) mod structural_tokenizer;
 pub(crate) mod structured_read;
