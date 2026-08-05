@@ -7,6 +7,7 @@
 pub mod combined;
 pub mod event;
 pub mod evidence_projection;
+pub mod observation;
 pub mod push;
 pub mod roi;
 pub mod signed_batch;

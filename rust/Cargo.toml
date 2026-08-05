@@ -215,6 +215,7 @@ futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
 dirs = "6.0"
 chrono = { version = "0.4", features = ["serde"] }
+lean-ctx-protocol = { path = "crates/lean-ctx-protocol" }
 toml = "1.1"
 toml_edit = "0.25"
 similar = "3.1"
