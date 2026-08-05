@@ -113,4 +113,3 @@ Rejected because evaluation requires cross-subject aggregation, experiment-speci
 ## References
 - Platform Architecture Rebuild v5 (plan)
 - [RFC 8032: Edwards-Curve Digital Signature Algorithm (EdDSA)](https://www.rfc-editor.org/rfc/rfc8032)
-
