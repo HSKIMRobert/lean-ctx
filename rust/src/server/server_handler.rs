@@ -560,12 +560,23 @@ impl ServerHandler for LeanCtxServer {
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ReadResourceResult, rmcp::ErrorData> {
         let ledger = self.ledger.read().await;
-        match resources::read_resource(&request.uri, &ledger) {
-            Some(contents) => Ok(rmcp::model::ReadResourceResult::new(contents)),
-            None => Err(rmcp::ErrorData::resource_not_found(
-                resources::unknown_resource_message(&request.uri),
-                None,
-            )),
+        if let Some(contents) = resources::read_resource(&request.uri, &ledger) {
+            return Ok(rmcp::model::ReadResourceResult::new(contents));
+        }
+
+        // GH #1418: agents sometimes call resources/read with file:// URIs
+        // instead of ctx_read — serve the file directly rather than erroring.
+        let session = self.session.read().await;
+        let root = session.project_root.as_deref();
+        match file_resource::read_file_resource(&request.uri, root, &session.extra_roots) {
+            Ok(contents) => Ok(rmcp::model::ReadResourceResult::new(contents)),
+            Err(file_resource::FileResourceError::NotAFilePath) => {
+                Err(rmcp::ErrorData::resource_not_found(
+                    resources::unknown_resource_message(&request.uri),
+                    None,
+                ))
+            }
+            Err(e) => Err(rmcp::ErrorData::resource_not_found(e.to_string(), None)),
         }
     }
 

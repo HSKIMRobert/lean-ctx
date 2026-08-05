@@ -7,6 +7,7 @@ mod dispatch;
 pub mod dynamic_tools;
 pub mod elicitation;
 pub(crate) mod execute;
+mod file_resource;
 pub mod helpers;
 pub mod multi_path;
 pub mod notifications;

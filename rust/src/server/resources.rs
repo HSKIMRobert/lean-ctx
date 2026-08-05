@@ -65,8 +65,8 @@ pub fn unknown_resource_message(uri: &str) -> String {
 
     if looks_like_file {
         format!(
-            "Unknown resource: {uri}. lean-ctx MCP resources are lean-ctx://context/* only \
-             (summary/pinned/pressure/plan/bounce) — not arbitrary files. \
+            "Unknown resource: {uri}. File not readable — it may not exist, \
+             be outside the project root, or be too large (>2 MiB). \
              For project files use ctx_read / ctx_patch. \
              For Claude auto memory (~/.claude/projects/<slug>/memory/) use native Read/Edit."
         )
@@ -214,7 +214,6 @@ mod tests {
         let msg = unknown_resource_message(
             "file:///home/jules/.claude/projects/-home-jules-Projects-blockposters/memory/MEMORY.md",
         );
-        assert!(msg.contains("lean-ctx://context/*"), "{msg}");
         assert!(msg.contains("ctx_read"), "{msg}");
         assert!(msg.contains("native Read/Edit"), "{msg}");
         assert!(msg.contains("auto memory"), "{msg}");
