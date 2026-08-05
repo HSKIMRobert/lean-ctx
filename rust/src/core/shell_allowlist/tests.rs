@@ -1450,3 +1450,33 @@ fn export_path_allowed_bare_inline_path_still_blocked() {
         "must be inline-env block, not allowlist: {bare_err}"
     );
 }
+
+#[test]
+fn allowlist_matches_first_word_of_multi_word_entry() {
+    // GH #1419: "terraform plan *" must match base "terraform"
+    use super::enforcement::matches_allowlist_entry;
+    let allowlist = vec!["terraform plan *".to_string()];
+    assert!(
+        matches_allowlist_entry("terraform", &allowlist),
+        "first word of 'terraform plan *' must match base 'terraform'"
+    );
+}
+
+#[test]
+fn allowlist_exact_match_still_works() {
+    use super::enforcement::matches_allowlist_entry;
+    let allowlist = vec!["git".to_string(), "cargo".to_string()];
+    assert!(matches_allowlist_entry("git", &allowlist));
+    assert!(matches_allowlist_entry("cargo", &allowlist));
+    assert!(!matches_allowlist_entry("terraform", &allowlist));
+}
+
+#[test]
+fn allowlist_multi_word_does_not_false_positive() {
+    use super::enforcement::matches_allowlist_entry;
+    let allowlist = vec!["terraform plan *".to_string()];
+    assert!(
+        !matches_allowlist_entry("git", &allowlist),
+        "unrelated base must not match 'terraform plan *'"
+    );
+}

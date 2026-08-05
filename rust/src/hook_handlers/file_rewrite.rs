@@ -213,6 +213,13 @@ pub(super) fn rewrite_candidate(cmd: &str, binary: &str) -> Option<String> {
         return None;
     }
 
+    // GH #1420: package manager operations on lean-ctx itself must not be
+    // rewritten — wrapping `npm install lean-ctx-bin` in `lean-ctx -c` locks
+    // the binary (EBUSY on Windows) and can hang.
+    if is_self_install_command(cmd) {
+        return None;
+    }
+
     // Heredocs cannot survive the quoting round-trip through `lean-ctx -c '...'`.
     // Newlines get escaped, breaking the heredoc syntax entirely (GitHub #140).
     if cmd.contains("<<") {
@@ -508,6 +515,40 @@ pub(super) fn build_rewrite_compound(cmd: &str, binary: &str) -> Option<String> 
     }
 }
 
+/// GH #1420: detect package-manager commands targeting the lean-ctx package.
+/// Rewriting these through `lean-ctx -c` locks the binary and prevents
+/// npm/cargo from replacing it (EBUSY on Windows, hang on all platforms).
+fn is_self_install_command(cmd: &str) -> bool {
+    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    let has_lean_ctx_pkg = tokens.iter().any(|t| t.contains("lean-ctx"));
+    if !has_lean_ctx_pkg {
+        return false;
+    }
+    let base = tokens
+        .first()
+        .map(|t| t.rsplit('/').next().unwrap_or(t))
+        .unwrap_or("");
+    matches!(
+        base,
+        "npm"
+            | "npx"
+            | "yarn"
+            | "pnpm"
+            | "bun"
+            | "pip"
+            | "pip3"
+            | "cargo"
+            | "winget"
+            | "choco"
+            | "scoop"
+            | "brew"
+            | "apt"
+            | "apt-get"
+            | "dnf"
+            | "pacman"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::rewrite_candidate;
@@ -554,6 +595,47 @@ mod tests {
         assert!(
             rewrite_candidate("cargo test --lib", binary).is_some(),
             "Command without env prefix must still rewrite"
+        );
+    }
+
+    #[test]
+    fn npm_install_lean_ctx_not_rewritten() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("npm install -g lean-ctx-bin", binary).is_none(),
+            "npm install of lean-ctx-bin must skip rewrite (#1420)"
+        );
+    }
+
+    #[test]
+    fn npm_uninstall_lean_ctx_not_rewritten() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("npm uninstall -g lean-ctx-bin", binary).is_none(),
+            "npm uninstall of lean-ctx-bin must skip rewrite (#1420)"
+        );
+    }
+
+    #[test]
+    fn cargo_install_lean_ctx_not_rewritten() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        assert!(
+            rewrite_candidate("cargo install lean-ctx", binary).is_none(),
+            "cargo install lean-ctx must skip rewrite (#1420)"
+        );
+    }
+
+    #[test]
+    fn npm_install_other_package_still_rewrites() {
+        let binary = "/Users/test/.local/bin/lean-ctx";
+        // npm install of unrelated packages should still be rewritten
+        // (npm is in the default allowlist, rewrite wraps for compression)
+        let _result = rewrite_candidate("npm install express", binary);
+        // npm install doesn't match file-read patterns, so it won't be
+        // rewritten anyway — but it must NOT be blocked by self-install check
+        assert!(
+            !super::is_self_install_command("npm install express"),
+            "unrelated npm install must not trigger self-install skip"
         );
     }
 

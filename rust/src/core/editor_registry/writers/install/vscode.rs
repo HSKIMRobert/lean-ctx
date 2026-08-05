@@ -6,11 +6,13 @@ use super::super::{WriteAction, WriteOptions, WriteResult};
 use crate::core::editor_registry::types::EditorTarget;
 
 fn vscode_mcp_entry(binary: &str) -> Value {
+    // GH #1424: no env block — VS Code supports MCP roots/list, so lean-ctx
+    // auto-detects the project root. ${workspaceFolder} fails when no folder
+    // is open, blocking the MCP server entirely.
     serde_json::json!({
         "type": "stdio",
         "command": binary,
-        "args": [],
-        "env": { "LEAN_CTX_PROJECT_ROOT": "${workspaceFolder}" }
+        "args": []
     })
 }
 
@@ -182,9 +184,12 @@ mod tests {
     use super::vscode_mcp_entry;
 
     #[test]
-    fn vscode_mcp_entry_scopes_server_to_workspace_folder() {
+    fn vscode_mcp_entry_has_no_env_block() {
         let entry = vscode_mcp_entry("/bin/lean-ctx");
 
-        assert_eq!(entry["env"]["LEAN_CTX_PROJECT_ROOT"], "${workspaceFolder}");
+        assert!(
+            entry.get("env").is_none(),
+            "env block must be absent (#1424)"
+        );
     }
 }

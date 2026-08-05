@@ -485,6 +485,15 @@ pub(super) fn is_project_root_binary(token: &str) -> bool {
     canonical.starts_with(&canonical_root)
 }
 
+/// GH #1419: match a command's base binary against allowlist entries that may
+/// contain subcommands or wildcards (e.g. "terraform plan *"). Compares `base`
+/// against both the full entry and its first word.
+pub(super) fn matches_allowlist_entry(base: &str, allowlist: &[String]) -> bool {
+    allowlist
+        .iter()
+        .any(|entry| entry == base || entry.split_whitespace().next() == Some(base))
+}
+
 pub(super) fn check_all_segments(command: &str, allowlist: &[String]) -> Result<(), ShellError> {
     if allowlist.is_empty() {
         return Ok(());
@@ -526,7 +535,7 @@ pub(super) fn check_all_segments(command: &str, allowlist: &[String]) -> Result<
         }
         check_interpreter_abuse(seg, allowlist)?;
         check_dangerous_flags(seg)?;
-        if !allowlist.iter().any(|a| a == &base) {
+        if !matches_allowlist_entry(&base, allowlist) {
             // #813: auto-allow binaries that resolve to existing files under
             // the project root. The first token (before rsplit) carries the
             // path context (e.g. "./cbc_old", "../bin/bench").
