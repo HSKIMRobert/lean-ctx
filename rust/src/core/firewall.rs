@@ -88,7 +88,13 @@ pub(crate) fn should_inline_shell(
 /// a head/tail excerpt for multi-line output, or a char-bounded excerpt for output with
 /// few but very long lines (e.g. a single giant JSON line), followed by drilldown
 /// instructions keyed on `archive_id`.
-pub(crate) fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens: usize) -> String {
+pub(crate) fn summarize(
+    full: &str,
+    archive_id: &str,
+    tool: &str,
+    output_tokens: usize,
+    command: &str,
+) -> String {
     let chars = full.len();
     let lines: Vec<&str> = full.lines().collect();
     let line_count = lines.len();
@@ -122,6 +128,25 @@ pub(crate) fn summarize(full: &str, archive_id: &str, tool: &str, output_tokens:
             out.push_str(&full[tail_start..]);
             out.push('\n');
         }
+    }
+
+    // Shape info: helps agents understand why line-based chunking may fail.
+    let max_line = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    if max_line > 2000 {
+        out.push_str(&format!(
+            "⚠ longest line: {max_line} chars — line-based offset/limit chunking will not help; use ctx_expand(search=…) or ctx_expand(json_keys=true).\n"
+        ));
+    }
+
+    // GH #1432: content-aware guidance instead of a blanket "read 100%" mandate.
+    out.push_str("--- guidance ---\n");
+    if json_structure_preview(full).is_some() {
+        out.push_str("Content is JSON. Use targeted extraction (ctx_expand with json_keys or search) rather than reading sequentially.\n");
+        if command.contains("--json") && !command.contains("--jq") {
+            out.push_str("TIP: re-run the command with a --jq filter to select only the fields you need at the source.\n");
+        }
+    } else {
+        out.push_str("Use ctx_expand(search=\"KEYWORD\") for targeted extraction. Only read the full archive if you genuinely need every line.\n");
     }
 
     out.push_str("--- retrieve full output ---\n");
@@ -304,7 +329,7 @@ mod tests {
             .map(|i| format!("line {i}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let digest = summarize(&full, "abc123", "ctx_shell", 1234);
+        let digest = summarize(&full, "abc123", "ctx_shell", 1234, "cargo test");
         assert!(digest.contains("Firewalled ctx_shell output"));
         assert!(digest.contains("1234 tok"));
         assert!(digest.contains("line 1")); // head
@@ -319,7 +344,7 @@ mod tests {
     #[test]
     fn summarize_handles_single_giant_line() {
         let full = "x".repeat(5000);
-        let digest = summarize(&full, "id9", "ctx_search", 1300);
+        let digest = summarize(&full, "id9", "ctx_search", 1300, "rg pattern");
         assert!(digest.contains("Firewalled ctx_search output"));
         assert!(digest.contains("truncated"));
         assert!(digest.len() < full.len());
@@ -334,7 +359,13 @@ mod tests {
         }))
         .unwrap();
 
-        let digest = summarize(&full, "json1", "ctx_shell", 2000);
+        let digest = summarize(
+            &full,
+            "json1",
+            "ctx_shell",
+            2000,
+            "gh issue view --json comments",
+        );
         assert!(!digest.contains("… (truncated) …"));
         let preview = digest
             .lines()

@@ -202,8 +202,10 @@ pub fn handle_filtered(
     if !used_index {
         // Vendor dirs (node_modules, …) follow the gitignore toggle: explicitly
         // disabling gitignore is the escape hatch to look inside them (#400).
+        // GH #1431: hidden(false) for consistency with ctx_glob — dot-dirs
+        // must be searchable; gitignore + is_secret_like guard the rest.
         let walker = WalkBuilder::new(root)
-            .hidden(true)
+            .hidden(false)
             .max_depth(Some(MAX_WALK_DEPTH))
             .git_ignore(respect_gitignore)
             .git_global(respect_gitignore)

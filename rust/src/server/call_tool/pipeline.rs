@@ -224,7 +224,10 @@ pub(in crate::server) async fn dispatch_and_post_process(
     // exceeds the ephemeral threshold, the full (redacted) body is stored out-of-band
     // and the inline result is replaced by a compact digest + ctx_expand drilldown.
     let mut firewalled = false;
-    let archive_hint = if minimal || is_raw_shell {
+    // GH #1432: raw mode still needs the firewall for genuinely oversized
+    // outputs — `raw` means "skip compression patterns", not "bypass safety".
+    // `minimal` (no-overhead mode) is the only true bypass.
+    let archive_hint = if minimal {
         None
     } else {
         use crate::core::archive;
@@ -247,7 +250,8 @@ pub(in crate::server) async fn dispatch_and_post_process(
             let tokens = crate::core::tokens::count_tokens(&to_store);
             match archive::store(name, &cmd, &to_store, Some(&session_id)) {
                 Some(id) if crate::core::firewall::should_firewall(name, tokens, &config) => {
-                    result_text = crate::core::firewall::summarize(&to_store, &id, name, tokens);
+                    result_text =
+                        crate::core::firewall::summarize(&to_store, &id, name, tokens, &cmd);
                     firewalled = true;
                     None
                 }

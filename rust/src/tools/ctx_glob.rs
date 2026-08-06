@@ -56,8 +56,11 @@ pub fn handle(
 
     // Vendor dirs (node_modules, …) follow the gitignore toggle: explicitly
     // disabling gitignore is the escape hatch to look inside them (#400).
+    // GH #1431: hidden(false) — dot-directories like .agents/, .github/,
+    // .cursor/ must be walkable; the user's glob pattern is the intent
+    // filter, gitignore handles exclusion, is_secret_like guards secrets.
     let walker = WalkBuilder::new(root)
-        .hidden(true)
+        .hidden(false)
         .git_ignore(respect_gitignore)
         .git_global(respect_gitignore)
         .git_exclude(respect_gitignore)
@@ -272,6 +275,36 @@ mod tests {
         assert!(
             out.contains("visible.rs"),
             "junction root must be traversed: {out}"
+        );
+    }
+
+    /// GH #1431: dot-directories are walkable (hidden(false)).
+    #[test]
+    fn glob_finds_files_in_dot_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        // .gitignore only ignores a specific file, not the whole dir.
+        std::fs::write(dir.path().join(".gitignore"), ".agents/finding\n").unwrap();
+        std::fs::create_dir_all(dir.path().join(".agents/plans")).unwrap();
+        std::fs::write(dir.path().join(".agents/plans/todo-1.md"), "task 1").unwrap();
+        std::fs::write(dir.path().join(".agents/plans/todo-2.md"), "task 2").unwrap();
+        std::fs::write(dir.path().join(".agents/finding"), "secret").unwrap();
+
+        let (out, _) = handle(
+            ".agents/plans/todo-*.md",
+            &dir.path().to_string_lossy(),
+            true,
+            true,
+            100,
+        );
+        assert!(
+            out.contains("todo-1.md"),
+            "dot-dir files must be walkable: {out}"
+        );
+        assert!(out.contains("todo-2.md"), "must find all matches: {out}");
+        assert!(
+            !out.contains("finding"),
+            "gitignored file must still be excluded: {out}"
         );
     }
 }
