@@ -88,8 +88,12 @@ impl Config {
             .or_else(|| self.permission_inheritance.clone())
             .unwrap_or_default();
         match raw.trim().to_lowercase().as_str() {
-            "on" | "true" | "1" | "inherit" => PermissionInheritance::On,
-            _ => PermissionInheritance::Off,
+            "off" | "false" | "0" | "none" => PermissionInheritance::Off,
+            // GH #1428: default to On so IDE permission rules (e.g. "rm *": "ask")
+            // are honored by ctx_* tools out of the box. The check is read-only and
+            // only activates when an IDE with a permission system is detected
+            // (v1: OpenCode); undetected IDEs are always allowed through.
+            _ => PermissionInheritance::On,
         }
     }
 

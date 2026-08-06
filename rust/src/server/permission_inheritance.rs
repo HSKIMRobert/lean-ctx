@@ -92,14 +92,6 @@ pub fn check(
     if config.permission_inheritance_effective() != PermissionInheritance::On {
         return PermissionCheck::allow();
     }
-    // shadow_mode writes permission denies to the same opencode.json `permission`
-    // object that inheritance reads from. If both are active, native tools are
-    // denied (shadow mode) AND ctx_* tools are denied (inheritance mirroring the
-    // shadow denies back), leaving the agent with no working tools. Since shadow
-    // mode already handles its own permission controls, disable inheritance.
-    if config.shadow_mode {
-        return PermissionCheck::allow();
-    }
     let Some(cid) = client_id(client_name) else {
         return PermissionCheck::allow();
     };
@@ -110,7 +102,33 @@ pub fn check(
     if policy.is_empty() {
         return PermissionCheck::allow();
     }
+
+    // Shadow mode writes top-level denies (read/grep/glob/bash) into the IDE's
+    // permission config. A blanket skip would also suppress user sub-command
+    // rules like "rm *": "ask" — a dangerous bypass (GH #1428). Instead: run
+    // the check, then filter out top-level denies for the four shadow-denied
+    // tool keys (those were written by lean-ctx itself). User sub-command rules
+    // (e.g. "bash:rm *") are always honored.
+    if config.shadow_mode {
+        let decision = policy.resolve(key, input.as_deref());
+        if let Some(ref d) = decision {
+            if is_shadow_written_deny(&d.rule) {
+                return PermissionCheck::allow();
+            }
+        }
+        return decide(display_name(cid), &policy, tool, key, input.as_deref());
+    }
+
     decide(display_name(cid), &policy, tool, key, input.as_deref())
+}
+
+/// The four tool keys that shadow mode writes as `"deny"` into the IDE's
+/// permission config. A matched rule whose name is exactly one of these was
+/// shadow-written by lean-ctx — not user-authored — and should be skipped
+/// so the agent retains working tools. Sub-command rules like `"bash:rm *"`
+/// are user-authored and must be honored.
+fn is_shadow_written_deny(rule: &str) -> bool {
+    matches!(rule, "bash" | "read" | "grep" | "glob")
 }
 
 /// Pure decision: given a loaded policy, resolve the action for `tool` (mapped to
@@ -336,6 +354,47 @@ mod tests {
     #[test]
     fn truncate_keeps_short_strings() {
         assert_eq!(truncate("short", 200), "short");
-        assert_eq!(truncate("abcdef", 3), "abc…");
+        assert_eq!(truncate("abcdef", 3), "abc\u{2026}");
+    }
+
+    #[test]
+    fn is_shadow_written_deny_recognizes_tool_keys() {
+        assert!(is_shadow_written_deny("bash"));
+        assert!(is_shadow_written_deny("read"));
+        assert!(is_shadow_written_deny("grep"));
+        assert!(is_shadow_written_deny("glob"));
+    }
+
+    #[test]
+    fn is_shadow_written_deny_rejects_user_rules() {
+        assert!(!is_shadow_written_deny("bash:rm *"));
+        assert!(!is_shadow_written_deny("bash:*"));
+        assert!(!is_shadow_written_deny("read:*.env"));
+        assert!(!is_shadow_written_deny("*"));
+        assert!(!is_shadow_written_deny("edit"));
+    }
+
+    #[test]
+    fn shadow_mode_honors_user_rm_ask_rule() {
+        // GH #1428: the exact scenario Stephen reported — shadow mode must
+        // NOT bypass the user's "rm *": "ask" rule.
+        let p = policy(json!({ "bash": "deny", "rm *": "ask" }));
+        // Direct policy resolve → the sub-command rule wins:
+        let d = p.resolve("bash", Some("rm -rf /tmp/important")).unwrap();
+        assert_eq!(d.action, PermAction::Ask);
+        assert_eq!(d.rule, "bash:rm *");
+        // The helper correctly classifies this as user-authored:
+        assert!(!is_shadow_written_deny(&d.rule));
+    }
+
+    #[test]
+    fn shadow_mode_skips_shadow_written_bash_deny() {
+        // When shadow mode wrote "bash": "deny", a plain `ls` command must
+        // not be denied — that deny is shadow-written, not user-authored.
+        let p = policy(json!({ "bash": "deny" }));
+        let d = p.resolve("bash", Some("ls")).unwrap();
+        assert_eq!(d.action, PermAction::Deny);
+        assert_eq!(d.rule, "bash");
+        assert!(is_shadow_written_deny(&d.rule));
     }
 }

@@ -1,15 +1,16 @@
 use super::*;
 
 #[test]
-fn default_is_off() {
-    // Guard against a stray env var leaking into the test process.
+fn default_is_on() {
+    // GH #1428: default changed to On so IDE permission rules are honored
+    // out of the box. Guard against a stray env var leaking into the test.
     if std::env::var("LEAN_CTX_PERMISSION_INHERITANCE").is_ok() {
         return;
     }
     let cfg = Config::default();
     assert_eq!(
         cfg.permission_inheritance_effective(),
-        PermissionInheritance::Off
+        PermissionInheritance::On
     );
 }
 
@@ -29,12 +30,28 @@ fn config_on() {
 }
 
 #[test]
-fn unknown_value_falls_back_to_off() {
+fn unknown_value_falls_back_to_on() {
+    // GH #1428: unrecognized values default to On (safer posture).
     if std::env::var("LEAN_CTX_PERMISSION_INHERITANCE").is_ok() {
         return;
     }
     let cfg = Config {
         permission_inheritance: Some("nonsense".to_string()),
+        ..Default::default()
+    };
+    assert_eq!(
+        cfg.permission_inheritance_effective(),
+        PermissionInheritance::On
+    );
+}
+
+#[test]
+fn explicit_off_disables() {
+    if std::env::var("LEAN_CTX_PERMISSION_INHERITANCE").is_ok() {
+        return;
+    }
+    let cfg = Config {
+        permission_inheritance: Some("off".to_string()),
         ..Default::default()
     };
     assert_eq!(
