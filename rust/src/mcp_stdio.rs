@@ -218,9 +218,34 @@ fn should_ignore_notification(json_value: &serde_json::Value, method: &str) -> b
     )
 }
 
+/// GH #1434: Reply -32601 for unknown JSON-RPC requests so compliant
+/// clients (e.g. Go SDK >= 1.7 sending `server/discover`) fall back
+/// gracefully instead of seeing EOF.
+fn write_method_not_found(id: &serde_json::Value, method: &str, protocol: Option<WireProtocol>) {
+    let response = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32601,
+            "message": format!("Method not found: {method}")
+        }
+    });
+    let body = serde_json::to_string(&response).unwrap_or_default();
+    let mut out = std::io::stdout().lock();
+    use std::io::Write;
+    let _ = if let Some(WireProtocol::ContentLength) = protocol {
+        write!(out, "Content-Length: {}\r\n\r\n{}", body.len(), body)
+    } else {
+        writeln!(out, "{body}")
+    };
+    let _ = std::io::Write::flush(&mut out);
+    tracing::debug!("Replied -32601 MethodNotFound for '{method}'");
+}
+
 fn try_parse_with_compatibility<T: DeserializeOwned>(
     payload: &[u8],
     context: &str,
+    protocol: Option<WireProtocol>,
 ) -> Result<Option<T>, HybridCodecError> {
     if let Ok(line_str) = std::str::from_utf8(payload) {
         match serde_json::from_slice(payload) {
@@ -229,9 +254,17 @@ fn try_parse_with_compatibility<T: DeserializeOwned>(
                 if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(line_str)
                     && let Some(method) =
                         json_value.get("method").and_then(serde_json::Value::as_str)
-                    && should_ignore_notification(&json_value, method)
                 {
-                    return Ok(None);
+                    if should_ignore_notification(&json_value, method) {
+                        return Ok(None);
+                    }
+                    // GH #1434: unknown request (has id) → reply MethodNotFound
+                    if let Some(id) = json_value.get("id") {
+                        if !is_standard_method(method) {
+                            write_method_not_found(id, method, protocol);
+                            return Ok(None);
+                        }
+                    }
                 }
 
                 tracing::debug!(
@@ -342,7 +375,11 @@ impl<T: DeserializeOwned> HybridJsonRpcMessageCodec<T> {
             let payload = &frame[body_start..];
             self.protocol.set_if_unset(WireProtocol::ContentLength);
 
-            match try_parse_with_compatibility(payload, "decode_content_length") {
+            match try_parse_with_compatibility(
+                payload,
+                "decode_content_length",
+                self.protocol.get(),
+            ) {
                 Ok(Some(item)) => return Ok(Some(item)),
                 // An ignored notification — fall through and scan the next frame.
                 Ok(None) => {}
@@ -384,7 +421,11 @@ impl<T: DeserializeOwned> HybridJsonRpcMessageCodec<T> {
                     let payload = without_carriage_return(line);
                     self.protocol.set_if_unset(WireProtocol::JsonLine);
 
-                    match try_parse_with_compatibility(payload, "decode_json_line") {
+                    match try_parse_with_compatibility(
+                        payload,
+                        "decode_json_line",
+                        self.protocol.get(),
+                    ) {
                         Ok(Some(item)) => return Ok(Some(item)),
                         // An ignored notification — keep scanning for a real frame.
                         Ok(None) => {}
@@ -446,7 +487,7 @@ impl<T: DeserializeOwned> Decoder for HybridJsonRpcMessageCodec<T> {
                     let payload = without_carriage_return(&line);
                     // At true stream end a malformed trailing frame is discarded
                     // (clean close) rather than surfaced as a transport error.
-                    match try_parse_with_compatibility(payload, "decode_eof") {
+                    match try_parse_with_compatibility(payload, "decode_eof", self.protocol.get()) {
                         Ok(item) => item,
                         Err(err) => {
                             tracing::warn!("discarding malformed trailing frame at EOF: {err}");

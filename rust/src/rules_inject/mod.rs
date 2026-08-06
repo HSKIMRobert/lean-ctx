@@ -170,6 +170,12 @@ pub fn inject_all_rules(home: &std::path::Path) -> InjectResult {
         if !is_tool_detected(target, home) {
             continue;
         }
+        // GH #1435: skip rules injection when the tool's MCP server is not
+        // configured — a rules file that mandates ctx_* tools for an agent
+        // that can't reach them is a self-contradiction.
+        if !detect::is_mcp_configured(target, home) {
+            continue;
+        }
 
         let bak_path = target.path.with_extension(format!(
             "{}.bak",

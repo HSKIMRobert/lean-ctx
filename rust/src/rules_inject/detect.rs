@@ -170,3 +170,21 @@ fn detect_extension_installed(_home: &std::path::Path, extension_id: &str) -> bo
 // ---------------------------------------------------------------------------
 // Target definitions
 // ---------------------------------------------------------------------------
+
+/// GH #1435: Check whether the lean-ctx MCP server is actually configured
+/// for a given tool. Returns `true` if the tool's MCP config file references
+/// lean-ctx, or if we cannot determine the config path (fail-open).
+pub(super) fn is_mcp_configured(target: &RulesTarget, home: &std::path::Path) -> bool {
+    let targets = crate::core::editor_registry::build_targets(home);
+    let mcp_target = targets.iter().find(|t| t.name == target.name);
+    let Some(mcp_target) = mcp_target else {
+        return true;
+    };
+    if !mcp_target.config_path.exists() {
+        return false;
+    }
+    match std::fs::read_to_string(&mcp_target.config_path) {
+        Ok(s) => s.contains("lean-ctx"),
+        Err(_) => true,
+    }
+}

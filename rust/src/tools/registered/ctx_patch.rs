@@ -93,10 +93,22 @@ impl McpTool for CtxPatchTool {
         // #1088: replace_unique/replace_symbol are allowed inside ops[]. Split
         // the batch into runs: each delegated op reuses its single-op write
         // path; consecutive anchored ops keep shared-preimage batch semantics.
-        if let Some(arr) = args.get("ops").and_then(Value::as_array)
-            && arr.iter().any(|v| delegated_op_kind(v).is_some())
-        {
-            return handle_mixed_batch(args, arr, ctx);
+        if let Some(arr) = args.get("ops").and_then(Value::as_array) {
+            // GH #1433: pre-validate before any ops are applied.
+            for (i, v) in arr.iter().enumerate() {
+                if let Some(kind) = is_unbatchable_op(v) {
+                    return Err(ErrorData::invalid_params(
+                        format!(
+                            "ops[{i}]: {kind} cannot be batched in ops[] \
+                             — send it as a separate top-level ctx_patch call"
+                        ),
+                        None,
+                    ));
+                }
+            }
+            if arr.iter().any(|v| delegated_op_kind(v).is_some()) {
+                return handle_mixed_batch(args, arr, ctx);
+            }
         }
 
         handle_anchored(args, ctx)
@@ -174,11 +186,38 @@ fn delegated_op_kind(v: &Value) -> Option<&str> {
 /// anchored ops flush as one shared-preimage batch; each delegated op is
 /// dispatched through the same delegate as its top-level form, evaluated
 /// against the file state left by the preceding ops.
+/// Ops that require their own top-level ctx_patch call and cannot be
+/// batched inside ops[].
+fn is_unbatchable_op(v: &Value) -> Option<&str> {
+    v.get("op")
+        .and_then(Value::as_str)
+        .filter(|k| matches!(*k, "replace_all" | "create"))
+}
+
 fn handle_mixed_batch(
     args: &Map<String, Value>,
     arr: &[Value],
     ctx: &ToolContext,
 ) -> Result<ToolOutput, ErrorData> {
+    // GH #1433: pre-validate the entire batch before applying any op.
+    for (i, v) in arr.iter().enumerate() {
+        if !v.is_object() {
+            return Err(ErrorData::invalid_params(
+                format!("ops[{i}] must be an object"),
+                None,
+            ));
+        }
+        if let Some(kind) = is_unbatchable_op(v) {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "ops[{i}]: {kind} cannot be batched in ops[] \
+                     — send it as a separate top-level ctx_patch call"
+                ),
+                None,
+            ));
+        }
+    }
+
     let mut texts: Vec<String> = Vec::new();
     let mut run: Vec<Value> = Vec::new();
     for (i, v) in arr.iter().enumerate() {
