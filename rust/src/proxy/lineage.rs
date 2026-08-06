@@ -48,10 +48,18 @@ pub(super) fn from_trusted_request(
     parts: &Parts,
     exact_bounded_body: &[u8],
 ) -> Option<OclaRequestContext> {
-    parts
-        .extensions
-        .get::<super::gateway_identity::TrustedGatewayRequest>()
-        .and_then(|_| from_trusted_headers(&parts.headers, exact_bounded_body))
+    #[cfg(feature = "enterprise")]
+    {
+        parts
+            .extensions
+            .get::<super::gateway_identity::TrustedGatewayRequest>()
+            .and_then(|_| from_trusted_headers(&parts.headers, exact_bounded_body))
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let _ = (parts, exact_bounded_body);
+        None
+    }
 }
 
 fn exact_id(headers: &HeaderMap, name: &'static str) -> Option<String> {
@@ -73,7 +81,9 @@ fn exact_id(headers: &HeaderMap, name: &'static str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue, Request};
+    #[cfg(feature = "enterprise")]
+    use axum::http::Request;
+    use axum::http::{HeaderMap, HeaderValue};
 
     use super::*;
 
@@ -175,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "enterprise")]
     fn lineage_headers_require_gateway_auth_marker() {
         let request = Request::builder()
             .header(REQUEST_ID_HEADER, "req-1")

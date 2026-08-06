@@ -45,6 +45,7 @@ pub mod dedup;
 pub mod effort;
 pub mod effort_routing;
 pub mod forward;
+#[cfg(feature = "enterprise")]
 pub mod gateway_identity;
 pub mod google;
 pub mod history_prune;
@@ -63,6 +64,7 @@ pub mod openai_responses;
 pub mod openai_responses_ws;
 pub mod output_savings;
 pub mod pii;
+#[cfg(feature = "enterprise")]
 pub mod policy_gate;
 pub mod prefix_cache_stats;
 pub mod prefix_replay;
@@ -638,6 +640,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
     // Per-person gateway keys (enterprise#11): sha256(bearer) → person/team/
     // default_project. Loaded once at startup; rotation = restart (the standard
     // secret-mount flow). A malformed file fails the start loudly.
+    #[cfg(feature = "enterprise")]
     let gateway_keys = match gateway_identity::GatewayKeys::load_default() {
         Ok(keys) => {
             if !keys.is_empty() {
@@ -652,6 +655,7 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
         Err(e) => anyhow::bail!("gateway-keys.toml: {e}"),
     };
 
+    #[cfg(feature = "enterprise")]
     {
         let expected = auth_token.clone();
         let keys = gateway_keys.clone();
@@ -669,6 +673,17 @@ pub async fn start_proxy_with_token(port: u16, auth_token: Option<String>) -> an
                 keys,
                 upstreams,
             )
+        }));
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    {
+        let expected = auth_token.clone();
+        let upstreams = auth_upstreams;
+        app = app.layer(axum::middleware::from_fn(move |req, next| {
+            let expected = expected.clone();
+            let upstreams = upstreams.clone();
+            proxy_auth_guard(req, next, expected, require_token, loopback_open, upstreams)
         }));
     }
 
@@ -923,13 +938,14 @@ async fn status_handler(State(state): State<ProxyState>) -> impl IntoResponse {
 }
 
 #[allow(clippy::result_large_err)]
+#[cfg_attr(not(feature = "enterprise"), allow(unused_mut))]
 async fn proxy_auth_guard(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
     expected_token: String,
     require_token: bool,
     loopback_open: bool,
-    gateway_keys: Arc<gateway_identity::GatewayKeys>,
+    #[cfg(feature = "enterprise")] gateway_keys: Arc<gateway_identity::GatewayKeys>,
     upstreams: tokio::sync::watch::Receiver<Arc<Upstreams>>,
 ) -> Result<Response, Response> {
     let path = req.uri().path();
@@ -939,9 +955,12 @@ async fn proxy_auth_guard(
 
     // #755: loopback-open mode skips all auth — every local process is trusted.
     if loopback_open {
-        req.extensions_mut()
-            .insert(gateway_identity::TrustedGatewayRequest);
-        attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
+        #[cfg(feature = "enterprise")]
+        {
+            req.extensions_mut()
+                .insert(gateway_identity::TrustedGatewayRequest);
+            attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
+        }
         return Ok(next.run(req).await);
     }
 
@@ -956,15 +975,19 @@ async fn proxy_auth_guard(
         && !proxy_token_expired(token, std::time::SystemTime::now())
         && constant_time_eq(token.as_bytes(), expected_token.as_bytes())
     {
-        req.extensions_mut()
-            .insert(gateway_identity::TrustedGatewayRequest);
-        attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
+        #[cfg(feature = "enterprise")]
+        {
+            req.extensions_mut()
+                .insert(gateway_identity::TrustedGatewayRequest);
+            attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
+        }
         return Ok(next.run(req).await);
     }
 
     // Per-person gateway keys (enterprise#11): a bearer key whose SHA-256 is in
     // gateway-keys.toml authenticates AND identifies — its person/team/project
     // tags travel with the request and end up on the usage record.
+    #[cfg(feature = "enterprise")]
     if let Some(token) = bearer.as_deref()
         && let Some(tags) = gateway_keys.lookup(token)
     {
@@ -986,6 +1009,7 @@ async fn proxy_auth_guard(
         is_provider_route(path),
         client_auth_registry,
     ) {
+        #[cfg(feature = "enterprise")]
         attach_gateway_tags(&mut req, gateway_identity::GatewayTags::default());
         return Ok(next.run(req).await);
     }
@@ -1044,6 +1068,7 @@ fn auth_error_response(path: &str) -> Response {
 /// per request. The header also works without a gateway key (solo/local mode:
 /// project tagging without identity). It is an internal gateway header, not on
 /// `ALLOWED_REQUEST_HEADERS`, so it never reaches the upstream.
+#[cfg(feature = "enterprise")]
 fn attach_gateway_tags(req: &mut axum::extract::Request, mut tags: gateway_identity::GatewayTags) {
     if let Some(project) = req
         .headers()

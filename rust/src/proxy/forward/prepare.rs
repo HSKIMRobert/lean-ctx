@@ -136,11 +136,14 @@ pub(crate) fn wire_context(
     original_size: usize,
     lineage: Option<crate::core::ocla::OclaRequestContext>,
 ) -> Box<crate::proxy::usage::WireContext> {
+    #[cfg(feature = "enterprise")]
     let tags = parts
         .extensions
         .get::<crate::proxy::gateway_identity::GatewayTags>()
         .cloned()
         .unwrap_or_default();
+    #[cfg(not(feature = "enterprise"))]
+    let tags = crate::proxy::usage::WireContext::default();
     // Registry routes attribute usage to the provider identity ("foundry",
     // "local"), not the wire-shape label ("OpenAI") — shape ≠ identity. The
     // entry's resolved local flag rides along (shadow-rate billing for

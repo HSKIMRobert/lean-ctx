@@ -116,7 +116,9 @@ pub async fn forward_request(
     // Org-policy gate (enterprise#25): under a signed + trusted + enforced org
     // policy, refuse models outside the ceiling and requests over a hard
     // budget — before any routing/compression work. No policy → no-op.
+    #[cfg(feature = "enterprise")]
     let gate_rules = super::policy_gate::active_rules();
+    #[cfg(feature = "enterprise")]
     if let Some(rules) = &gate_rules {
         let tags = parts
             .extensions
@@ -142,6 +144,7 @@ pub async fn forward_request(
     // upstream within the same wire shape. Fail-open: any miss routes nothing.
     // An org policy may exempt specific projects from downgrades (#25).
     let routing_rules = crate::core::config::Config::load().proxy.routing.clone();
+    #[cfg(feature = "enterprise")]
     let downgrade_forbidden = gate_rules.as_ref().is_some_and(|rules| {
         let project = parts
             .extensions
@@ -149,6 +152,8 @@ pub async fn forward_request(
             .and_then(|t| t.project.clone());
         super::policy_gate::downgrade_forbidden(rules, project.as_deref())
     });
+    #[cfg(not(feature = "enterprise"))]
+    let downgrade_forbidden = false;
     let route_upstreams =
         (routing_rules.is_active() && !downgrade_forbidden).then(|| state.upstream_snapshot());
     // Cross-shape translation (enterprise#16) only exists for the exact

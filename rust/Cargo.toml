@@ -96,6 +96,7 @@ path = "src/bin/bench_cross_agent_cache.rs"
 required-features = ["dev-tools"]
 
 [features]
+enterprise = []
 default = [
   "tree-sitter",
   "embeddings",
