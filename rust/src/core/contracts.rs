@@ -96,7 +96,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
     vec![
         // ── Frozen: externally consumed platform/transport promises ────────
         doc("http-mcp", "http-mcp-contract-v1.md", 1, Frozen),
-        doc("team-server", "team-server-contract-v1.md", 1, Frozen),
         doc("context-ir", "context-ir-v1.md", 1, Frozen),
         doc(
             "local-free-invariant",
@@ -110,7 +109,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             1,
             Frozen,
         ),
-        doc("billing-plane", "billing-plane-v1.md", 1, Frozen),
         doc("wasm-abi", "wasm-abi-v1.md", 1, Frozen),
         // Release promotion, offline rollback rehearsal and signing-key
         // rotation are externally consumed fail-closed supply-chain formats.
@@ -133,20 +131,9 @@ pub fn contract_docs() -> Vec<ContractDoc> {
         // key list to TOP_LEVEL_KEYS, so the doc grows with every new key —
         // freezing the file would contradict its own contract.
         doc("capabilities", "capabilities-contract-v1.md", 1, Stable),
-        doc("billing-plane-v2", "billing-plane-v2.md", 2, Stable),
         // v2 = v1 + storageQuotaBytes/roiWebhookUrl (GL #387/#388); v1 stays frozen.
-        doc("billing-plane-v3", "billing-plane-v3.md", 3, Stable),
         // v3 = v1 + sso_oidc entitlement (GL #460/#533); additive. Business merged into Team in v3.9.
         doc("evidence-bundle", "evidence-bundle-v1.md", 1, Stable),
-        // Offline-verifiable audit evidence ZIP (GL #425, H3 Epic A).
-        doc(
-            "settlement-evidence",
-            "settlement-evidence-v2.md",
-            2,
-            Stable,
-        ),
-        // Payload-free OSS eligibility evidence; approval/invoice authority stays private.
-        doc("team-server-v2", "team-server-contract-v2.md", 2, Stable),
         doc("a2a", "a2a-contract-v1.md", 1, Stable),
         doc(
             "attention-layout-driver",
@@ -155,7 +142,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             Stable,
         ),
         doc("autonomy-drivers", "autonomy-drivers-v1.md", 1, Stable),
-        doc("ccp-session-bundle", "ccp-session-bundle-v1.md", 1, Stable),
         doc("conformance", "conformance-v1.md", 1, Stable),
         doc(
             "ocla-verifier-conformance",
@@ -263,12 +249,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             Experimental,
         ),
         doc(
-            "hosted-personal-index",
-            "hosted-personal-index-v1.md",
-            1,
-            Experimental,
-        ),
-        doc(
             "personal-cloud-encryption",
             "personal-cloud-encryption-v1.md",
             1,
@@ -282,10 +262,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
             1,
             Experimental,
         ),
-        doc("device-overview", "device-overview-v1.md", 1, Experimental),
-        doc("email-digest", "email-digest-v1.md", 1, Experimental),
-        doc("org-audit-log", "org-audit-log-v1.md", 1, Experimental),
-        doc("org-sso-oidc", "org-sso-oidc-v1.md", 1, Experimental),
         // Quality loop (GL #494): edit-failure feedback into mode selection.
         doc("quality-loop", "quality-loop-v1.md", 1, Experimental),
         // Edit metering (GL #1144): anchored-vs-str_replace efficiency channel.
@@ -303,17 +279,6 @@ pub fn contract_docs() -> Vec<ContractDoc> {
         doc(
             "team-invite-links",
             "team-invite-links-v1.md",
-            1,
-            Experimental,
-        ),
-        // Org policy & compliance surfaces, still evolving with the Enterprise
-        // plane — Experimental until they stabilise. Commercial Enterprise
-        // licensing (#667) and success-fee billing (#669) live in the private
-        // cloud plane, not in the open engine (oss-plane-separation-v1).
-        doc("org-policy", "org-policy-v1.md", 1, Experimental),
-        doc(
-            "compliance-report",
-            "compliance-report-v1.md",
             1,
             Experimental,
         ),
@@ -474,11 +439,9 @@ mod tests {
         let docs = contract_docs();
         for id in [
             "http-mcp",
-            "team-server",
             "context-ir",
             "local-free-invariant",
             "oss-plane-separation",
-            "billing-plane",
             "wasm-abi",
             "delivery-manifest",
             "deployment-rehearsal",
@@ -498,7 +461,6 @@ mod tests {
         let kv = status_kv();
         assert_eq!(kv.len(), contract_docs().len());
         assert_eq!(kv["http-mcp"], "frozen");
-        assert_eq!(kv["hosted-personal-index"], "experimental");
         assert_eq!(kv["personal-cloud-encryption"], "experimental");
         assert_eq!(kv["context-candidate-admission"], "experimental");
         assert_eq!(kv["multi-agent-efficiency-benchmark"], "experimental");

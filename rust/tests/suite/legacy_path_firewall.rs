@@ -27,6 +27,7 @@ use std::path::{Path, PathBuf};
 /// resolvers over time and delete the entry here when done.
 const ALLOWLIST: &[&str] = &[
     // Group 1: legitimate owners of the legacy path.
+    "core/config_heal.rs",
     "core/data_dir.rs",
     "core/paths.rs",
     "core/xdg_migrate.rs",
