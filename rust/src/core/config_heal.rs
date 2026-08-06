@@ -47,6 +47,48 @@ pub(crate) fn heal() -> Option<ConfigHealReport> {
     heal_between(&config_dir, &data_dir)
 }
 
+/// Relocate a stale `config.toml` from the legacy `~/.lean-ctx` dir to the
+/// canonical config dir (GH #1421). Only acts when `~/.lean-ctx` is NOT the
+/// active config dir — i.e. the install has already migrated to XDG but the
+/// old config file was left behind. Uses the same adopt/supersede logic as
+/// [`heal`].
+pub(crate) fn heal_legacy_config() -> Option<ConfigHealReport> {
+    let config_dir = crate::core::paths::config_dir().ok()?;
+    let legacy_dir = dirs::home_dir()?.join(".lean-ctx");
+    if legacy_dir == config_dir {
+        return None;
+    }
+    heal_between(&config_dir, &legacy_dir)
+}
+
+/// Relocate a stale `config.toml` from `$XDG_CONFIG_HOME/lean-ctx` when the
+/// active config dir is elsewhere (e.g. a single-dir `~/.lean-ctx` install).
+/// GH #1421: prevents user confusion from editing the "wrong" config file.
+pub(crate) fn heal_xdg_stale_config() -> Option<ConfigHealReport> {
+    let config_dir = crate::core::paths::config_dir().ok()?;
+    let xdg_config = crate::core::paths::xdg_config_lean_ctx_dir()?;
+    if xdg_config == config_dir {
+        return None;
+    }
+    heal_between(&config_dir, &xdg_config)
+}
+
+/// Heal ALL known stale config locations in a single pass (GH #1421).
+/// Called from startup heal paths to ensure at most one `config.toml` exists.
+pub(crate) fn heal_all() -> Vec<ConfigHealReport> {
+    let mut reports = Vec::new();
+    if let Some(r) = heal() {
+        reports.push(r);
+    }
+    if let Some(r) = heal_legacy_config() {
+        reports.push(r);
+    }
+    if let Some(r) = heal_xdg_stale_config() {
+        reports.push(r);
+    }
+    reports
+}
+
 /// Read-only check used by `doctor`: returns the stray data-dir `config.toml`
 /// that [`heal`] would relocate, or `None` when the CLI and the MCP server
 /// already resolve the same config (no divergence).
@@ -187,6 +229,42 @@ mod tests {
         write(&dir.join("config.toml"), "x = 1\n");
         // Same dir for config and data → nothing is stranded.
         assert_eq!(heal_between(&dir, &dir), None);
+    }
+
+    #[test]
+    fn heal_legacy_adopts_when_canonical_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        let legacy_dir = tmp.path().join("legacy");
+        write(&legacy_dir.join("config.toml"), "legacy = true\n");
+
+        let report = heal_between(&config_dir, &legacy_dir).expect("should adopt legacy");
+        assert_eq!(report.action, HealAction::Adopted);
+        assert_eq!(
+            std::fs::read_to_string(config_dir.join("config.toml")).unwrap(),
+            "legacy = true\n"
+        );
+        assert!(!legacy_dir.join("config.toml").exists());
+    }
+
+    #[test]
+    fn heal_legacy_supersedes_when_canonical_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("config");
+        let legacy_dir = tmp.path().join("legacy");
+        write(&config_dir.join("config.toml"), "canonical = true\n");
+        write(&legacy_dir.join("config.toml"), "stale_legacy = true\n");
+
+        let report = heal_between(&config_dir, &legacy_dir).expect("should supersede");
+        assert_eq!(report.action, HealAction::Superseded);
+        assert_eq!(
+            std::fs::read_to_string(config_dir.join("config.toml")).unwrap(),
+            "canonical = true\n"
+        );
+        assert!(
+            legacy_dir.join("config.toml.superseded").exists(),
+            "stale legacy copy must be preserved as .superseded"
+        );
     }
 
     #[test]

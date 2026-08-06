@@ -92,6 +92,20 @@ pub(crate) fn heal() {
     if is_xdg_pinned() {
         let _ = crate::core::xdg_migrate::reclaim_legacy();
     }
+    // GH #1421: heal stale config.toml copies in non-canonical directories
+    // (legacy ~/.lean-ctx, stale XDG, or data dir). Runs after the layout pin
+    // and reclaim so the canonical config dir is stable.
+    for report in crate::core::config_heal::heal_all() {
+        eprintln!(
+            "[lean-ctx] config heal: {} {} → {}",
+            match report.action {
+                crate::core::config_heal::HealAction::Adopted => "adopted",
+                crate::core::config_heal::HealAction::Superseded => "superseded",
+            },
+            report.from.display(),
+            report.to.display(),
+        );
+    }
 }
 
 /// Atomic write via a sibling temp file + rename, so a crash never leaves a

@@ -28,6 +28,8 @@ import { McpBridge } from "./mcp-bridge.js";
 import { loadPiConfig, resolveSuppressedBuiltins } from "./config.js";
 import type { CompressionStats } from "./types.js";
 
+const BRIDGE_STARTUP_TIMEOUT_MS = 10_000;
+
 const CODE_EXTENSIONS = new Set([
   ".rs", ".ts", ".tsx", ".js", ".jsx", ".php", ".py", ".go",
   ".java", ".c", ".cc", ".cpp", ".cxx", ".cs", ".kt", ".swift", ".rb",
@@ -869,9 +871,24 @@ export default async function (pi: ExtensionAPI) {
       }
     });
 
-    void mcpBridge.start(pi).catch((err: unknown) => {
-      console.error(`[pi-lean-ctx] MCP bridge startup failed: ${err}`);
-    });
+    // GH #1426: await bridge startup so MCP tools are registered before
+    // session_start snapshots the tool list. Bounded timeout prevents a
+    // missing/unresponsive lean-ctx binary from blocking Pi indefinitely.
+    try {
+      await Promise.race([
+        mcpBridge.start(pi),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("timeout")), BRIDGE_STARTUP_TIMEOUT_MS),
+        ),
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[pi-lean-ctx] MCP bridge ${msg === "timeout" ? `startup timed out after ${BRIDGE_STARTUP_TIMEOUT_MS / 1000}s` : `startup failed: ${msg}`}. `
+          + "CLI-backed tools (ctx_read, ctx_shell) remain active; "
+          + "advanced MCP tools (ctx_compose, ctx_search, ctx_callgraph, ctx_patch, ctx_call) are unavailable.",
+      );
+    }
   }
 
   pi.registerCommand("lean-ctx", {
