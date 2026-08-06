@@ -49,4 +49,6 @@ pub use tokenizer::*;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_multiword;
+#[cfg(test)]
 mod tests_tokenizer;

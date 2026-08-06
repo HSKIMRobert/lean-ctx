@@ -112,25 +112,54 @@ fn validate_jail(
     project_root: &str,
     extra_roots: &[String],
 ) -> Result<(), FileResourceError> {
-    let root = Path::new(project_root);
-    match crate::core::pathjail::jail_path_with_roots(path, root, extra_roots) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(FileResourceError::OutsideJail(
-            path.to_string_lossy().to_string(),
-        )),
+    // Intentionally NOT using jail_path_with_roots here: the full PathJail
+    // widens access via global config (allow_paths, state_dir, IDE dirs,
+    // env vars). For resources/read (a fallback for agents that use the
+    // wrong API), we enforce strict containment in session-explicit roots
+    // only — no implicit widening.
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let root_canon = Path::new(project_root)
+        .canonicalize()
+        .unwrap_or_else(|_| std::path::PathBuf::from(project_root));
+
+    if canon.starts_with(&root_canon) {
+        return Ok(());
     }
+
+    for extra in extra_roots {
+        if let Ok(extra_canon) = Path::new(extra.as_str()).canonicalize() {
+            if canon.starts_with(&extra_canon) {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(FileResourceError::OutsideJail(
+        path.to_string_lossy().to_string(),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn path_to_file_uri(p: &std::path::Path) -> String {
+        let s = p.to_string_lossy().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            format!("file:///{s}")
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn resolve_file_uri() {
         let path = resolve_path("file:///tmp/test.txt").unwrap();
         assert_eq!(path, "/tmp/test.txt");
     }
 
+    #[cfg(unix)]
     #[test]
     fn resolve_raw_absolute_path() {
         let path = resolve_path("/home/user/file.rs").unwrap();
@@ -155,7 +184,10 @@ mod tests {
 
     #[test]
     fn read_nonexistent_file() {
-        let result = read_file_resource("file:///nonexistent_abc_xyz_12345.txt", None, &[]);
+        let dir = tempfile::tempdir().unwrap();
+        let nonexistent = dir.path().join("does_not_exist.txt");
+        let uri = path_to_file_uri(&nonexistent);
+        let result = read_file_resource(&uri, None, &[]);
         assert!(matches!(result, Err(FileResourceError::NotFound(_))));
     }
 
@@ -163,7 +195,7 @@ mod tests {
     fn read_existing_file() {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), "hello world").unwrap();
-        let uri = format!("file://{}", tmp.path().display());
+        let uri = path_to_file_uri(tmp.path());
         let result = read_file_resource(&uri, None, &[]).unwrap();
         assert_eq!(result.len(), 1);
     }
@@ -173,7 +205,7 @@ mod tests {
         let jail = tempfile::tempdir().unwrap();
         let outside = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(outside.path(), "secret").unwrap();
-        let uri = format!("file://{}", outside.path().display());
+        let uri = path_to_file_uri(outside.path());
         let result = read_file_resource(&uri, Some(&jail.path().to_string_lossy()), &[]);
         assert!(matches!(result, Err(FileResourceError::OutsideJail(_))));
     }
@@ -183,7 +215,7 @@ mod tests {
         let jail = tempfile::tempdir().unwrap();
         let file = jail.path().join("test.txt");
         std::fs::write(&file, "allowed").unwrap();
-        let uri = format!("file://{}", file.display());
+        let uri = path_to_file_uri(&file);
         let result = read_file_resource(&uri, Some(&jail.path().to_string_lossy()), &[]);
         assert!(result.is_ok());
     }
