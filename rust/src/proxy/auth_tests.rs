@@ -292,6 +292,7 @@ fn auth_error_response_generic_hint() {
 
 // --- enterprise#11: identity tags + x-leanctx-project header ---
 
+#[cfg(feature = "enterprise")]
 #[test]
 fn attach_gateway_tags_header_overrides_default_project() {
     // The per-request header wins over the key's default_project: one
@@ -313,6 +314,7 @@ fn attach_gateway_tags_header_overrides_default_project() {
     assert_eq!(tags.project.as_deref(), Some("billing"));
 }
 
+#[cfg(feature = "enterprise")]
 #[test]
 fn attach_gateway_tags_header_works_without_key_identity() {
     // Solo/local mode: project tagging must not require a gateway key.
@@ -326,6 +328,7 @@ fn attach_gateway_tags_header_works_without_key_identity() {
     assert_eq!(tags.project.as_deref(), Some("side-quest"));
 }
 
+#[cfg(feature = "enterprise")]
 #[test]
 fn attach_gateway_tags_empty_leaves_no_extension() {
     // No identity, no header: nothing to stamp — the extension stays absent
@@ -339,6 +342,7 @@ fn attach_gateway_tags_empty_leaves_no_extension() {
     );
 }
 
+#[cfg(feature = "enterprise")]
 #[test]
 fn attach_gateway_tags_rejects_oversized_or_blank_header() {
     // Defensive bound: a blank or absurdly long project header is ignored,
@@ -366,6 +370,7 @@ fn attach_gateway_tags_rejects_oversized_or_blank_header() {
     }
 }
 
+#[cfg(feature = "enterprise")]
 #[test]
 fn attach_gateway_tags_rejects_control_characters() {
     // #54/#59: control chars in the project header would poison usage rows

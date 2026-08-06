@@ -120,6 +120,7 @@ fn upstream_is_local_detects_loopback_hosts() {
 }
 
 #[test]
+#[cfg(feature = "enterprise")]
 fn wire_context_carries_identity_tags_and_baseline() {
     let mut parts = parts_for("/v1/messages");
     parts

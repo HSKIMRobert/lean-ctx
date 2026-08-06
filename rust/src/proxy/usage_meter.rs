@@ -295,6 +295,7 @@ pub fn record(u: &super::usage::RealUsage) {
     // The provider's own reported charge wins (#1179); local turns book the
     // shadow rate — the same valuation the usage store applies — so
     // local-only budgets stay meaningful.
+    #[cfg(feature = "enterprise")]
     if let Some(wire) = u.wire.as_deref()
         && (wire.person.is_some() || wire.project.is_some())
     {
