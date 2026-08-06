@@ -19,6 +19,7 @@ mod stats;
 mod system;
 mod telemetry;
 mod tools;
+#[cfg(feature = "enterprise")]
 mod usage_breakdown;
 
 use std::sync::Arc;
@@ -163,7 +164,7 @@ pub fn route_response(
         return ("204 No Content", "text/plain", String::new());
     }
 
-    stats::handle(path, query_str, method, body)
+    let response = stats::handle(path, query_str, method, body)
         .or_else(|| signals::handle(path, query_str, method, body))
         .or_else(|| context::handle(path, query_str, method, body))
         .or_else(|| risk::handle(path, query_str, method, body))
@@ -178,8 +179,10 @@ pub fn route_response(
         .or_else(|| settings::handle(path, query_str, method, body))
         .or_else(|| kernel::handle(path, query_str, method, body))
         .or_else(|| doctor::handle(path, query_str, method, body))
-        .or_else(|| leaderboard::handle(path, query_str, method, body))
-        .or_else(|| usage_breakdown::handle(path, query_str, method, body))
+        .or_else(|| leaderboard::handle(path, query_str, method, body));
+    #[cfg(feature = "enterprise")]
+    let response = response.or_else(|| usage_breakdown::handle(path, query_str, method, body));
+    response
         .or_else(|| telemetry::handle(path, query_str, method, body))
         .or_else(|| system::handle(path, query_str, method, body))
         .unwrap_or_else(|| ("404 Not Found", "text/plain", "Not Found".to_string()))
