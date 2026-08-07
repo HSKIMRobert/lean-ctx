@@ -2,6 +2,7 @@
 //!
 //! Tracks interruption events (echo repetitions, redundant reads, context switches)
 //! and computes a session-level score measuring cognitive interruptions prevented.
+#![allow(unreachable_pub)]
 
 mod metrics;
 mod tracker;

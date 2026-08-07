@@ -2,6 +2,7 @@
 //!
 //! Models knowledge retention using the Free Spaced Repetition Scheduler algorithm.
 //! Determines which facts need re-injection based on their retrievability score.
+#![allow(unreachable_pub)]
 
 mod decay;
 mod fsrs;

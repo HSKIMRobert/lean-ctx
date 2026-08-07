@@ -2,6 +2,7 @@
 //!
 //! Limits context to 7±2 semantic chunks, prioritized by task relevance.
 //! Uses tree-sitter signature boundaries for chunk detection.
+#![allow(unreachable_pub)]
 
 mod chunker;
 
