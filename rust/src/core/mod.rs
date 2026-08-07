@@ -119,6 +119,8 @@ pub(crate) mod graph_analysis;
 pub mod graph_context;
 pub(crate) mod graph_coordinator;
 pub(crate) mod graph_enricher;
+#[allow(dead_code, unreachable_pub)]
+pub mod graph_expand;
 pub mod graph_export;
 #[allow(dead_code)]
 pub(crate) mod graph_features;
