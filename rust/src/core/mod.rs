@@ -80,6 +80,8 @@ pub(crate) mod yaml_crush;
 // Domain: Memory
 // ---------------------------------------------------------------------------
 #[allow(dead_code)]
+pub mod anti_interrupt;
+#[allow(dead_code)]
 pub(crate) mod episodic_memory;
 #[allow(dead_code)]
 pub(crate) mod interrupt;
