@@ -172,6 +172,7 @@ impl Default for Config {
             sensitivity: crate::core::sensitivity::SensitivityConfig::default(),
             gateway: crate::core::mcp_catalog::GatewayConfig::default(),
             gateway_server: GatewayServerConfig::default(),
+            enterprise: EnterpriseConfig::default(),
             addons: crate::core::addons::AddonsConfig::default(),
             allow_auto_reroot: false,
             hook_binary: None,

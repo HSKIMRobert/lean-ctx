@@ -14,6 +14,7 @@ use super::intent::classify_and_store_proxy_intent;
 #[cfg(feature = "shape-xlat")]
 mod xlat;
 
+pub(crate) mod enterprise_headers;
 mod headers;
 mod prepare;
 pub mod trace_id;
@@ -190,7 +191,7 @@ pub async fn forward_request(
     let preserve_content_encoding = prepared.preserve_content_encoding;
     let route = prepared.route;
     let parsed = prepared.parsed;
-    let _intent_classification =
+    let intent_classification =
         classify_and_store_proxy_intent(&mut parts, parsed.as_ref(), lineage.as_ref(), &body_bytes);
     // Apply the routing decision to the wire: re-target the upstream and — for
     // registry providers holding their own key — swap the credential headers.
@@ -348,6 +349,25 @@ pub async fn forward_request(
         }
     }
 
+    // Enterprise Suite: inject x-leanctx-* metadata headers before dispatch.
+    {
+        let enterprise_cfg = crate::core::config::Config::load().enterprise.clone();
+        if enterprise_cfg.should_inject_headers() {
+            let agent_id = lineage.as_ref().map(|l| l.agent_id.clone());
+            let session_id = lineage.as_ref().map(|l| l.session_id.clone());
+            let task_class = intent_classification
+                .as_ref()
+                .map(|ic| ic._decision.intent.clone());
+            let meta = enterprise_headers::RuntimeMetadata {
+                original_tokens: original_size / 4,
+                compressed_tokens: compressed_size / 4,
+                agent_id,
+                session_id,
+                task_class,
+            };
+            enterprise_headers::inject(&mut parts, &enterprise_cfg, &meta);
+        }
+    }
     let response = transport::send_upstream(
         &state,
         &parts,

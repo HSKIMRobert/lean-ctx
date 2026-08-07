@@ -5,6 +5,7 @@ use super::{error, persona, tool_profiles};
 
 mod defaults;
 mod defaults_allowlist;
+mod enterprise;
 mod enums;
 mod loader;
 mod logic;
@@ -38,6 +39,7 @@ pub use render::render_annotated_config;
 pub use sections::*;
 
 pub(crate) use defaults_allowlist::{cloud_infra_commands, default_shell_allowlist};
+pub use enterprise::EnterpriseConfig;
 pub use enums::{
     CompressionLevel, Effort, OutputDensity, PermissionInheritance, RecoveryHints,
     ResponseVerbosity, RulesInjection, RulesScope, SessionDegrade, TeeMode, TerseAgent,

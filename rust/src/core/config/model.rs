@@ -599,6 +599,10 @@ pub struct Config {
     /// cockpit may read from. All optional; absent = local-only behavior.
     #[serde(default)]
     pub gateway_server: GatewayServerConfig,
+    /// Enterprise Suite connection (`[enterprise]`): connects this Runtime to
+    /// a LeanCTX Enterprise Gateway for economics tracking and model routing.
+    #[serde(default)]
+    pub enterprise: EnterpriseConfig,
     /// Addon ecosystem security floor (#863): install policy, registry-signature
     /// requirement and sandboxing for spawned addon servers. Global-only (never
     /// merged from project-local config) and fully permissive by default.
