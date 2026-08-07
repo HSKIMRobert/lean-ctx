@@ -76,6 +76,8 @@ pub(crate) mod structural_tokenizer;
 pub(crate) mod structured_read;
 #[allow(dead_code)]
 pub(crate) mod tabular_crush;
+#[allow(dead_code, unreachable_pub)]
+pub mod verbosity;
 #[allow(dead_code)]
 pub(crate) mod yaml_crush;
 
