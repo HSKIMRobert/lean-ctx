@@ -29,6 +29,8 @@ pub(crate) mod extractive;
 pub mod finops_export;
 #[allow(dead_code)]
 pub(crate) mod html_crush;
+#[allow(dead_code, unused_imports, unreachable_pub)]
+pub mod ib;
 #[allow(dead_code)]
 pub(crate) mod information_bottleneck;
 #[allow(dead_code)]
