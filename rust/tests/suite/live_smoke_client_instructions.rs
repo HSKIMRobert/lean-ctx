@@ -322,8 +322,15 @@ fn codex_covered_client_gets_anchor() {
 fn first_session_heals_rules_and_skill() {
     let bin = env!("CARGO_BIN_EXE_lean-ctx");
     let env = test_env();
-    // A Cursor install is just its config dir — no prior lean-ctx wiring.
+    // A Cursor install is its config dir + MCP config referencing lean-ctx.
+    // #1435: rules injection is gated on is_mcp_configured, so the MCP
+    // config file must exist and reference lean-ctx for the heal to fire.
     std::fs::create_dir_all(env.home.join(".cursor")).unwrap();
+    std::fs::write(
+        env.home.join(".cursor/mcp.json"),
+        r#"{"mcpServers":{"lean-ctx":{"command":"lean-ctx","args":["mcp"]}}}"#,
+    )
+    .unwrap();
 
     let mut child: Child = Command::new(bin)
         .arg("mcp")

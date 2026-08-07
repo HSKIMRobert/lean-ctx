@@ -323,9 +323,10 @@ fn raw_shell_skips_all_postprocessing() {
         src.contains("let is_raw_shell = name == \"ctx_shell\""),
         "call_tool must compute is_raw_shell flag"
     );
+    // #1432: raw=true no longer bypasses archive/firewall — only minimal does.
     assert!(
-        src.contains("if minimal || is_raw_shell {"),
-        "archive_hint must be skipped for raw shell"
+        src.contains("let archive_hint = if minimal {"),
+        "archive_hint bypass must be gated on minimal only (not raw shell)"
     );
     assert!(
         src.contains("is_raw_shell")
