@@ -97,6 +97,8 @@ pub(crate) mod memory_guard;
 pub(crate) mod memory_lifecycle;
 pub mod memory_policy;
 pub(crate) mod memory_salience;
+#[allow(dead_code)]
+pub mod memory_scheduler;
 pub mod multiscale_index;
 #[allow(dead_code)]
 pub(crate) mod procedural_memory;
