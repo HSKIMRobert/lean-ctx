@@ -489,6 +489,8 @@ pub(crate) mod llm_feedback;
 pub mod locomo;
 pub(crate) mod logging;
 pub mod mcp_manifest;
+#[allow(dead_code, unreachable_pub)]
+pub mod mdl_mode;
 #[allow(dead_code)]
 pub(crate) mod mdl_selector;
 #[allow(dead_code)]
