@@ -141,6 +141,12 @@ impl LeanCtxServer {
             return Ok(None);
         };
         let candidate_under_jail = resolved.starts_with(jail_root_path);
+        // #1437: never reroot to a child of the current jail. The current root
+        // already contains the resolved path — narrowing the daemon's scope
+        // would break all subsequent unscoped queries.
+        if new_root.starts_with(jail_root_path) && new_root != jail_root_path {
+            return Ok(None);
+        }
         // #580/#649: when the MCP server was launched from an agent/IDE config
         // dir (e.g. ~/.copilot) or a markerless client cwd (e.g. WSL VS Code
         // starting in /mnt/c/Users), that jail is not a real project boundary.

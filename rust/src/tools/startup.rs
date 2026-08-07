@@ -62,15 +62,20 @@ pub(super) fn maybe_derive_project_root_from_absolute(
     } else {
         abs.parent()?.to_path_buf()
     };
+    // #1437: keep walking up and return the OUTERMOST project marker, matching
+    // `detect_project_root`. The old "first match = return" behaviour caused
+    // monorepo sub-packages (own `package.json`, no `.git`) to become the
+    // derived root, which then poisoned the daemon session for all later queries.
+    let mut best: Option<std::path::PathBuf> = None;
     loop {
         if has_project_marker(&cur) {
-            return Some(crate::core::pathutil::safe_canonicalize_or_self(&cur));
+            best = Some(crate::core::pathutil::safe_canonicalize_or_self(&cur));
         }
         if !cur.pop() {
             break;
         }
     }
-    None
+    best
 }
 
 /// Incremental background consolidation: import only session items newer than the
@@ -83,4 +88,50 @@ pub(crate) fn auto_consolidate_knowledge(project_root: &str) {
         project_root,
         &crate::core::consolidation_engine::ConsolidateOptions::incremental_auto(),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_root_promotes_to_outermost_marker_in_monorepo() {
+        // #1437: in a monorepo where sub-packages carry their own package.json,
+        // the derived root must be the outermost marker (repo root with .git),
+        // not the nearest sub-package marker.
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        let sub = repo.join("modules").join("payroll");
+        std::fs::create_dir_all(&sub).unwrap();
+        // Repo root has .git + package.json
+        std::fs::create_dir(repo.join(".git")).unwrap();
+        std::fs::write(repo.join("package.json"), "{}").unwrap();
+        // Sub-package has only package.json (no .git)
+        std::fs::write(sub.join("package.json"), "{}").unwrap();
+
+        let result = maybe_derive_project_root_from_absolute(&sub);
+        assert!(result.is_some(), "should find a root");
+        let root = result.unwrap();
+        let canonical_repo = crate::core::pathutil::safe_canonicalize_or_self(&repo);
+        assert_eq!(
+            root, canonical_repo,
+            "should return repo root, not sub-package"
+        );
+    }
+
+    #[test]
+    fn derive_root_returns_nearest_when_no_outer_marker() {
+        // When there is no outer marker (standalone sub-package), the nearest
+        // marker is the correct root.
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().join("standalone");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("package.json"), "{}").unwrap();
+
+        let result = maybe_derive_project_root_from_absolute(&pkg);
+        assert!(result.is_some());
+        let root = result.unwrap();
+        let canonical = crate::core::pathutil::safe_canonicalize_or_self(&pkg);
+        assert_eq!(root, canonical);
+    }
 }

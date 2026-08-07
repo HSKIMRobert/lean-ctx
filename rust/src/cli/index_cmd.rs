@@ -461,10 +461,24 @@ fn snapshot_code_files(project_root: &Path) -> HashMap<String, FileState> {
     out
 }
 
+/// Read the daemon's live session project_root by loading the latest persisted session.
+fn daemon_session_project_root() -> Option<String> {
+    crate::core::session::SessionState::load_latest().and_then(|s| s.project_root)
+}
+
 fn print_human_status(project_root: &str) {
     let disk = crate::core::index_orchestrator::disk_status(project_root);
 
     println!("  Project:        {project_root}");
+    // #1437: surface the daemon session root when it differs from the CLI root
+    // so users can diagnose the "status says ready but queries fail" mismatch.
+    if let Some(daemon_root) = daemon_session_project_root() {
+        if daemon_root != project_root {
+            println!(
+                "  ⚠ Daemon root:  {daemon_root} (differs from CLI — dense queries use this root)"
+            );
+        }
+    }
     println!(
         "  Graph Index:    {}",
         format_disk_line(&disk.graph_index, "files")
