@@ -148,7 +148,7 @@ mod tests {
         ]);
 
         let field = map.pressure_at("src/lib.rs");
-        assert!((field.total_strength - 1.5).abs() < f64::EPSILON);
+        assert!((field.total_strength - 1.5).abs() < 1e-10);
         assert_eq!(field.agent_count, 2);
         assert_eq!(field.dominant_kind, Some(SignalKind::Complexity));
         assert!(!field.is_contested);

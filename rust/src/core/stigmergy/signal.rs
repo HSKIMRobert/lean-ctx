@@ -70,7 +70,7 @@ pub(crate) fn evaporate(decay_rate: f64, threshold: f64) {
 fn signals() -> std::sync::MutexGuard<'static, Vec<PheromoneSignal>> {
     SIGNALS
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn bounded(value: f64) -> f64 {
@@ -102,7 +102,7 @@ mod tests {
     fn setup() -> std::sync::MutexGuard<'static, ()> {
         let guard = TEST_LOCK
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         signals().clear();
         guard
     }

@@ -2,7 +2,6 @@
 //!
 //! Agents leave pheromone-like signals on files and symbols, enabling
 //! implicit coordination between multiple agents in the same codebase.
-#![allow(unreachable_pub)]
 
 mod pressure;
 mod signal;

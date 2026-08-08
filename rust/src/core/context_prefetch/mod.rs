@@ -2,7 +2,6 @@
 //!
 //! Unifies predictive prefetch, FEP prefetch, and active inference into a
 //! coherent prefetch pipeline with trajectory prediction.
-#![allow(unreachable_pub)]
 
 mod preloader;
 mod trajectory;
