@@ -302,6 +302,7 @@ pub(crate) mod benchmark_study;
 pub mod billing;
 #[allow(dead_code)]
 pub(crate) mod code_health;
+pub(crate) mod cognitive_gate;
 #[allow(dead_code)]
 pub(crate) mod cognitive_load;
 pub mod conformance;

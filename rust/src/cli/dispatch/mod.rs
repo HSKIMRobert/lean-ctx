@@ -464,6 +464,10 @@ pub fn run() {
                 super::cmd_theme(&rest);
                 return;
             }
+            "enterprise" => {
+                super::enterprise::cmd_enterprise(&rest);
+                return;
+            }
             "tee" => {
                 super::cmd_tee(&rest);
                 return;

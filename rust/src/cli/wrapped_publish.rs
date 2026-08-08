@@ -96,6 +96,10 @@ struct PublishedEntry {
     /// auto-publish from accidentally downgrading a leaderboard entry.
     #[serde(default)]
     leaderboard: bool,
+    /// Whether this card has been claimed (bound to the logged-in account) on the
+    /// server. Prevents redundant claim calls on every dashboard status poll.
+    #[serde(default)]
+    account_claimed: bool,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -150,10 +154,35 @@ pub(crate) struct LeaderboardStatus {
     pub last_published_at: Option<String>,
 }
 
-/// Read the current submission state for the dashboard (pure, read-only).
+/// Read the current submission state for the dashboard card. As a side effect,
+/// auto-claims any unclaimed cards when the user is logged in (leaderboard
+/// consolidation, GH #736).
 pub(crate) fn leaderboard_status() -> LeaderboardStatus {
     let cfg = crate::core::config::Config::load_global();
-    let store = PublishedStore::load();
+    let mut store = PublishedStore::load();
+
+    // Auto-claim: if the user is logged in and has unclaimed published cards,
+    // claim them server-side so the leaderboard union-find can merge entries.
+    if crate::cloud_client::is_logged_in() {
+        let mut dirty = false;
+        for card in &mut store.cards {
+            if !card.account_claimed && !card.edit_token.is_empty() {
+                match crate::cloud_client::claim_wrapped(&card.id, &card.edit_token) {
+                    Ok(()) => {
+                        card.account_claimed = true;
+                        dirty = true;
+                    }
+                    Err(e) => tracing::debug!("auto-claim {}: {e}", card.id),
+                }
+            }
+        }
+        if dirty {
+            if let Err(e) = store.save() {
+                tracing::debug!("auto-claim store save: {e}");
+            }
+        }
+    }
+
     // The public board aggregates the all-time per-publisher card; prefer it,
     // falling back to the most recent card for the permalink/timestamp shown.
     let entry = store
@@ -429,6 +458,7 @@ fn record_published(
         published_at: chrono::Utc::now().to_rfc3339(),
         auto,
         leaderboard,
+        account_claimed: cloud_client::is_logged_in(),
     });
     if let Err(e) = store.save() {
         tracing::warn!("Published, but could not save local record: {e}");
@@ -833,6 +863,7 @@ mod tests {
                 published_at: "2026-01-01T00:00:00Z".into(),
                 auto: false,
                 leaderboard: true,
+                account_claimed: false,
             }],
         };
         store.save().unwrap();

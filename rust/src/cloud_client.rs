@@ -443,12 +443,16 @@ pub struct PublishedCard {
 
 /// Publish a whitelisted Wrapped payload. Accepts either a bare payload (legacy anonymous) or a
 /// signed envelope `{payload_json, public_key, signature}` (login-less identity → server upsert).
-/// No account auth; the server rate-limits per IP. Contract: `docs/contracts/wrapped-permalink-v1.md`.
+/// If the user is logged in, attaches a Bearer token so the server can auto-claim
+/// the card (leaderboard consolidation).
 pub fn publish_wrapped(payload: &serde_json::Value) -> Result<PublishedCard, String> {
     let url = format!("{}/api/wrapped", api_url());
 
-    let resp = ureq::post(&url)
-        .header("Content-Type", "application/json")
+    let mut req = ureq::post(&url).header("Content-Type", "application/json");
+    if let Ok(token) = auth_bearer_token() {
+        req = req.header("Authorization", &format!("Bearer {token}"));
+    }
+    let resp = req
         .send(&serde_json::to_vec(payload).map_err(|e| format!("JSON error: {e}"))?)
         .map_err(|e| format!("Publish failed: {e}"))?;
 

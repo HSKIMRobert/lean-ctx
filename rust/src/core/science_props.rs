@@ -97,6 +97,7 @@ fn arb_signal_kind() -> impl Strategy<Value = SignalKind> {
         Just(SignalKind::ReviewNeeded),
         Just(SignalKind::Issue),
         Just(SignalKind::Completed),
+        Just(SignalKind::Exploration),
     ]
 }
 

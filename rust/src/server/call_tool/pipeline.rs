@@ -269,13 +269,35 @@ pub(in crate::server) async fn dispatch_and_post_process(
     if !firewalled {
         result_text = post_process::compress_terse(result_text, name, args, &config, is_raw_shell);
     }
-
     // Snapshot BEFORE any decoration (auto-context prefix, throttle/budget
     // warnings, hints): auto-findings must parse the clean tool output, or
     // the injected "--- AUTO CONTEXT ---" header itself becomes a junk
     // finding ("Read ---") that pollutes the session, the knowledge store,
     // and every subsequent wakeup briefing (#658).
     let findings_source = result_text.clone();
+
+    // Echo-ratio nudge (#science): when output largely repeats the task
+    // description, surface a deterministic hint before footer markers (#498).
+    if !machine_readable
+        && !is_raw_shell
+        && !firewalled
+        && crate::core::cognitive_gate::full_science_enabled()
+        && !result_text.is_empty()
+    {
+        let task_input = {
+            let session = server.session.read().await;
+            session.task.as_ref().map(|t| t.description.clone())
+        };
+        if let Some(task) = task_input.filter(|t| !t.is_empty()) {
+            let report = crate::core::echo_ratio::compute_echo_ratio(&task, &result_text);
+            if report.ratio > 0.7 {
+                result_text.push_str(&format!(
+                    "\n[cognitive: high echo ratio ({:.0}%) — consider generating novel content]",
+                    report.ratio * 100.0
+                ));
+            }
+        }
+    }
 
     // Resolve the active profile once per dispatch: it is stable for the
     // lifetime of a single tool call, and `active_profile()` is an expensive

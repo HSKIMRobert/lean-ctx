@@ -1,5 +1,8 @@
 use chrono::Utc;
+use std::sync::{LazyLock, Mutex};
 
+use crate::core::cognitive_gate::full_science_enabled;
+use crate::core::context_prefetch::FileTrajectory;
 use crate::core::intent_protocol::{IntentRecord, IntentSource};
 
 use super::paths::{extract_cd_target, generate_session_id};
@@ -15,6 +18,9 @@ pub(crate) const BATCH_SAVE_INTERVAL: u32 = 5;
 /// below the batch threshold — the dashboard reads session JSONs from disk,
 /// so a slow trickle of tool calls must still become visible promptly.
 pub(crate) const SESSION_FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_mins(1);
+
+static FILE_TRAJECTORY: LazyLock<Mutex<FileTrajectory>> =
+    LazyLock::new(|| Mutex::new(FileTrajectory::new(100)));
 
 impl Default for SessionState {
     fn default() -> Self {
@@ -297,6 +303,30 @@ impl SessionState {
         }
         self.stats.files_read += 1;
         self.increment();
+
+        if full_science_enabled()
+            && let Ok(mut trajectory) = FILE_TRAJECTORY.lock()
+        {
+            trajectory.record(path);
+        }
+    }
+
+    /// Returns predicted next file paths from the session file-access trajectory.
+    #[allow(dead_code)] // consumed by prefetch pipeline wiring
+    pub(crate) fn prefetch_predictions(&self, top_k: usize) -> Vec<String> {
+        if !full_science_enabled() || top_k == 0 {
+            return Vec::new();
+        }
+        FILE_TRAJECTORY
+            .lock()
+            .map(|trajectory| {
+                trajectory
+                    .predict(top_k)
+                    .into_iter()
+                    .map(|(path, _)| path)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Marks a previously touched file as modified (written to).

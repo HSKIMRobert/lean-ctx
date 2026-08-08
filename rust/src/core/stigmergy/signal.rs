@@ -40,6 +40,8 @@ pub enum SignalKind {
     Issue,
     /// Agent completed work here successfully.
     Completed,
+    /// Agent explored/read this file without claiming active work.
+    Exploration,
 }
 
 /// In-memory signal store (per-session; persisted via IPC for cross-agent).

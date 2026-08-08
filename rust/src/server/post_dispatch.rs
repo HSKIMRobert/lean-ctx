@@ -70,6 +70,12 @@ impl LeanCtxServer {
             }
         };
 
+        if crate::core::cognitive_gate::full_science_enabled() {
+            let empty_args = serde_json::Map::new();
+            let args_map = args.unwrap_or(&empty_args);
+            crate::core::verbosity::record_tool_call(name, action, args_map, output_token_count);
+        }
+
         if let Some(prepared) = pending_session_save {
             let ir_clone = self.context_ir.clone();
             tokio::task::spawn_blocking(move || {

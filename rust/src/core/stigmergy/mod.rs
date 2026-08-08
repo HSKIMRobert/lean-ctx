@@ -9,5 +9,6 @@ mod signal;
 #[cfg(test)]
 pub(crate) use pressure::PressureMap;
 pub use signal::PheromoneSignal;
+pub(crate) use signal::{SignalKind, deposit_signal};
 #[cfg(test)]
-pub(crate) use signal::{SignalKind, deposit_signal, read_signals, reset_signals};
+pub(crate) use signal::{read_signals, reset_signals};

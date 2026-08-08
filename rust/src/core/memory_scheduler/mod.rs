@@ -8,4 +8,5 @@ mod fsrs;
 
 pub use fsrs::MemoryState;
 #[cfg(test)]
-pub(crate) use fsrs::{initial_state, retrievability, update_stability};
+pub(crate) use fsrs::update_stability;
+pub(crate) use fsrs::{initial_state, retrievability};

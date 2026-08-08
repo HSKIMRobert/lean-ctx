@@ -467,6 +467,27 @@ fn handle_with_options_resolved_preread(
         });
     }
 
+    if crate::core::cognitive_gate::full_science_enabled() {
+        let agent_id = crate::core::scent_field::scent_agent_id();
+        let agent_id = if agent_id.is_empty() {
+            "default-agent".to_string()
+        } else {
+            agent_id.to_string()
+        };
+        let signal_path = crate::core::pathutil::normalize_tool_path(path);
+        std::thread::spawn(move || {
+            crate::core::stigmergy::deposit_signal(crate::core::stigmergy::PheromoneSignal {
+                agent_id,
+                kind: crate::core::stigmergy::SignalKind::Exploration,
+                path: signal_path,
+                symbol: None,
+                strength: 0.8,
+                deposited_at: chrono::Utc::now(),
+                note: None,
+            });
+        });
+    }
+
     crate::core::context_gc::maybe_gc(cache);
 
     result

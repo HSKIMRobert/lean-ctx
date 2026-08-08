@@ -35,7 +35,7 @@ impl PressureMap {
     pub fn from_signals(signals: &[PheromoneSignal]) -> Self {
         let mut fields = HashMap::<String, PressureField>::new();
         let mut agents = HashMap::<String, HashSet<&str>>::new();
-        let mut strengths = HashMap::<String, [f64; 5]>::new();
+        let mut strengths = HashMap::<String, [f64; 6]>::new();
 
         for signal in signals {
             let field = fields.entry(signal.path.clone()).or_default();
@@ -88,16 +88,18 @@ fn kind_index(kind: SignalKind) -> usize {
         SignalKind::ReviewNeeded => 2,
         SignalKind::Issue => 3,
         SignalKind::Completed => 4,
+        SignalKind::Exploration => 5,
     }
 }
 
-fn dominant_kind(strengths: &[f64; 5]) -> Option<SignalKind> {
-    const KINDS: [SignalKind; 5] = [
+fn dominant_kind(strengths: &[f64; 6]) -> Option<SignalKind> {
+    const KINDS: [SignalKind; 6] = [
         SignalKind::Active,
         SignalKind::Complexity,
         SignalKind::ReviewNeeded,
         SignalKind::Issue,
         SignalKind::Completed,
+        SignalKind::Exploration,
     ];
     strengths
         .iter()

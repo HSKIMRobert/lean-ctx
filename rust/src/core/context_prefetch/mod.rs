@@ -9,5 +9,4 @@ mod trajectory;
 pub use preloader::PrefetchPlan;
 #[cfg(test)]
 pub(crate) use preloader::build_prefetch_plan;
-#[cfg(test)]
 pub(crate) use trajectory::FileTrajectory;

@@ -389,6 +389,45 @@ fn deferred_ranking_note(project_root: &str) -> String {
     }
 }
 
+/// Append IB intent-specific query terms to `keywords` when basic science is on.
+///
+/// Additive only — never removes existing keywords. Panics and other failures
+/// fall back to the original keyword list.
+fn enrich_keywords_with_ib_intent(task: &str, keywords: Vec<String>) -> Vec<String> {
+    if !crate::core::cognitive_gate::basic_science_enabled() {
+        return keywords;
+    }
+
+    let fallback = keywords.clone();
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        use crate::core::ib::{classify_intent, intent_query_terms};
+        use crate::core::session::{SessionState, TaskInfo};
+
+        let mut session = SessionState::new();
+        session.task = Some(TaskInfo {
+            description: task.to_owned(),
+            intent: None,
+            progress_pct: None,
+        });
+        let intent = classify_intent(&session);
+        let mut enriched = keywords;
+        for term in intent_query_terms(&intent) {
+            let term = term.to_string();
+            if !enriched
+                .iter()
+                .any(|keyword| keyword.eq_ignore_ascii_case(&term))
+            {
+                enriched.push(term);
+            }
+        }
+        enriched
+    }))
+    .unwrap_or_else(|_| {
+        tracing::warn!("[ctx_compose: IB intent enrichment failed; using original keywords]");
+        fallback
+    })
+}
+
 /// Compose a single rich response for `task`.
 pub fn handle(task: &str, project_root: &str, crp_mode: CrpMode) -> (String, usize) {
     let task = task.trim();
@@ -396,7 +435,7 @@ pub fn handle(task: &str, project_root: &str, crp_mode: CrpMode) -> (String, usi
         return ("ERROR: task is required".to_string(), 0);
     }
 
-    let keywords = extract_keywords(task, 6);
+    let keywords = enrich_keywords_with_ib_intent(task, extract_keywords(task, 6));
     let allow_secret = crate::core::roles::active_role().io.allow_secret_paths;
 
     let mut out = String::new();
