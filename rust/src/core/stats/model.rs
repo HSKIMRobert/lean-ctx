@@ -138,8 +138,8 @@ impl StatsStore {
 /// effective-compression denominator.
 pub(crate) fn classify_command(command: &str) -> TrafficClass {
     match command {
-        "cli_full" | "cli_raw" | "cli_glob" | "cli_find" | "cli_deps" | "cli_ls"
-        | "ctx_compose" | "ctx_glob" | "ctx_tree" => TrafficClass::Passthrough,
+        "cli_glob" | "cli_find" | "cli_deps" | "cli_ls" | "ctx_compose" | "ctx_glob"
+        | "ctx_tree" => TrafficClass::Passthrough,
         c if c.starts_with("cli_") => TrafficClass::Compressible,
         "ctx_shell" | "ctx_search" | "ctx_semantic_search" => TrafficClass::Compressible,
         c if c.starts_with("ctx_read")
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!(classify_command("ctx_search"), TrafficClass::Compressible);
         assert_eq!(classify_command("ctx_compose"), TrafficClass::Passthrough);
         assert_eq!(classify_command("ctx_glob"), TrafficClass::Passthrough);
-        assert_eq!(classify_command("cli_full"), TrafficClass::Passthrough);
+        assert_eq!(classify_command("cli_full"), TrafficClass::Compressible);
     }
 
     #[test]

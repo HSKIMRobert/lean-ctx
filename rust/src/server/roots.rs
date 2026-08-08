@@ -132,9 +132,28 @@ pub fn valid_dir_paths_from_uris(uris: &[String]) -> Vec<String> {
 }
 
 /// Detect project root from IDE-specific environment variables.
-/// Priority: LEAN_CTX_PROJECT_ROOT > CLAUDE_PROJECT_DIR
+///
+/// Priority (first match wins):
+///   LEAN_CTX_PROJECT_ROOT — explicit override (user/CI)
+///   CURSOR_PROJECT_DIR    — Cursor ≥ 3.7
+///   CLAUDE_PROJECT_DIR    — Claude Code
+///   WINDSURF_PROJECT_DIR  — Windsurf (Codeium)
+///   TRAE_PROJECT_DIR      — Trae (ByteDance)
+///   KIRO_PROJECT_DIR      — AWS Kiro
+///   CODEX_SANDBOX_DIR     — Codex desktop sandbox
+///   GIT_WORK_TREE         — git worktree env
 pub fn root_from_env() -> Option<String> {
-    for var in ["LEAN_CTX_PROJECT_ROOT", "CLAUDE_PROJECT_DIR"] {
+    const VARS: &[&str] = &[
+        "LEAN_CTX_PROJECT_ROOT",
+        "CURSOR_PROJECT_DIR",
+        "CLAUDE_PROJECT_DIR",
+        "WINDSURF_PROJECT_DIR",
+        "TRAE_PROJECT_DIR",
+        "KIRO_PROJECT_DIR",
+        "CODEX_SANDBOX_DIR",
+        "GIT_WORK_TREE",
+    ];
+    for var in VARS {
         if let Ok(val) = std::env::var(var) {
             let trimmed = val.trim().to_string();
             if !trimmed.is_empty()
@@ -175,8 +194,14 @@ fn split_workspace_paths(raw: &str) -> Vec<String> {
 /// (#699). This variable is the Cursor-sanctioned way to learn the active
 /// workspace folder(s). The same broad/unsafe-root guards as MCP roots apply.
 pub fn root_from_workspace_env() -> Option<String> {
-    let raw = std::env::var("WORKSPACE_FOLDER_PATHS").ok()?;
-    best_root_from_paths(split_workspace_paths(&raw))
+    for var in ["WORKSPACE_FOLDER_PATHS", "VSCODE_WORKSPACE_FOLDER"] {
+        if let Ok(raw) = std::env::var(var) {
+            if let Some(root) = best_root_from_paths(split_workspace_paths(&raw)) {
+                return Some(root);
+            }
+        }
+    }
+    None
 }
 
 /// All valid, safe workspace directories from `WORKSPACE_FOLDER_PATHS`.
@@ -184,14 +209,19 @@ pub fn root_from_workspace_env() -> Option<String> {
 /// Used to register the sibling folders of a multi-root workspace as extra
 /// trusted roots, so explicit paths into them are not rejected by the path jail.
 pub fn workspace_roots_from_env() -> Vec<String> {
-    let Ok(raw) = std::env::var("WORKSPACE_FOLDER_PATHS") else {
-        return Vec::new();
-    };
-    split_workspace_paths(&raw)
-        .into_iter()
-        .filter(|p| Path::new(p).is_dir())
-        .filter(|p| !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(p)))
-        .collect()
+    for var in ["WORKSPACE_FOLDER_PATHS", "VSCODE_WORKSPACE_FOLDER"] {
+        if let Ok(raw) = std::env::var(var) {
+            let paths: Vec<String> = split_workspace_paths(&raw)
+                .into_iter()
+                .filter(|p| Path::new(p).is_dir())
+                .filter(|p| !crate::core::pathutil::is_broad_or_unsafe_root(Path::new(p)))
+                .collect();
+            if !paths.is_empty() {
+                return paths;
+            }
+        }
+    }
+    Vec::new()
 }
 
 #[cfg(test)]

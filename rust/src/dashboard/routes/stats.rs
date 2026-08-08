@@ -108,25 +108,51 @@ fn load_science_stats() -> Option<serde_json::Value> {
 }
 
 fn load_cache_runtime() -> Option<serde_json::Value> {
-    let path = crate::core::paths::state_dir().ok()?.join("mcp-live.json");
-    let raw = std::fs::read_to_string(path).ok()?;
-    let live: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let u = |key: &str| {
+    let mcp_path = crate::core::paths::state_dir().ok()?.join("mcp-live.json");
+    let live: serde_json::Value = std::fs::read_to_string(&mcp_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let u_mcp = |key: &str| -> u64 {
         live.get(key)
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(0)
     };
+
+    // Merge hook-side stats from stats.json so shadow-mode reads are visible.
+    let hook_store = crate::core::stats::load_for_display();
+    let hook_totals = hook_store.compression_totals();
+    let hook_reads = hook_store.total_commands;
+    let hook_cache_hits = hook_store.cep.total_cache_hits;
+    let hook_cache_reads = hook_store.cep.total_cache_reads;
+
+    let total_reads = u_mcp("total_reads") + hook_reads;
+    let tokens_saved = u_mcp("tokens_saved")
+        + hook_totals
+            .input_tokens
+            .saturating_sub(hook_totals.output_tokens);
+    let tokens_original = u_mcp("tokens_original") + hook_totals.input_tokens;
+    let cache_hits = u_mcp("cache_hits") + hook_cache_hits;
+    let effective_reads = u_mcp("effective_cache_reads") + hook_cache_reads;
+    let effective_hits = u_mcp("effective_cache_hits") + hook_cache_hits;
+
+    let hit_rate = effective_hits
+        .saturating_mul(100)
+        .checked_div(effective_reads)
+        .unwrap_or(0);
+
     Some(serde_json::json!({
-        "cache_hits": u("cache_hits"),
-        "total_reads": u("total_reads"),
-        "hit_rate_pct": u("cache_utilization"),
-        "tokens_saved": u("tokens_saved"),
-        "tokens_original": u("tokens_original"),
-        "effective_cache_hits": u("effective_cache_hits"),
-        "effective_cache_reads": u("effective_cache_reads"),
-        "dedup_hits": u("dedup_hits"),
-        "compressed_cache_hits": u("compressed_cache_hits"),
-        "full_delivery_degraded": u("full_delivery_degraded"),
+        "cache_hits": cache_hits,
+        "total_reads": total_reads,
+        "hit_rate_pct": hit_rate,
+        "tokens_saved": tokens_saved,
+        "tokens_original": tokens_original,
+        "effective_cache_hits": effective_hits,
+        "effective_cache_reads": effective_reads,
+        "dedup_hits": u_mcp("dedup_hits"),
+        "compressed_cache_hits": u_mcp("compressed_cache_hits"),
+        "full_delivery_degraded": u_mcp("full_delivery_degraded"),
     }))
 }
 
@@ -163,8 +189,7 @@ fn channel_breakdown(store: &crate::core::stats::StatsStore) -> serde_json::Valu
 
 fn classify_channel(cmd: &str) -> &'static str {
     match cmd {
-        "cli_full" | "cli_ls" | "cli_read_dedup" => "redirect",
-        "cli_shell" | "cli_grep" | "cli_map" | "cli_signatures" => "rewrite",
+        c if c.starts_with("cli_") => "redirect",
         c if c.starts_with("ctx_") => "mcp",
         _ => "mcp",
     }

@@ -273,7 +273,15 @@ function eventFlow(flat) {
   if (flat.type === 'CacheHit') return 'cache';
   if (flat.type !== 'ToolCall') return 'operations';
   if (flat.original <= 0) return 'operations';
-  return flat.saved > 0 ? 'optimized' : 'passthrough';
+  if (flat.saved > 0) return 'optimized';
+  var mode = flat.mode || flat.resolved_mode || '';
+  if (mode === 'full' || mode === 'diff' || mode === 'anchored') return 'full_delivery';
+  // Lines/range reads with savings=0 are still delivering targeted content.
+  if (mode && mode.startsWith('lines:')) return 'full_delivery';
+  // Tools without a mode (ctx_search, ctx_session, etc.) that have original>0
+  // but saved=0 are not "broken" — they delivered content that was already minimal.
+  if (!mode && flat.original < 100) return 'operations';
+  return 'passthrough';
 }
 
 function matchesEventFilter(flat, filter) {
@@ -320,7 +328,7 @@ function buildToolDetail(kind) {
       var pct = Math.round((saved / orig) * 100);
       parts.push(fmtTokShort(orig) + ' \u2192 ' + fmtTokShort(sent) + ' tok (\u2212' + pct + '%)');
     } else {
-      parts.push(fmtTokShort(orig) + ' tok (payload passthrough)');
+      parts.push(fmtTokShort(orig) + ' tok (full delivery)');
     }
   } else if (saved != null && saved > 0) {
     parts.push('saved ' + fmtTokShort(saved) + ' tok');
@@ -428,7 +436,11 @@ function computeTokenWindow(events) {
       result.saved += flat.saved || 0;
       result.calls++;
       if (flat.saved > 0) result.optimizedCalls++;
-      else result.passthroughCalls++;
+      else {
+        var ef = eventFlow(flat);
+        if (ef === 'full_delivery') result.fullDeliveryCalls = (result.fullDeliveryCalls || 0) + 1;
+        else result.passthroughCalls++;
+      }
     } else {
       result.operations++;
     }
@@ -676,13 +688,15 @@ class CockpitLive extends HTMLElement {
       '<span class="hl">Context Cache Reuse</span>' +
       '<div class="token-counter" data-live="1">' + esc(String(cacheRate)) + '%</div>' +
       '<p class="hs">' + esc(ff(cacheHits)) + ' hits / ' + esc(ff(cacheReads)) +
-      ' reads (dedup ' + esc(ff(dedupHits)) + ')</p>' +
+      ' reads' + (dedupHits > 0 ? ' (dedup ' + esc(ff(dedupHits)) + ')' : '') +
+      (cacheReads > 0 && cacheReads < 20 && cacheHits === 0 ? ' · cache warming' : '') +
+      '</p>' +
       '</div>' +
       '<div class="hc">' +
       '<span class="hl">Optimization Coverage</span>' +
       '<div class="token-counter" data-live="1">' + esc(String(optimizedRate)) + '%</div>' +
       '<p class="hs">' + esc(String(savingsRate)) + '% token reduction · ' +
-      esc(ff(windowStats.passthroughCalls)) + ' payload passthroughs</p>' +
+      esc(ff(windowStats.passthroughCalls || 0)) + ' control calls · ' + esc(ff(windowStats.fullDeliveryCalls || 0)) + ' full deliveries</p>' +
       '</div>' +
       '</div>' +
       (compressedCacheHits > 0 || degradationCycles > 0
@@ -964,9 +978,12 @@ class CockpitLive extends HTMLElement {
         '<span class="tag tg" style="margin-left:8px">-' +
         esc(ff(flat.saved)) +
         ' tok</span>';
+    } else if (eventFlow(flat) === 'full_delivery') {
+      savedBadge =
+        '<span class="tag" style="margin-left:8px;color:var(--blue);border-color:var(--blue);opacity:.7">full delivery</span>';
     } else if (eventFlow(flat) === 'passthrough') {
       savedBadge =
-        '<span class="tag" style="margin-left:8px;color:var(--yellow);border-color:var(--yellow)">payload passthrough</span>';
+        '<span class="tag" style="margin-left:8px;opacity:.45">control</span>';
     } else if (eventFlow(flat) === 'operations') {
       savedBadge =
         '<span class="tag" style="margin-left:8px;opacity:.55">control / no payload</span>';

@@ -82,6 +82,19 @@ pub(crate) fn record_file_read(
 
     stats::record(&tool_key, original_tokens, output_tokens);
     heatmap::record_file_access(path, original_tokens, saved);
+
+    // Emit event so the live dashboard feed sees hook-intercepted reads.
+    crate::core::events::emit_tool_call(
+        &tool_key,
+        original_tokens as u64,
+        saved as u64,
+        Some(mode.to_string()),
+        duration.as_millis() as u64,
+        Some(path.to_string()),
+    );
+    if is_cache_hit {
+        crate::core::events::emit_cache_hit(path, saved as u64);
+    }
     // Verified ledger (#685): recorded explicitly now that the heatmap chokepoint
     // no longer bundles it. This direct-CLI path (daemon off) only has o200k
     // counts; the model-correct re-tokenization happens on the MCP read path,
