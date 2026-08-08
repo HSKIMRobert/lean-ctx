@@ -274,6 +274,10 @@ pub fn run() {
                 }
                 return;
             }
+            "cognitive" => {
+                crate::cli::cognitive::run();
+                return;
+            }
             "read" => {
                 super::cmd_read(&rest);
                 core::tool_lifecycle::flush_all();
