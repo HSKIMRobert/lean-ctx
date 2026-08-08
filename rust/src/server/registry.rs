@@ -182,6 +182,7 @@ pub fn build_registry() -> ToolRegistry {
     // Utility tools (migrated from dispatch/utility_tools.rs)
     registry.register(Box::new(registered::ctx_compress::CtxCompressTool));
     registry.register(Box::new(registered::ctx_compare::CtxCompareTool));
+    registry.register(Box::new(crate::tools::ctx_cognitive::CtxCognitiveTool));
     registry.register(Box::new(registered::ctx_metrics::CtxMetricsTool));
     registry.register(Box::new(registered::ctx_radar::CtxRadarTool));
     registry.register(Box::new(registered::ctx_dedup::CtxDedupTool));
