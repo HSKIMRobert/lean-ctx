@@ -127,4 +127,3 @@ pub(crate) fn read_image_file(
         path.to_string(),
     ))
 }
-

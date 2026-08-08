@@ -243,7 +243,10 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
     // use semantic chunking (cognitive mode) instead of structural-only modes.
     // Cognitive mode returns 7±2 task-relevant code chunks with bodies — more
     // useful than signatures-only and still 44-68% savings on medium files.
-    if crate::core::cognitive_gate::basic_science_enabled() && is_code(ext) && ctx.token_count > 500
+    if crate::core::cognitive_gate::basic_science_enabled()
+        && is_code(ext)
+        && ctx.token_count > 500
+        && !crate::core::edit_quality::has_any_penalty(ctx.path)
     {
         if ctx.token_count > 8000 {
             return resolved("cognitive", "science_cognitive_large");
