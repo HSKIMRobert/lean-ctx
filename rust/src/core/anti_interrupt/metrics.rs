@@ -1,9 +1,13 @@
+//! Cognitive-load impact metrics derived from anti-interruption events.
+//!
+//! Estimates focus time saved and extraneous load reduction using Gloria Mark's
+//! 23-minute context-switch recovery model.
+
 use super::tracker::{prevented_counts, session_interruptions};
 
 /// Cognitive impact report for the current session.
 #[derive(Debug, Clone)]
-#[allow(unreachable_pub)]
-pub struct CognitiveImpactReport {
+pub(crate) struct CognitiveImpactReport {
     /// Total interruption events prevented.
     pub interruptions_prevented: u64,
     /// Context switches prevented (each saves ~23 min recovery time).
@@ -50,7 +54,7 @@ pub(crate) fn compute_impact() -> CognitiveImpactReport {
 }
 
 /// Render the impact report as a compact text summary.
-pub(crate) fn render_impact_summary(report: &CognitiveImpactReport) -> String {
+fn render_impact_summary(report: &CognitiveImpactReport) -> String {
     format!(
         "Anti-Interruption Score: {:.0}%\n\
          Interruptions prevented: {}\n\

@@ -1,3 +1,8 @@
+//! Thompson-sampling compression-level recommender from behavioral signals.
+//!
+//! Maps observed agent behavior to a [`VerbosityProfile`] with deterministic
+//! beta-posterior means for reproducible recommendations.
+
 use super::signals::BehaviorSignal;
 use crate::core::config::CompressionLevel;
 

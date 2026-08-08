@@ -1,3 +1,8 @@
+//! BM25 relevance scoring for information-bottleneck chunk selection.
+//!
+//! Ranks text chunks against intent-specific query terms as a lightweight
+//! proxy for mutual information between task intent and source content.
+
 use std::cmp::Ordering;
 use std::collections::HashSet;
 

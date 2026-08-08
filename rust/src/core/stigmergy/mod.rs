@@ -6,8 +6,8 @@
 mod pressure;
 mod signal;
 
-#[allow(unused_imports)]
-pub(crate) use pressure::{PressureField, PressureMap};
+#[cfg(test)]
+pub(crate) use pressure::PressureMap;
 pub use signal::PheromoneSignal;
-#[allow(unused_imports)]
-pub(crate) use signal::{deposit_signal, evaporate, read_signals};
+#[cfg(test)]
+pub(crate) use signal::{SignalKind, deposit_signal, read_signals, reset_signals};

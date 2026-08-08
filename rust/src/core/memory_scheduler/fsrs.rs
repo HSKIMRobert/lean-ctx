@@ -1,3 +1,8 @@
+//! FSRS-5 spaced-repetition model for knowledge-fact retention scheduling.
+//!
+//! Implements retrievability decay, stability updates, and optimal review
+//! intervals from the open-source FSRS-5 weight set.
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +34,10 @@ pub struct MemoryState {
 }
 
 /// Compute the probability that a fact is still remembered at `now`.
-pub fn retrievability(state: &MemoryState, now: DateTime<Utc>) -> f64 {
+///
+/// Based on FSRS-5: `R(t) = (1 + t / (9 · S))^(-1)` where `t` is elapsed
+/// days since [`MemoryState::last_review`] and `S` is [`MemoryState::stability`].
+pub(crate) fn retrievability(state: &MemoryState, now: DateTime<Utc>) -> f64 {
     let elapsed_days = (now - state.last_review).num_seconds() as f64 / 86_400.0;
     if elapsed_days <= 0.0 || state.stability <= 0.0 {
         return 1.0;
@@ -38,7 +46,7 @@ pub fn retrievability(state: &MemoryState, now: DateTime<Utc>) -> f64 {
 }
 
 /// Update a memory state after a review using a rating in the range 1 through 4.
-pub fn update_stability(state: &mut MemoryState, rating: u8) {
+pub(crate) fn update_stability(state: &mut MemoryState, rating: u8) {
     update_stability_at(state, rating, Utc::now());
 }
 
@@ -70,10 +78,17 @@ fn update_stability_at(state: &mut MemoryState, rating: u8, now: DateTime<Utc>) 
     state.last_review = now;
     state.review_count = state.review_count.saturating_add(1);
     state.rating_history.push(rating);
+    if state.rating_history.len() > 50 {
+        let drain_count = state.rating_history.len() - 50;
+        state.rating_history.drain(0..drain_count);
+    }
 }
 
 /// Compute the interval in days that reaches `target_retention`.
-pub fn optimal_interval(state: &MemoryState, target_retention: f64) -> f64 {
+///
+/// Inverts the FSRS-5 retrievability curve:
+/// `t = 9 · S · (1 / R_target - 1)` for `R_target` in `(0, 1)`.
+pub(crate) fn optimal_interval(state: &MemoryState, target_retention: f64) -> f64 {
     if target_retention <= 0.0 || target_retention >= 1.0 || state.stability <= 0.0 {
         return 0.0;
     }
@@ -81,7 +96,7 @@ pub fn optimal_interval(state: &MemoryState, target_retention: f64) -> f64 {
 }
 
 /// Create an initial memory state from a fact key and first-review rating.
-pub fn initial_state(fact_key: String, rating: u8) -> MemoryState {
+pub(crate) fn initial_state(fact_key: String, rating: u8) -> MemoryState {
     let rating = rating.clamp(1, 4);
     let rating_index = usize::from(rating - 1);
     MemoryState {

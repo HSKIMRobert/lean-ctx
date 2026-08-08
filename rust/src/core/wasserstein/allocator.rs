@@ -1,3 +1,8 @@
+//! Wasserstein/Sinkhorn token budget allocation across context files.
+//!
+//! Distributes a fixed token budget proportionally to relevance scores using
+//! optimal transport from a single supply node to per-file demand nodes.
+
 use super::transport::sinkhorn_plan;
 
 /// Allocation result for a single file or context chunk.
@@ -44,10 +49,13 @@ pub(crate) fn allocate_budget(
     let plan = sinkhorn_plan(&[total_budget as f64], &demand, &cost_matrix, 0.1, 50);
 
     let mut transported = vec![0.0; files.len()];
-    for (_, target_idx, amount) in plan {
-        if let Some(target) = transported.get_mut(target_idx) {
+    for (_, target_idx, amount) in &plan {
+        if let Some(target) = transported.get_mut(*target_idx) {
             *target += amount;
         }
+    }
+    if plan.is_empty() || transported.iter().all(|amount| *amount == 0.0) {
+        transported = demand;
     }
     let integer_allocations = round_allocations(&transported, total_budget);
 

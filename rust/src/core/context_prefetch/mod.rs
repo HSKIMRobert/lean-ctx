@@ -7,7 +7,7 @@ mod preloader;
 mod trajectory;
 
 pub use preloader::PrefetchPlan;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use preloader::build_prefetch_plan;
-#[allow(unused_imports)]
-pub(crate) use trajectory::{FileTrajectory, predict_next_files};
+#[cfg(test)]
+pub(crate) use trajectory::FileTrajectory;

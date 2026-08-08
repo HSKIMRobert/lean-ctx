@@ -2,10 +2,9 @@
 //!
 //! Limits context to 7±2 semantic chunks, prioritized by task relevance.
 //! Uses tree-sitter signature boundaries for chunk detection.
-#![allow(unreachable_pub)]
 
 mod chunker;
 
 pub use chunker::{ChunkKind, SemanticChunk};
-#[allow(unused_imports)]
-pub(crate) use chunker::{budget_select, detect_chunks, render_budget_output};
+#[cfg(test)]
+pub(crate) use chunker::{budget_select, detect_chunks};

@@ -1,3 +1,8 @@
+//! Session-scoped tracking of cognitive interruption events.
+//!
+//! Records echo repetition, redundant reads, context switches, and related
+//! anti-interruption outcomes for metrics and adaptive compression.
+
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
@@ -7,15 +12,32 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum InterruptionEvent {
     /// Agent repeated context already delivered in this session.
-    EchoRepetition { tokens: u64 },
+    EchoRepetition {
+        /// Repeated token count, always ≥ 0.
+        tokens: u64,
+    },
     /// File re-read without any changes since last read.
-    RedundantRead { path: String },
+    RedundantRead {
+        /// Path of the redundantly read file.
+        path: String,
+    },
     /// Agent jumped between unrelated code areas unnecessarily.
-    ContextSwitch { from: String, to: String },
+    ContextSwitch {
+        /// Previous code area or module label.
+        from: String,
+        /// New code area or module label.
+        to: String,
+    },
     /// Tokens wasted on bounce (G7 pattern).
-    BounceWaste { tokens: u64 },
+    BounceWaste {
+        /// Wasted token count, always ≥ 0.
+        tokens: u64,
+    },
     /// Knowledge fact injected that the agent already had in context.
-    StaleContext { fact_key: String },
+    StaleContext {
+        /// Stable knowledge-fact key that was already in context.
+        fact_key: String,
+    },
 }
 
 /// Internal event record with timestamp.
@@ -28,50 +50,56 @@ struct TimestampedEvent {
 
 static SESSION_EVENTS: Mutex<Vec<TimestampedEvent>> = Mutex::new(Vec::new());
 
+const MAX_SESSION_EVENTS: usize = 10_000;
+
+fn session_events() -> std::sync::MutexGuard<'static, Vec<TimestampedEvent>> {
+    SESSION_EVENTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Record an interruption event (either occurred or was prevented).
 pub(crate) fn record_interruption(event: InterruptionEvent, prevented: bool) {
-    if let Ok(mut events) = SESSION_EVENTS.lock() {
-        events.push(TimestampedEvent {
-            event,
-            timestamp: Utc::now(),
-            prevented,
-        });
+    let mut events = session_events();
+    if events.len() >= MAX_SESSION_EVENTS {
+        let remove_count = MAX_SESSION_EVENTS / 10;
+        events.drain(0..remove_count);
     }
+    events.push(TimestampedEvent {
+        event,
+        timestamp: Utc::now(),
+        prevented,
+    });
 }
 
 /// Get all recorded interruption events for the current session.
 pub(crate) fn session_interruptions() -> Vec<(InterruptionEvent, bool)> {
-    SESSION_EVENTS
-        .lock()
-        .map(|events| {
-            events
-                .iter()
-                .map(|event| (event.event.clone(), event.prevented))
-                .collect()
-        })
-        .unwrap_or_default()
+    session_events()
+        .iter()
+        .map(|event| (event.event.clone(), event.prevented))
+        .collect()
 }
 
 /// Reset session tracking (called at session start).
 pub(crate) fn reset_session() {
-    if let Ok(mut events) = SESSION_EVENTS.lock() {
-        events.clear();
-    }
+    session_events().clear();
 }
 
 /// Count prevented interruptions by type.
 pub(crate) fn prevented_counts() -> PreventedCounts {
-    let Ok(events) = SESSION_EVENTS.lock() else {
-        return PreventedCounts::default();
-    };
-
+    let events = session_events();
     let mut counts = PreventedCounts::default();
     for event in events.iter().filter(|event| event.prevented) {
         match &event.event {
-            InterruptionEvent::EchoRepetition { tokens } => counts.echo_prevented += tokens,
+            InterruptionEvent::EchoRepetition { tokens } => {
+                counts.echo_prevented = counts.echo_prevented.saturating_add(*tokens);
+            }
             InterruptionEvent::RedundantRead { .. } => counts.redundant_reads_prevented += 1,
             InterruptionEvent::ContextSwitch { .. } => counts.context_switches_prevented += 1,
-            InterruptionEvent::BounceWaste { tokens } => counts.bounce_waste_prevented += tokens,
+            InterruptionEvent::BounceWaste { tokens } => {
+                counts.bounce_waste_prevented =
+                    counts.bounce_waste_prevented.saturating_add(*tokens);
+            }
             InterruptionEvent::StaleContext { .. } => counts.stale_context_prevented += 1,
         }
     }
@@ -94,6 +122,7 @@ pub(crate) struct PreventedCounts {
 }
 
 #[cfg(test)]
+/// Serializes tests that mutate the global session event store.
 pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(test)]

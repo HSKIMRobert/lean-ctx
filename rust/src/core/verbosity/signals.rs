@@ -1,3 +1,8 @@
+//! Behavioral signals extracted from agent compression transcripts.
+//!
+//! Detects re-reads, mode switches, expand follow-ups, and task completion
+//! patterns that indicate over- or under-compression.
+
 use super::transcript::TranscriptEntry;
 use chrono::Duration;
 use std::collections::HashMap;

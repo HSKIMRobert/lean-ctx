@@ -1,3 +1,8 @@
+//! Stigmergic pheromone signals for multi-agent coordination.
+//!
+//! Agents deposit ephemeral signals on files and symbols; strength decays
+//! over time via periodic evaporation.
+
 use std::sync::Mutex;
 
 use chrono::{DateTime, Utc};
@@ -22,6 +27,7 @@ pub struct PheromoneSignal {
     pub note: Option<String>,
 }
 
+/// Category of stigmergic signal deposited on a file or symbol.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SignalKind {
     /// Agent is actively working on this file.
@@ -39,7 +45,7 @@ pub enum SignalKind {
 /// In-memory signal store (per-session; persisted via IPC for cross-agent).
 static SIGNALS: Mutex<Vec<PheromoneSignal>> = Mutex::new(Vec::new());
 
-/// Deposit a new pheromone signal.
+/// Deposit a new pheromone signal (alias: emit a signal into the store).
 pub(crate) fn deposit_signal(mut signal: PheromoneSignal) {
     signal.strength = bounded(signal.strength);
     signals().push(signal);
@@ -65,6 +71,11 @@ pub(crate) fn evaporate(decay_rate: f64, threshold: f64) {
         signal.strength *= 1.0 - decay_rate;
     }
     signals.retain(|signal| signal.strength >= threshold);
+}
+
+/// Reset in-memory signals (called at session start).
+pub(crate) fn reset_signals() {
+    signals().clear();
 }
 
 fn signals() -> std::sync::MutexGuard<'static, Vec<PheromoneSignal>> {
@@ -103,7 +114,7 @@ mod tests {
         let guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        signals().clear();
+        reset_signals();
         guard
     }
 

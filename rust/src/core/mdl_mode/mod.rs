@@ -6,8 +6,6 @@
 mod bounds;
 mod structural;
 
-#[allow(unused_imports)]
-pub(crate) use bounds::{compression_ratio, description_length};
 pub use structural::StructuralDescription;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use structural::generate_structural_description;

@@ -1,3 +1,8 @@
+//! First-order Markov file-access trajectory for context prefetching.
+//!
+//! Records recent file transitions and predicts likely next files from
+//! empirical transition probabilities.
+
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -19,6 +24,9 @@ impl Default for FileTrajectory {
 }
 
 impl FileTrajectory {
+    /// Create a trajectory buffer capped at `max_length` recent accesses.
+    ///
+    /// `max_length` must be > 0 for [`Self::record`] to retain history.
     pub fn new(max_length: usize) -> Self {
         Self {
             accesses: Vec::with_capacity(max_length),
@@ -34,10 +42,12 @@ impl FileTrajectory {
         }
 
         if let Some(previous) = self.accesses.last() {
-            *self
-                .transitions
-                .entry((previous.clone(), path.to_owned()))
-                .or_insert(0) += 1;
+            if previous != path {
+                *self
+                    .transitions
+                    .entry((previous.clone(), path.to_owned()))
+                    .or_insert(0) += 1;
+            }
         }
         self.accesses.push(path.to_owned());
 
@@ -90,7 +100,10 @@ impl FileTrajectory {
     }
 }
 
-/// Predict next files from a trajectory.
+/// Predict the next most likely files from a trajectory's current state.
+///
+/// Delegates to [`FileTrajectory::predict`] and returns up to
+/// `max_predictions` `(path, probability)` pairs.
 pub(crate) fn predict_next_files(
     trajectory: &FileTrajectory,
     max_predictions: usize,

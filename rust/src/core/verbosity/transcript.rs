@@ -1,3 +1,8 @@
+//! Transcript analysis for compression-behavior feedback loops.
+//!
+//! Summarizes re-reads, correction signals, and dominant compression levels
+//! over a sliding window of tool interactions.
+
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 
@@ -33,6 +38,7 @@ pub struct TranscriptAnalysis {
 
 /// Analyze the last `window` transcript entries for behavioral patterns.
 pub(crate) fn analyze_transcript(entries: &[TranscriptEntry], window: usize) -> TranscriptAnalysis {
+    let window = if window == 0 { entries.len() } else { window };
     let window_entries = if entries.len() > window {
         &entries[entries.len() - window..]
     } else {

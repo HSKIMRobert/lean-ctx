@@ -1,3 +1,8 @@
+//! MDL description-length bounds for structural compression ratios.
+//!
+//! Formalizes model cost plus data cost in bits for comparing structural
+//! descriptions against original token payloads.
+
 use super::structural::StructuralDescription;
 
 /// Compute description length in bits (MDL formalization).
@@ -10,12 +15,6 @@ pub(crate) fn description_length(desc: &StructuralDescription) -> f64 {
     let data_cost = desc.description_tokens as f64 * vocab_size.log2();
     model_cost + data_cost
 }
-
-/// Return structural token count divided by original token count.
-pub(crate) fn compression_ratio(desc: &StructuralDescription) -> f64 {
-    desc.compression_ratio()
-}
-
 #[cfg(test)]
 mod tests {
     use super::description_length;

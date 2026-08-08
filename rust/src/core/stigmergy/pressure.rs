@@ -1,3 +1,8 @@
+//! Spatial pressure fields aggregated from stigmergic pheromone signals.
+//!
+//! Computes per-path activity pressure used to detect contested hotspots
+//! and prioritize context for multi-agent workflows.
+
 use std::collections::{HashMap, HashSet};
 
 use super::signal::{PheromoneSignal, SignalKind};
@@ -18,11 +23,15 @@ pub struct PressureField {
 /// Map of file paths to their pressure fields.
 #[derive(Debug, Clone, Default)]
 pub struct PressureMap {
+    /// Per-path aggregated pressure from all current signals.
     pub fields: HashMap<String, PressureField>,
 }
 
 impl PressureMap {
-    /// Build pressure map from all current signals.
+    /// Compute pressure fields from all current signals.
+    ///
+    /// Aggregates strength by path, counts distinct agents, and selects the
+    /// dominant [`SignalKind`] per location.
     pub fn from_signals(signals: &[PheromoneSignal]) -> Self {
         let mut fields = HashMap::<String, PressureField>::new();
         let mut agents = HashMap::<String, HashSet<&str>>::new();

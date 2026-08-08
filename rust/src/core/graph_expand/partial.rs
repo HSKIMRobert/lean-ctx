@@ -1,3 +1,8 @@
+//! Partial call-graph representation for bounded neighborhood expansion.
+//!
+//! Stores nodes, directed edges, and hop depth from a center symbol for
+//! compact LLM context injection.
+
 use std::collections::HashMap;
 
 /// A partial subgraph centered on a target symbol.
@@ -25,7 +30,7 @@ pub struct NodeInfo {
 }
 
 /// Relationship represented by a directed graph edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EdgeKind {
     /// The source symbol calls the target symbol.
     Calls,

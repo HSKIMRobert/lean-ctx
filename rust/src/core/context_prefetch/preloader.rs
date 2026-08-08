@@ -1,16 +1,27 @@
+//! Context prefetch planning from file-access trajectory predictions.
+//!
+//! Filters low-confidence and already-loaded files to build a bounded
+//! preload plan for proactive context warming.
+
 use super::trajectory::FileTrajectory;
 
 /// A prefetch plan: files to preload and their predicted relevance.
 #[derive(Debug, Clone)]
 pub struct PrefetchPlan {
+    /// Files selected for prefetch, highest confidence first.
     pub files: Vec<PrefetchEntry>,
+    /// Sum of estimated token sizes; 0 until size integration is wired.
     pub total_predicted_tokens: usize,
 }
 
+/// One file candidate in a prefetch plan.
 #[derive(Debug, Clone)]
 pub struct PrefetchEntry {
+    /// File path to preload.
     pub path: String,
+    /// Transition probability in `(0.0, 1.0]`.
     pub confidence: f64,
+    /// Human-readable selection rationale.
     pub reason: &'static str,
 }
 
@@ -37,10 +48,8 @@ pub(crate) fn build_prefetch_plan(
             reason: "trajectory transition",
         })
         .collect();
-    let total_predicted_tokens = files
-        .iter()
-        .map(|entry| crate::core::tokens::count_tokens(&entry.path))
-        .sum();
+    // Estimate unavailable without reading files; set to 0 until integration wiring provides cached sizes.
+    let total_predicted_tokens = 0;
 
     PrefetchPlan {
         files,
@@ -82,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_files_have_token_estimate() {
+    fn selected_files_have_zero_token_estimate_until_wired() {
         let mut trajectory = FileTrajectory::new(10);
         for path in ["src/a.rs", "src/b.rs", "src/a.rs"] {
             trajectory.record(path);
@@ -90,9 +99,6 @@ mod tests {
 
         let plan = build_prefetch_plan(&trajectory, &[], 1, 0.2);
         assert_eq!(plan.files.len(), 1);
-        assert_eq!(
-            plan.total_predicted_tokens,
-            crate::core::tokens::count_tokens("src/b.rs")
-        );
+        assert_eq!(plan.total_predicted_tokens, 0);
     }
 }

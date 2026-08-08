@@ -7,9 +7,9 @@ mod signals;
 mod transcript;
 
 pub use recommender::VerbosityProfile;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use recommender::recommend_level;
-#[allow(unused_imports)]
-pub(crate) use signals::{BehaviorSignal, extract_signals};
-#[allow(unused_imports)]
-pub(crate) use transcript::{TranscriptAnalysis, TranscriptEntry, analyze_transcript};
+#[cfg(test)]
+pub(crate) use signals::extract_signals;
+#[cfg(test)]
+pub(crate) use transcript::TranscriptEntry;

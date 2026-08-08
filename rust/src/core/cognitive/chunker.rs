@@ -1,3 +1,8 @@
+//! Semantic source chunking under Miller's Law cognitive budget constraints.
+//!
+//! Splits files at tree-sitter signature boundaries, scores chunks by semantic
+//! role and complexity, and renders a bounded subset for LLM context injection.
+
 use crate::core::signatures::{Signature, extract_signatures};
 use crate::core::tokens::count_tokens;
 

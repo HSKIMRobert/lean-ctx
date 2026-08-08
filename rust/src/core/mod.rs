@@ -632,3 +632,8 @@ pub(crate) mod storage_maintenance;
 pub(crate) mod structured_compact;
 pub(crate) mod type_ref_edges;
 pub(crate) mod workspace_trust;
+
+#[cfg(test)]
+mod science_integration;
+#[cfg(test)]
+mod science_props;

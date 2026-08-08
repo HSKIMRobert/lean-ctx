@@ -14,9 +14,11 @@ pub struct EchoRatioReport {
     pub input_tokens: usize,
     /// Output tokens (LLM response).
     pub output_tokens: usize,
-    /// Echo tokens (output tokens that appeared in input).
-    pub echo_tokens: usize,
-    /// Echo ratio: echo_tokens / output_tokens (0.0-1.0).
+    /// Echo words (output words that appeared in input; word-overlap proxy, not tokenizer-exact).
+    pub echo_words: usize,
+    /// Output word count (denominator for [`Self::ratio`]).
+    pub output_words: usize,
+    /// Echo ratio: echo_words / output_words (0.0-1.0).
     pub ratio: f64,
     /// Verdict: "low" (<0.3), "moderate" (0.3-0.6), "high" (>0.6).
     pub verdict: &'static str,
@@ -32,7 +34,8 @@ pub fn compute_echo_ratio(input: &str, output: &str) -> EchoRatioReport {
         return EchoRatioReport {
             input_tokens: input_tokens_count,
             output_tokens: 0,
-            echo_tokens: 0,
+            echo_words: 0,
+            output_words: 0,
             ratio: 0.0,
             verdict: "low",
         };
@@ -40,12 +43,13 @@ pub fn compute_echo_ratio(input: &str, output: &str) -> EchoRatioReport {
 
     // Word-level overlap is a lightweight proxy for exact tokenizer matching.
     let input_words: HashSet<&str> = input.split_whitespace().collect();
-    let output_words: Vec<&str> = output.split_whitespace().collect();
-    let echo_count = output_words
+    let output_word_list: Vec<&str> = output.split_whitespace().collect();
+    let output_word_count = output_word_list.len();
+    let echo_count = output_word_list
         .iter()
         .filter(|word| input_words.contains(*word))
         .count();
-    let ratio = echo_count as f64 / output_words.len().max(1) as f64;
+    let ratio = echo_count as f64 / output_word_count.max(1) as f64;
 
     let verdict = if ratio < 0.3 {
         "low"
@@ -58,7 +62,8 @@ pub fn compute_echo_ratio(input: &str, output: &str) -> EchoRatioReport {
     EchoRatioReport {
         input_tokens: input_tokens_count,
         output_tokens: output_tokens_count,
-        echo_tokens: echo_count,
+        echo_words: echo_count,
+        output_words: output_word_count,
         ratio,
         verdict,
     }
@@ -68,11 +73,11 @@ impl EchoRatioReport {
     /// Render as one-line summary.
     pub fn summary(&self) -> String {
         format!(
-            "Echo: {:.0}% ({}) — {}/{} tokens echoed",
+            "Echo: {:.0}% ({}) — {}/{} words echoed",
             self.ratio * 100.0,
             self.verdict,
-            self.echo_tokens,
-            self.output_tokens,
+            self.echo_words,
+            self.output_words,
         )
     }
 }
@@ -86,7 +91,7 @@ mod tests {
         let report = compute_echo_ratio("input context", "");
 
         assert_eq!(report.output_tokens, 0);
-        assert_eq!(report.echo_tokens, 0);
+        assert_eq!(report.echo_words, 0);
         assert_eq!(report.ratio, 0.0);
         assert_eq!(report.verdict, "low");
     }
@@ -95,7 +100,7 @@ mod tests {
     fn no_overlap_gives_zero_ratio() {
         let report = compute_echo_ratio("alpha beta", "gamma delta");
 
-        assert_eq!(report.echo_tokens, 0);
+        assert_eq!(report.echo_words, 0);
         assert_eq!(report.ratio, 0.0);
         assert_eq!(report.verdict, "low");
     }
@@ -104,7 +109,7 @@ mod tests {
     fn complete_echo_gives_high_ratio() {
         let report = compute_echo_ratio("alpha beta", "alpha beta");
 
-        assert_eq!(report.echo_tokens, 2);
+        assert_eq!(report.echo_words, 2);
         assert_eq!(report.ratio, 1.0);
         assert_eq!(report.verdict, "high");
     }
@@ -113,7 +118,7 @@ mod tests {
     fn partial_echo_gives_moderate_ratio() {
         let report = compute_echo_ratio("alpha beta", "alpha gamma");
 
-        assert_eq!(report.echo_tokens, 1);
+        assert_eq!(report.echo_words, 1);
         assert_eq!(report.ratio, 0.5);
         assert_eq!(report.verdict, "moderate");
     }
@@ -122,6 +127,6 @@ mod tests {
     fn summary_format() {
         let report = compute_echo_ratio("alpha beta", "alpha beta");
 
-        assert_eq!(report.summary(), "Echo: 100% (high) — 2/2 tokens echoed");
+        assert_eq!(report.summary(), "Echo: 100% (high) — 2/2 words echoed");
     }
 }

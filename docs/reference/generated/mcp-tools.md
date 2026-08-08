@@ -4,7 +4,7 @@
 
 Source of truth: `rust/src/server/registry.rs` and the tool definitions it registers.
 
-lean-ctx registers **82 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
+lean-ctx registers **83 MCP tools** (granular profile). Each entry below lists the tool name, what it does, and its parameters (`*` marks required).
 
 ## `ctx_agent`
 
@@ -92,6 +92,13 @@ diff from=... to=... (compare checkpoints), restore ref=... (revert files).
 ANTIPATTERN: Never touches the user's repository — completely isolated shadow history.
 
 Parameters: `action`, `from`, `limit`, `message`, `path`, `ref`, `to`
+
+## `ctx_cognitive`
+
+Read science-driven context intelligence status and cognitive impact.
+action=status reports the active mode; impact reports interruption savings; features lists every science feature and whether it is enabled.
+
+Parameters: `action`*
 
 ## `ctx_compare`
 

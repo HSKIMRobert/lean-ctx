@@ -1,3 +1,8 @@
+//! Task-intent classification from session metadata and findings.
+//!
+//! Maps agent task descriptions to [`TaskIntent`] categories used by
+//! information-bottleneck compression to select query terms.
+
 use std::fmt;
 
 use crate::core::session::SessionState;

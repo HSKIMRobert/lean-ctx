@@ -1,3 +1,8 @@
+//! Project-scoped knowledge decay and reinjection scheduling.
+//!
+//! Persists per-fact [`MemoryState`] values and uses FSRS retrievability to
+//! decide when stale facts should re-enter agent context.
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -11,14 +16,14 @@ use crate::core::memory_scheduler::fsrs::{
 
 /// Manages FSRS memory states for all knowledge facts in a project.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct KnowledgeDecayModel {
+pub(crate) struct KnowledgeDecayModel {
     /// Memory states indexed by stable knowledge-fact key.
     pub states: HashMap<String, MemoryState>,
 }
 
 impl KnowledgeDecayModel {
     /// Load a project's memory schedule, returning an empty model on failure.
-    pub fn load(project_hash: &str) -> Self {
+    pub(crate) fn load(project_hash: &str) -> Self {
         let Some(path) = Self::path(project_hash) else {
             return Self::default();
         };
@@ -29,7 +34,7 @@ impl KnowledgeDecayModel {
     }
 
     /// Save a project's memory schedule to disk when its data directory is available.
-    pub fn save(&self, project_hash: &str) {
+    pub(crate) fn save(&self, project_hash: &str) {
         let Some(path) = Self::path(project_hash) else {
             return;
         };
@@ -49,7 +54,8 @@ impl KnowledgeDecayModel {
     }
 
     /// Check whether a fact's retrievability is below `threshold`.
-    pub fn should_reinject(&self, key: &str, threshold: f64) -> bool {
+    pub(crate) fn should_reinject(&self, key: &str, threshold: f64) -> bool {
+        let threshold = threshold.clamp(0.0, 1.0);
         match self.states.get(key) {
             Some(state) => retrievability(state, Utc::now()) < threshold,
             None => true,
@@ -57,7 +63,7 @@ impl KnowledgeDecayModel {
     }
 
     /// Record a fact review or successful use with the supplied FSRS rating.
-    pub fn record_use(&mut self, key: &str, rating: u8) {
+    pub(crate) fn record_use(&mut self, key: &str, rating: u8) {
         if let Some(state) = self.states.get_mut(key) {
             update_stability(state, rating);
         } else {
@@ -67,7 +73,7 @@ impl KnowledgeDecayModel {
     }
 
     /// Return fact keys whose retrievability is below `threshold`.
-    pub fn stale_facts(&self, threshold: f64) -> Vec<String> {
+    pub(crate) fn stale_facts(&self, threshold: f64) -> Vec<String> {
         let now = Utc::now();
         let mut stale = self
             .states
@@ -80,7 +86,7 @@ impl KnowledgeDecayModel {
     }
 
     /// Return all facts from lowest to highest retrievability.
-    pub fn urgency_ranked(&self) -> Vec<(&str, f64)> {
+    pub(crate) fn urgency_ranked(&self) -> Vec<(&str, f64)> {
         let now = Utc::now();
         let mut ranked = self
             .states

@@ -1,3 +1,8 @@
+//! Minimum description length (MDL) structural fingerprints for source files.
+//!
+//! Replaces full source with compact type and function signatures to minimize
+//! token cost while preserving navigable structure.
+
 use std::fmt::Write as _;
 
 use crate::core::signatures::{Signature, extract_signatures};
@@ -95,7 +100,6 @@ pub(crate) fn generate_structural_description(
     };
 
     if !content.is_empty() {
-        description.description_tokens = count_tokens(&description.render());
         description.description_tokens = count_tokens(&description.render());
     }
     description
@@ -305,7 +309,7 @@ fn render_function(fingerprint: &FunctionFingerprint) -> String {
 mod tests {
     use super::generate_structural_description;
 
-    const RUST_SOURCE: &str = r#"//! User model and lookup helpers.
+    const RUST_SOURCE: &str = r"//! User model and lookup helpers.
 use std::collections::HashMap;
 
 pub struct User {
@@ -316,7 +320,7 @@ pub struct User {
 pub fn find_user(users: &HashMap<u64, User>, id: u64) -> Option<&User> {
     users.get(&id)
 }
-"#;
+";
 
     #[test]
     fn generate_for_rust_file_with_struct_and_fn() {

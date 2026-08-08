@@ -1,3 +1,8 @@
+//! Entropy-regularized optimal transport via Sinkhorn scaling.
+//!
+//! Solves the Kantorovich transport problem with entropic regularization for
+//! relevance-weighted token allocation across context chunks.
+
 const MIN_DENOMINATOR: f64 = 1.0e-300;
 const CONVERGENCE_TOLERANCE: f64 = 1.0e-8;
 

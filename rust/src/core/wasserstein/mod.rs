@@ -6,7 +6,5 @@ mod allocator;
 mod transport;
 
 pub use allocator::TokenAllocation;
-#[allow(unused_imports)]
+#[cfg(test)]
 pub(crate) use allocator::allocate_budget;
-#[allow(unused_imports)]
-pub(crate) use transport::{CostEntry, sinkhorn_plan};

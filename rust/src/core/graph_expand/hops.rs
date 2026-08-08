@@ -1,21 +1,11 @@
+//! Breadth-first k-hop neighborhood expansion over a call graph.
+//!
+//! Builds a [`PartialGraph`] from a center symbol using a caller-supplied
+//! edge lookup callback.
+
 use std::collections::{HashSet, VecDeque};
 
 use super::partial::{EdgeKind, NodeInfo, PartialGraph};
-
-/// A neighbor node discovered during expansion.
-#[derive(Debug, Clone)]
-pub struct NeighborNode {
-    /// Symbol name.
-    pub name: String,
-    /// File containing the symbol.
-    pub file: String,
-    /// Symbol kind, such as function, method, or type.
-    pub kind: String,
-    /// Hop distance from the expansion center.
-    pub depth: usize,
-    /// Relationship from the node that discovered this neighbor.
-    pub relation: EdgeKind,
-}
 
 /// Expand `k` hops from a center symbol using the provided edge lookup.
 ///
@@ -36,6 +26,7 @@ where
         ..PartialGraph::default()
     };
     let mut visited = HashSet::new();
+    let mut seen_edges = HashSet::new();
     let mut queue = VecDeque::new();
 
     graph.nodes.insert(
@@ -66,7 +57,9 @@ where
                 );
                 queue.push_back((neighbor.clone(), depth + 1));
             }
-            graph.edges.push((current.clone(), neighbor, relation));
+            if seen_edges.insert((current.clone(), neighbor.clone(), relation)) {
+                graph.edges.push((current.clone(), neighbor, relation));
+            }
         }
     }
 

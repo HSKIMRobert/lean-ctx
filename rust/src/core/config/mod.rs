@@ -41,9 +41,8 @@ pub use sections::*;
 pub(crate) use defaults_allowlist::{cloud_infra_commands, default_shell_allowlist};
 pub use enterprise::EnterpriseConfig;
 pub use enums::{
-    CognitiveMode, CompressionLevel, Effort, OutputDensity, PermissionInheritance,
-    RecoveryHints, ResponseVerbosity, RulesInjection, RulesScope, SessionDegrade, TeeMode,
-    TerseAgent,
+    CognitiveMode, CompressionLevel, Effort, OutputDensity, PermissionInheritance, RecoveryHints,
+    ResponseVerbosity, RulesInjection, RulesScope, SessionDegrade, TeeMode, TerseAgent,
 };
 pub use loader::last_config_parse_error;
 pub use loader::local_sensitive_overrides;
