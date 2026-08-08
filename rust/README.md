@@ -1,6 +1,6 @@
 README.md [811L]
 # lean-ctx
-**Context Engineering for AI Agents with CCP + TDD. Shell Hook + MCP Server. 82 MCP tools, 10 read modes, 95+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 26 languages. Single Rust binary.**
+**Context Engineering for AI Agents with CCP + TDD. Shell Hook + MCP Server. 83 MCP tools, 10 read modes, 95+ shell patterns, cross-session memory (CCP), LITM-aware positioning, tree-sitter AST for 26 languages. Single Rust binary.**
 ... [lean-ctx: omitted 7 lines]
 [Website](https://leanctx.com) · [Install](#installation) · [Quick Start](#quick-start) · [CLI Reference](#cli-commands) · [MCP Tools](#79-mcp-tools) · [Changelog](CHANGELOG.md) · [vs RTK](#lean-ctx-vs-rtk) · [Discord](https://discord.gg/pTHkG9Hew9)
 ... [lean-ctx: omitted 1 lines]
@@ -231,7 +231,7 @@ $ lean-ctx gain
 
   lean-ctx v3.6.10  |  leanctx.com  |  lean-ctx dashboard
 ```
-## 82+ MCP Tools
+## 83+ MCP Tools
 When configured as an MCP server, lean-ctx provides 80 tools that replace or augment your editor's built-in tools:
 ### Core Tools
 | Tool | Purpose | Savings |

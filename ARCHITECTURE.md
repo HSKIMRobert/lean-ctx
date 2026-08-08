@@ -22,8 +22,8 @@ flowchart TB
         BudgetGate["Budget / SLO Gate — exhaustion blocking, throttling"]
         DegradationEval["Degradation Policy — evaluate_v1_for_tool"]
         ContextGate["Context Gate — pre: bounce/intent/graph/knowledge; post: ledger, overlays, eviction, elicitation"]
-        HybridDispatch["Hybrid Dispatch — Context Server (82 tools)"]
-        ToolRegistry["ToolRegistry — 82 trait-based tools (McpTool)"]
+        HybridDispatch["Hybrid Dispatch — Context Server (83 tools)"]
+        ToolRegistry["ToolRegistry — 83 trait-based tools (McpTool)"]
         DispatchRegistry["Registry dispatch — dispatch/mod.rs (majority of tools)"]
         PostPipeline["Post-Pipeline — Context IR, tokens, archive, density, translation, verify, enrich, auto-response, evidence, sandbox routing"]
     end
@@ -218,7 +218,7 @@ flowchart TB
     DegradationEval --> ContextGate
     ContextGate --> HybridDispatch
 
-    HybridDispatch -->|"registry (82 tools)"| ToolRegistry
+    HybridDispatch -->|"registry (83 tools)"| ToolRegistry
     HybridDispatch -->|"legacy (6 tools)"| DispatchRegistry
 
     ToolRegistry --> PostPipeline
@@ -405,7 +405,7 @@ flowchart TD
     SLOBlockMsg["Return: SLO BLOCK"]
     SLOThrottle["Sleep throttle_ms"]
     ShellBudget["BudgetTracker::record_shell if shell tool"]
-    DispatchCall["dispatch_inner — ToolRegistry lookup (82 tools)"]
+    DispatchCall["dispatch_inner — ToolRegistry lookup (83 tools)"]
     TokenCount["count_tokens + BudgetTracker::record_tokens"]
     IRRecord["Context IR record — lineage, tokens, duration, compression ratio"]
     AnomalyRecord["anomaly::record_metric"]
@@ -574,8 +574,8 @@ flowchart LR
 ... [lean-ctx: omitted 1 lines]
 | `server/mod.rs` | `LeanCtxServer` — MCP server state, `call_tool` pipeline (dispatch + post-processing + Context IR recording) |
 | `server/tool_trait.rs` | `McpTool` trait, `ToolOutput`, `ToolContext` — interface for self-contained tools |
-| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers all 82 trait-based tools |
-| `server/dispatch/mod.rs` | Registry dispatch — `dispatch_inner` resolves every tool through the `ToolRegistry` (82 tools); `ctx_call` routes meta-invocations back through it |
+| `server/registry.rs` | `ToolRegistry` — HashMap-based tool lookup, `build_registry()` registers all 83 trait-based tools |
+| `server/dispatch/mod.rs` | Registry dispatch — `dispatch_inner` resolves every tool through the `ToolRegistry` (83 tools); `ctx_call` routes meta-invocations back through it |
 | `server/context_gate.rs` | Context Gate — post-dispatch for ctx_read: ledger recording, eviction/elicitation hints, pressure tracking |
 | `server/resources.rs` | MCP Resources — 5 URI-addressable subscribe-capable resources (`lean-ctx://context/*`) |
 ... [lean-ctx: omitted 9 lines]
@@ -861,7 +861,7 @@ The frontend (`cockpit-context.js`) renders these as a unified control panel wit
 ## Key Design Decisions
 1. **Single binary** — No runtime dependencies. Shell hook, MCP server, CLI, and dashboard all in one `lean-ctx` binary.
 ... [lean-ctx: omitted 9 lines]
-11. **Trait-based dispatch architecture** — all 82 tools are registered in a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. The earlier hybrid match-cascade has been fully retired: `dispatch_inner` resolves every tool — including the mutable-state ones (cache/session writes) — through the `ToolRegistry`, and `ctx_call` routes meta-invocations back through the same path. Post-dispatch processing (Context IR recording, terse compression, verification, enrichment) is handled inline in `server/mod.rs`. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
+11. **Trait-based dispatch architecture** — all 83 tools are registered in a trait-based `McpTool` registry (`tools/registered/`), co-locating schema definitions with handlers to eliminate schema-drift. The earlier hybrid match-cascade has been fully retired: `dispatch_inner` resolves every tool — including the mutable-state ones (cache/session writes) — through the `ToolRegistry`, and `ctx_call` routes meta-invocations back through the same path. Post-dispatch processing (Context IR recording, terse compression, verification, enrichment) is handled inline in `server/mod.rs`. CI drift-gate tests (`tool_registry_complete.rs`) prevent duplicate dispatch and ensure schema consistency.
 ... [lean-ctx: omitted 2 lines]
 14. **Hybrid hook mode** — Agents with reliable shell access use Hybrid mode: MCP for cached reads/search plus shell hooks that compress command output (`git`, `cargo`, `npm`, …) with zero schema overhead. Agents without reliable shell hooks (most IDE extensions) use MCP-only. Mode is auto-detected per agent (`recommend_hook_mode`) and can be overridden with `lean-ctx init --agent cursor --mode hybrid|mcp`.
 ... [lean-ctx: omitted 4 lines]

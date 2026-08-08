@@ -158,7 +158,7 @@ Performance is accuracy, not just speed. You stay in control of the window.
 - **Context Proof** (`ctx_proof`, `ctx_verify`): 4-layer verification engine with CI drift gates
 
 <details>
-<summary><strong>Full feature list (82 MCP tools)</strong></summary>
+<summary><strong>Full feature list (83 MCP tools)</strong></summary>
 
 - **Web & Research** (`ctx_url_read`): pull a public web page, PDF, or YouTube transcript into context as compressed, citation-backed text — `facts`/`quotes` return claims with a confidence score + source URL, relevance-ranked research-compression distils to a token budget, SSRF-guarded (http/https only)
 - **Graph-Powered Intelligence**: hybrid search (BM25 + embeddings + graph proximity via RRF), incremental git-diff updates
@@ -470,7 +470,7 @@ All analytics live in the CLI/dashboard — never burning agent tokens.
 ### 📚 The full reference
 *"I want to read everything."*
 
-Every command and all 82 MCP tools, organized as user journeys, plus
+Every command and all 83 MCP tools, organized as user journeys, plus
 appendices for the [CLI map](docs/reference/appendix-cli-map.md),
 [MCP tools](docs/reference/appendix-mcp-tools.md), and
 [paths & config](docs/reference/appendix-paths-and-config.md).
@@ -487,7 +487,7 @@ LeanCTX is a standard **MCP server**, so it works with any MCP-compatible client
 | Mode | How it works | Best for |
 |---|---|---|
 | **Hybrid** | MCP for cached reads (~13 tokens) + shell hooks for command compression | Agents with shell access (Cursor, Claude Code, Codex, ...) |
-| **MCP** | All 82 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
+| **MCP** | All 83 tools via MCP protocol, no shell hooks | Protocol-only agents (JetBrains, VS Code, Zed, ...) |
 
 ### Agent compatibility matrix
 
@@ -614,7 +614,7 @@ committed recorded subset that blocks CI on any regression.
 - **280+ forks** — active community contributions
 - **200+ releases** — shipped near-daily since launch
 - **30+ supported AI coding agents** — broadest MCP compatibility
-- **82 MCP tools** — from simple file reads to multi-agent orchestration
+- **83 MCP tools** — from simple file reads to multi-agent orchestration
 - Used in production by teams running Claude Code, Cursor, and Codex daily
 - **Live adoption metrics**: [leanctx.com/metrics](https://leanctx.com/metrics/) — installs, stars and savings, updated continuously
 

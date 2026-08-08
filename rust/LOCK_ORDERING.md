@@ -58,6 +58,12 @@ All `std::sync::Mutex` unless noted otherwise.
 | L45 | `ISSUER_CACHE` | `cloud_server/sso.rs:57` | `Mutex<Option<HashMap<String, (Value, Value, Instant)>>>` | OIDC issuer discovery/JWKS metadata cache (public documents, TTL-bounded) |
 | L46 | `ATTEMPTS` | `cloud_server/team_join.rs:32` | `Mutex<Option<HashMap<String, Vec<Instant>>>>` | Invite-redeem rate-limit attempt log (salted ip-hash → instants, pruned per insert) |
 | L47 | `SOURCE_COUNTS` | `core/auto_mode_resolver.rs:10` | `Mutex<Option<HashMap<&'static str, u64>>>` | Per-process counters of which signal decided each auto-mode resolution; surfaced by `ctx_metrics` (#496) |
+| L48 | `TRANSCRIPT_BUFFER` | `core/verbosity/runtime.rs:13` | `LazyLock<Mutex<Vec<TranscriptEntry>>>` | Buffered verbosity transcript entries for signal extraction |
+| L49 | `RECOMMENDED_LEVEL` | `core/verbosity/runtime.rs:16` | `LazyLock<Mutex<Option<CompressionLevel>>>` | Recommended compression level from verbosity analysis |
+| L50 | `STIGMERGY_TEST_LOCK` | `core/science_benchmark.rs:24` | `Mutex<()>` | Serialize stigmergy science benchmark tests |
+| L51 | `SIGNALS` | `core/stigmergy/signal.rs:48` | `Mutex<Vec<PheromoneSignal>>` | In-memory pheromone signal store for cross-agent coordination |
+| L52 | `SESSION_EVENTS` | `core/anti_interrupt/tracker.rs:51` | `Mutex<Vec<TimestampedEvent>>` | Anti-interruption session event log |
+| L53 | `FILE_TRAJECTORY` | `core/session/state.rs:22` | `LazyLock<Mutex<FileTrajectory>>` | Tracks file access trajectory for session analysis |
 | L48 | `NO_GIT_ROOTS` | `core/git_signals.rs:23` | `Mutex<Option<HashSet<String>>>` | Roots probed and found non-git — negative cache so each root is probed at most once per process |
 | L49 | `BASELINE` | `core/datadog_push.rs:46` | `Mutex<Option<Baseline>>` | Last pushed counter totals for the Datadog agentless push — deltas are computed against it each interval (#401) |
 | L50 | `LINE_EMBED_CACHE` | `core/entropy.rs:299` | `Mutex<Option<HashMap<u64, Vec<f32>>>>` | Per-line embedding cache (line-hash → vector) for the semantic redundancy filter (#544); capacity-bounded, never blocks on model loads |
@@ -103,6 +109,12 @@ All `std::sync::Mutex` unless noted otherwise.
 | L90 | `DIR_CACHE` | `core/rule_discovery.rs:91` | `Mutex<Option<HashMap<String, Vec<DiscoveredRule>>>>` | Directory-scoped rule discovery cache for ctx_read (#1325); locked briefly to read or store discovered rules, then released before path filtering; independent leaf lock, never nested |
 | L91 | `SIG_QUERY_CACHE` | `core/signatures_ts/query_cache.rs:9` | `OnceLock<Mutex<HashMap<Language, Arc<Query>>>>` | Compiled tree-sitter signature queries per language; locked briefly to get or insert a cached query; independent leaf lock, never nested |
 | L92 | `BLOCKED` | `core/signatures.rs:295` | `Mutex<Option<HashSet<String>>>` | Per-session tree-sitter language blocklist; tracks extensions whose grammars panicked so subsequent calls skip straight to regex fallback; locked briefly to check or insert; independent leaf lock, never nested |
+| L93 | `FILE_TRAJECTORY` | `core/session/state.rs:22` | `LazyLock<Mutex<FileTrajectory>>` | Predictive context prefetch (F2): records file-access sequences and predicts next files for cache warming; locked briefly to record or predict; independent leaf lock, never nested |
+| L94 | `SIGNALS` | `core/stigmergy/signal.rs:48` | `Mutex<Vec<PheromoneSignal>>` | Stigmergy pheromone signal store: records file-access patterns as pheromone signals for swarm-intelligence-based context routing; locked briefly to push or drain signals; independent leaf lock, never nested |
+| L95 | `TRANSCRIPT_BUFFER` | `core/verbosity/runtime.rs:13` | `LazyLock<Mutex<Vec<TranscriptEntry>>>` | Behavioral verbosity learning (F10): buffers recent tool-call transcripts to learn optimal compression levels; locked briefly to push entries; independent leaf lock, never nested |
+| L96 | `RECOMMENDED_LEVEL` | `core/verbosity/runtime.rs:16` | `LazyLock<Mutex<Option<CompressionLevel>>>` | Behavioral verbosity learning (F10): caches the recommended compression level derived from transcript analysis; locked briefly to read or update; independent leaf lock, never nested |
+| L97 | `SESSION_EVENTS` | `core/anti_interrupt/tracker.rs:51` | `Mutex<Vec<TimestampedEvent>>` | Anti-interruption score (F7): tracks timestamped file-access events to detect and penalize redundant reads/bounces; locked briefly to push or query; independent leaf lock, never nested |
+| L98 | `STIGMERGY_TEST_LOCK` | `core/science_benchmark.rs:24` | `Mutex<()>` | Serializes stigmergy benchmark tests to prevent concurrent signal-store mutations from interfering with each other; independent leaf lock, never nested |
 
 ### Test / Environment Locks (serialise env-var mutations)
 
