@@ -21,6 +21,8 @@ pub(crate) mod compression_safety;
 pub mod compressor;
 #[cfg(feature = "experimental")]
 pub(crate) mod context_budget;
+#[allow(dead_code, unreachable_pub)]
+pub mod context_prefetch;
 pub(crate) mod datadog_push;
 pub mod entropy;
 #[allow(dead_code)]
