@@ -57,7 +57,9 @@ pub(super) fn resolve_instruction_file_mode(path: &str, mode: &str) -> (String, 
     )
 }
 
-pub(super) fn scoped_read_ranges(mode: &str) -> Option<Vec<crate::tools::ctx_read::mode::LineRange>> {
+pub(super) fn scoped_read_ranges(
+    mode: &str,
+) -> Option<Vec<crate::tools::ctx_read::mode::LineRange>> {
     use crate::tools::ctx_read::{ReadMode, mode::LineRange};
 
     match mode.parse::<ReadMode>().ok()? {

@@ -1269,8 +1269,12 @@ impl CtxReadTool {
 
 #[path = "ctx_read_window.rs"]
 mod window;
-use window::{resolve_instruction_file_mode, scoped_read_ranges, hint_intersects_ranges, apply_line_window, resolve_raw_alias};
-
+#[allow(unused_imports)]
+// lines_mode + resolve_line_window used in #[cfg(test)] ctx_read_inline_tests
+use window::{
+    apply_line_window, hint_intersects_ranges, lines_mode, resolve_instruction_file_mode,
+    resolve_line_window, resolve_raw_alias, scoped_read_ranges,
+};
 
 fn apply_verdict(
     mode: &str,
