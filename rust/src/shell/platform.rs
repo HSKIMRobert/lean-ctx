@@ -1006,12 +1006,14 @@ mod zsh_safe_tests {
     use super::zsh_safe_command;
 
     #[test]
+    #[cfg(unix)]
     fn prepends_nonomatch_for_zsh() {
         let cmd = zsh_safe_command("grep --include=*.go pattern", "/bin/zsh");
         assert_eq!(cmd, "setopt nonomatch; grep --include=*.go pattern");
     }
 
     #[test]
+    #[cfg(unix)]
     fn prepends_nonomatch_for_usr_bin_zsh() {
         let cmd = zsh_safe_command("echo *.rs", "/usr/bin/zsh");
         assert_eq!(cmd, "setopt nonomatch; echo *.rs");
