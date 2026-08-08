@@ -299,6 +299,23 @@ pub fn shell_name() -> String {
         .to_string()
 }
 
+/// Wrap a command to disable zsh `nomatch` (GitHub #1439).
+/// zsh aborts commands with unquoted glob-like args that match no files.
+/// Prepending `setopt nonomatch` makes it pass them through as literals,
+/// matching POSIX/bash behavior.
+pub(crate) fn zsh_safe_command(command: &str, shell: &str) -> String {
+    if cfg!(unix) {
+        let basename = std::path::Path::new(shell)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if basename == "zsh" {
+            return format!("setopt nonomatch; {command}");
+        }
+    }
+    command.to_string()
+}
+
 pub(super) fn detect_shell() -> String {
     if let Ok(shell) = std::env::var("LEAN_CTX_SHELL") {
         return shell;
@@ -981,5 +998,34 @@ mod carriage_return_tests {
     #[test]
     fn empty_string_passthrough() {
         assert_eq!(resolve_carriage_returns(""), "");
+    }
+}
+
+#[cfg(test)]
+mod zsh_safe_tests {
+    use super::zsh_safe_command;
+
+    #[test]
+    fn prepends_nonomatch_for_zsh() {
+        let cmd = zsh_safe_command("grep --include=*.go pattern", "/bin/zsh");
+        assert_eq!(cmd, "setopt nonomatch; grep --include=*.go pattern");
+    }
+
+    #[test]
+    fn prepends_nonomatch_for_usr_bin_zsh() {
+        let cmd = zsh_safe_command("echo *.rs", "/usr/bin/zsh");
+        assert_eq!(cmd, "setopt nonomatch; echo *.rs");
+    }
+
+    #[test]
+    fn passthrough_for_bash() {
+        let cmd = zsh_safe_command("grep --include=*.go pattern", "/bin/bash");
+        assert_eq!(cmd, "grep --include=*.go pattern");
+    }
+
+    #[test]
+    fn passthrough_for_sh() {
+        let cmd = zsh_safe_command("find -name *.ts", "/bin/sh");
+        assert_eq!(cmd, "find -name *.ts");
     }
 }

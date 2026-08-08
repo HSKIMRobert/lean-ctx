@@ -250,6 +250,7 @@ pub fn exec(command: &str) -> i32 {
 
     let (shell, shell_flag) = super::super::platform::shell_and_flag();
     let command = crate::tools::ctx_shell::normalize_command_for_shell(command);
+    let command = super::super::platform::zsh_safe_command(&command, &shell);
     let command = command.as_str();
 
     if super::super::reentry::is_disabled() {
