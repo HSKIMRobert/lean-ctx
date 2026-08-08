@@ -268,6 +268,8 @@ pub(crate) mod agents;
 pub(crate) mod autonomy;
 #[allow(dead_code)]
 pub(crate) mod autonomy_drivers;
+#[allow(dead_code, unreachable_pub)]
+pub mod stigmergy;
 
 // ---------------------------------------------------------------------------
 // Domain: Adaptive & Scoring
