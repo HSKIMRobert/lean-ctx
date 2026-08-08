@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d5eb2f43a365da9eea16f7dd40b0f00455ad5df3f553ae6276812c392801f1a3 # shrinks to signals = [PheromoneSignal { agent_id: "", kind: Active, path: "", symbol: None, strength: -0.8007503134513884, deposited_at: 2026-01-01T00:00:00Z, note: None }]
+cc 37c66ccf92dd29862763dc2f043b6560e22e135397f5db3037478e8e08f2d32a # shrinks to source = "a"
+cc db52672e88de249ec5f30e32db7a6c7f4ca1247a8c176c57cc01005a20a49a4a # shrinks to source = "fn helper() -> u32 { 42 }\n\npub struct Widget { id: u64, name: String }\n\npub struct Widget { id: u64, name: String }"

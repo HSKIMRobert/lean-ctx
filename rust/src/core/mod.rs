@@ -81,7 +81,7 @@ pub(crate) mod structured_read;
 pub(crate) mod tabular_crush;
 #[allow(dead_code, unreachable_pub)]
 pub mod verbosity;
-#[allow(dead_code, unreachable_pub)]
+#[allow(unreachable_pub)]
 pub mod wasserstein;
 #[allow(dead_code)]
 pub(crate) mod yaml_crush;

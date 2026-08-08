@@ -256,8 +256,14 @@ pub(crate) fn read_mode_for_tier(tier: ModelTier, task_type: TaskType) -> String
     ) {
         return "full".to_string();
     }
+    // Science-driven: use cognitive mode for exploration/review tasks when
+    // semantic chunking is available — returns code bodies, not just signatures.
+    let science = crate::core::cognitive_gate::basic_science_enabled();
     match (tier, task_type) {
         (ModelTier::Fast, _) => "signatures".to_string(),
+        (ModelTier::Standard, TaskType::Explore | TaskType::Review) if science => {
+            "cognitive".to_string()
+        }
         (ModelTier::Standard, TaskType::Explore | TaskType::Review) => "map".to_string(),
         (ModelTier::Standard, _) => "full".to_string(),
         (ModelTier::Premium, _) => "auto".to_string(),
@@ -420,6 +426,7 @@ mod tests {
         );
         assert!(
             r.decision.effective_read_mode == "signatures"
+                || r.decision.effective_read_mode == "cognitive"
                 || r.decision.effective_read_mode == "reference",
             "expected degraded mode, got: {}",
             r.decision.effective_read_mode

@@ -6,5 +6,5 @@ mod allocator;
 mod transport;
 
 pub use allocator::TokenAllocation;
-#[cfg(test)]
+
 pub(crate) use allocator::allocate_budget;

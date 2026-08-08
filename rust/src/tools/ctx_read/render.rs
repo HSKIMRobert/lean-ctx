@@ -818,6 +818,55 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     )
 }
 
+/// Full science pipeline: IB intent → relevance scores → Wasserstein OT allocation.
+/// Returns chunk indices sorted by file position, with per-chunk token budgets
+/// optimally distributed by the Sinkhorn solver.
+fn wasserstein_select(
+    chunks: &[crate::core::cognitive::SemanticChunk],
+    total_budget: usize,
+) -> Vec<usize> {
+    use crate::core::cognitive::budget_select;
+    use crate::core::ib::{classify_intent, compute_relevance};
+    use crate::core::session::SessionState;
+
+    let session = SessionState::load_latest().unwrap_or_default();
+    let intent = classify_intent(&session);
+
+    let chunk_texts: Vec<&str> = chunks.iter().map(|c| c.content.as_str()).collect();
+    let task_query = session
+        .task
+        .as_ref()
+        .map(|t| t.description.as_str())
+        .unwrap_or("");
+    let scores = compute_relevance(&chunk_texts, &intent, Some(task_query));
+
+    if scores.is_empty() || scores.iter().all(|s| s.score == 0.0) {
+        return budget_select(chunks, None);
+    }
+
+    let names: Vec<String> = (0..chunks.len()).map(|i| format!("chunk_{i}")).collect();
+    let files: Vec<(&str, usize, f64)> = names
+        .iter()
+        .zip(chunks.iter().zip(scores.iter()))
+        .map(|(name, (chunk, score))| (name.as_str(), chunk.token_count, score.score))
+        .collect();
+
+    let allocations = crate::core::wasserstein::allocate_budget(&files, total_budget / 2);
+
+    let mut ranked: Vec<(usize, usize)> = allocations
+        .iter()
+        .enumerate()
+        .filter(|(_, alloc)| alloc.tokens > 0)
+        .map(|(i, alloc)| (i, alloc.tokens))
+        .collect();
+
+    const MAX_CHUNKS: usize = 9;
+    ranked.sort_by_key(|b| std::cmp::Reverse(b.1));
+    ranked.truncate(MAX_CHUNKS);
+    ranked.sort_by_key(|(i, _)| chunks[*i].line_range);
+    ranked.into_iter().map(|(i, _)| i).collect()
+}
+
 fn render_cognitive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     use crate::core::cognitive::{budget_select, detect_chunks, render_budget_output};
     use crate::core::cognitive_gate::basic_science_enabled;
@@ -841,7 +890,14 @@ fn render_cognitive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
         return render_map(content, ctx);
     }
 
-    let selected = budget_select(&chunks, None);
+    let selected = {
+        use crate::core::cognitive_gate::full_science_enabled;
+        if full_science_enabled() {
+            wasserstein_select(&chunks, original_tokens)
+        } else {
+            budget_select(&chunks, None)
+        }
+    };
     let body = render_budget_output(&chunks, &selected, file_path);
 
     let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {

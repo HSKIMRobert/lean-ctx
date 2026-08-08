@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use super::{Config, ConfigCacheSlot, default_shell_allowlist};
+use super::{CognitiveMode, Config, ConfigCacheSlot, default_shell_allowlist};
 
 const CONFIG_PROFILE_ENV: &str = "LEAN_CTX_CONFIG_PROFILE";
 
@@ -388,6 +388,7 @@ impl Config {
         }
 
         cfg.migrate_contribute_to_telemetry();
+        cfg.migrate_cognitive_mode_to_full();
 
         let cfg = Arc::new(cfg);
         if let Ok(mut guard) = CACHE.lock() {
@@ -431,6 +432,25 @@ impl Config {
                     }
                     let _ = crate::config_io::write_atomic_with_backup(&path, &updated);
                 }
+            }
+        }
+    }
+
+    /// Migrate `cognitive_mode` from `basic` (old default) to `full` (new default).
+    /// The old default gave users only basic science features; `full` enables the
+    /// complete adaptive compression suite. One-way: only upgrades `basic` → `full`,
+    /// never touches `off` (explicit opt-out). Persists to disk.
+    pub(crate) fn migrate_cognitive_mode_to_full(&mut self) {
+        if !matches!(self.cognitive_mode, CognitiveMode::Basic) {
+            return;
+        }
+        self.cognitive_mode = CognitiveMode::Full;
+
+        if let Some(path) = Self::path() {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                let updated =
+                    raw.replace("cognitive_mode = \"basic\"", "cognitive_mode = \"full\"");
+                let _ = crate::config_io::write_atomic_with_backup(&path, &updated);
             }
         }
     }

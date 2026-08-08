@@ -8,6 +8,7 @@ const CONVERGENCE_TOLERANCE: f64 = 1.0e-8;
 
 /// Cost matrix entry describing the distance from a query to a file chunk.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CostEntry {
     /// Index of the file containing the chunk.
     pub file_idx: usize,

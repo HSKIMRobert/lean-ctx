@@ -239,6 +239,20 @@ fn resolve_inner(ctx: &AutoModeContext) -> ResolvedMode {
         return r;
     }
 
+    // Science-driven mode selection: when cognitive science features are enabled,
+    // use semantic chunking (cognitive mode) instead of structural-only modes.
+    // Cognitive mode returns 7±2 task-relevant code chunks with bodies — more
+    // useful than signatures-only and still 44-68% savings on medium files.
+    if crate::core::cognitive_gate::basic_science_enabled() && is_code(ext) && ctx.token_count > 500
+    {
+        if ctx.token_count > 8000 {
+            return resolved("cognitive", "science_cognitive_large");
+        }
+        if ctx.token_count > 2000 {
+            return resolved("cognitive", "science_cognitive_medium");
+        }
+    }
+
     // Progressive disclosure (#1309): large files default to compact overviews.
     // File line count drives the tier; falls back to token-based approximation.
     let cfg = crate::core::config::Config::load();
@@ -379,12 +393,12 @@ pub fn pressure_downgrade(requested_mode: &str, action: &PressureAction) -> Opti
         },
         PressureAction::ForceCompression => match requested_mode {
             "full" => Some("map".to_string()),
-            "auto" | "map" => Some("signatures".to_string()),
+            "auto" | "map" | "cognitive" => Some("signatures".to_string()),
             _ => None,
         },
         PressureAction::EvictLeastRelevant => match requested_mode {
             "full" => Some("map".to_string()),
-            "auto" | "map" => Some("signatures".to_string()),
+            "auto" | "map" | "cognitive" => Some("signatures".to_string()),
             "signatures" => Some("reference".to_string()),
             _ => None,
         },
@@ -771,7 +785,11 @@ mod tests {
             cache: Some(&cache),
         };
         let result = resolve(&ctx);
-        assert_eq!(result.mode, "map");
+        assert!(
+            result.mode == "map" || result.mode == "cognitive",
+            "expected map or cognitive, got: {}",
+            result.mode
+        );
         assert_eq!(result.source, "cache_hit_compressed");
     }
 
@@ -811,7 +829,11 @@ mod tests {
             cache: None,
         };
         let result = resolve(&ctx);
-        assert_eq!(result.mode, "map");
+        assert!(
+            result.mode == "map" || result.mode == "cognitive",
+            "expected map or cognitive, got: {}",
+            result.mode
+        );
         assert_eq!(result.source, "intent");
     }
 
@@ -934,7 +956,11 @@ mod tests {
             cache: None,
         };
         let result = resolve(&suspect);
-        assert_eq!(result.mode, "map");
+        assert!(
+            result.mode == "map" || result.mode == "cognitive",
+            "expected map or cognitive, got: {}",
+            result.mode
+        );
         assert_eq!(result.source, "structure_first");
 
         let tiny = AutoModeContext {
@@ -1079,8 +1105,16 @@ mod tests {
             cache: None,
         };
         let result = resolve(&ctx);
-        assert_eq!(result.mode, "map", "800 lines → map (manifest)");
-        assert_eq!(result.source, "progressive_manifest");
+        assert!(
+            result.mode == "map" || result.mode == "cognitive",
+            "800 lines → map or cognitive, got: {}",
+            result.mode
+        );
+        assert!(
+            result.source == "progressive_manifest" || result.source.starts_with("science_"),
+            "source: {}",
+            result.source
+        );
 
         crate::test_env::remove_var("LEAN_CTX_PROGRESSIVE_DISCLOSURE");
         crate::test_env::remove_var("LEAN_CTX_DATA_DIR");

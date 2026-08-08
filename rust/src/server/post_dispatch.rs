@@ -76,6 +76,18 @@ impl LeanCtxServer {
             crate::core::verbosity::record_tool_call(name, action, args_map, output_token_count);
         }
 
+        // F2: Predictive prefetch — after ctx_read, warm the cache with predicted
+        // next files based on the session's file-access trajectory.
+        if crate::core::cognitive_gate::full_science_enabled() && name == "ctx_read" {
+            tokio::task::spawn_blocking(move || {
+                let session = crate::core::session::SessionState::load_latest().unwrap_or_default();
+                let predictions = session.prefetch_predictions(3);
+                if !predictions.is_empty() {
+                    crate::core::context_prefetch::warm_predictions(&predictions, None);
+                }
+            });
+        }
+
         if let Some(prepared) = pending_session_save {
             let ir_clone = self.context_ir.clone();
             tokio::task::spawn_blocking(move || {

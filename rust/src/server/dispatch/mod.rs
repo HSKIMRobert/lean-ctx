@@ -180,7 +180,7 @@ impl LeanCtxServer {
                 let result = self
                     .dispatch_inner(&inner, arg_map.as_ref(), minimal)
                     .await?;
-                self.record_call("ctx_call", 0, 0, Some(inner)).await;
+                // Inner tool is already recorded by dispatch_inner with correct tokens.
                 Ok(result)
             }
             _ => self.dispatch_inner(name, args, minimal).await,
