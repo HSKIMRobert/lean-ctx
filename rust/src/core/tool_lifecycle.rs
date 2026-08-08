@@ -399,6 +399,19 @@ pub(crate) fn record_search(
     output_excerpt: &str,
 ) {
     stats::record("cli_grep", modeled_baseline, output_tokens);
+
+    // Emit event so the live dashboard feed sees shadow-mode search.
+    let search_saved = modeled_baseline.saturating_sub(output_tokens);
+    if search_saved > 0 {
+        crate::core::events::emit_tool_call(
+            "cli_grep",
+            modeled_baseline as u64,
+            search_saved as u64,
+            Some("search".to_string()),
+            duration.as_millis() as u64,
+            Some(path.to_string()),
+        );
+    }
     crate::core::savings_ledger::record_tool_event(
         "cli_grep",
         observed_tokens,
@@ -445,6 +458,19 @@ pub(crate) fn record_search(
 pub(crate) fn record_tree(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_ls", original_tokens, output_tokens);
 
+    // Emit event so the live dashboard feed sees shadow-mode tree/ls.
+    let saved = original_tokens.saturating_sub(output_tokens);
+    if saved > 0 {
+        crate::core::events::emit_tool_call(
+            "cli_ls",
+            original_tokens as u64,
+            saved as u64,
+            Some("tree".to_string()),
+            0,
+            None,
+        );
+    }
+
     if let Some(mut session) = SessionState::load_latest() {
         session.record_command();
         let _ = session.save();
@@ -456,6 +482,19 @@ pub(crate) fn record_tree(original_tokens: usize, output_tokens: usize) {
 /// command counter stays accurate. Adding 0 tokens does not inflate savings.
 pub(crate) fn record_shell_command(original_tokens: usize, output_tokens: usize) {
     stats::record("cli_shell", original_tokens, output_tokens);
+
+    // Emit event so the live dashboard feed sees shadow-mode shell compression.
+    let saved = original_tokens.saturating_sub(output_tokens);
+    if saved > 0 {
+        crate::core::events::emit_tool_call(
+            "cli_shell",
+            original_tokens as u64,
+            saved as u64,
+            Some("shell".to_string()),
+            0,
+            None,
+        );
+    }
     // Shell compression is *measured* (raw output vs sent output), so it belongs
     // in the verified ledger too (GL #479 D2). Zero-saving calls are skipped.
     crate::core::savings_ledger::record_tool_event(
