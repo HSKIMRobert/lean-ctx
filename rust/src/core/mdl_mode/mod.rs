@@ -7,5 +7,4 @@ mod bounds;
 mod structural;
 
 pub use structural::StructuralDescription;
-#[cfg(test)]
 pub(crate) use structural::generate_structural_description;

@@ -1,6 +1,7 @@
 //! `lean-ctx cognitive` — display science-driven context intelligence status.
 
 use crate::core::anti_interrupt;
+use crate::core::cognitive_gate::full_science_enabled;
 use crate::core::config::CognitiveMode;
 
 /// Run the cognitive status display.
@@ -22,17 +23,23 @@ pub(crate) fn run() {
         CognitiveMode::Basic | CognitiveMode::Full => {}
     }
 
-    let impact = anti_interrupt::compute_impact();
-    println!("Anti-Interruption Score: {:.0}%", impact.score * 100.0);
-    println!(
-        "  Interruptions prevented: {}",
-        impact.interruptions_prevented
-    );
-    println!(
-        "  Focus time saved: {:.0} min",
-        impact.focus_time_saved_minutes
-    );
-    println!("  Echo tokens saved: {}", impact.echo_tokens_saved);
+    if full_science_enabled() {
+        let events = anti_interrupt::session_interruptions();
+        let impact = anti_interrupt::compute_impact();
+        println!("Anti-Interruption Score: {:.0}%", impact.score * 100.0);
+        println!("  Session events tracked: {}", events.len());
+        println!(
+            "  Interruptions prevented: {}",
+            impact.interruptions_prevented
+        );
+        println!(
+            "  Focus time saved: {:.0} min",
+            impact.focus_time_saved_minutes
+        );
+        println!("  Echo tokens saved: {}", impact.echo_tokens_saved);
+    } else {
+        println!("Anti-Interruption Score: n/a (requires 'full' cognitive mode)");
+    }
     println!();
 
     println!("Features:");

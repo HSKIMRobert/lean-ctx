@@ -83,6 +83,10 @@ pub(crate) enum ReadMode {
     Aggressive,
     /// Entropy-pruned summary — `"entropy"`.
     Entropy,
+    /// Semantic chunking (7±2 chunks via Miller's Law) — `"cognitive"`.
+    Cognitive,
+    /// MDL structural description — `"mdl"`.
+    Mdl,
     /// Task-focused summary — `"task"`.
     Task,
     /// One-line pointer/quote — `"reference"`.
@@ -147,8 +151,8 @@ impl ParseModeError {
                 format!("invalid read mode \"{s}\": expected density:0.NN, e.g. density:0.40")
             }
             ParseModeError::Malformed(s) | ParseModeError::Unknown(s) => format!(
-                "invalid read mode \"{s}\": expected one of full, signatures, map, auto, raw, \
-                 anchored, reference, diff, lines:N-M, anchored:N-M, density:0.NN"
+                "invalid read mode \"{s}\": expected one of full, signatures, map, cognitive, mdl, \
+                 auto, raw, anchored, reference, diff, lines:N-M, anchored:N-M, density:0.NN"
             ),
         }
     }
@@ -209,6 +213,8 @@ impl FromStr for ReadMode {
             "map" => ReadMode::Map,
             "aggressive" => ReadMode::Aggressive,
             "entropy" => ReadMode::Entropy,
+            "cognitive" => ReadMode::Cognitive,
+            "mdl" => ReadMode::Mdl,
             "task" => ReadMode::Task,
             "reference" => ReadMode::Reference,
             "auto" => ReadMode::Auto,
@@ -247,6 +253,8 @@ impl fmt::Display for ReadMode {
             ReadMode::Map => "map",
             ReadMode::Aggressive => "aggressive",
             ReadMode::Entropy => "entropy",
+            ReadMode::Cognitive => "cognitive",
+            ReadMode::Mdl => "mdl",
             ReadMode::Task => "task",
             ReadMode::Reference => "reference",
             ReadMode::Auto => "auto",
@@ -267,7 +275,7 @@ impl ReadMode {
     /// the per-file `compressed_outputs` cache. Replaces `is_cacheable_mode`.
     #[must_use]
     pub(crate) fn is_compressed_cacheable(&self) -> bool {
-        matches!(self, ReadMode::Map | ReadMode::Signatures)
+        matches!(self, ReadMode::Map | ReadMode::Signatures | ReadMode::Mdl)
     }
 
     /// Whole-file views the `#361` anti-inflation raw cap applies to. Selection
@@ -300,6 +308,8 @@ impl ReadMode {
                 | ReadMode::Signatures
                 | ReadMode::Aggressive
                 | ReadMode::Entropy
+                | ReadMode::Cognitive
+                | ReadMode::Mdl
                 | ReadMode::Task
         )
     }
@@ -351,6 +361,8 @@ mod tests {
         "map",
         "aggressive",
         "entropy",
+        "cognitive",
+        "mdl",
         "task",
         "reference",
         "auto",
@@ -364,7 +376,7 @@ mod tests {
     // tests below pin behaviour to the exact prior semantics). ---
 
     fn legacy_is_cacheable(mode: &str) -> bool {
-        ["map", "signatures"].contains(&mode)
+        ["map", "signatures", "mdl"].contains(&mode)
     }
 
     fn legacy_allows_raw_cap(mode: &str) -> bool {
@@ -374,7 +386,7 @@ mod tests {
     fn legacy_is_lossy_summary(mode: &str) -> bool {
         matches!(
             mode,
-            "map" | "signatures" | "aggressive" | "entropy" | "task"
+            "map" | "signatures" | "aggressive" | "entropy" | "cognitive" | "mdl" | "task"
         )
     }
 

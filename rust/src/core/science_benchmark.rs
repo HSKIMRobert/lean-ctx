@@ -3,6 +3,7 @@
 //! `cargo test --lib science_benchmark -- --nocapture`
 
 use chrono::{Duration, TimeZone, Utc};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use crate::core::cognitive_gate::{basic_science_enabled, full_science_enabled};
@@ -662,5 +663,288 @@ fn benchmark_full_pipeline_token_comparison() {
     assert!(
         rows[1].3 > 0.0,
         "basic mode should produce non-zero top relevance for bug-fix task"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 8. Proof benchmarks — real-file token savings via render pipeline
+// ---------------------------------------------------------------------------
+//
+// Exercises `process_mode` on actual lean-ctx sources. Default config uses
+// `cognitive_mode = basic`, which enables cognitive/mdl science paths via
+// `basic_science_enabled()`. Run:
+//   cargo test --lib proof_comprehensive_mode_comparison -- --nocapture
+
+use crate::tools::CrpMode;
+use crate::tools::ctx_read::render::{ReadTuning, process_mode_tuned};
+
+/// All read modes under test, from lossless to most compressed.
+const PROOF_MODES: &[&str] = &[
+    "raw",
+    "full",
+    "map",
+    "signatures",
+    "cognitive",
+    "mdl",
+    "entropy",
+    "aggressive",
+];
+
+/// Real source files spanning small → huge (line counts verified at authoring).
+const PROOF_FILES: &[(&str, &str)] = &[
+    ("tiny", "src/core/cognitive_gate.rs"),       // ~30 lines
+    ("small", "src/core/echo_ratio.rs"),          // ~132 lines
+    ("medium", "src/core/tokens.rs"),             // ~478 lines
+    ("large", "src/tools/ctx_read/render.rs"),    // ~1200 lines
+    ("huge", "src/tools/registered/ctx_read.rs"), // ~1500 lines
+];
+
+fn manifest_path(relative: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
+}
+
+fn read_proof_file(relative: &str) -> String {
+    std::fs::read_to_string(manifest_path(relative))
+        .unwrap_or_else(|e| panic!("failed to read {relative}: {e}"))
+}
+
+fn file_ext(path: &str) -> &str {
+    path.rsplit('.').next().unwrap_or("rs")
+}
+
+fn file_short(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Render `content` through the production read pipeline for `mode`.
+fn render_mode(content: &str, path: &str, mode: &str) -> (String, usize) {
+    let ext = file_ext(path);
+    let short = file_short(path);
+    let original_tokens = count_tokens(content);
+    let tuning = if mode == "entropy" {
+        // Entropy's adaptive path often hits the monotonic guard on real sources;
+        // a moderate aggressiveness override activates the BPE threshold path.
+        ReadTuning {
+            aggressiveness: Some(0.8),
+            protect: &[],
+        }
+    } else {
+        ReadTuning::default()
+    };
+    process_mode_tuned(
+        content,
+        mode,
+        short,
+        short,
+        ext,
+        original_tokens,
+        CrpMode::Off,
+        path,
+        None,
+        tuning,
+    )
+}
+
+fn savings_pct(raw_tokens: usize, output_tokens: usize) -> f64 {
+    if raw_tokens == 0 {
+        0.0
+    } else {
+        (1.0 - output_tokens as f64 / raw_tokens as f64) * 100.0
+    }
+}
+
+fn assert_science_enabled() {
+    assert!(
+        basic_science_enabled(),
+        "proof benchmarks require cognitive_mode != off (default is basic); \
+         set cognitive_mode = \"basic\" or \"full\" in config.toml"
+    );
+}
+
+#[test]
+fn proof_cognitive_mode_saves_tokens() {
+    assert_science_enabled();
+    let path = "src/tools/ctx_read/render.rs";
+    let content = read_proof_file(path);
+    let raw_tokens = count_tokens(&content);
+
+    let (cognitive_output, cognitive_tokens) = render_mode(&content, path, "cognitive");
+    let saving = savings_pct(raw_tokens, cognitive_tokens);
+
+    println!("=== PROOF: cognitive mode ===");
+    println!("  File:              {}", file_short(path));
+    println!("  Raw tokens:        {raw_tokens}");
+    println!("  Cognitive tokens:  {cognitive_tokens}");
+    println!("  Savings:           {saving:.1}%");
+    println!(
+        "  Output preview:    {}…",
+        &cognitive_output[..cognitive_output.len().min(120)]
+    );
+
+    assert!(
+        cognitive_tokens < raw_tokens,
+        "cognitive mode must save tokens on {path} ({cognitive_tokens} >= {raw_tokens})"
+    );
+    assert!(
+        saving > 40.0,
+        "cognitive should achieve >40% savings on render.rs, got {saving:.1}%"
+    );
+}
+
+#[test]
+fn proof_mdl_mode_saves_more_than_map() {
+    assert_science_enabled();
+    let path = "src/tools/ctx_read/render.rs";
+    let content = read_proof_file(path);
+    let raw_tokens = count_tokens(&content);
+
+    let (_, map_tokens) = render_mode(&content, path, "map");
+    let (_, mdl_tokens) = render_mode(&content, path, "mdl");
+
+    println!("=== PROOF: mdl vs map ===");
+    println!("  Raw tokens:   {raw_tokens}");
+    println!(
+        "  Map tokens:   {map_tokens} ({:.1}% saved)",
+        savings_pct(raw_tokens, map_tokens)
+    );
+    println!(
+        "  MDL tokens:   {mdl_tokens} ({:.1}% saved)",
+        savings_pct(raw_tokens, mdl_tokens)
+    );
+
+    assert!(map_tokens < raw_tokens, "map must compress");
+    assert!(mdl_tokens < raw_tokens, "mdl must compress");
+    assert!(
+        mdl_tokens <= map_tokens,
+        "mdl ({mdl_tokens}) should be <= map ({map_tokens}) on structural file"
+    );
+}
+
+#[test]
+fn proof_compression_modes_ordered() {
+    assert_science_enabled();
+    let path = "src/core/tokens.rs";
+    let content = read_proof_file(path);
+    let raw_tokens = count_tokens(&content);
+
+    let modes = [
+        "raw",
+        "full",
+        "signatures",
+        "map",
+        "cognitive",
+        "mdl",
+        "entropy",
+        "aggressive",
+    ];
+    let tokens_by_mode: Vec<(&str, usize)> = modes
+        .iter()
+        .map(|&mode| {
+            let (_, tok) = render_mode(&content, path, mode);
+            (mode, tok)
+        })
+        .collect();
+
+    println!("=== PROOF: mode ordering on tokens.rs ===");
+    for (mode, tok) in &tokens_by_mode {
+        println!(
+            "  {mode:<12} {tok:>6} tok  ({:>6.1}% vs raw)",
+            savings_pct(raw_tokens, *tok)
+        );
+    }
+
+    // Raw is identity.
+    assert_eq!(tokens_by_mode[0].1, raw_tokens);
+
+    // Compressed science modes beat raw on a medium-sized real file.
+    for (mode, tok) in tokens_by_mode.iter().skip(2) {
+        if matches!(*mode, "full" | "entropy") {
+            // full adds header; entropy often hits monotonic fallback on Rust sources.
+            continue;
+        }
+        assert!(
+            *tok < raw_tokens,
+            "{mode} ({tok}) must beat raw ({raw_tokens}) on tokens.rs"
+        );
+    }
+}
+
+#[test]
+fn proof_entropy_mode_saves_on_huge_file() {
+    assert_science_enabled();
+    let path = "src/tools/registered/ctx_read.rs";
+    let content = read_proof_file(path);
+    let raw_tokens = count_tokens(&content);
+
+    let (_, entropy_tokens) = render_mode(&content, path, "entropy");
+    let saving = savings_pct(raw_tokens, entropy_tokens);
+
+    println!("=== PROOF: entropy mode (huge file) ===");
+    println!("  Raw tokens:     {raw_tokens}");
+    println!("  Entropy tokens: {entropy_tokens}");
+    println!("  Savings:        {saving:.1}%");
+
+    assert!(
+        entropy_tokens < raw_tokens,
+        "entropy must save tokens on {path} with aggressiveness tuning"
+    );
+}
+
+#[test]
+fn proof_comprehensive_mode_comparison() {
+    assert_science_enabled();
+
+    println!("\n=== PROOF: Comprehensive Token Savings ===");
+    println!(
+        "Science gates: basic={} full={}",
+        basic_science_enabled(),
+        full_science_enabled()
+    );
+    println!(
+        "{:<8} {:<22} {:>12} {:>8} {:>8} {:>8}",
+        "Size", "File", "Mode", "Raw", "Output", "Saving%"
+    );
+    println!("{}", "-".repeat(72));
+
+    let mut total_checks = 0_usize;
+    let mut passed_checks = 0_usize;
+
+    for (size, file) in PROOF_FILES {
+        let content = read_proof_file(file);
+        let raw_tokens = count_tokens(&content);
+        let short = file_short(file);
+
+        for mode in PROOF_MODES {
+            let (_, output_tokens) = render_mode(&content, file, mode);
+            let saving = savings_pct(raw_tokens, output_tokens);
+
+            println!(
+                "{size:<8} {short:<22} {mode:>12} {raw_tokens:>8} {output_tokens:>8} {saving:>7.1}%",
+            );
+
+            let must_compress = match *mode {
+                "map" | "signatures" | "mdl" | "aggressive" => true,
+                "cognitive" => raw_tokens > 500,
+                // Entropy frequently hits monotonic fallback except on the largest files.
+                "entropy" => raw_tokens > 12_000,
+                _ => false,
+            };
+            if must_compress {
+                total_checks += 1;
+                if output_tokens < raw_tokens {
+                    passed_checks += 1;
+                } else {
+                    eprintln!(
+                        "  FAIL: {mode} on {file} did not compress ({output_tokens} >= {raw_tokens})"
+                    );
+                }
+            }
+        }
+        println!();
+    }
+
+    assert_eq!(
+        passed_checks, total_checks,
+        "{passed_checks}/{total_checks} compression modes saved tokens — see table above"
     );
 }

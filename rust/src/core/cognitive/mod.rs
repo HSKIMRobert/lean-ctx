@@ -6,5 +6,4 @@
 mod chunker;
 
 pub use chunker::{ChunkKind, SemanticChunk};
-#[cfg(test)]
-pub(crate) use chunker::{budget_select, detect_chunks};
+pub(crate) use chunker::{budget_select, detect_chunks, render_budget_output};

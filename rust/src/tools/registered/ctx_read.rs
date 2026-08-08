@@ -906,6 +906,7 @@ impl CtxReadTool {
         // Session updates (bounded lock — 10s timeout, read already succeeded)
         let mut ensured_root: Option<String> = None;
         let mut traversal_working_set: Vec<String> = Vec::new();
+        let mut prefetch_paths: Vec<String> = Vec::new();
         let project_root_snapshot;
         {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -920,6 +921,7 @@ impl CtxReadTool {
             };
             if let Some(mut session) = session_guard {
                 session.touch_file(path, file_ref.as_deref(), &resolved_mode, original);
+                prefetch_paths = session.prefetch_predictions(3);
                 // Capture the recent working set (under the lock) so the
                 // background thread can record a traversal/co-access edge (#289).
                 traversal_working_set =
@@ -968,6 +970,10 @@ impl CtxReadTool {
         }
         if let Some(root) = ensured_root.as_deref() {
             crate::core::index_orchestrator::ensure_all_background(root);
+        }
+
+        if !prefetch_paths.is_empty() {
+            crate::core::context_prefetch::warm_predictions(&prefetch_paths, Some(&cache_lock));
         }
 
         // Telemetry + learning are pure side-effects that never influence this

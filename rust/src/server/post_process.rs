@@ -153,7 +153,18 @@ pub(super) fn compress_terse(
     if skip_terse(name, args, is_raw_shell) {
         return text;
     }
-    let compression = CompressionLevel::effective(config);
+    let mut compression = CompressionLevel::effective(config);
+    if crate::core::cognitive_gate::full_science_enabled()
+        && CompressionLevel::session_degrade_level().is_none()
+        && let Some(recommended) = crate::core::verbosity::recommended_compression()
+        && recommended.is_more_aggressive_than(&compression)
+    {
+        tracing::info!(
+            "[verbosity] applying recommended compression: {}",
+            recommended.label()
+        );
+        compression = recommended;
+    }
     if !compression.is_active() {
         return text;
     }

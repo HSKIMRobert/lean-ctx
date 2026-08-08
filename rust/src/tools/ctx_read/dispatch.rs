@@ -395,6 +395,7 @@ fn handle_with_options_resolved_preread(
             result.content = stub;
             result.output_tokens = stub_tokens;
             result.is_cache_hit = true;
+            crate::core::anti_interrupt::spawn_redundant_read(path);
         }
     }
 
@@ -402,12 +403,13 @@ fn handle_with_options_resolved_preread(
     crate::core::context_kernel::adaptive_hook::update_from_bounce_tracker();
     if let Ok(mut bt) = crate::core::bounce_tracker::global().lock() {
         let original_tokens = cache.get(path).map_or(0, |e| e.original_tokens);
-        bt.record_read(
-            path,
-            &result.resolved_mode,
-            result.output_tokens,
-            original_tokens,
-        );
+        let bounces_before = bt.total_bounces();
+        let output_tokens = result.output_tokens;
+        bt.record_read(path, &result.resolved_mode, output_tokens, original_tokens);
+
+        if bt.total_bounces() > bounces_before {
+            crate::core::anti_interrupt::spawn_bounce_waste(output_tokens as u64);
+        }
 
         // Quality signals (#538): compressed reads count as clean until a
         // bounce proves otherwise (the bounce signal outweighs 6:1); large

@@ -411,6 +411,21 @@ impl CompressionLevel {
         !matches!(self, Self::Off)
     }
 
+    /// Numeric aggression scale for level comparisons (higher = more compression).
+    pub fn aggression_index(self) -> u8 {
+        match self {
+            Self::Off => 0,
+            Self::Lite => 1,
+            Self::Standard => 2,
+            Self::Max => 3,
+            Self::Raw => 4,
+        }
+    }
+
+    /// Returns `true` when `self` compresses more aggressively than `other`.
+    pub fn is_more_aggressive_than(self, other: &Self) -> bool {
+        self.aggression_index() > other.aggression_index()
+    }
     pub fn label(&self) -> &'static str {
         match self {
             Self::Off => "off",

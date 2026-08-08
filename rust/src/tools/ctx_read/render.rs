@@ -318,6 +318,8 @@ pub(crate) fn process_mode_tuned(
         "map" => render_map(content, ctx),
         "aggressive" => render_aggressive(content, ctx),
         "entropy" => render_entropy(content, ctx, &tuning),
+        "cognitive" => render_cognitive(content, ctx),
+        "mdl" => render_mdl(content, ctx),
         "task" => render_task_mode(content, ctx, &tuning),
         "reference" => {
             let tok = count_tokens(content);
@@ -807,6 +809,91 @@ fn render_map(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
     }
 
     let sent = count_tokens(&output);
+    (
+        append_compressed_hint(
+            &protocol::append_savings(&output, original_tokens, sent),
+            file_path,
+        ),
+        sent,
+    )
+}
+
+fn render_cognitive(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
+    use crate::core::cognitive::{budget_select, detect_chunks, render_budget_output};
+    use crate::core::cognitive_gate::basic_science_enabled;
+
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        line_count,
+        ..
+    } = ctx;
+
+    if !basic_science_enabled() {
+        return render_map(content, ctx);
+    }
+
+    let chunks = detect_chunks(content, ext);
+    if chunks.is_empty() {
+        return render_map(content, ctx);
+    }
+
+    let selected = budget_select(&chunks, None);
+    let body = render_budget_output(&chunks, &selected, file_path);
+
+    let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L cognitive\n{body}")
+    } else {
+        format!("{short} {line_count}L cognitive\n{body}")
+    };
+
+    let sent = count_tokens(&output);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
+    (
+        append_compressed_hint(
+            &protocol::append_savings(&output, original_tokens, sent),
+            file_path,
+        ),
+        sent,
+    )
+}
+
+fn render_mdl(content: &str, ctx: RenderCtx<'_>) -> (String, usize) {
+    use crate::core::cognitive_gate::basic_science_enabled;
+    use crate::core::mdl_mode::generate_structural_description;
+
+    let RenderCtx {
+        file_ref,
+        short,
+        ext,
+        file_path,
+        original_tokens,
+        line_count,
+        ..
+    } = ctx;
+
+    if !basic_science_enabled() {
+        return render_map(content, ctx);
+    }
+
+    let desc = generate_structural_description(content, file_path, ext);
+    let body = desc.render();
+
+    let output = if crate::core::protocol::meta_visible() && !file_ref.is_empty() {
+        format!("{file_ref}={short} {line_count}L mdl\n{body}")
+    } else {
+        format!("{short} {line_count}L mdl\n{body}")
+    };
+
+    let sent = count_tokens(&output);
+    if !monotonic_check(original_tokens, sent) {
+        return raw_fallback(file_path, content, original_tokens, sent);
+    }
     (
         append_compressed_hint(
             &protocol::append_savings(&output, original_tokens, sent),

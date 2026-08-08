@@ -5,8 +5,10 @@
 
 mod preloader;
 mod trajectory;
+mod warming;
 
 pub use preloader::PrefetchPlan;
 #[cfg(test)]
 pub(crate) use preloader::build_prefetch_plan;
 pub(crate) use trajectory::FileTrajectory;
+pub(crate) use warming::warm_predictions;

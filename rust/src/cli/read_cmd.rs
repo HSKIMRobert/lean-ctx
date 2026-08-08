@@ -381,6 +381,35 @@ pub fn cmd_read(args: &[String]) {
                 read_start.elapsed(),
             );
         }
+        "cognitive" | "mdl" => {
+            let (output, _) = crate::tools::ctx_read::process_mode(
+                &content,
+                mode,
+                "",
+                &short,
+                ext,
+                original_tokens,
+                crate::core::protocol::CrpMode::Off,
+                path,
+                None,
+            );
+            let output = if requested_auto {
+                cap_cli_to_raw(output, &content, original_tokens)
+            } else {
+                output
+            };
+            let sent = count_tokens(&output);
+            println!("{output}");
+            print_savings(original_tokens, sent);
+            super::common::cli_track_read(
+                path,
+                mode,
+                original_tokens,
+                sent,
+                &output,
+                read_start.elapsed(),
+            );
+        }
         _ => {
             // `full` and any unrecognized mode land here. These are
             // verbatim reads — the prose terse pipeline would mangle source
