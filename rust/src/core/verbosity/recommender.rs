@@ -1,5 +1,5 @@
 use super::signals::BehaviorSignal;
-use crate::core::config::enums::CompressionLevel;
+use crate::core::config::CompressionLevel;
 
 /// Recommended verbosity profile.
 #[derive(Debug, Clone)]
@@ -69,11 +69,10 @@ pub(crate) fn recommend_level(signals: &[BehaviorSignal]) -> VerbosityProfile {
 
     let level = match best_idx {
         0 => CompressionLevel::Off,
-        1 => CompressionLevel::Lite,
         2 => CompressionLevel::Standard,
         3 => CompressionLevel::Max,
         4 => CompressionLevel::Raw,
-        _ => CompressionLevel::Lite,
+        _ => CompressionLevel::Lite, // includes 1 (Lite)
     };
 
     VerbosityProfile {

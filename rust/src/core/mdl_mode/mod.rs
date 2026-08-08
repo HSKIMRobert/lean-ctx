@@ -2,7 +2,6 @@
 //!
 //! Generates minimum-length structural fingerprints of source files using the
 //! Minimum Description Length principle.
-#![allow(unreachable_pub)]
 
 mod bounds;
 mod structural;

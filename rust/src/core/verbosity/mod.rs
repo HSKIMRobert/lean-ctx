@@ -1,7 +1,6 @@
 //! Behavioral Verbosity Learning (F10) — adaptive compression recommendations.
 //!
 //! Learns optimal compression levels from agent behavioral signals.
-#![allow(unreachable_pub)]
 
 mod recommender;
 mod signals;

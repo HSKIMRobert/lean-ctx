@@ -1,7 +1,6 @@
 //! Wasserstein Token Allocator (F4) — Optimal Transport for context budgets.
 //!
 //! Distributes a global token budget across files using entropy-regularized OT.
-#![allow(unreachable_pub)]
 
 mod allocator;
 mod transport;
