@@ -12,6 +12,7 @@ use crate::core::signatures;
 /// Detect daemon results that indicate a read failure — the CLI should fall
 /// through to standalone (which runs as the user's process, not sandboxed).
 /// Catches: `"file.rs 0L"` stubs and `"Cannot read file:"` handler errors.
+#[cfg(unix)]
 fn is_failed_daemon_result(output: &str) -> bool {
     let first_line = output.lines().next().unwrap_or("");
     if first_line.starts_with("Cannot read file:") || first_line.starts_with("File is empty:") {
@@ -733,7 +734,7 @@ pub fn cmd_deps(args: &[String]) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod empty_daemon_tests {
     use super::is_failed_daemon_result;
 
