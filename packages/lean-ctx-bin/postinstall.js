@@ -150,7 +150,7 @@ function powershellGetJson(url) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
     (Invoke-RestMethod -Uri '${url}' -Headers @{'User-Agent'='lean-ctx-bin-npm'} -TimeoutSec 15) | ConvertTo-Json -Depth 10 -Compress
   `;
-  const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
+  const out = execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`, {
     encoding: "utf8",
     timeout: 20000,
     windowsHide: true,
@@ -164,7 +164,7 @@ function powershellDownload(url, dest) {
     $ProgressPreference = 'SilentlyContinue'
     Invoke-WebRequest -Uri '${url}' -OutFile '${dest.replace(/'/g, "''")}' -Headers @{'User-Agent'='lean-ctx-bin-npm'} -TimeoutSec 120
   `;
-  execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/"/g, '\\"')}"`, {
+  execSync(`powershell -NoProfile -NonInteractive -Command "${ps.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`, {
     stdio: "inherit",
     timeout: 180000,
     windowsHide: true,
