@@ -613,6 +613,7 @@ class CockpitLive extends HTMLElement {
 
     var body = '';
     body += this._renderHeroCounters(F, esc, ff, fmt);
+    body += this._renderSciencePanel(this._data.stats);
     body += this._renderSourceCards(F, esc, ff, pc);
     body += this._renderProgressBar(F, esc, pc);
     body += this._renderFilterRow(esc);
@@ -700,6 +701,53 @@ class CockpitLive extends HTMLElement {
         : '')
     );
   }
+
+  _renderSciencePanel(stats) {
+    var science = stats && stats.science;
+    if (!science) return '';
+
+    var mode = science.cognitive_mode || 'off';
+    var modeColor = mode === 'full'
+      ? 'var(--green)'
+      : mode === 'basic'
+        ? 'var(--accent)'
+        : 'var(--muted)';
+
+    return (
+      '<div class="science-panel" style="margin-top:1.5rem">' +
+      '<h3 style="font-size:0.85rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.75rem">' +
+      'Science Intelligence Engine' +
+      '</h3>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem">' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Cognitive Mode</div>' +
+      '<div class="stat-value" style="color:' + modeColor + '">' + mode + '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Anti-Interrupt Events</div>' +
+      '<div class="stat-value">' + (science.anti_interrupt && science.anti_interrupt.events || 0) + '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Redundant Reads Caught</div>' +
+      '<div class="stat-value">' + (science.anti_interrupt && science.anti_interrupt.redundant_reads || 0) + '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Bounce Waste Detected</div>' +
+      '<div class="stat-value">' + (science.anti_interrupt && science.anti_interrupt.bounce_waste || 0) + '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Verbosity Level</div>' +
+      '<div class="stat-value">' + (science.verbosity && science.verbosity.recommended_level || 'default') + '</div>' +
+      '</div>' +
+      '<div class="stat-card">' +
+      '<div class="stat-label">Files Prefetched</div>' +
+      '<div class="stat-value">' + (science.prefetch && science.prefetch.warmed || 0) + '</div>' +
+      '</div>' +
+      '</div>' +
+      '</div>'
+    );
+  }
+
 
   _renderSourceCards(F, esc, ff, pc) {
     var stats = this._data.stats;

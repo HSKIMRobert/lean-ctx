@@ -26,6 +26,9 @@ pub(super) fn handle(
                 if let Some(cache_runtime) = load_cache_runtime() {
                     obj.insert("cache_runtime".to_string(), cache_runtime);
                 }
+                if let Some(science) = load_science_stats() {
+                    obj.insert("science".to_string(), science);
+                }
             }
             let json = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
             Some(("200 OK", "application/json", json))
@@ -95,6 +98,15 @@ pub(super) fn handle(
 /// Current MCP-process cache telemetry. Historical cache totals remain in
 /// `StatsStore::cep`; this snapshot makes the hot cache visible to the live
 /// cockpit without teaching the browser where runtime state files live.
+
+fn load_science_stats() -> Option<serde_json::Value> {
+    let path = crate::core::paths::state_dir()
+        .ok()?
+        .join("science-live.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
 fn load_cache_runtime() -> Option<serde_json::Value> {
     let path = crate::core::paths::state_dir().ok()?.join("mcp-live.json");
     let raw = std::fs::read_to_string(path).ok()?;

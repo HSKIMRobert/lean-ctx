@@ -11,4 +11,4 @@ pub use preloader::PrefetchPlan;
 #[cfg(test)]
 pub(crate) use preloader::build_prefetch_plan;
 pub(crate) use trajectory::FileTrajectory;
-pub(crate) use warming::warm_predictions;
+pub(crate) use warming::{skipped_count, warm_predictions, warmed_count};

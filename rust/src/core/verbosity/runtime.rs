@@ -1,5 +1,6 @@
 //! Runtime wiring for verbosity learning from tool dispatch receipts.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
 use chrono::Utc;
@@ -15,8 +16,15 @@ static TRANSCRIPT_BUFFER: LazyLock<Mutex<Vec<TranscriptEntry>>> =
 static RECOMMENDED_LEVEL: LazyLock<Mutex<Option<CompressionLevel>>> =
     LazyLock::new(|| Mutex::new(None));
 
+static AUTO_APPLIED: AtomicBool = AtomicBool::new(false);
+
 const RECOMMEND_INTERVAL: usize = 10;
 const MAX_TRANSCRIPT_ENTRIES: usize = 200;
+
+/// Whether verbosity auto-apply stored a more aggressive level this session.
+pub(crate) fn auto_apply_happened() -> bool {
+    AUTO_APPLIED.load(Ordering::Relaxed)
+}
 
 /// Latest verbosity-learned compression level awaiting application.
 pub(crate) fn recommended_compression() -> Option<CompressionLevel> {
@@ -90,6 +98,7 @@ fn maybe_auto_apply_recommendation(recommended: CompressionLevel) {
         compression_level_label(recommended)
     );
     slot.replace(recommended);
+    AUTO_APPLIED.store(true, Ordering::Relaxed);
 }
 
 fn transcript_target(args: &serde_json::Map<String, serde_json::Value>) -> String {

@@ -240,9 +240,9 @@ pub enum CognitiveMode {
     /// All science features disabled.
     Off,
     /// Only basic features (IB, chunking).
-    #[default]
     Basic,
     /// Full science suite (IB, chunking, FSRS, OT allocation, graph expansion, verbosity learning).
+    #[default]
     Full,
 }
 

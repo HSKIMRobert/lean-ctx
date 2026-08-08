@@ -236,6 +236,7 @@ impl LeanCtxServer {
         }
 
         self.write_mcp_live_stats().await;
+        write_science_live_stats();
     }
 
     /// Increments the call counter and returns true if a checkpoint is due.
@@ -667,6 +668,69 @@ impl LeanCtxServer {
         let edit_heavy = edit_count >= 3 && edit_count >= shell_count;
 
         (weighted_score, significant_tools, shell_heavy, edit_heavy)
+    }
+}
+
+/// Persist science-module telemetry for the dashboard (separate process).
+pub(crate) fn write_science_live_stats() {
+    use crate::core::anti_interrupt::{InterruptionEvent, session_interruptions};
+    use crate::core::cognitive_gate;
+
+    let events = session_interruptions();
+    let mut redundant_reads = 0usize;
+    let mut bounce_waste = 0usize;
+    let mut prevented = 0usize;
+    for (event, was_prevented) in &events {
+        if *was_prevented {
+            prevented += 1;
+        }
+        match event {
+            InterruptionEvent::RedundantRead { .. } => redundant_reads += 1,
+            InterruptionEvent::BounceWaste { .. } => bounce_waste += 1,
+            _ => {}
+        }
+    }
+
+    let echo = crate::core::output_echo::load_stats();
+    let impact = crate::core::anti_interrupt::compute_impact();
+
+    let stats = serde_json::json!({
+        "cognitive_mode": if cognitive_gate::full_science_enabled() {
+            "full"
+        } else if cognitive_gate::basic_science_enabled() {
+            "basic"
+        } else {
+            "off"
+        },
+        "anti_interrupt": {
+            "events": events.len(),
+            "redundant_reads": redundant_reads,
+            "bounce_waste": bounce_waste,
+            "prevented": prevented,
+            "score": impact.score,
+            "focus_time_saved_minutes": impact.focus_time_saved_minutes,
+        },
+        "verbosity": {
+            "recommended_level": crate::core::verbosity::recommended_compression()
+                .map(|l| format!("{l:?}")),
+            "auto_applied": crate::core::verbosity::auto_apply_happened(),
+        },
+        "prefetch": {
+            "warmed": crate::core::context_prefetch::warmed_count(),
+            "skipped": crate::core::context_prefetch::skipped_count(),
+        },
+        "echo": {
+            "avg_ratio": echo.avg_ratio(50),
+            "window": echo.reports.len(),
+            "total_analyzed": echo.total_analyzed,
+        },
+        "updated_at": chrono::Local::now().to_rfc3339(),
+    });
+
+    if let Ok(dir) = crate::core::paths::state_dir() {
+        if let Ok(json) = serde_json::to_string_pretty(&stats) {
+            let _ = std::fs::write(dir.join("science-live.json"), json);
+        }
     }
 }
 

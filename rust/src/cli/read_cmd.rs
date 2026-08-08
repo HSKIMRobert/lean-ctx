@@ -9,6 +9,31 @@ use crate::core::protocol;
 use crate::core::roles;
 use crate::core::signatures;
 
+/// Detect daemon results that indicate a read failure — the CLI should fall
+/// through to standalone (which runs as the user's process, not sandboxed).
+/// Catches: `"file.rs 0L"` stubs and `"Cannot read file:"` handler errors.
+fn is_failed_daemon_result(output: &str) -> bool {
+    let first_line = output.lines().next().unwrap_or("");
+    if first_line.starts_with("Cannot read file:") || first_line.starts_with("File is empty:") {
+        return true;
+    }
+    if !first_line.ends_with(" 0L") {
+        return false;
+    }
+    let body: String = output
+        .lines()
+        .skip(1)
+        .filter(|l| {
+            let t = l.trim();
+            !t.is_empty()
+                && !t.starts_with("[no extractable structure")
+                && !t.starts_with("[lean-ctx]")
+                && !t.starts_with('[')
+        })
+        .collect();
+    body.is_empty()
+}
+
 fn resolve_cli_path(raw: &str) -> String {
     if let Ok(abs) = std::path::Path::new(raw).canonicalize() {
         return abs.to_string_lossy().to_string();
@@ -133,10 +158,11 @@ pub fn cmd_read(args: &[String]) {
             })),
         ) {
             let filtered = super::common::filter_daemon_output(&out);
-            if !filtered.trim().is_empty() {
+            if !filtered.trim().is_empty() && !is_failed_daemon_result(&filtered) {
                 println!("{filtered}");
                 return;
             }
+            // else: fall through to standalone path
         }
     }
     super::common::daemon_fallback_hint();
@@ -704,6 +730,49 @@ pub fn cmd_deps(args: &[String]) {
     } else {
         eprintln!("No dependency file found in {path}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod empty_daemon_tests {
+    use super::is_failed_daemon_result;
+
+    #[test]
+    fn detects_tcc_empty_stub() {
+        assert!(is_failed_daemon_result(
+            "file.rs 0L
+"
+        ));
+        assert!(is_failed_daemon_result(
+            "F1=file.rs 0L
+[lean-ctx: 0 tok saved]"
+        ));
+    }
+
+    #[test]
+    fn accepts_real_content() {
+        assert!(!is_failed_daemon_result(
+            "file.rs 10L
+fn main() {}
+"
+        ));
+    }
+
+    #[test]
+    fn accepts_nonzero_line_count() {
+        assert!(!is_failed_daemon_result(
+            "file.rs 1L
+"
+        ));
+    }
+
+    #[test]
+    fn ignores_structure_markers_in_body() {
+        assert!(is_failed_daemon_result(
+            "file.rs 0L
+[no extractable structure for .rs]
+"
+        ));
     }
 }
 

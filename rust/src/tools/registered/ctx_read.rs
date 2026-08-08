@@ -480,7 +480,13 @@ impl CtxReadTool {
                     }
 
                     // Phase 2a: disk I/O under per-file lock but WITHOUT cache lock.
-                    let preread = crate::tools::ctx_read::read_file_lossy(&path_owned).ok();
+                    let preread = match crate::tools::ctx_read::read_file_lossy(&path_owned) {
+                        Ok(c) => Some(c),
+                        Err(e) => {
+                            tracing::warn!("ctx_read: cannot read {path_owned}: {e}");
+                            None
+                        }
+                    };
 
                     if cancel_flag.load(Ordering::Relaxed) {
                         return;
@@ -679,10 +685,40 @@ impl CtxReadTool {
                                 }
                             }
                         } else {
-                            let raw = preread.unwrap_or_else(|| {
-                                crate::tools::ctx_read::read_file_lossy(&path_owned)
-                                    .unwrap_or_default()
-                            });
+                            let raw = match preread {
+                                Some(c) if !c.is_empty() => c,
+                                _ => match crate::tools::ctx_read::read_file_lossy(&path_owned) {
+                                    Ok(c) if !c.is_empty() => c,
+                                    Ok(_) => {
+                                        tracing::debug!(
+                                            "ctx_read: skipping cache for empty content: {path_owned}"
+                                        );
+                                        let _ = tx.send((
+                                            format!("File is empty: {path_owned}"),
+                                            "error".into(),
+                                            0,
+                                            false,
+                                            None,
+                                            (0, 0),
+                                        ));
+                                        return;
+                                    }
+                                    Err(e) => {
+                                        tracing::debug!(
+                                            "ctx_read: skipping cache for empty content: {path_owned}"
+                                        );
+                                        let _ = tx.send((
+                                            format!("Cannot read file: {path_owned}: {e}"),
+                                            "error".into(),
+                                            0,
+                                            false,
+                                            None,
+                                            (0, 0),
+                                        ));
+                                        return;
+                                    }
+                                },
+                            };
                             let sr = cache.store(&path_owned, &raw);
                             let resolved = if mode_eff == "auto" {
                                 tuning.auto_density_mode().unwrap_or_else(|| {

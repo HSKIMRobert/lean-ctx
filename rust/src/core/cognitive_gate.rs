@@ -23,8 +23,8 @@ mod tests {
 
     #[test]
     fn basic_science_enabled_when_not_off() {
-        // Default config is Basic — basic tier must be on, full tier off.
+        // Default config is Full — both tiers must be on.
         assert!(basic_science_enabled());
-        assert!(!full_science_enabled());
+        assert!(full_science_enabled());
     }
 }
