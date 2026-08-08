@@ -4,6 +4,83 @@ All notable changes to lean-ctx are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [3.9.18] — 2026-08-08
+
+### Added
+- **Science-driven context intelligence (Full cognitive mode)** — complete
+  production wiring of FSRS spaced-repetition scheduler, Wasserstein-optimal
+  token allocation, graph expansion, verbosity learning, anti-interrupt
+  protection, stigmergy signals, and context prefetch warming (R15–R18).
+- **`CognitiveMode::Full` now the default** — new installs start with full
+  science suite enabled. Existing users with `cognitive_mode = "basic"` are
+  auto-migrated on config load.
+- **`ctx_cognitive` tool** (83rd MCP tool) — exposes cognitive mode state and
+  controls to agents.
+- **`lean-ctx enterprise init` CLI command** — initializes enterprise
+  configuration with proxy header injection (`x-leanctx-*`).
+- **lean-ctx-protocol crate** — wire contracts (`SavingsObservationV1`) for
+  sidecar transport and cross-process communication.
+- **Policy classes with expiry behavior** — time-scoped enforcement policies
+  for experiment assignment.
+- **RuntimeSidecarTransport abstraction** — pluggable transport layer for
+  sidecar trust boundaries.
+- **Enterprise feature gates** — `proxy/policy_gate`, `gateway_identity`, and
+  `dashboard/usage_breakdown` gated behind `[enterprise]` config.
+- **Architecture Decision Records** — ADR-001 through ADR-013 documenting
+  protocol scope, savings semantics, evidence gaps, sidecar trust, experiment
+  safety, domain transactions, forward-compatible migrations, key ownership,
+  OSS boundaries, transport abstraction, entitlements, and buffer ownership.
+
+### Fixed
+- **zsh `nomatch` aborts commands with unquoted glob-like args** (#1439) —
+  `setopt nonomatch` is now prepended when the detected shell is zsh, matching
+  POSIX/bash behavior for patterns like `grep --include=*.go`.
+- **Daemon sticky reroot on path-scoped dense queries** (#1437) — path-scoped
+  queries no longer permanently change the daemon's project root for subsequent
+  queries.
+- **`ctx_patch` partial batch application** (#1433) — batch operations are now
+  atomic; unsupported operations reject the entire batch before any apply.
+- **MCP server exits on unknown JSON-RPC methods** (#1434) — now returns
+  `MethodNotFound` error per spec instead of crashing.
+- **Rules reconciliation ignores MCP state** (#1435) — rules file generation
+  now respects configured MCP server state.
+- **`ctx_glob` false-positive on .agents/ directory** (#1431) — dot-directory
+  walk now respects gitignore patterns correctly.
+- **Large-output firewall guidance** (#1432) — improved recovery instructions
+  for oversized output archive access.
+- **Shadow mode bypasses IDE permission rules** (#1429) — shadow-mode
+  redirected commands now honor `"rm *": "ask"` and similar permission rules.
+- **Pi bridge timing + config duplication** (#1426, #1421) — Pi embedded MCP
+  tools register correctly after agent_start.
+- **User-reported issues** (#1419, #1420, #1424) — three community-reported
+  bugs resolved.
+- **`file://` URI resources/read** (#1418) — MCP resources/read now serves
+  file:// URIs correctly.
+- **Edit-penalized files skip cognitive mode** — auto-mode resolver preserves
+  fallback to "signatures"/"full" for files with edit quality penalties.
+- **Dashboard telemetry split** — `cache_runtime` now merges hook-side
+  statistics from `stats.json` with MCP-process metrics from `mcp-live.json`.
+- **Cognitive mode 500–2000 token gap** — closed a gap where files between 500
+  and 2000 tokens were not receiving cognitive-mode optimization.
+- **PowerShell command string escaping** — backslashes in npm postinstall
+  PowerShell commands are now properly escaped (CodeQL fix).
+
+### Changed
+- Auto-mode resolver skips cognitive activation for files with existing edit
+  quality penalties, preserving the safety fallback chain.
+- `cli_full` and `cli_raw` traffic classes changed from `Passthrough` to
+  `Compressible`, enabling dashboard compression metrics for CLI reads.
+- Tool count updated from 82 to 83 across all documentation.
+- Lock ordering documentation expanded (L48–L53: TRANSCRIPT_BUFFER,
+  RECOMMENDED_LEVEL, STIGMERGY_TEST_LOCK, SIGNALS, SESSION_EVENTS,
+  FILE_TRAJECTORY).
+
+### Security
+- Shadow mode now enforces IDE permission rules (e.g. destructive command
+  confirmation) — previously bypassed in redirect path.
+- PowerShell backslash escaping in `postinstall.js` prevents potential command
+  injection on Windows.
+
 ## [3.9.17] — 2026-08-04
 
 ### Fixed
