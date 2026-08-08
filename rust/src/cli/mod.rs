@@ -8,6 +8,8 @@ mod benchmark_tasks_cmd;
 mod call_cmd;
 mod cheatsheet_cmd;
 pub mod cloud;
+#[allow(dead_code, unreachable_pub)]
+pub(crate) mod cognitive;
 mod common;
 pub mod completions;
 mod compliance_cmd;
