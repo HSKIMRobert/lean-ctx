@@ -528,7 +528,7 @@ jobs:
 
   announce-twitter:
     name: Announce on Twitter
-    needs: release
+    needs: [release, publish-crates, publish-npm, update-homebrew]
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref_name, '-rc') }}
     steps:
@@ -549,4 +549,20 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: node .github/scripts/post-release-tweet.mjs
+
+  announce-discord:
+    name: Announce on Discord
+    needs: [release, publish-crates, publish-npm, update-homebrew]
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref_name, '-rc') }}
+    steps:
+      - name: Notify Discord via n8n webhook
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          curl -fsSL -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"action\":\"published\",\"release\":{\"tag_name\":\"${RELEASE_TAG}\",\"html_url\":\"https://github.com/${{ github.repository }}/releases/tag/${RELEASE_TAG}\"}}"
+
 
