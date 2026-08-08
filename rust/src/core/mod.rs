@@ -380,6 +380,8 @@ pub(crate) mod delivered_ranges;
 pub(crate) mod delta_response;
 #[allow(dead_code)]
 pub(crate) mod diagnostics_store;
+#[allow(dead_code, unreachable_pub)]
+pub(crate) mod echo_ratio;
 #[allow(dead_code)]
 pub(crate) mod editor_signal;
 pub(crate) mod egress;
