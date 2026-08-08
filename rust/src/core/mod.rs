@@ -638,3 +638,6 @@ pub(crate) mod workspace_trust;
 mod science_integration;
 #[cfg(test)]
 mod science_props;
+
+#[cfg(test)]
+mod science_benchmark;

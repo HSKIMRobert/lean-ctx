@@ -10,5 +10,9 @@ mod transcript;
 pub use recommender::VerbosityProfile;
 pub(crate) use recommender::recommend_level;
 pub(crate) use runtime::record_tool_call;
+#[cfg(test)]
+pub(crate) use signals::BehaviorSignal;
 pub(crate) use signals::extract_signals;
 pub(crate) use transcript::TranscriptEntry;
+#[cfg(test)]
+pub(crate) use transcript::analyze_transcript;
