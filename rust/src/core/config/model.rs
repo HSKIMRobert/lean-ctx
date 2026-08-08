@@ -244,6 +244,9 @@ pub struct Config {
     /// Override via LEAN_CTX_COMPRESSION env var.
     #[serde(default)]
     pub compression_level: CompressionLevel,
+    /// Science-driven cognitive features mode (#science).
+    #[serde(default)]
+    pub cognitive_mode: CognitiveMode,
     /// Global compression intensity 0.0 (lossless) – 1.0 (max), mapped onto the
     /// read modes / entropy / IB stages (see `core::aggressiveness`). `None`
     /// (default) keeps each mode's built-in default. Override via the

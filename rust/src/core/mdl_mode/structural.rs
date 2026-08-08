@@ -335,7 +335,10 @@ pub fn find_user(users: &HashMap<u64, User>, id: u64) -> Option<&User> {
         let rendered = generate_structural_description(RUST_SOURCE, "src/user.rs", "rs").render();
 
         assert!(rendered.contains("Struct User(2 fields)"));
-        assert!(rendered.contains("find_user("), "render should include find_user function");
+        assert!(
+            rendered.contains("find_user("),
+            "render should include find_user function"
+        );
     }
 
     #[test]

@@ -106,6 +106,7 @@ impl Default for Config {
             extra_ignore_patterns: Vec::new(),
             terse_agent: TerseAgent::default(),
             compression_level: CompressionLevel::default(),
+            cognitive_mode: CognitiveMode::default(),
             compression_aggressiveness: None,
             archive: ArchiveConfig::default(),
             memory: MemoryPolicy::default(),
